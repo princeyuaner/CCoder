@@ -145,6 +145,10 @@ val buildWebUi by tasks.registering {
     inputs.file(src.resolve("index.html"))
     inputs.file(src.resolve("package.json"))
     inputs.file(src.resolve("vite.config.ts"))
+    // skipWeb 必须声明为输入。否则切换该开关时 Gradle 认为任务是最新的：
+    // 用 -PskipWeb 跑一次会留下空的输出目录，之后不带它构建仍会沿用那份空输出，
+    // 插件里就静默少了整个前端。
+    inputs.property("skipWeb", skip.toString())
     outputs.dir(outDir)
 
     doLast {
