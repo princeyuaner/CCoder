@@ -8,6 +8,8 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <!-- 转写区用内嵌浏览器渲染。该别名自 2025.3.1 起稳定。 -->
+    <depends>com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <projectConfigurable
