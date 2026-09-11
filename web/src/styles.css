@@ -215,3 +215,76 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- 代码块（设计文档 §4.3）----
+   留在气泡内但贴边：自身不带左右内边距，直接吃到气泡的 14px 边缘。
+   初稿曾提议"突破气泡内边距全宽"，但实测只有约 16% 宽度损失，
+   不足以论证那个会让代码块脱离气泡的方案。 */
+
+.code-block {
+  margin: 8px 0;
+  background: var(--code-bg, #191a1c);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.code-block__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--surface, #2b2d30);
+  border-bottom: 1px solid var(--border, #393b40);
+  font-size: 11px;
+  color: var(--text-dim, #8c8c8c);
+}
+
+.code-block__spacer {
+  flex: 1;
+}
+
+.code-block__lang {
+  font-family: var(--font-mono, monospace);
+  text-transform: lowercase;
+}
+
+.code-block__action {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-dim, #8c8c8c);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-block__action:hover {
+  background: var(--bg, #1e1f22);
+  color: var(--text, #dcdcdc);
+}
+
+.code-block__pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.code-block__code {
+  white-space: pre;
+}
+
+/* 默认不换行以保护缩进：换行会让缩进四层的语句续行顶到最左边，
+   Python / YAML 这类"缩进即语义"的代码会变得不可读。
+   用户可通过上方开关显式切换。 */
+
+.code-block.is-wrapped .code-block__pre {
+  overflow-x: hidden;
+}
+
+.code-block.is-wrapped .code-block__code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
