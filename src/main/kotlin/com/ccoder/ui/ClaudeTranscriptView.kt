@@ -4,6 +4,7 @@ import com.ccoder.sidecar.TranscriptOp
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.ide.BrowserUtil
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -62,6 +63,13 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             injectBridge(b, query)
             installNavigationGuard(b)
             loadUi(b)
+
+            // 主题切换时重新注入 CSS 变量（spec §4.1）。
+            // connect(this) 让它随本组件一起释放。
+            project.messageBus.connect(this).subscribe(
+                LafManagerListener.TOPIC,
+                LafManagerListener { setTheme() },
+            )
         }
     }
 

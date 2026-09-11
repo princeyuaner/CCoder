@@ -130,7 +130,73 @@ val generateSidecarManifest by tasks.registering {
     }
 }
 
+// ---- web 前端构建 ----
+// 用 Vite 的代价是构建里多一个 npm 步骤，所以给一个开关：
+// 只改 Kotlin 时用 -PskipWeb 跳过，不必每次都等前端构建。
+
+val webDir = layout.projectDirectory.dir("web")
+
+val buildWebUi by tasks.registering {
+    val src = webDir.asFile
+    val outDir = layout.buildDirectory.dir("generated/webui-resources")
+    val skip = providers.gradleProperty("skipWeb").isPresent
+
+    inputs.dir(src.resolve("src"))
+    inputs.file(src.resolve("index.html"))
+    inputs.file(src.resolve("package.json"))
+    inputs.file(src.resolve("vite.config.ts"))
+    outputs.dir(outDir)
+
+    doLast {
+        val dest = outDir.get().asFile
+        dest.deleteRecursively()
+        // 放进 webui/ 子目录而非根目录：ClaudeTranscriptView 读的是
+        // /webui/index.html，且根目录平铺会与其它资源有重名风险
+        val webuiDir = dest.resolve("webui")
+        webuiDir.mkdirs()
+
+        if (skip) {
+            // 刻意不留半成品：没有 webui/index.html 时 ClaudeTranscriptView
+            // 会显示"资源缺失"，那比一个过期的 UI 诚实
+            logger.lifecycle("已跳过 web 构建（-PskipWeb）")
+            return@doLast
+        }
+
+        // Windows 上 npm 是 npm.cmd，直接写 "npm" 会 CreateProcess error=2
+        val npm = if (System.getProperty("os.name").lowercase().contains("win")) "npm.cmd" else "npm"
+
+        // 用 ProcessBuilder 而非 project.exec{}：后者在 Gradle 9 已从 Project API
+        // 移除，而注入 ExecOperations 需要额外的抽象任务类，对这里不值当。
+        fun run(vararg cmd: String) {
+            val process = ProcessBuilder(*cmd)
+                .directory(src)
+                .inheritIO()
+                .start()
+            val code = process.waitFor()
+            require(code == 0) { "命令失败（退出码 $code）：${cmd.joinToString(" ")}" }
+        }
+
+        if (!src.resolve("node_modules").isDirectory) {
+            // 用 ci 而非 install：lockfile 已入库，构建应当可复现。
+            // 只在 node_modules 缺失时执行，不会每次构建都重装。
+            logger.lifecycle("web/node_modules 不存在，执行 npm ci…")
+            run(npm, "ci", "--no-audit", "--no-fund")
+        }
+
+        run(npm, "run", "build")
+
+        val dist = src.resolve("dist")
+        require(dist.isDirectory) { "web 构建未产出 dist/ 目录" }
+        dist.copyRecursively(webuiDir, overwrite = true)
+
+        val index = webuiDir.resolve("index.html")
+        require(index.isFile) { "web 构建未产出 index.html" }
+        logger.lifecycle("web UI 已打包：${index.length()} 字节")
+    }
+}
+
 // srcDir 接受 TaskProvider 并自动接上任务依赖，无需手动 dependsOn
 sourceSets.named("main") {
     resources.srcDir(generateSidecarManifest)
+    resources.srcDir(buildWebUi)
 }

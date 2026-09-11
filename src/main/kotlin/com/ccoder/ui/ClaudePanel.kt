@@ -9,45 +9,59 @@ import com.ccoder.sidecar.SidecarLocator
 import com.ccoder.sidecar.SidecarMessage
 import com.ccoder.sidecar.SidecarNotFoundException
 import com.ccoder.sidecar.SidecarProcess
+import com.ccoder.sidecar.TranscriptItem
+import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.nio.file.Path
-import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.ScrollPaneConstants
-import javax.swing.SwingConstants
-import javax.swing.SwingUtilities
 import javax.swing.text.DefaultCaret
 
-class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), SidecarListener {
+/**
+ * 工具窗口主体。
+ *
+ * 布局（设计文档 §2.1）：
+ *   头部状态栏
+ *   消息流（JCEF）          ← 唯一的 Web 区域
+ *   权限卡片槽位（原生）
+ *   输入区（原生）
+ *
+ * 输入区与权限卡片刻意留在原生：前者是中文输入法考虑，
+ * 后者是安全考虑——审批 UI 不该依赖 Web 视图的可用性。
+ */
+class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), SidecarListener, Disposable {
 
-    private val transcript = JPanel().apply {
+    private val transcriptView = ClaudeTranscriptView(project)
+
+    /**
+     * 权限卡片的固定槽位。
+     *
+     * 卡片不能再嵌进消息流——那是浏览器组件了。放在这里反而更符合
+     * spec §6.3 的"固定可见、不被滚走"：它永远在转写区与输入区之间。
+     */
+    private val permissionSlot = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(8)
+        isOpaque = false
     }
-    private val scroll = JBScrollPane(transcript).apply {
-        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-        border = JBUI.Borders.empty()
-        verticalScrollBar.unitIncrement = 16
-    }
+
     private val input = JBTextArea(3, 40).apply {
         lineWrap = true
         wrapStyleWord = true
@@ -62,22 +76,16 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var proc: SidecarProcess? = null
     private var ready = false
     private var idCounter = 0L
-
-    /** 正在流式累积的助手气泡。final assistant 消息到达时以它为准收尾。 */
-    private var liveAssistant: JBTextArea? = null
+    private var messageCounter = 0L
 
     /** 并发权限询问的串行化队列（spec §6.4）。 */
     private val permissionQueue = PermissionQueue { perm, queued -> appendPermissionCard(perm, queued) }
 
-    /** requestId → 卡片容器，用于决定后把卡片换成一行的结论。 */
+    /** requestId → 卡片容器，用于决定后把卡片换成一行结论。 */
     private val pendingCards = mutableMapOf<String, JComponent>()
 
-    /**
-     * 懒启动（spec §7.2）：第一次发消息才起 sidecar。
-     * 首条消息在此暂存，会话就绪后补发。
-     */
+    /** 懒启动（spec §7.2）：第一次发消息才起 sidecar。 */
     private var pendingFirstMessage: String? = null
-
 
     init {
         input.addKeyListener(object : KeyAdapter() {
@@ -99,14 +107,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             add(statusLabel, BorderLayout.WEST)
             add(stopButton, BorderLayout.EAST)
         }
-        val bottom = JPanel(BorderLayout()).apply {
+
+        val inputArea = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
             add(JBScrollPane(input).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
             add(sendButton, BorderLayout.EAST)
         }
 
+        val bottom = JPanel(BorderLayout()).apply {
+            add(permissionSlot, BorderLayout.NORTH)
+            add(inputArea, BorderLayout.SOUTH)
+        }
+
         add(top, BorderLayout.NORTH)
-        add(scroll, BorderLayout.CENTER)
+        add(transcriptView, BorderLayout.CENTER)
         add(bottom, BorderLayout.SOUTH)
         preferredSize = Dimension(500, 600)
     }
@@ -148,7 +162,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     client = c
                 }
                 c.start()
-                c.sendLine(Protocol.encodeStart(nextId(), ClaudeSettings.getInstance(project).toStartParams(Path.of(base))))
+                c.sendLine(
+                    Protocol.encodeStart(
+                        nextId(),
+                        ClaudeSettings.getInstance(project).toStartParams(Path.of(base)),
+                    )
+                )
             } catch (e: SidecarNotFoundException) {
                 fail(e.message ?: "未找到 sidecar 目录。")
             } catch (e: Exception) {
@@ -160,14 +179,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun fail(text: String) {
         ApplicationManager.getApplication().invokeLater {
             statusLabel.text = "启动失败"
-            appendItem(RenderItem.ErrorItem(text))
+            pushOp(toOp(RenderItem.ErrorItem(text)))
             input.isEnabled = false
             sendButton.isEnabled = false
         }
     }
 
     /** 按 spec §7.4 的顺序清理：先停会话，再关通道，最后杀进程树。 */
-    fun dispose() {
+    override fun dispose() {
         // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
         // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。
@@ -181,6 +200,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         proc = null
         client = null
         ready = false
+
+        Disposer.dispose(transcriptView)
     }
 
     // ---- SidecarListener ----
@@ -193,7 +214,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     statusLabel.text = "已连接"
                     stopButton.isEnabled = true
                     sendButton.text = "发送"
-                    appendItem(RenderItem.SystemNote("会话已就绪"))
+                    pushOp(toOp(RenderItem.SystemNote("会话已就绪")))
 
                     // 补发懒启动时暂存的首条消息
                     pendingFirstMessage?.let { text ->
@@ -202,10 +223,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     }
                 }
 
-                is SidecarMessage.Event -> MessageRenderer.render(msg).forEach(::consume)
+                is SidecarMessage.Event ->
+                    MessageRenderer.render(msg).forEach { pushOp(toOp(it)) }
 
                 is SidecarMessage.Failure -> {
-                    appendItem(RenderItem.ErrorItem(authHint(msg.code, msg.message)))
+                    pushOp(toOp(RenderItem.ErrorItem(authHint(msg.code, msg.message))))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
                         statusLabel.text = "会话已断开"
@@ -222,7 +244,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     ready = false
                 }
 
-                is SidecarMessage.Unknown -> Unit   // 静默忽略（spec §3.3）
+                is SidecarMessage.Unknown -> Unit // 静默忽略（spec §3.3）
             }
         }
     }
@@ -240,6 +262,55 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 等 10 个变量（设计文档 §3.2）。"
         else -> message
     }
+
+    // ---- 渲染 ----
+
+    /**
+     * 把渲染项转为转写操作。
+     *
+     * 这是 Kotlin 渲染逻辑（[MessageRenderer]）与 React 之间的最后一步转换。
+     * [MessageRenderer] 本身不动 —— 它做的是"SDK 事件 → RenderItem"，
+     * 与用什么渲染无关。
+     */
+    private fun toOp(item: RenderItem): TranscriptOp {
+        val now = { System.currentTimeMillis() }
+        return when (item) {
+            is RenderItem.UserText ->
+                TranscriptOp.Append(TranscriptItem.User(nextMessageId(), now(), item.text))
+
+            // 最终消息是权威版本，用它收尾进行中的气泡
+            is RenderItem.AssistantText -> TranscriptOp.FinalizeDelta("assistant", item.text)
+
+            is RenderItem.AssistantDelta -> TranscriptOp.AppendDelta("assistant", item.text)
+
+            // 思考流的逐字渲染刻意丢弃（持续刷屏，决策价值远低于正文），
+            // 但必须显式清掉进行中的状态——见 TranscriptOp.FinalizeDelta 的注释。
+            is RenderItem.ThinkingDelta -> TranscriptOp.ClearDelta("thinking")
+
+            is RenderItem.Thinking ->
+                TranscriptOp.Append(TranscriptItem.Thinking(nextMessageId(), now(), item.text))
+
+            is RenderItem.ToolUse ->
+                TranscriptOp.Append(
+                    TranscriptItem.ToolUse(nextMessageId(), now(), item.name, item.input)
+                )
+
+            is RenderItem.ErrorItem ->
+                TranscriptOp.Append(TranscriptItem.Error(nextMessageId(), now(), item.message))
+
+            is RenderItem.Result ->
+                TranscriptOp.Append(
+                    TranscriptItem.Result(
+                        nextMessageId(), now(), item.subtype, item.costUsd, item.durationMs,
+                    )
+                )
+
+            is RenderItem.SystemNote ->
+                TranscriptOp.Append(TranscriptItem.SystemNote(nextMessageId(), now(), item.text))
+        }
+    }
+
+    private fun pushOp(op: TranscriptOp) = transcriptView.push(op)
 
     // ---- 权限卡片（spec §6）----
 
@@ -260,13 +331,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
             // 卡片换成一行结论，不再占据视线
             pendingCards.remove(perm.requestId)?.let { wrapper ->
-                transcript.remove(wrapper)
-                transcript.revalidate()
-                transcript.repaint()
+                permissionSlot.remove(wrapper)
+                permissionSlot.revalidate()
+                permissionSlot.repaint()
             }
-            appendItem(
-                RenderItem.SystemNote(
-                    if (decision.allow) "已允许：${perm.toolName}" else "已拒绝：${perm.toolName}"
+            pushOp(
+                toOp(
+                    RenderItem.SystemNote(
+                        if (decision.allow) "已允许：${perm.toolName}" else "已拒绝：${perm.toolName}"
+                    )
                 )
             )
             updateStatusBar()
@@ -279,10 +352,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
         pendingCards[perm.requestId] = wrapper
 
-        // 固定在消息流顶部而非跟随滚动到底部（spec §6.3）——
-        // 底部的卡片会被新的流式输出不断推走
-        transcript.add(wrapper, 0)
-        transcript.revalidate()
+        // 槽位固定可见，不受转写区滚动影响（spec §6.3）
+        permissionSlot.add(wrapper)
+        permissionSlot.revalidate()
         updateStatusBar()
         startReminderTimer(perm)
     }
@@ -291,7 +363,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 待决数量变化时同步状态栏（spec §6.3 的第一道补偿）。
      *
      * 推给服务而非直接操作组件——平台会按需创建/销毁状态栏组件。
-     * null 项目（单元测试）下 getService 会失败，因此包一层。
      */
     private fun updateStatusBar() {
         runCatching { PendingPermissionCount.getInstance(project).set(permissionQueue.totalPending) }
@@ -329,132 +400,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
     }
 
-    // ---- 渲染 ----
-
-    /**
-     * 消费一个渲染项。
-     *
-     * 增量与最终消息需要协调：stream_event 的 text_delta 逐字追加到"进行中"
-     * 的气泡，随后到达的 assistant 消息携带完整文本，以它为准收尾 ——
-     * 两者都渲染会出现重复文本。
-     */
-    private fun consume(item: RenderItem) {
-        when (item) {
-            is RenderItem.AssistantDelta -> {
-                val bubble = liveAssistant ?: newLiveBubble().also { liveAssistant = it }
-                bubble.append(item.text)
-                scrollToBottom()
-            }
-
-            is RenderItem.ThinkingDelta -> Unit   // 思考过程不做逐字渲染，避免刷屏
-
-            is RenderItem.AssistantText -> {
-                val bubble = liveAssistant
-                if (bubble != null) {
-                    // 最终消息是权威版本，可能包含增量之外的修正
-                    bubble.text = item.text
-                    liveAssistant = null
-                    scrollToBottom()
-                } else {
-                    appendItem(item)
-                }
-            }
-
-            // 回合结束或出错时收尾，避免下一次增量接到上一个气泡上
-            is RenderItem.Result, is RenderItem.ErrorItem -> {
-                liveAssistant = null
-                appendItem(item)
-            }
-
-            else -> appendItem(item)
-        }
-    }
-
-    private fun newLiveBubble(): JBTextArea {
-        val area = JBTextArea().apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            background = ASSISTANT_BG
-            border = JBUI.Borders.empty(6)
-        }
-        val wrapper = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(2)
-            add(JLabel("Claude").apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.NORTH)
-            add(area, BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-        transcript.add(wrapper)
-        transcript.revalidate()
-        return area
-    }
-
-    private fun appendItem(item: RenderItem) {
-        transcript.add(componentFor(item))
-        transcript.add(Box.createVerticalStrut(4))
-        transcript.revalidate()
-        scrollToBottom()
-    }
-
-    private fun componentFor(item: RenderItem): JComponent = when (item) {
-        is RenderItem.UserText -> bubble(item.text, USER_BG, "你")
-        is RenderItem.AssistantText -> bubble(item.text, ASSISTANT_BG, "Claude")
-        is RenderItem.AssistantDelta -> bubble(item.text, ASSISTANT_BG, "Claude")
-        is RenderItem.ThinkingDelta -> centered("", UIUtil.getInactiveTextColor())
-        is RenderItem.Thinking -> collapsed("思考过程", item.text)
-        is RenderItem.ToolUse -> collapsed("工具：${item.name}", item.input)
-        is RenderItem.SystemNote -> centered(item.text, UIUtil.getInactiveTextColor())
-        is RenderItem.ErrorItem -> bubble(item.message, ERROR_BG, "错误")
-        is RenderItem.Result -> centered(
-            buildString {
-                append(item.subtype)
-                item.costUsd?.let { append(" · \$%.4f".format(it)) }
-                item.durationMs?.let { append(" · ${it}ms") }
-            },
-            UIUtil.getInactiveTextColor()
-        )
-    }
-
-    private fun bubble(text: String, background: java.awt.Color, who: String): JComponent =
-        JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(2)
-            add(JLabel(who).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.NORTH)
-            add(JBTextArea(text).apply {
-                isEditable = false
-                lineWrap = true
-                wrapStyleWord = true
-                this.background = background
-                border = JBUI.Borders.empty(6)
-            }, BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-
-    private fun collapsed(title: String, body: String): JComponent =
-        JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(2)
-            add(JLabel("▸ $title").apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.NORTH)
-            add(JBTextArea(body).apply {
-                isEditable = false
-                lineWrap = true
-                wrapStyleWord = true
-                foreground = UIUtil.getInactiveTextColor()
-                border = JBUI.Borders.empty(0, 12, 0, 0)
-            }, BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-
-    private fun centered(text: String, color: java.awt.Color): JComponent =
-        JPanel(BorderLayout()).apply {
-            add(JLabel(text, SwingConstants.CENTER).apply { foreground = color }, BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-
-    private fun scrollToBottom() {
-        SwingUtilities.invokeLater {
-            scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
-        }
-    }
-
     // ---- 输入 ----
 
     private fun sendCurrentInput() {
@@ -466,8 +411,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         if (!ready && proc != null) dispose()
 
         input.text = ""
-        liveAssistant = null
-        appendItem(RenderItem.UserText(text))
+        pushOp(toOp(RenderItem.UserText(text)))
 
         if (!ready) {
             // 懒启动（spec §7.2）：第一次发消息才起 sidecar。
@@ -484,11 +428,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private fun nextId(): String = "req-${idCounter++}"
 
-    private companion object {
-        val USER_BG = JBColor(0xE3F2FD, 0x1E3A5F)
-        val ASSISTANT_BG = JBColor(0xF5F5F5, 0x2B2B2B)
-        val ERROR_BG = JBColor(0xFFEBEE, 0x4A1F1F)
+    private fun nextMessageId(): String = "m${messageCounter++}"
 
+    private companion object {
         const val NOTIFICATION_GROUP = "CCoder Permissions"
         const val TOOL_WINDOW_ID = "CCoder"
     }
