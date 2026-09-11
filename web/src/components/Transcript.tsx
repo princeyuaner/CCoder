@@ -1,6 +1,7 @@
 import type { TranscriptItem, TranscriptState } from '../types'
 import { AssistantBubble } from './AssistantBubble'
 import { ErrorBubble } from './ErrorBubble'
+import { Markdown } from './Markdown'
 import { ResultLine } from './ResultLine'
 import { StreamingCursor } from './StreamingCursor'
 import { SystemNote } from './SystemNote'
@@ -33,7 +34,9 @@ function Item({ item }: { item: TranscriptItem }) {
     case 'assistant':
       return (
         <div className="entry">
-          <AssistantBubble>{item.text}</AssistantBubble>
+          <AssistantBubble>
+            <Markdown text={item.text} />
+          </AssistantBubble>
           <Timestamp ts={item.ts} />
         </div>
       )
@@ -79,7 +82,7 @@ export function Transcript({ state }: { state: TranscriptState }) {
       {liveText !== undefined && (
         <div className="entry">
           <AssistantBubble>
-            {liveText}
+            <Markdown text={liveText} />
             <StreamingCursor />
           </AssistantBubble>
         </div>
