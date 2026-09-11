@@ -28,6 +28,42 @@ body {
   line-height: 1.55;
 }
 
+/*
+ * 滚动条。
+ *
+ * 不写这段的话 Chromium 用默认浅色滚动条 —— 在深色主题下就是背景右边一条
+ * 白边（实测）。JCEF 用的是 Chromium，`::-webkit-scrollbar` 可用。
+ *
+ * 轨道透明 = 直接露出背景色，即"跟背景一样"；滑块用 --border ——
+ * 刻意留一点对比，滑块也跟背景同色的话滚动条就彻底看不见了，
+ * 用户不会知道这里还能滚。
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border, #3c3f41);
+  border-radius: 5px;
+  /* 透明边框 + padding-box：让滑块比轨道窄，两侧留出呼吸感 */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim, #9aa0a6);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ---- 滚动跟随（设计文档 §4.5）----
    包装层只为了让「回到底部」按钮相对视口定位：按钮若放进 .transcript，
    它会成为滚动内容的一部分，跟着内容一起滚走。 */
