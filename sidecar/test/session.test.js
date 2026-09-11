@@ -214,6 +214,29 @@ test('可选参数仅在提供时传给 SDK', () => {
   assert.deepEqual(q2.calls.options.additionalDirectories, ['/other']);
 });
 
+test('默认 queryFn 不能声明为 async', async () => {
+  // 实测踩过这个坑：async 函数返回 Promise 而非 Query 对象，
+  // for await 报 "query is not async iterable"。当时 65 个单测全绿也没抓到，
+  // 因为假的 queryFn 是同步的。
+  const { defaultQueryFn } = await import('../session.js');
+  assert.equal(typeof defaultQueryFn, 'function');
+  assert.notEqual(defaultQueryFn.constructor.name, 'AsyncFunction',
+    'async 函数返回 Promise 而非 Query 对象');
+});
+
+test('queryFn 返回非 AsyncIterable 时报明确错误', async () => {
+  const seen = [];
+  createSession({
+    cwd: '/tmp', permissionMode: 'default',
+    queryFn: async () => ({ fake: true }),
+    onEvent: (e) => seen.push(e),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(seen[0].type, 'ccoder_stream_error');
+  assert.match(seen[0].message, /AsyncIterable/,
+    '错误信息要指向真正的原因，而不是模糊的迭代失败');
+});
+
 test('query 抛错时转为 stream_error 事件而非静默吞掉', async () => {
   const seen = [];
   const boom = () => { throw new Error('SDK 启动失败'); };

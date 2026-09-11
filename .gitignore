@@ -36,3 +36,7 @@ Desktop.ini
 # ---- 日志与临时文件 ----
 *.log
 *.tmp
+
+# 冒烟测试产物
+sidecar/smoke.jsonl
+sidecar/smoke.err

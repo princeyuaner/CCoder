@@ -1,9 +1,21 @@
+import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { buildChildEnv } from './env.js';
 
-/** 默认从 SDK 加载；测试通过 queryFn 注入假实现。 */
-async function defaultQueryFn(params) {
-  const mod = await import('@anthropic-ai/claude-agent-sdk');
-  return mod.query(params);
+/**
+ * 默认 queryFn。测试通过注入假的 queryFn 绕开真实 SDK。
+ *
+ * 必须**同步**返回 Query 对象 —— 声明为 async 会返回 Promise，
+ * for await 随即报 "query is not async iterable"。这个坑实测踩过：
+ * 当时 65 个单测全绿也没抓到，因为测试注入的假实现是同步的。
+ */
+export const defaultQueryFn = sdkQuery;
+
+function assertAsyncIterable(q) {
+  if (q && typeof q[Symbol.asyncIterator] === 'function') return q;
+  throw new Error(
+    'queryFn 必须同步返回 AsyncIterable（Query 对象）。' +
+    'async 函数返回的是 Promise 而非 Query，会导致迭代失败。'
+  );
 }
 
 /**
@@ -24,7 +36,7 @@ export function createSession({
   onEvent = () => {},
   onPermission = () => {},
   queryFn = defaultQueryFn,
-}) {
+} = {}) {
   /** @type {Map<string, (result: object) => void>} */
   const pending = new Map();
 
@@ -78,10 +90,10 @@ export function createSession({
 
   let query = null;
   try {
-    query = queryFn({ prompt: inputStream(), options });
+    query = assertAsyncIterable(queryFn({ prompt: inputStream(), options }));
   } catch (err) {
-    // queryFn 同步抛错（SDK 加载失败、参数非法等）也要走 onEvent，
-    // 否则调用方只能看到一个空会话
+    // queryFn 抛错（参数非法、返回 Promise 等）也要走 onEvent，
+    // 否则调用方只能看到一个没有任何输出的空会话
     onEvent({ type: 'ccoder_stream_error', message: String(err?.message ?? err) });
   }
 
