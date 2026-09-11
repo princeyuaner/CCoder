@@ -28,6 +28,36 @@ function safeUrl(href: string | null | undefined): string | null {
   return /^https?:\/\//i.test(href) ? href : null
 }
 
+/**
+ * 还原 marked 为「拼 HTML 字符串」做的预处理。
+ *
+ * marked 的 token `text` 字段是给 HTML 输出用的，已被转义：`"` → `&quot;`、
+ * `'` → `&#39;`。但本组件构造的是 React 元素，React 的文本插值自己会转义 ——
+ * 直接用 `token.text` 就转了两遍，界面上显示成 `&quot;2&quot;`、`you&#39;d`。
+ * 实测故障：模型回复的 `"2"` 显示成 `&quot;2&quot;`，原始会话记录里是干净的真实引号。
+ *
+ * **只对 `codespan` 用它**。两类 token 的转义规则不同（marked 14 实测）：
+ *
+ * | 源文本 | text token 的 text | codespan 的 text |
+ * |---|---|---|
+ * | `写 &lt; 字面量` | `写 &lt; 字面量`（**不动**，marked 视为已是实体） | `写 &amp;lt; 字面量`（全转义） |
+ * | `写 & 和 "` | `写 &amp; 和 &quot;` | `写 &amp; 和 &quot;` |
+ *
+ * text token 走的是 entity-aware 的 `escape()`，**不可逆**（源里字面的 `&lt;`
+ * 与转义结果无法区分），所以那边必须改用 `token.raw` 取原文；codespan 走的是
+ * `escape(text, true)`，全部 `&` 都转义，因此可逆。
+ *
+ * 必须**最后**处理 `&amp;`，否则 `&amp;lt;` 会被二次解码成 `<`。
+ */
+function unescapeHtml(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
 function BlockToken({ token }: { token: Tokens.Generic }): ReactNode {
   switch (token.type) {
     case 'paragraph':
@@ -86,11 +116,15 @@ function InlineToken({ token }: { token: Tokens.Generic }): ReactNode {
       return token.tokens && token.tokens.length > 0 ? (
         <>{renderInline(token.tokens)}</>
       ) : (
-        <>{token.text ?? token.raw}</>
+        // 用 raw（原文）而不是 text：text 被 marked 转义过，且那套转义
+        // 对 `&lt;` 这类已是实体的写法不可逆（见 unescapeHtml 的对照表）
+        <>{token.raw ?? ''}</>
       )
 
     case 'codespan':
-      return <code className="inline-code">{token.text}</code>
+      // 同上：codespan 的 text 也被 marked 转义过。
+      // 不用 token.raw —— 它带着定界反引号，且反引号个数可变，剥起来不可靠。
+      return <code className="inline-code">{unescapeHtml(token.text ?? '')}</code>
 
     case 'strong':
       return <strong>{renderInline(token.tokens ?? [])}</strong>

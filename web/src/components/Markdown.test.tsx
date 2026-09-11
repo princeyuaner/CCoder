@@ -95,6 +95,62 @@ describe('Markdown', () => {
     expect((window as unknown as { __pwned3?: boolean }).__pwned3).toBeUndefined()
   })
 
+  // ---- HTML 实体双重转义 ----
+  //
+  // marked 的 text / codespan token 的 `text` 字段是**为拼 HTML 字符串准备的**，
+  // 已预先转义。本组件构造的是 React 元素（React 自己会转义），直接用它就会
+  // 转两遍。实测故障：模型回复里的 "2" 显示成 &quot;2&quot;、you'd 显示成 you&#39;d。
+  // 对照的原始会话记录里是干净的真实引号，确认问题出在本组件而非上游。
+
+  it('段落里的引号与撇号不被转成 HTML 实体', () => {
+    render(<Markdown text={`say "hi" and doesn't care`} />)
+    expect(screen.getByText(`say "hi" and doesn't care`)).toBeInTheDocument()
+    expect(screen.queryByText(/&quot;|&#39;/)).not.toBeInTheDocument()
+  })
+
+  it('尖括号与 & 按字面显示', () => {
+    render(<Markdown text={'a & b, 1 < 2, 3 > 2'} />)
+    expect(screen.getByText('a & b, 1 < 2, 3 > 2')).toBeInTheDocument()
+    expect(screen.queryByText(/&amp;|&lt;|&gt;/)).not.toBeInTheDocument()
+  })
+
+  it('行内代码里的引号不被转义', () => {
+    render(<Markdown text={'用 `a["b"]` 取值'} />)
+    expect(screen.getByText('a["b"]')).toBeInTheDocument()
+  })
+
+  it('加粗、标题、列表、引用里的引号都不被转义', () => {
+    render(<Markdown text={'**粗"体"**\n\n# 标"题"\n\n- 列"表"\n\n> 引"用"'} />)
+    expect(screen.getByText('粗"体"')).toBeInTheDocument()
+    expect(screen.getByText('标"题"')).toBeInTheDocument()
+    expect(screen.getByText('列"表"')).toBeInTheDocument()
+    expect(screen.getByText('引"用"')).toBeInTheDocument()
+  })
+
+  it('链接文字里的引号不被转义', () => {
+    render(<Markdown text={'[点"我"](https://example.com)'} />)
+    expect(screen.getByRole('link', { name: '点"我"' })).toBeInTheDocument()
+  })
+
+  it('源文本里字面的实体写法保持原样，不被二次解码', () => {
+    // 模型真的写出 "&lt;" 这五个字符时，显示出来必须还是 "&lt;"，不能变成 "<"
+    render(<Markdown text={'字面量 &lt; 不是小于号'} />)
+    expect(screen.getByText('字面量 &lt; 不是小于号')).toBeInTheDocument()
+  })
+
+  it('行内代码里字面的实体写法同样保持原样', () => {
+    // codespan 走的是 marked 另一条转义路径（全部 & 都转义），
+    // 与 text token 不同，这里的还原是可逆的
+    render(<Markdown text={'`字面量 &lt; 不是小于号`'} />)
+    expect(screen.getByText('字面量 &lt; 不是小于号')).toBeInTheDocument()
+  })
+
+  it('行内代码里的 & 与引号按字面显示', () => {
+    render(<Markdown text={'`a & b` 与 `他说 "hi"`'} />)
+    expect(screen.getByText('a & b')).toBeInTheDocument()
+    expect(screen.getByText('他说 "hi"')).toBeInTheDocument()
+  })
+
   it('空文本不报错', () => {
     expect(() => render(<Markdown text="" />)).not.toThrow()
   })
