@@ -48,11 +48,17 @@
 
 ```
 ClaudePanel (原生 Swing, BorderLayout)
-├── 头部：状态指示 + 停止按钮                   原生
+├── 头部：状态指示                             原生
 ├── ClaudeTranscriptView (JBCefBrowser)         ← 本次替换的块
 ├── PermissionSlot                             原生，复用 PermissionCard
-└── 输入区                                     原生
+└── 输入区：[输入框] [发送/停止 合一按钮]       原生
 ```
+
+**发送与停止合一**（2026-09-11 修改，原为顶部独立的停止按钮）：空闲时按钮是"发送"，回合进行中（已发出消息、未收到 `result`）变"停止"，点击发送 `interrupt`。
+
+- **必须是 `interrupt` 而不是 `stop`**。`stop` 会销毁整个会话（`index.js` 把 `session` 置 null），而界面仍显示"已连接"，用户之后再也发不出消息且看不出原因。`interrupt` 只中断当前回合，会话与上下文都保留
+- 状态规则抽在 `mainButtonState` 纯函数里，便于单测 —— ClaudePanel 依赖 Swing 与平台，起不了单测
+- 回合进行中按 Enter 不发送：此时按钮是"停止"，Enter 却另发一条会让两者语义打架
 
 **为什么输入区留在原生**：中文输入法是刚需，JCEF 的 IME 支持虽有改善但不如原生可靠；且原生输入保留 IDE 的全部输入快捷键。
 

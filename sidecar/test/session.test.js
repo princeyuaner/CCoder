@@ -157,6 +157,37 @@ test('interrupt 转发到 SDK Query', async () => {
   assert.equal(q.calls.interrupted, true);
 });
 
+// 带超时：缺了 denyAllPending 时这个 promise 永远不 resolve，
+// 没有超时的话整个测试进程会挂住，回归只会表现为"卡死"而不是"失败"
+test('interrupt 同时作废该回合挂起的权限询问', { timeout: 5000 }, async () => {
+  // 不清的话卡片会一直留着，用户还能批准一个已不存在的工具调用 ——
+  // SDK 文档明说权限询问没有超时
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  const pending = q.calls.options.canUseTool('Bash', {}, { toolUseID: 'p1', defaultToNo: false });
+  await s.interrupt();
+
+  const r = await pending;
+  assert.equal(r.behavior, 'deny', '中断后挂起的询问必须被拒，不能一直悬着');
+});
+
+test('interrupt 保留会话 —— 与 stop 不同', async () => {
+  // stop 会销毁会话（index.js 把 session 置 null），界面却仍显示"已连接"，
+  // 用户之后再也发不出消息。interrupt 必须只中断当前回合
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+  await s.interrupt();
+
+  // 会话仍可用：中断之后新的权限询问依然能被正常决定
+  const pending = q.calls.options.canUseTool('Read', {}, { toolUseID: 'after', defaultToNo: false });
+  s.decidePermission('after', { behavior: 'allow' });
+  const r = await pending;
+  assert.equal(r.behavior, 'allow', '中断后会话仍能处理新的权限询问');
+});
+
 test('setPermissionMode 转发到 SDK Query', async () => {
   const q = fakeQuery();
   const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });

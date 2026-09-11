@@ -147,6 +147,11 @@ export function createSession({
     },
 
     async interrupt() {
+      // 中断即终止当前回合，该回合挂起的权限询问必须一并作废。
+      // 不清的话卡片会一直留在界面上，用户还能"批准"一个已经不存在的
+      // 工具调用 —— SDK 文档明说权限询问**没有超时**，悬着就不会自己消失。
+      // 顺序同 stop：先清空待决权限，否则工具会挂住。
+      this.denyAllPending('已中断');
       await query?.interrupt?.();
     },
 
