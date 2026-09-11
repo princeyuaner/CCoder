@@ -12,6 +12,7 @@ import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
+import com.google.gson.JsonObject
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -24,6 +25,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.event.KeyAdapter
@@ -63,7 +65,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         isOpaque = false
     }
 
-    private val input = ComposerTextArea(COMPOSER_ROWS, 40).apply {
+    /**
+     * 输入框上方的上下文长度条。
+     *
+     * 初始隐藏：还没收到过 result 时没有用量数据，显示一个空占位不如不显示。
+     */
+    private val contextBar = JLabel().apply {
+        isVisible = false
+        foreground = UIUtil.getInactiveTextColor()
+        border = JBUI.Borders.emptyBottom(3)
+    }
+
+    private val input = ComposerTextArea(COMPOSER_MIN_ROWS, 40).apply {
         lineWrap = true
         wrapStyleWord = true
         // 输入框得有输入框的样子，否则与转写区糊在一起（见 styleComposerInput）
@@ -134,7 +147,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             add(mainButton, BorderLayout.EAST)
         }
 
-        val inputArea = buildComposerArea(inputScroll, composerToolbar)
+        val inputArea = buildComposerArea(contextBar, inputScroll, composerToolbar)
 
         // 顶边画一条线：即使分隔条本身在某些 LAF 下不画线，
         // 输入区与转写区之间也始终有明确的边界
@@ -210,6 +223,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
             MainAction.Disabled -> Unit
         }
+    }
+
+    /**
+     * 刷新"上下文长度"条。
+     *
+     * 没有用量数据时**保持原样**（可能是非 result 事件，也可能是 SDK 这次
+     * 没带 modelUsage）—— 清空会把已有的读数抹掉。
+     */
+    private fun updateContextBar(event: JsonObject) {
+        val usage = contextUsageOf(event) ?: return
+        contextBar.text = "上下文  ${formatContextUsage(usage)}"
+        contextBar.isVisible = true
     }
 
     /** 回合开始/结束时切换按钮。回合结束的信号是 result 事件。 */
@@ -348,6 +373,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     items.forEach { pushOp(toOp(it)) }
                     // result 是回合结束的信号，此时按钮从"停止"变回"发送"
                     if (items.any { it is RenderItem.Result }) setBusy(false)
+                    // 用量也只在 result 事件里给；取不到就保持原样
+                    updateContextBar(msg.event)
                 }
 
                 is SidecarMessage.Failure -> {

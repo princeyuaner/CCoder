@@ -10,8 +10,13 @@ import javax.swing.JComponent
  */
 internal const val TRANSCRIPT_SPLIT_KEY = "ccoder.transcript.split.proportion"
 
-/** 输入区默认占比（转写区占其余的 0.78）。 */
-private const val DEFAULT_PROPORTION = 0.78f
+/**
+ * 转写区默认占比 —— 底部（权限卡片 + 输入区）拿其余的 0.11。
+ *
+ * 0.89 而不是 0.78：用户要求默认高度减半（2026-09-11）。
+ * 光调这个数不够 —— 底部的最小高度会把它顶回来，见 [COMPOSER_MIN_ROWS]。
+ */
+private const val DEFAULT_PROPORTION = 0.89f
 
 /**
  * 分隔条的抓取宽度（未缩放 px）。

@@ -22,7 +22,7 @@ class ComposerRulesTest {
 
     @Test
     fun `输入框竖向撑满视口，拖高输入区才会真的变大`() {
-        val area = ComposerTextArea(COMPOSER_ROWS, 40)
+        val area = ComposerTextArea(COMPOSER_MIN_ROWS, 40)
 
         assertTrue(
             area.scrollableTracksViewportHeight,
@@ -31,8 +31,8 @@ class ComposerRulesTest {
     }
 
     @Test
-    fun `默认行数是三行，够看清自己写的一小段`() {
-        assertEquals(3, COMPOSER_ROWS)
+    fun `最小行数是一行 —— 它同时决定输入框能拖到多矮`() {
+        assertEquals(1, COMPOSER_MIN_ROWS)
     }
 
     // ---- 发送快捷键 ----
@@ -73,13 +73,18 @@ class ComposerRulesTest {
     // ---- 布局 ----
 
     @Test
-    fun `输入框在上、工具栏在下`() {
+    fun `上下文条在上、输入框居中、工具栏在下`() {
+        val contextBar = JPanel()
         val scroll = JPanel()
         val toolbar = JPanel()
 
-        val area = buildComposerArea(scroll, toolbar)
+        val area = buildComposerArea(contextBar, scroll, toolbar)
 
         val layout = area.layout as BorderLayout
+        assertSame(
+            contextBar, layout.getLayoutComponent(BorderLayout.NORTH),
+            "上下文长度条必须挂在输入框上方",
+        )
         assertSame(scroll, layout.getLayoutComponent(BorderLayout.CENTER), "输入框应在中间区域")
         assertSame(
             toolbar, layout.getLayoutComponent(BorderLayout.SOUTH),
