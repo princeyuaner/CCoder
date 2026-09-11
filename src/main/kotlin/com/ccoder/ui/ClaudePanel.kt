@@ -21,6 +21,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
@@ -115,6 +116,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             add(statusLabel, BorderLayout.WEST)
         }
 
+        // 输入区顶边画一条分隔线：即使分隔条本身在某些 LAF 下不画线，
+        // 输入区与转写区之间也始终有明确的边界
         val inputArea = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
             add(JBScrollPane(input).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
@@ -122,13 +125,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
 
         val bottom = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.customLineTop(JBColor.border())
             add(permissionSlot, BorderLayout.NORTH)
             add(inputArea, BorderLayout.SOUTH)
         }
 
+        // 上下之间可拖动调节高度。拖动结果由 splitterProportionKey 自动持久化。
+        //
+        // 权限卡片不会被挤掉：bottom 是 BorderLayout(NORTH=卡片槽, SOUTH=输入区)，
+        // 它的 minimumSize 由布局管理器自动取两者之和，而 splitter 设了
+        // honorComponentsMinimumSize —— 拖到顶也压不没卡片（spec §6.3 要求
+        // 卡片固定可见）。所以这里不需要额外维护最小高度。
+        val splitter = buildTranscriptSplit(transcriptView, bottom).apply {
+            // 单独一步：要读应用级的 PropertiesComponent，无头单测里拿不到，
+            // 所以没放进 buildTranscriptSplit（见那里的说明）
+            setAndLoadSplitterProportionKey(TRANSCRIPT_SPLIT_KEY)
+        }
+
         add(top, BorderLayout.NORTH)
-        add(transcriptView, BorderLayout.CENTER)
-        add(bottom, BorderLayout.SOUTH)
+        add(splitter, BorderLayout.CENTER)
         preferredSize = Dimension(500, 600)
     }
 
