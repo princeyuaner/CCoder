@@ -22,6 +22,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
     private val claudePathField = TextFieldWithBrowseButton()
     private val modelField = JBTextField()
     private val permissionModeBox = ComboBox(PermissionModeSetting.entries.toTypedArray())
+    private val sendShortcutBox = ComboBox(SendShortcut.entries.toTypedArray())
     private val dangerousOptIn = JBCheckBox("我明白风险：该模式下 Claude 的所有操作都不再询问")
     private val reminderField = JBTextField()
     private val extraDirsModel = DefaultTableModel(arrayOf("额外目录"), 0)
@@ -44,6 +45,10 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
             .addComponentToRightColumn(hint("留空则使用 CLI 自身配置的模型"))
             .addLabeledComponent(JBLabel("权限模式："), permissionModeBox)
             .addComponentToRightColumn(dangerousOptIn)
+            .addLabeledComponent(JBLabel("发送快捷键："), sendShortcutBox)
+            .addComponentToRightColumn(
+                hint("ENTER = Enter 发送 / Shift+Enter 换行；CTRL_ENTER = Enter 换行 / Ctrl+Enter 发送")
+            )
             .addLabeledComponent(JBLabel("待决提醒阈值（秒）："), reminderField)
             .addComponentToRightColumn(hint("Claude 等待授权超过该时长后升级为通知提醒（spec §6.3）"))
             .addLabeledComponent(
@@ -78,6 +83,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
         return s.claudePath != claudePathField.text.trim() ||
             s.model != modelField.text.trim() ||
             s.permissionMode != permissionModeBox.selectedItem ||
+            s.sendShortcut != sendShortcutBox.selectedItem ||
             s.pendingReminderSeconds != (reminderField.text.trim().toIntOrNull() ?: 30) ||
             s.extraDirs != extraDirsModel.readColumn(0) ||
             s.envOverrides != envModel.readPairs()
@@ -88,6 +94,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
             claudePath = claudePathField.text.trim()
             model = modelField.text.trim()
             permissionMode = permissionModeBox.selectedItem as PermissionModeSetting
+            sendShortcut = sendShortcutBox.selectedItem as SendShortcut
             pendingReminderSeconds = reminderField.text.trim().toIntOrNull() ?: 30
             extraDirs = extraDirsModel.readColumn(0).toMutableList()
             envOverrides = envModel.readPairs().toMutableMap()
@@ -99,6 +106,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
         claudePathField.text = s.claudePath
         modelField.text = s.model
         permissionModeBox.selectedItem = s.permissionMode
+        sendShortcutBox.selectedItem = s.sendShortcut
         reminderField.text = s.pendingReminderSeconds.toString()
         updateDangerousVisibility()
 

@@ -29,6 +29,33 @@ enum class PermissionModeSetting(
     BYPASS_PERMISSIONS("bypassPermissions", requiresDangerousOptIn = true),
 }
 
+/**
+ * 发送键的两种约定。
+ *
+ * 用户习惯差异很大（聊天工具是 Enter 发送，编辑器是 Enter 换行），
+ * 所以做成设置项而不是替他选一个。
+ *
+ * 放在 settings 包而不是 ui：项目里已有的模式是"持久化的枚举与它的 State
+ * 同处 settings"（见 [PermissionModeSetting]）。放 ui 会引入 settings → ui
+ * 的反向依赖。
+ */
+enum class SendShortcut {
+    /** Enter 发送，Shift+Enter 换行。聊天工具惯例。 */
+    ENTER,
+
+    /** Enter 换行，Ctrl+Enter 发送。编辑器惯例。 */
+    CTRL_ENTER,
+    ;
+
+    companion object {
+        val DEFAULT = ENTER
+
+        /** 从持久化的名字还原；认不出来就回退默认值，不抛异常。 */
+        fun fromName(name: String?): SendShortcut =
+            entries.firstOrNull { it.name == name } ?: DEFAULT
+    }
+}
+
 @State(name = "CCoderSettings", storages = [Storage("ccoder.xml")])
 @Service(Service.Level.PROJECT)
 class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
@@ -40,6 +67,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         var extraDirs: MutableList<String> = mutableListOf(),
         var envOverrides: MutableMap<String, String> = mutableMapOf(),
         var pendingReminderSeconds: Int = 30,
+        var sendShortcut: String = SendShortcut.DEFAULT.name,
     )
 
     private var myState = State()
@@ -69,6 +97,10 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             ?: PermissionModeSetting.DEFAULT
         set(value) { myState.permissionMode = value.name }
 
+    var sendShortcut: SendShortcut
+        get() = SendShortcut.fromName(myState.sendShortcut)
+        set(value) { myState.sendShortcut = value.name }
+
     override fun getState(): State = myState
 
     /**
@@ -83,6 +115,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             extraDirs = state.extraDirs.toMutableList(),
             envOverrides = state.envOverrides.toMutableMap(),
             pendingReminderSeconds = state.pendingReminderSeconds,
+            sendShortcut = state.sendShortcut,
         )
     }
 

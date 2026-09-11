@@ -35,6 +35,8 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import javax.swing.text.DefaultCaret
 
 /**
@@ -64,7 +66,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         isOpaque = false
     }
 
-    private val input = JBTextArea(3, 40).apply {
+    private val input = JBTextArea(COMPOSER_MIN_ROWS, 40).apply {
         lineWrap = true
         wrapStyleWord = true
         // 输入框得有输入框的样子，否则与转写区糊在一起（见 styleComposerInput）
@@ -99,15 +101,28 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     init {
         input.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
-                // Enter 发送，Shift+Enter 换行。
-                // 回合进行中不发送：那时按钮是"停止"，Enter 却另发一条会让
+                // 哪个键算发送由设置决定（聊天惯例 / 编辑器惯例，见 SendShortcut）
+                val shortcut = ClaudeSettings.getInstance(project).sendShortcut
+
+                // 回合进行中不发送：那时按钮是"停止"，发送键却另发一条会让
                 // 两者语义打架（见 mainButtonState）
-                if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
+                if (busy) return
+                if (isSendKey(e.keyCode, e.isShiftDown, e.isControlDown, shortcut)) {
                     e.consume()
-                    if (!busy) sendCurrentInput()
+                    sendCurrentInput()
                 }
             }
         })
+
+        // 输入框随内容长高（到上限转内部滚动）。
+        // 只在文档变化时重算、不监听尺寸变化：宽度变小会改变折行结果，
+        // 重算行数又反过来影响是否需要滚动条、再影响宽度，容易来回抖。
+        input.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent) = updateComposerRows()
+            override fun removeUpdate(e: DocumentEvent) = updateComposerRows()
+            override fun changedUpdate(e: DocumentEvent) = updateComposerRows()
+        })
+
         mainButton.addActionListener { onMainButtonClick() }
 
         // 顶部只留状态；停止按钮已并入输入区右侧（用户在"忙"时才需要它，
@@ -119,19 +134,22 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         // 输入区顶边画一条分隔线：即使分隔条本身在某些 LAF 下不画线，
         // 输入区与转写区之间也始终有明确的边界
-        val inputArea = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(4, 8)
-            // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
-            add(
-                JBScrollPane(input).apply {
-                    border = JBUI.Borders.empty()
-                    isOpaque = false
-                    viewport.isOpaque = false
-                },
-                BorderLayout.CENTER,
-            )
+        // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
+        val inputScroll = JBScrollPane(input).apply {
+            border = JBUI.Borders.empty()
+            isOpaque = false
+            viewport.isOpaque = false
+        }
+
+        // 底部工具栏：发送按钮归位到右下，左侧留给以后的模型切换、权限模式、
+        // 用量读数等 —— 加控件不用再动结构
+        val composerToolbar = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.emptyTop(4)
             add(mainButton, BorderLayout.EAST)
         }
+
+        val inputArea = buildComposerArea(inputScroll, composerToolbar)
 
         val bottom = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.customLineTop(JBColor.border())
@@ -520,6 +538,30 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     // ---- 输入 ----
+
+    /**
+     * 按内容重算输入框行数，到上限为止。
+     *
+     * 用 Swing 量出来的首选高度，而不是数 `'\n'`：`lineWrap` 打开时一段长
+     * 文本视觉上可能已经十几行、逻辑上却只有一行 —— 而那正是"粘一段提示词
+     * 进来"的常见形态，数换行符会完全漏掉它。
+     *
+     * 宽度尚未布局出来时直接返回，等下一次文档变化再说。
+     */
+    private fun updateComposerRows() {
+        val metrics = input.getFontMetrics(input.font) ?: return
+        if (metrics.height <= 0 || input.width <= 0) return
+
+        // 布局完成后 preferredSize 已经按当前宽度把折行算进去了，无需手工 setSize
+        val contentHeight = input.preferredSize.height
+        val measuredLines = (contentHeight + metrics.height / 2) / metrics.height
+
+        val rows = composerRows(measuredLines)
+        if (input.rows != rows) {
+            input.rows = rows
+            input.revalidate()
+        }
+    }
 
     private fun sendCurrentInput() {
         if (input.text.isBlank()) return
