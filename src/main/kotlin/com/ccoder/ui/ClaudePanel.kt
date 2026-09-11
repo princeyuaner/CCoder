@@ -67,7 +67,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private val input = JBTextArea(3, 40).apply {
         lineWrap = true
         wrapStyleWord = true
-        border = JBUI.Borders.empty(6)
+        // 输入框得有输入框的样子，否则与转写区糊在一起（见 styleComposerInput）
+        styleComposerInput(this)
         caret = DefaultCaret().apply { updatePolicy = DefaultCaret.ALWAYS_UPDATE }
     }
     /** 发送与停止合一，显示什么由 [mainButtonState] 决定。 */
@@ -120,7 +121,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 输入区与转写区之间也始终有明确的边界
         val inputArea = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
-            add(JBScrollPane(input).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
+            // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
+            add(
+                JBScrollPane(input).apply {
+                    border = JBUI.Borders.empty()
+                    isOpaque = false
+                    viewport.isOpaque = false
+                },
+                BorderLayout.CENTER,
+            )
             add(mainButton, BorderLayout.EAST)
         }
 
