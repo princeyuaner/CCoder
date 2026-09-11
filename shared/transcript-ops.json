@@ -1,0 +1,14 @@
+[
+  {"op":"reset"},
+  {"op":"append","item":{"kind":"user","id":"m0","ts":1726050000000,"text":"你好"}},
+  {"op":"append","item":{"kind":"systemNote","id":"m1","ts":1726050001000,"text":"会话 a1b2c3d4 · 模型 m"}},
+  {"op":"appendDelta","target":"assistant","text":"你"},
+  {"op":"appendDelta","target":"assistant","text":"好"},
+  {"op":"finalizeDelta","target":"assistant","text":"你好呀"},
+  {"op":"append","item":{"kind":"thinking","id":"m2","ts":1726050002000,"text":"让我想想"}},
+  {"op":"append","item":{"kind":"toolUse","id":"m3","ts":1726050003000,"name":"Read","input":"{\"file_path\":\"/a.txt\"}"}},
+  {"op":"clearDelta","target":"assistant"},
+  {"op":"append","item":{"kind":"error","id":"m4","ts":1726050004000,"text":"认证失败"}},
+  {"op":"append","item":{"kind":"result","id":"m5","ts":1726050005000,"subtype":"success","costUsd":0.1008,"durationMs":1681}},
+  {"op":"append","item":{"kind":"assistant","id":"m6","ts":1726050006000,"text":"完成"}}
+]

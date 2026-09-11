@@ -1,0 +1,144 @@
+package com.ccoder.sidecar
+
+import com.ccoder.ui.TranscriptOpCodec
+import com.google.gson.JsonParser
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import java.nio.file.Files
+import java.nio.file.Path
+
+class TranscriptOpCodecTest {
+
+    /** 仓库根的 shared/ 目录，与 React 侧读的是同一份文件。 */
+    private fun fixturePath(): Path {
+        // 测试的工作目录是项目根（Gradle 默认）
+        val path = Path.of("shared", "transcript-ops.json")
+        check(Files.exists(path)) { "找不到共享 fixture：${path.toAbsolutePath()}" }
+        return path
+    }
+
+    @Test
+    fun `fixture 中的每一条 op 都能被解析`() {
+        val array = JsonParser.parseString(Files.readString(fixturePath())).asJsonArray
+        val kinds = array.map { it.asJsonObject.get("op").asString }
+
+        assertEquals("reset", kinds[0])
+        assertEquals("append", kinds[1])
+        assertEquals("appendDelta", kinds[3])
+        assertEquals("finalizeDelta", kinds[5])
+        assertEquals("clearDelta", kinds[8])
+        assertEquals(12, kinds.size)
+    }
+
+    @Test
+    fun `reset 编码为仅有 op 字段`() {
+        val json = TranscriptOpCodec.encodeBatch(listOf(TranscriptOp.Reset))
+        val obj = JsonParser.parseString(json).asJsonArray[0].asJsonObject
+        assertEquals("reset", obj.get("op").asString)
+        assertEquals(1, obj.size(), "reset 不应携带额外字段")
+    }
+
+    @Test
+    fun `append 编码包含完整 item`() {
+        val ops = listOf(
+            TranscriptOp.Append(
+                TranscriptItem.User(id = "m0", ts = 1726050000000L, text = "你好")
+            )
+        )
+        val item = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertEquals("user", item.get("kind").asString)
+        assertEquals("m0", item.get("id").asString)
+        assertEquals(1726050000000L, item.get("ts").asLong)
+        assertEquals("你好", item.get("text").asString)
+    }
+
+    @Test
+    fun `result 编码省略为 null 的可选字段`() {
+        val ops = listOf(
+            TranscriptItem.Result(id = "m", ts = 1L, subtype = "success", costUsd = null, durationMs = null)
+                .let { TranscriptOp.Append(it) }
+        )
+        val item = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertEquals("success", item.get("subtype").asString)
+        assertTrue(!item.has("costUsd"), "null 的可选字段不应出现")
+        assertTrue(!item.has("durationMs"))
+    }
+
+    @Test
+    fun `result 编码保留非 null 的可选字段`() {
+        val ops = listOf(
+            TranscriptItem.Result(id = "m", ts = 1L, subtype = "success", costUsd = 0.1008, durationMs = 1681L)
+                .let { TranscriptOp.Append(it) }
+        )
+        val item = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertEquals(0.1008, item.get("costUsd").asDouble, 0.0001)
+        assertEquals(1681L, item.get("durationMs").asLong)
+    }
+
+    @Test
+    fun `delta 类 op 编码 target 与 text`() {
+        val ops = listOf(
+            TranscriptOp.AppendDelta("assistant", "你"),
+            TranscriptOp.FinalizeDelta("assistant", "你好"),
+            TranscriptOp.ClearDelta("assistant"),
+        )
+        val array = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops)).asJsonArray
+
+        assertEquals("assistant", array[0].asJsonObject.get("target").asString)
+        assertEquals("你", array[0].asJsonObject.get("text").asString)
+        assertEquals("你好", array[1].asJsonObject.get("text").asString)
+        assertEquals("assistant", array[2].asJsonObject.get("target").asString)
+        assertTrue(!array[2].asJsonObject.has("text"), "clearDelta 不带 text")
+    }
+
+    @Test
+    fun `toolUse 编码 name 与 input`() {
+        val ops = listOf(
+            TranscriptOp.Append(
+                TranscriptItem.ToolUse(id = "m", ts = 1L, name = "Read", input = """{"file_path":"/a.txt"}""")
+            )
+        )
+        val item = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertEquals("toolUse", item.get("kind").asString)
+        assertEquals("Read", item.get("name").asString)
+        assertEquals("""{"file_path":"/a.txt"}""", item.get("input").asString)
+    }
+
+    @Test
+    fun `批次编码为 JSON 数组`() {
+        val json = TranscriptOpCodec.encodeBatch(
+            listOf(TranscriptOp.Reset, TranscriptOp.ClearDelta("assistant"))
+        )
+        val array = JsonParser.parseString(json).asJsonArray
+        assertEquals(2, array.size())
+    }
+
+    @Test
+    fun `空批次编码为空数组`() {
+        assertEquals("[]", TranscriptOpCodec.encodeBatch(emptyList()))
+    }
+
+    @Test
+    fun `文本中的换行与引号被正确转义`() {
+        val ops = listOf(
+            TranscriptOp.Append(
+                TranscriptItem.Assistant(id = "m", ts = 1L, text = "第一行\n第二行 \"引号\"")
+            )
+        )
+        val json = TranscriptOpCodec.encodeBatch(ops)
+        // 编码结果必须是单行——pushBatch 的参数不能含裸换行
+        assertEquals(1, json.lines().size, "换行必须被 JSON 转义")
+        val text = JsonParser.parseString(json).asJsonArray[0]
+            .asJsonObject.getAsJsonObject("item").get("text").asString
+        assertEquals("第一行\n第二行 \"引号\"", text)
+    }
+}
