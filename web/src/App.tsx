@@ -4,6 +4,14 @@ import { applyOps, parseOps } from './codec'
 // window.ccoder 的全局声明在 types.ts，此处不重复声明
 import type { TranscriptState } from './types'
 
+/**
+ * 等待 Kotlin 注入桥的轮询间隔。
+ *
+ * 桥到达的时刻取决于 CEF 的 IPC 延迟，量级在毫秒到几十毫秒；50ms 足够
+ * 及时，又不会让首帧白等。
+ */
+const READY_POLL_MS = 50
+
 export function App() {
   const [state, setState] = useState<TranscriptState>({ items: [], live: {} })
 
@@ -19,9 +27,29 @@ export function App() {
       }
     }
 
-    // 通知 Kotlin 侧可以开始推送了。必须放在 pushBatch 赋值**之后**——
-    // 否则 Kotlin 收到 ready 立刻推送时会打到 undefined 上。
-    window.ccoder.send?.(JSON.stringify({ op: 'ready' }))
+    // 通知 Kotlin 侧可以开始推送了。
+    //
+    // 必须放在 pushBatch 赋值**之后**：否则 Kotlin 收到 ready 立刻推送时
+    // 会打到 undefined 上。
+    //
+    // 也不能只发一次。桥是 Kotlin 在 CefLoadHandler.onLoadEnd 里注入的，
+    // 而 onLoadEnd 要经 CEF 跨进程 IPC 才到 Java，必然晚于本 effect。发一次
+    // 而桥还没到，`?.` 会静默吞掉，Kotlin 侧就把**所有**操作滞留在缓冲区里：
+    // 界面全空、无任何报错，只有状态栏显示"已连接"（实测见 App.test.tsx）。
+    // 所以轮询到桥出现为止，发出后立即停。
+    const sendReady = (): boolean => {
+      const send = window.ccoder?.send
+      if (!send) return false
+      send(JSON.stringify({ op: 'ready' }))
+      return true
+    }
+
+    if (sendReady()) return
+
+    const timer = window.setInterval(() => {
+      if (sendReady()) window.clearInterval(timer)
+    }, READY_POLL_MS)
+    return () => window.clearInterval(timer)
   }, [])
 
   return <Transcript state={state} />
