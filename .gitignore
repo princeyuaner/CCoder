@@ -17,6 +17,11 @@ node_modules/
 npm-debug.log*
 .npm/
 
+# ---- web 前端 ----
+# node_modules/ 与 coverage/ 已由上面的通用规则覆盖，
+# 这里只需补构建产物目录
+web/dist/
+
 # ---- Kotlin / JVM ----
 *.class
 *.jar
