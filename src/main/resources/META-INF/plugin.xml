@@ -26,10 +26,13 @@
             id="CCoderPendingPermissions"
             implementation="com.ccoder.ui.PendingPermissionStatusBarFactory"/>
 
-        <!-- 卡片插入时若工具窗口不可见，用粘性通知提醒 -->
+        <!-- 卡片插入时若工具窗口不可见，用粘性通知提醒。
+             displayType 的合法值只有 BALLOON / STICKY_BALLOON /
+             TOOL_WINDOW / NONE —— 写 STICKY 不是合法常量，
+             平台会解析为 null 并拒绝注册整个组。 -->
         <notificationGroup
             id="CCoder Permissions"
-            displayType="STICKY"
+            displayType="STICKY_BALLOON"
             isLogByDefault="false"/>
     </extensions>
 </idea-plugin>
