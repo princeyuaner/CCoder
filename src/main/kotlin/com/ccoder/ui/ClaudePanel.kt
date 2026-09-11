@@ -10,8 +10,12 @@ import com.ccoder.sidecar.SidecarMessage
 import com.ccoder.sidecar.SidecarNotFoundException
 import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.settings.ClaudeSettings
+import com.intellij.notification.NotificationAction
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -61,6 +65,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 正在流式累积的助手气泡。final assistant 消息到达时以它为准收尾。 */
     private var liveAssistant: JBTextArea? = null
+
+    /** 并发权限询问的串行化队列（spec §6.4）。 */
+    private val permissionQueue = PermissionQueue { perm, queued -> appendPermissionCard(perm, queued) }
+
+    /** requestId → 卡片容器，用于决定后把卡片换成一行的结论。 */
+    private val pendingCards = mutableMapOf<String, JComponent>()
+
+    /**
+     * 懒启动（spec §7.2）：第一次发消息才起 sidecar。
+     * 首条消息在此暂存，会话就绪后补发。
+     */
+    private var pendingFirstMessage: String? = null
+
 
     init {
         input.addKeyListener(object : KeyAdapter() {
@@ -151,6 +168,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 按 spec §7.4 的顺序清理：先停会话，再关通道，最后杀进程树。 */
     fun dispose() {
+        // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
+        // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
+        // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。
+        permissionQueue.cancelAll()
+        pendingCards.clear()
+        updateStatusBar()
+
         client?.sendLine(Protocol.encodeSimple(nextId(), "stop"))
         client?.close()
         proc?.shutdown()
@@ -168,7 +192,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     ready = true
                     statusLabel.text = "已连接"
                     stopButton.isEnabled = true
+                    sendButton.text = "发送"
                     appendItem(RenderItem.SystemNote("会话已就绪"))
+
+                    // 补发懒启动时暂存的首条消息
+                    pendingFirstMessage?.let { text ->
+                        pendingFirstMessage = null
+                        client?.sendLine(Protocol.encodeSend(nextId(), text))
+                    }
                 }
 
                 is SidecarMessage.Event -> MessageRenderer.render(msg).forEach(::consume)
@@ -210,15 +241,92 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         else -> message
     }
 
-    /**
-     * Task 12 的最小实现：把权限询问渲染为一条提示。
-     * Task 13 会用可交互的 PermissionCard 替换此实现。
-     */
+    // ---- 权限卡片（spec §6）----
+
     private fun showPermissionCard(perm: SidecarMessage.Permission) {
-        val label = perm.title?.takeIf { it.isNotBlank() }
-            ?: perm.displayName?.takeIf { it.isNotBlank() }
-            ?: perm.toolName
-        appendItem(RenderItem.SystemNote("Claude 请求授权：$label"))
+        permissionQueue.enqueue(perm)
+        if (!isShowing) notifyPendingPermission(perm)
+    }
+
+    private fun appendPermissionCard(perm: SidecarMessage.Permission, queuedCount: Int) {
+        val card = PermissionCard(perm, queuedCount) { decision ->
+            client?.sendLine(
+                Protocol.encodePermissionDecision(
+                    nextId(), perm.requestId,
+                    decision.allow, decision.updatedPermissions, decision.message,
+                )
+            )
+            permissionQueue.resolve(perm.requestId, decision)
+
+            // 卡片换成一行结论，不再占据视线
+            pendingCards.remove(perm.requestId)?.let { wrapper ->
+                transcript.remove(wrapper)
+                transcript.revalidate()
+                transcript.repaint()
+            }
+            appendItem(
+                RenderItem.SystemNote(
+                    if (decision.allow) "已允许：${perm.toolName}" else "已拒绝：${perm.toolName}"
+                )
+            )
+            updateStatusBar()
+        }
+
+        val wrapper = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(card, BorderLayout.CENTER)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
+        pendingCards[perm.requestId] = wrapper
+
+        // 固定在消息流顶部而非跟随滚动到底部（spec §6.3）——
+        // 底部的卡片会被新的流式输出不断推走
+        transcript.add(wrapper, 0)
+        transcript.revalidate()
+        updateStatusBar()
+        startReminderTimer(perm)
+    }
+
+    /**
+     * 待决数量变化时同步状态栏（spec §6.3 的第一道补偿）。
+     *
+     * 推给服务而非直接操作组件——平台会按需创建/销毁状态栏组件。
+     * null 项目（单元测试）下 getService 会失败，因此包一层。
+     */
+    private fun updateStatusBar() {
+        runCatching { PendingPermissionCount.getInstance(project).set(permissionQueue.totalPending) }
+    }
+
+    /** 卡片插入时若工具窗口不可见，发粘性通知（spec §6.3）。 */
+    private fun notifyPendingPermission(perm: SidecarMessage.Permission) {
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup(NOTIFICATION_GROUP)
+            .createNotification(
+                "Claude 需要授权",
+                PermissionOptions.primaryText(perm),
+                NotificationType.WARNING,
+            )
+            .addAction(
+                NotificationAction.createSimple("前往处理") {
+                    ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show()
+                }
+            )
+            .notify(project)
+    }
+
+    /**
+     * 待决超过阈值升级为提醒（spec §6.3）。
+     * 只提醒，**不**升级为模态对话框 —— 用户已选择非模态形态。
+     */
+    private fun startReminderTimer(perm: SidecarMessage.Permission) {
+        val delaySeconds = ClaudeSettings.getInstance(project).pendingReminderSeconds
+        if (delaySeconds <= 0) return
+        javax.swing.Timer(delaySeconds * 1000) {
+            if (permissionQueue.activeRequestId == perm.requestId) notifyPendingPermission(perm)
+        }.apply {
+            isRepeats = false
+            start()
+        }
     }
 
     // ---- 渲染 ----
@@ -350,11 +458,27 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     // ---- 输入 ----
 
     private fun sendCurrentInput() {
-        if (!ready || input.text.isBlank()) return
+        if (input.text.isBlank()) return
         val text = input.text.trim()
+
+        // fatal 断开后按钮变成"重启会话"，此时点击应当重开会话而非发送。
+        // 注意 proc 只在 dispose 里置空，所以它是"曾经启动过"的判据。
+        if (!ready && proc != null) dispose()
+
         input.text = ""
         liveAssistant = null
         appendItem(RenderItem.UserText(text))
+
+        if (!ready) {
+            // 懒启动（spec §7.2）：第一次发消息才起 sidecar。
+            // 消息暂存，就绪后由 Ready 分支补发 —— 若此处直接丢弃，
+            // 用户点第一次"发送"时会看到消息出现却毫无反应。
+            pendingFirstMessage = text
+            sendButton.text = "启动中…"
+            startSession()
+            return
+        }
+
         client?.sendLine(Protocol.encodeSend(nextId(), text))
     }
 
@@ -364,5 +488,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val USER_BG = JBColor(0xE3F2FD, 0x1E3A5F)
         val ASSISTANT_BG = JBColor(0xF5F5F5, 0x2B2B2B)
         val ERROR_BG = JBColor(0xFFEBEE, 0x4A1F1F)
+
+        const val NOTIFICATION_GROUP = "CCoder Permissions"
+        const val TOOL_WINDOW_ID = "CCoder"
     }
 }
