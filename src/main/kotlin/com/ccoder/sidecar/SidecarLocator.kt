@@ -1,8 +1,8 @@
 package com.ccoder.sidecar
 
+import com.intellij.openapi.application.PathManager
 import java.nio.file.Path
 import java.nio.file.Files
-import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 
@@ -51,12 +51,66 @@ object SidecarLocator {
 /**
  * 生产模式：从插件包内提取 sidecar 到系统缓存目录。
  *
- * 该实现由 Task 14 接入打包后替换 —— 在此之前只会抛错，
- * 因为只跑源码时不存在插件包资源。
+ * 类加载器只能按条目名读取 jar 内资源，无法遍历目录，因此构建时会生成
+ * 一份 manifest.txt 列出全部文件（见 build.gradle.kts 的 generateSidecarManifest）。
  */
 object ProductionSidecarResolver {
-    fun resolve(): Path = throw SidecarNotFoundException(
-        "未找到 sidecar 目录。开发模式下请在项目根目录运行；" +
-            "若已打包发布，这是插件资源缺失，属打包配置问题。"
-    )
+
+    private const val RESOURCE_ROOT = "sidecar"
+
+    fun resolve(): Path {
+        val version = readVersion()
+        val staged = stageResourcesToTemp()
+        val target = Path.of(PathManager.getSystemPath(), "ccoder", RESOURCE_ROOT)
+        return SidecarExtractor.extract(staged, target, version)
+    }
+
+    /** 版本号来自构建时写入的 version.txt，与 sidecar/package.json 同步。 */
+    private fun readVersion(): String =
+        readResource("$RESOURCE_ROOT/version.txt")
+            ?.trim()
+            ?.ifBlank { null }
+            ?: FALLBACK_VERSION
+
+    private fun readResource(path: String): String? =
+        ProductionSidecarResolver::class.java.getResourceAsStream("/$path")
+            ?.bufferedReader()
+            ?.use { it.readText() }
+
+    /**
+     * 把插件包内的 sidecar 资源释放到临时目录。
+     * [SidecarExtractor] 需要真实的目录树，而 jar 内的资源只能逐个读出。
+     */
+    private fun stageResourcesToTemp(): Path {
+        val manifest = readResource("$RESOURCE_ROOT/manifest.txt")
+            ?: throw SidecarNotFoundException(
+                "插件包内缺少 $RESOURCE_ROOT/manifest.txt —— 构建配置有误，" +
+                    "请确认 generateSidecarManifest 任务已接入 processResources。"
+            )
+
+        val staging = Files.createTempDirectory("ccoder-sidecar-")
+        val dest = staging.resolve(RESOURCE_ROOT)
+        Files.createDirectories(dest)
+
+        for (entry in manifest.lineSequence()) {
+            val relative = entry.trim()
+            if (relative.isEmpty()) continue
+
+            val target = dest.resolve(relative)
+            // 防御目录穿越：manifest 由构建生成，但不该假设它永远可信
+            if (!target.normalize().startsWith(dest.normalize())) {
+                throw SidecarNotFoundException("manifest 含非法路径：$relative")
+            }
+            Files.createDirectories(target.parent)
+
+            ProductionSidecarResolver::class.java
+                .getResourceAsStream("/$RESOURCE_ROOT/$relative")
+                ?.use { input -> Files.newOutputStream(target).use { input.copyTo(it) } }
+                ?: throw SidecarNotFoundException("manifest 列出的资源不存在：$relative")
+        }
+
+        return dest
+    }
+
+    private const val FALLBACK_VERSION = "0.0.0"
 }
