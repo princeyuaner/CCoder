@@ -52,3 +52,6 @@ sidecar/smoke.err
 
 # TypeScript 增量构建信息（tsc -b 产生）
 web/*.tsbuildinfo
+
+# Kotlin 增量编译产生的会话目录
+.kotlin/

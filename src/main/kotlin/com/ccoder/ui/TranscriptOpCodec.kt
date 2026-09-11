@@ -11,12 +11,29 @@ import com.google.gson.JsonObject
  * 契约的另一端在 `web/src/codec.ts`，两侧共用 `shared/transcript-ops.json`
  * 做测试 —— 任一端改了契约，另一端的测试就会变红。
  *
- * 输出会被嵌进 `window.ccoder.pushBatch(<json>)` 调用，因此：
+ * 输出由 [encodePushCall] 嵌进 `window.ccoder.pushBatch(...)` 调用，因此：
  * - 换行由 JSON 转义保证，不产生多行
  * - Gson 默认转义 HTML 敏感字符（`<` `>` `&` `=` `'`），
  *   避免内容里的 `</script>` 提前闭合脚本块
  */
 object TranscriptOpCodec {
+
+    /**
+     * 构造注入页面的推送调用。
+     *
+     * 参数必须是 **JS 字符串字面量**，不能把 JSON 直接内联成对象字面量。
+     * web 侧 `pushBatch(json: string)` 的契约是收字符串再 `JSON.parse`：
+     *
+     *   pushBatch('[{...}]')   → JSON.parse 得到数组 → 正常
+     *   pushBatch([{...}])     → JSON.parse 收到数组，先被 String() 成
+     *                            "[object Object],[object Object]" → SyntaxError
+     *                            → 被 pushBatch 里的 catch 吞掉
+     *
+     * 后者不会报任何错：界面全空、状态栏照常显示"已连接"。
+     * 2026-09-11 实际踩过这个坑，排查花了大半程。
+     */
+    fun encodePushCall(batchJson: String): String =
+        "window.ccoder.pushBatch('${ThemeInjector.escapeForJsString(batchJson)}');"
 
     fun encodeBatch(ops: List<TranscriptOp>): String {
         val array = JsonArray()

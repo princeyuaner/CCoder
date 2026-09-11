@@ -6,6 +6,7 @@ import com.google.gson.JsonParser
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.jcef.JBCefApp
@@ -45,6 +46,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             browser = null
             jsQuery = null
             pump = null
+            LOG.warn("CCoder 转写视图：当前 IDE 未启用 JCEF，转写区降级为提示文本")
             add(fallbackComponent(), BorderLayout.CENTER)
         } else {
             val b = JBCefBrowser()
@@ -63,6 +65,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             injectBridge(b, query)
             installNavigationGuard(b)
             loadUi(b)
+            installReadyWatchdog()
 
             // 主题切换时重新注入 CSS 变量（spec §4.1）。
             // connect(this) 让它随本组件一起释放。
@@ -116,6 +119,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                 ) {
                     // 只在主框架注入，iframe 不重复注入
                     if (frame?.isMain == true) {
+                        LOG.info("CCoder 转写视图：页面加载完成（HTTP $httpStatusCode），注入桥")
                         b.cefBrowser.executeJavaScript(script, b.cefBrowser.url, 0)
                     }
                 }
@@ -196,9 +200,51 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         )
     }
 
+    /**
+     * 前端迟迟不就绪时，把页面内部状态写进日志。
+     *
+     * 没有这个的话，握手失败的表现是"界面全空且毫无报错"——状态栏还显示
+     * "已连接"（那是 sidecar 的状态，与前端无关），用户和开发者都无从下手。
+     * 实测踩过一次：2026-09-11 定位这个问题花了大半程，就是因为插件不打日志。
+     *
+     * 宁可日志吵一点，也不要一个静默失败的黑盒。
+     */
+    private fun installReadyWatchdog() {
+        javax.swing.Timer(READY_TIMEOUT_MS) {
+            if (ready) {
+                LOG.info("CCoder 转写视图：前端就绪")
+                return@Timer
+            }
+            val b = browser ?: return@Timer
+            val q = jsQuery ?: return@Timer
+            LOG.warn("CCoder 转写视图：${READY_TIMEOUT_MS / 1000} 秒内未收到前端 ready，请求页面状态")
+            val probe = """
+                (function(){
+                  var r = document.getElementById('root');
+                  var info = {
+                    op: 'pageState',
+                    hasRoot: !!r,
+                    rootChildren: r ? r.childElementCount : -1,
+                    readyState: document.readyState,
+                    url: location.href.slice(0, 80),
+                    ccoder: typeof window.ccoder,
+                    pushBatch: typeof (window.ccoder && window.ccoder.pushBatch),
+                    send: typeof (window.ccoder && window.ccoder.send)
+                  };
+                  ${q.inject("JSON.stringify(info)")}
+                })();
+            """.trimIndent()
+            b.cefBrowser.executeJavaScript(probe, b.cefBrowser.url, 0)
+        }.apply { isRepeats = false; start() }
+    }
+
     private fun pushToJs(json: String) {
         val b = browser ?: return
-        b.cefBrowser.executeJavaScript("window.ccoder.pushBatch($json);", b.cefBrowser.url, 0)
+        // 必须经 encodePushCall 包成 JS 字符串字面量 —— 直接内联 JSON 会让
+        // web 侧拿到对象而非字符串，静默失败。见 TranscriptOpCodec.encodePushCall。
+        b.cefBrowser.executeJavaScript(
+            TranscriptOpCodec.encodePushCall(json), b.cefBrowser.url, 0,
+        )
     }
 
     private fun handleFromJs(message: String) {
@@ -206,12 +252,16 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         when (obj.str("op")) {
             "ready" -> {
                 ready = true
+                LOG.info("CCoder 转写视图：收到前端 ready，补推滞留的 ${beforeReady.size} 条")
                 // 主题必须紧跟着注入，否则会闪一帧无样式内容
                 setTheme()
                 beforeReady.forEach { pump?.enqueue(it) }
                 beforeReady.clear()
                 pump?.flushNow()
             }
+
+            // 看门狗探针的回报：前端没就绪时，这是唯一能看到的页面内部状态
+            "pageState" -> LOG.warn("CCoder 转写视图：页面状态 $message")
 
             "openLink" -> obj.str("url")?.let { BrowserUtil.browse(it) }
         }
@@ -229,5 +279,10 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
 
     companion object {
         const val DEV_SERVER_PROPERTY = "ccoder.devServer"
+
+        /** 前端 ready 的等待上限，超时就把页面状态写进日志。 */
+        private const val READY_TIMEOUT_MS = 8000
+
+        private val LOG = Logger.getInstance(ClaudeTranscriptView::class.java)
     }
 }

@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
@@ -71,5 +71,40 @@ describe('App 与 Kotlin 的桥握手', () => {
     })
 
     expect(typeof window.ccoder?.pushBatch).toBe('function')
+  })
+
+  // ---- pushBatch 的调用约定 ----
+  //
+  // 2026-09-11 的"界面全空但零报错"故障就出在这里：Kotlin 侧把 JSON 内联成
+  // 对象字面量调用（pushBatch([{...}])），而形参声明是 string。JSON.parse 收到
+  // 数组后先被 String() 成 "[object Object],[object Object]" 抛 SyntaxError，
+  // 被空 catch 吞掉。两侧各自的测试全绿——因为没有一条覆盖调用约定本身。
+
+  it('收 JSON 字符串时渲染出条目', async () => {
+    render(<App />)
+    const batch = JSON.stringify([
+      { op: 'append', item: { id: 'm0', ts: 1726050000000, kind: 'user', text: '你好' } },
+    ])
+
+    await act(async () => {
+      window.ccoder?.pushBatch?.(batch)
+    })
+
+    expect(screen.getByText('你好')).toBeInTheDocument()
+  })
+
+  it('实参不是字符串时记录错误，而非静默丢弃', async () => {
+    render(<App />)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // 模拟旧写法：传的是数组对象，不是 JSON 字符串
+    const wrong = [{ op: 'append', item: { id: 'm0', ts: 1, kind: 'user', text: '不该出现' } }]
+    await act(async () => {
+      window.ccoder?.pushBatch?.(wrong as unknown as string)
+    })
+
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('[ccoder]'))).toBe(true)
+    expect(screen.queryByText('不该出现')).not.toBeInTheDocument()
+    spy.mockRestore()
   })
 })

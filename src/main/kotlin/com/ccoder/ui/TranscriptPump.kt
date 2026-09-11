@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.TranscriptOp
+import com.intellij.openapi.diagnostic.Logger
 import java.util.Timer
 import java.util.TimerTask
 import javax.swing.SwingUtilities
@@ -53,9 +54,16 @@ class TranscriptPump(
             buffer.toList().also { buffer.clear() }
         }
 
-        // 失败只吞掉本次：桥可能临时不可用（页面重载中），
-        // 不该让节流器永久失效
-        runCatching { exec(TranscriptOpCodec.encodeBatch(batch)) }
+        // 失败只影响本次批次（桥可能临时不可用，页面重载中），
+        // 不该让节流器永久失效 —— 但必须留下痕迹。
+        //
+        // 这里曾经是 runCatching{} 静默吞掉：推送失败的表现是"界面不更新"，
+        // 与"本来就没有消息"在屏幕上完全一样，排查时无从下手。
+        try {
+            exec(TranscriptOpCodec.encodeBatch(batch))
+        } catch (e: Exception) {
+            LOG.warn("CCoder 转写视图：推送 ${batch.size} 条操作失败", e)
+        }
     }
 
     fun dispose() {
@@ -66,5 +74,7 @@ class TranscriptPump(
 
     companion object {
         const val DEFAULT_THROTTLE_MS = 16L
+
+        private val LOG = Logger.getInstance(TranscriptPump::class.java)
     }
 }

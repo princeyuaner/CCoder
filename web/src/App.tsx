@@ -22,8 +22,12 @@ export function App() {
         const ops = parseOps(JSON.parse(json))
         // 用函数式更新：节流器可能在一帧内推多批，直接读 state 会丢更新
         setState((prev) => applyOps(prev, ops))
-      } catch {
-        // 畸形批次忽略，不让界面白屏
+      } catch (e) {
+        // 仍然不抛（畸形批次不该让界面白屏），但必须留下痕迹。
+        // 这里曾经是空 catch：调用约定错了（实参传成对象而非 JSON 字符串）时
+        // JSON.parse 抛 SyntaxError 被吞掉，表现为"界面全空且零报错"，
+        // 排查代价极高。静默失败比报错贵得多。
+        console.error('[ccoder] 推送批次解析失败：', e, String(json).slice(0, 300))
       }
     }
 
