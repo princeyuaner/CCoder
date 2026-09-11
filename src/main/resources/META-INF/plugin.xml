@@ -14,5 +14,11 @@
             id="com.ccoder.settings"
             displayName="CCoder"
             instance="com.ccoder.settings.ClaudeSettingsPanel"/>
+
+        <toolWindow
+            id="CCoder"
+            anchor="right"
+            icon="AllIcons.Toolwindows.ToolWindowMessages"
+            factoryClass="com.ccoder.ClaudeToolWindowFactory"/>
     </extensions>
 </idea-plugin>
