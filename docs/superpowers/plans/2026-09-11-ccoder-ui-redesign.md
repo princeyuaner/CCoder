@@ -3390,9 +3390,11 @@ EOF
 > 若 Task 1-10 已全部完成，用 `git stash` 或 `git worktree` 检出 `6a67c22`（UI 重设计 spec 提交，即改动前）。**不要**在未验证基线的情况下跳过这一步 —— 没有基线就无法区分新旧问题。
 
 ```bash
-cd "C:/Users/CY/Desktop/CCoder" && git worktree add /tmp/ccoder-baseline 6a67c22
-cd /tmp/ccoder-baseline && ./gradlew runIde --no-daemon
+cd "C:/Users/CY/Desktop/CCoder" && git worktree add "C:/Users/CY/AppData/Local/Temp/ccoder-baseline" 6a67c22
+cd "C:/Users/CY/AppData/Local/Temp/ccoder-baseline" && ./gradlew runIde --no-daemon
 ```
+
+> 路径必须是 Windows 形式。`/tmp/...` 是 Git Bash 的映射，但 git 本身是 Windows 程序，会把它解析成 `C:\tmp\...`。
 
 在沙箱 PyCharm 中逐条验证：
 
@@ -3409,7 +3411,7 @@ cd /tmp/ccoder-baseline && ./gradlew runIde --no-daemon
 - [ ] **Step 2: 清理基线工作区**
 
 ```bash
-cd "C:/Users/CY/Desktop/CCoder" && git worktree remove /tmp/ccoder-baseline --force
+cd "C:/Users/CY/Desktop/CCoder" && git worktree remove "C:/Users/CY/AppData/Local/Temp/ccoder-baseline" --force
 ```
 
 - [ ] **Step 3: 跑改动后的冒烟**
