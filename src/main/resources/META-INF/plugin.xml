@@ -10,6 +10,9 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <!-- 工具窗口与设置页在后续任务中注册 -->
+        <projectConfigurable
+            id="com.ccoder.settings"
+            displayName="CCoder"
+            instance="com.ccoder.settings.ClaudeSettingsPanel"/>
     </extensions>
 </idea-plugin>
