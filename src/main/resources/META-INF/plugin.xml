@@ -1,0 +1,15 @@
+<idea-plugin>
+    <id>com.ccoder.claudecode</id>
+    <name>CCoder</name>
+    <vendor>ccoder</vendor>
+
+    <description><![CDATA[
+    Claude Code integration for PyCharm via the Claude Agent SDK.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- 工具窗口与设置页在后续任务中注册 -->
+    </extensions>
+</idea-plugin>

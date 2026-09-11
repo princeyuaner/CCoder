@@ -1,7 +1,8 @@
 # ---- Gradle ----
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
+# IntelliJ Platform Gradle Plugin 的本地缓存（IDE 元数据、布局索引等）
+.intellijPlatform/
 
 # ---- IntelliJ / PyCharm ----
 # .idea/ 整体忽略：Gradle 项目的一切构建配置均由 build.gradle.kts 定义，
@@ -20,6 +21,9 @@ npm-debug.log*
 *.class
 *.jar
 *.kotlin_module
+# wrapper jar 必须入库，否则 clone 后 ./gradlew 不可用。
+# 位置有意放在 *.jar 之后 —— Git 中后面的规则胜出，放前面会被 *.jar 覆盖。
+!gradle/wrapper/gradle-wrapper.jar
 
 # ---- 构建产物 ----
 *.zip
