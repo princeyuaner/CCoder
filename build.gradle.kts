@@ -1,3 +1,8 @@
+// 显式 import：脚本作用域里 `java` 会被解析成 Gradle 的 java 扩展
+// （JavaPluginExtension），写成 java.util.zip.ZipFile 会报 Unresolved reference 'util'
+import java.io.File
+import java.util.zip.ZipFile
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
@@ -61,10 +66,41 @@ tasks {
 val sidecarDir = layout.projectDirectory.dir("sidecar")
 
 /**
+ * Gradle 的资源处理会按内置默认排除集丢弃一批文件（VCS 元数据、编辑器临时文件）。
+ * 清单是照磁盘目录生成的，必须同步剔除这些路径，否则清单会列出包内不存在的条目。
+ *
+ * 后果不是"少个无关紧要的文件"：SidecarLocator 读到清单列了、包里却没有的条目
+ * 会直接抛 SidecarNotFoundException，sidecar 根本起不来——而构建全程正常。
+ * 实测 sidecar/node_modules/fast-uri/.gitattributes 就命中了这条。
+ *
+ * 下列集合是**实测**得出的（2026-09-11 探针），不是照抄 Ant 文档：
+ * .arch-ids、.darcs、.github、.eslintignore、.npmignore 实测**不会**被丢弃，
+ * 故不在列。若 Gradle 将来改变行为，buildPlugin 末尾的一致性校验会拦住。
+ */
+fun isDroppedByPackaging(relative: String): Boolean {
+    val segments = relative.split('/')
+    // 目录名与同名文件都要拦：探针里 .svn/.git 作为文件时同样被丢弃
+    if (segments.any { it in setOf(".git", ".svn", ".hg", ".bzr", "CVS", "SCCS") }) return true
+
+    val name = segments.last()
+    if (name in setOf(
+            ".cvsignore", ".gitattributes", ".gitignore", ".gitmodules",
+            ".hgignore", ".hgsub", ".hgsubstate", ".hgtags", ".bzrignore",
+        )
+    ) return true
+
+    return name.endsWith("~") ||
+        (name.startsWith("#") && name.endsWith("#")) ||
+        name.startsWith(".#") ||
+        (name.startsWith("%") && name.endsWith("%")) ||
+        name.startsWith("._")
+}
+
+/**
  * 生成 sidecar 资源。
  *
  * 类加载器只能按条目读取 jar，无法遍历目录，所以必须预先列出全部文件
- * （manifest.txt），供 ProductionSidecarResolver 使用。
+ * （manifest.txt），供 SidecarLocator 使用。
  *
  * 排除两类内容：
  *   1. 平台原生二进制包（@anthropic-ai/claude-agent-sdk-<platform>，约 212M）
@@ -92,11 +128,14 @@ val generateSidecarManifest by tasks.registering {
             entries += relative
         }
 
-        fun emitFile(relative: String, file: java.io.File) {
+        fun emitFile(relative: String, file: File) {
             if (!file.isFile) return
             if (file.name.endsWith(".d.ts")) return
             // 注意用尾随连字符精确区分：claude-agent-sdk 自身不带平台后缀
             if (file.invariantSeparatorsPath.contains("claude-agent-sdk-")) return
+            // Gradle 资源处理会按内置默认排除集丢弃这些文件（见 isDroppedByPackaging）。
+            // 不在这里同步剔除，清单就会列着包内不存在的路径，运行时直接炸。
+            if (isDroppedByPackaging(relative)) return
             emit(relative, file.readBytes())
         }
 
@@ -203,4 +242,60 @@ val buildWebUi by tasks.registering {
 sourceSets.named("main") {
     resources.srcDir(generateSidecarManifest)
     resources.srcDir(buildWebUi)
+}
+
+/**
+ * 交付包一致性校验。
+ *
+ * 校验最终的 zip（用户实际安装的那个）里，sidecar/manifest.txt 所列的每一条
+ * 都确实存在。这一条如果漏了，症状是"插件装上后 sidecar 完全起不来"，
+ * 而构建、测试全程绿灯——2026-09-11 的 .gitattributes 事故正是这个形态：
+ * 一个 80 字节的 VCS 元数据文件让整个插件在用户机器上失效。
+ *
+ * 放在 doLast 而非独立任务：让它无法被绕过。任务本身 UP-TO-DATE 时不执行，
+ * 但那时 zip 未被重建，上次执行已经校验过。
+ */
+tasks.named<Zip>("buildPlugin") {
+    doLast {
+        val zipFile = archiveFile.get().asFile
+        var jarName: String? = null
+        var manifest: List<String> = emptyList()
+        val jarEntries = mutableSetOf<String>()
+
+        ZipFile(zipFile).use { zip ->
+            val jarEntry = zip.entries().toList()
+                .firstOrNull { it.name.endsWith(".jar") && !it.name.contains("searchableOptions") }
+                ?: error("插件包内找不到主 jar：${zipFile.name}")
+            jarName = jarEntry.name
+
+            val tmp = File.createTempFile("ccoder-verify", ".jar")
+            try {
+                tmp.outputStream().use { out -> zip.getInputStream(jarEntry).copyTo(out) }
+                ZipFile(tmp).use { jar ->
+                    // 用 toList() 而非直接 forEach：Enumeration 上的 forEach
+                    // 重载在脚本作用域里推断不出 lambda 类型
+                    jarEntries.addAll(jar.entries().toList().map { it.name })
+                    val mf = jar.getEntry("sidecar/manifest.txt")
+                        ?: error("插件包内缺少 sidecar/manifest.txt，sidecar 无法提取")
+                    manifest = jar.getInputStream(mf)
+                        .bufferedReader().readLines().filter { it.isNotBlank() }
+                }
+            } finally {
+                tmp.delete()
+            }
+        }
+
+        val missing = manifest.filter { "sidecar/$it" !in jarEntries }
+        if (missing.isNotEmpty()) {
+            error(
+                "交付包不一致：$jarName 内 sidecar/manifest.txt 列了 ${missing.size} " +
+                    "个包中不存在的条目，例如 ${missing.take(5)}。\n" +
+                    "这会让 sidecar 在用户机器上直接启动失败。请检查 " +
+                    "generateSidecarManifest 的剔除规则是否与打包行为一致。"
+            )
+        }
+        // [verify] 前缀是 ASCII 的：终端编码不一致时中文日志会变乱码，
+        // 校验结果必须无论如何都读得出来
+        logger.lifecycle("[verify] OK: manifest ${manifest.size} entries, all present in $jarName")
+    }
 }
