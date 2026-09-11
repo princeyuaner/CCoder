@@ -21,26 +21,18 @@ class ComposerRulesTest {
     // ---- 高度 ----
 
     @Test
-    fun `内容很短时也至少显示两行`() {
-        assertEquals(COMPOSER_MIN_ROWS, composerRows(measuredLines = 1))
-        assertEquals(COMPOSER_MIN_ROWS, composerRows(measuredLines = 0))
+    fun `输入框竖向撑满视口，拖高输入区才会真的变大`() {
+        val area = ComposerTextArea(COMPOSER_ROWS, 40)
+
+        assertTrue(
+            area.scrollableTracksViewportHeight,
+            "返回 false 时拖高高输入区只会多出空白，输入框本身不变 —— 看起来像拖了没用",
+        )
     }
 
     @Test
-    fun `内容变长时行数跟着长`() {
-        assertEquals(5, composerRows(measuredLines = 5))
-    }
-
-    @Test
-    fun `超过上限就停在上限，改为内部滚动`() {
-        // 不设上限的话，粘一大段代码进来输入框会把整个面板吃掉
-        assertEquals(COMPOSER_MAX_ROWS, composerRows(measuredLines = 40))
-        assertEquals(COMPOSER_MAX_ROWS, composerRows(measuredLines = COMPOSER_MAX_ROWS))
-    }
-
-    @Test
-    fun `上限必须大于下限，否则 coerceIn 会抛异常`() {
-        assertTrue(COMPOSER_MAX_ROWS > COMPOSER_MIN_ROWS, "现在 $COMPOSER_MIN_ROWS / $COMPOSER_MAX_ROWS")
+    fun `默认行数是三行，够看清自己写的一小段`() {
+        assertEquals(3, COMPOSER_ROWS)
     }
 
     // ---- 发送快捷键 ----

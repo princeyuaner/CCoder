@@ -23,7 +23,6 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -35,8 +34,6 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.event.DocumentEvent
-import javax.swing.event.DocumentListener
 import javax.swing.text.DefaultCaret
 
 /**
@@ -66,7 +63,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         isOpaque = false
     }
 
-    private val input = JBTextArea(COMPOSER_MIN_ROWS, 40).apply {
+    private val input = ComposerTextArea(COMPOSER_ROWS, 40).apply {
         lineWrap = true
         wrapStyleWord = true
         // 输入框得有输入框的样子，否则与转写区糊在一起（见 styleComposerInput）
@@ -114,26 +111,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             }
         })
 
-        // 输入框随内容长高（到上限转内部滚动）。
-        // 只在文档变化时重算、不监听尺寸变化：宽度变小会改变折行结果，
-        // 重算行数又反过来影响是否需要滚动条、再影响宽度，容易来回抖。
-        input.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent) = updateComposerRows()
-            override fun removeUpdate(e: DocumentEvent) = updateComposerRows()
-            override fun changedUpdate(e: DocumentEvent) = updateComposerRows()
-        })
-
         mainButton.addActionListener { onMainButtonClick() }
 
-        // 顶部只留状态；停止按钮已并入输入区右侧（用户在"忙"时才需要它，
-        // 放在手边比放在顶部更顺手）
+        // 顶部只留状态；发送/停止按钮在输入区下方的工具栏里
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
             add(statusLabel, BorderLayout.WEST)
         }
 
-        // 输入区顶边画一条分隔线：即使分隔条本身在某些 LAF 下不画线，
-        // 输入区与转写区之间也始终有明确的边界
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
         val inputScroll = JBScrollPane(input).apply {
             border = JBUI.Borders.empty()
@@ -151,15 +136,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         val inputArea = buildComposerArea(inputScroll, composerToolbar)
 
+        // 顶边画一条线：即使分隔条本身在某些 LAF 下不画线，
+        // 输入区与转写区之间也始终有明确的边界
         val bottom = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.customLineTop(JBColor.border())
             add(permissionSlot, BorderLayout.NORTH)
-            add(inputArea, BorderLayout.SOUTH)
+            // 输入区放 CENTER 而不是 SOUTH：BorderLayout 只给 SOUTH 首选高度，
+            // 那样把分隔条往上拖，多出来的高度会落到空着的 CENTER，输入区
+            // 纹丝不动 —— 看起来像"拖了没用"。放 CENTER 才能真正吸收。
+            add(inputArea, BorderLayout.CENTER)
         }
 
         // 上下之间可拖动调节高度。拖动结果由 splitterProportionKey 自动持久化。
         //
-        // 权限卡片不会被挤掉：bottom 是 BorderLayout(NORTH=卡片槽, SOUTH=输入区)，
+        // 权限卡片不会被挤掉：bottom 是 BorderLayout(NORTH=卡片槽, CENTER=输入区)，
         // 它的 minimumSize 由布局管理器自动取两者之和，而 splitter 设了
         // honorComponentsMinimumSize —— 拖到顶也压不没卡片（spec §6.3 要求
         // 卡片固定可见）。所以这里不需要额外维护最小高度。
@@ -538,30 +528,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     // ---- 输入 ----
-
-    /**
-     * 按内容重算输入框行数，到上限为止。
-     *
-     * 用 Swing 量出来的首选高度，而不是数 `'\n'`：`lineWrap` 打开时一段长
-     * 文本视觉上可能已经十几行、逻辑上却只有一行 —— 而那正是"粘一段提示词
-     * 进来"的常见形态，数换行符会完全漏掉它。
-     *
-     * 宽度尚未布局出来时直接返回，等下一次文档变化再说。
-     */
-    private fun updateComposerRows() {
-        val metrics = input.getFontMetrics(input.font) ?: return
-        if (metrics.height <= 0 || input.width <= 0) return
-
-        // 布局完成后 preferredSize 已经按当前宽度把折行算进去了，无需手工 setSize
-        val contentHeight = input.preferredSize.height
-        val measuredLines = (contentHeight + metrics.height / 2) / metrics.height
-
-        val rows = composerRows(measuredLines)
-        if (input.rows != rows) {
-            input.rows = rows
-            input.revalidate()
-        }
-    }
 
     private fun sendCurrentInput() {
         if (input.text.isBlank()) return

@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.SendShortcut
+import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.event.KeyEvent
@@ -9,23 +10,27 @@ import javax.swing.JPanel
 
 // ---- 输入框高度 ----
 
-/** 内容再少也留两行，让输入框看起来是个能写字的地方。 */
-internal const val COMPOSER_MIN_ROWS = 2
+/**
+ * 输入框的默认行数。
+ *
+ * **不做自动长高**（2026-09-11 用户明确要求）：高度由用户拖分隔条决定，
+ * 输入框只负责在拖出来的空间里撑满。这样"我写多长"和"它占多高"两件事
+ * 解耦，不会因为粘一段长文本就把面板顶开。
+ */
+internal const val COMPOSER_ROWS = 3
+
+// ---- 输入框本体 ----
 
 /**
- * 行数上限，超过转为输入框内部滚动。
+ * 竖向撑满视口的输入框。
  *
- * 不设上限的话，粘一大段代码进来输入框会把整个面板吃掉。
+ * `JTextArea` 默认不随视口长高（`getScrollableTracksViewportHeight()`
+ * 返回 false），把它放进滚动面板后，拖高输入区只会多出一片空白 ——
+ * 输入框本身纹丝不动，看起来像"拖了没用"。
  */
-internal const val COMPOSER_MAX_ROWS = 12
-
-/**
- * 输入框应显示的**视觉行数**（含自动折行产生的行）。
- *
- * @param measuredLines 按当前宽度量出来的视觉行数
- */
-internal fun composerRows(measuredLines: Int): Int =
-    measuredLines.coerceIn(COMPOSER_MIN_ROWS, COMPOSER_MAX_ROWS)
+internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols) {
+    override fun getScrollableTracksViewportHeight(): Boolean = true
+}
 
 // ---- 发送快捷键 ----
 
