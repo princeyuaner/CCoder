@@ -1,0 +1,38 @@
+# ---- Gradle ----
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- IntelliJ / PyCharm ----
+# .idea/ 整体忽略：Gradle 项目的一切构建配置均由 build.gradle.kts 定义，
+# IDE 侧配置可随时重新生成。且 .idea/claudeCodeTabState.xml 含个人会话 ID，
+# 不应进版本库。
+.idea/
+*.iml
+out/
+
+# ---- Node / sidecar ----
+node_modules/
+npm-debug.log*
+.npm/
+
+# ---- Kotlin / JVM ----
+*.class
+*.jar
+*.kotlin_module
+
+# ---- 构建产物 ----
+*.zip
+
+# ---- 测试与覆盖率 ----
+coverage/
+*.exec
+
+# ---- 操作系统 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 日志与临时文件 ----
+*.log
+*.tmp
