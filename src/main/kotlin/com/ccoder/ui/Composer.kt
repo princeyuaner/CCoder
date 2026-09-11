@@ -1,10 +1,14 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.SendShortcut
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.KeyboardFocusManager
 import java.awt.event.KeyEvent
+import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JPanel
 
@@ -59,24 +63,86 @@ internal fun isSendKey(
 
 // ---- 输入区布局 ----
 
+private const val CARD_ARC = 10
+
 /**
- * 输入区，自上而下三段：
+ * 输入区是一个**圆角卡片**（方案 A）。
  *
- *   NORTH  上下文长度条（无数据时整条隐藏）
+ * 边框画在卡片上，输入框自己是裸的 —— 这是这次重设计的核心取舍。
+ * 原来的做法是一个 1px 直角矩形直接框住文字，看起来像表单字段而不像
+ * 对话输入；而"分不清输入区与转写区"那个问题，改由卡片的整条上沿来回答，
+ * 边界反而更明确（它包住的是整个输入区，不只是文字那一块）。
+ *
+ * 聚焦时描边变强调色。**只改颜色、不加粗**：加粗会让内容位移一个像素，
+ * 在用户正在打字的时候抖一下。
+ */
+internal class ComposerCard : JPanel(BorderLayout()) {
+
+    private var focused = false
+
+    private val focusWatcher = java.beans.PropertyChangeListener { ev ->
+        val owner = ev.newValue as? java.awt.Component
+        setFocused(owner != null && javax.swing.SwingUtilities.isDescendingFrom(owner, this))
+    }
+
+    init {
+        isOpaque = false
+        border = BorderFactory.createCompoundBorder(
+            RoundedLineBorder({ if (focused) focusColor() else lineColor() }, JBUI.scale(CARD_ARC)),
+            JBUI.Borders.empty(4, 6, 5, 6),
+        )
+    }
+
+    fun setFocused(value: Boolean) {
+        if (focused == value) return
+        focused = value
+        repaint()
+    }
+
+    /**
+     * 焦点落在卡片里的任何一个子组件（输入框、发送按钮）上，都算卡片聚焦。
+     *
+     * 监听器挂在全局的 KeyboardFocusManager 上，所以必须在离开层级时摘掉 ——
+     * 否则每开一次工具窗口就漏一个监听器，而它捕获着这个面板。
+     */
+    override fun addNotify() {
+        super.addNotify()
+        KeyboardFocusManager.getCurrentKeyboardFocusManager()
+            .addPropertyChangeListener("focusOwner", focusWatcher)
+    }
+
+    override fun removeNotify() {
+        KeyboardFocusManager.getCurrentKeyboardFocusManager()
+            .removePropertyChangeListener("focusOwner", focusWatcher)
+        super.removeNotify()
+    }
+}
+
+/**
+ * 卡片内部自上而下三段：
+ *
+ *   NORTH  上下文行（用量在左，任务条在右；两者各自决定要不要出现）
  *   CENTER 输入框（撑满可用高度）
- *   SOUTH  控件工具栏（发送/停止在右，左侧留给以后的模型切换等）
+ *   SOUTH  控件工具栏（发送/停止在右，左侧留给模型切换等）
  *
  * 工具栏放 SOUTH 而不是把按钮摆在输入框右边（原来那样）—— 右边放不下
- * 以后的模型切换、权限模式、用量读数；摆下面则加控件只是往工具栏左侧添，
- * 不必再动结构。
+ * 以后的模型切换、权限模式；摆下面则加控件只是往工具栏左侧添，不必再动结构。
  */
-internal fun buildComposerArea(
-    contextBar: JComponent,
+internal fun buildComposerCard(
+    contextRow: JComponent,
     inputScroll: JComponent,
     toolbar: JComponent,
-): JPanel = JPanel(BorderLayout()).apply {
-    border = JBUI.Borders.empty(4, 8)
-    add(contextBar, BorderLayout.NORTH)
+): ComposerCard = ComposerCard().apply {
+    add(contextRow, BorderLayout.NORTH)
     add(inputScroll, BorderLayout.CENTER)
     add(toolbar, BorderLayout.SOUTH)
 }
+
+/** 卡片的常态描边。与 IDE 给输入类控件用的一条线同源。 */
+internal fun lineColor(): Color = JBColor.namedColor("Component.borderColor", JBColor.border())
+
+/** 聚焦描边。取平台色，取不到时退回 New UI 的一对蓝（浅色/深色各一）。 */
+internal fun focusColor(): Color = JBColor.namedColor(
+    "Component.focusColor",
+    JBColor(Color(0x35, 0x74, 0xF0), Color(0x54, 0x8A, 0xF7)),
+)

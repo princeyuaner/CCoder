@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 输入区 · 三个方案</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1420px; margin: 0 auto; padding: 56px 32px 96px; }
+
+/* ---- 页头 ---- */
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 62ch; margin: 0; font-size: 14.5px; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+  transition: background .15s, color .15s;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+/* ---- 方案网格 ---- */
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(392px, 1fr)); gap: 34px; margin-top: 44px; align-items:start; }
+
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 26px 26px 24px; }
+.card.picked { border-color: var(--accent); }
+
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 25px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+/* 固定三行：三个定位语长度不一，不锁高的话三个模拟窗口会错开，
+   输入区的上沿就不在同一条水平线上，没法横着比 */
+.thesis { color: var(--page-dim); font-size: 13.5px; margin: 0 0 22px; min-height: 65px; }
+
+/* ---- 模拟工具窗口 ---- */
+.tw {
+  border:1px solid var(--page-line); border-radius: 9px; overflow:hidden;
+  background: var(--panel); font-family: var(--ui);
+  box-shadow: 0 12px 34px rgba(0,0,0,.16);
+}
+.tw-bar { display:flex; align-items:center; gap:8px; padding: 7px 11px; border-bottom:1px solid var(--border-soft); background: var(--panel); }
+.tw-dot { width:8px; height:8px; border-radius:50%; background: var(--ok); }
+.tw-title { font-size: 11.5px; color: var(--dim); letter-spacing:.02em; }
+.tw-strip { margin-left:auto; font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+
+/* 转写区（只画尾部，让输入区的上边界关系看得见） */
+/* 固定高度：三个方案的转写区一样高，输入区的上沿才会落在同一条水平线上，
+   否则高度差会把视线带偏，"哪个输入区更高"这件事反而看不出来 */
+.transcript { height: 116px; overflow:hidden; padding: 14px 14px 0; display:flex; flex-direction:column; gap:9px; }
+.bub { border-radius: 11px; padding: 7px 11px; font-size: 12.5px; line-height:1.5; max-width: 88%; }
+.bub.user { align-self:flex-end; background: var(--accent-soft); color: var(--text); }
+.bub.ai   { align-self:flex-start; background: var(--code); color: var(--text); }
+.bub.dim  { opacity:.42; }
+.transcript .fade { height: 16px; background: linear-gradient(to bottom, transparent, var(--panel)); margin-top:-6px; }
+
+/* 可编辑输入（真 focus，不是画出来的） */
+.input {
+  outline: none; color: var(--text); caret-color: var(--accent);
+  word-break: break-word; overflow-wrap: anywhere;
+}
+.input:empty::before { content: attr(data-ph); color: var(--dim); }
+
+/* 图标 */
+.ico { width:14px; height:14px; display:block; }
+.chev { font-size:9px; line-height:1; opacity:.75; }
+
+/* ============================================================
+   方案 A —— 卡片式
+   ============================================================ */
+.a-comp {
+  margin: 12px 9px 9px; border:1px solid var(--border); border-radius: 10px;
+  background: var(--panel); transition: border-color .14s ease;
+}
+.a-comp:focus-within { border-color: var(--accent); }
+.a-chips { display:flex; gap:6px; flex-wrap:wrap; padding: 9px 11px 0; }
+.a-chip {
+  display:inline-flex; align-items:center; gap:6px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+  border:1px solid var(--border-soft); border-radius: 999px; padding: 3px 8px;
+  background: var(--code);
+}
+.a-chip b { font-weight:500; color: var(--text); opacity:.82; }
+.a-chip .x { opacity:.5; font-size:12px; line-height:1; }
+/* 常态中性，只有真的快满了才转琥珀。6% 就报警等于把"警告"这个词作废 */
+.a-chip.hot { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.a-input { padding: 10px 13px 8px; min-height: 44px; font-size: 13px; line-height:1.6; }
+.a-comp.solo .a-input { padding-top: 11px; }
+.a-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 2px 7px 7px 13px; }
+.a-model {
+  display:inline-flex; align-items:center; gap:5px; font-size: 11.5px; color: var(--dim);
+  padding: 4px 7px; border-radius: 6px; cursor:default;
+}
+.a-model:hover { background: var(--hover); color: var(--text); }
+.a-send {
+  width: 29px; height: 29px; border-radius: 50%; display:grid; place-items:center;
+  background: var(--accent); color: var(--accent-fg); flex: 0 0 auto;
+}
+.a-send.idle { background: transparent; border:1px solid var(--border); color: var(--dim); }
+.a-send.busy { background: var(--accent); }
+
+/* ============================================================
+   方案 B —— 内嵌式
+   ============================================================ */
+.b-wrap { border-top: 2px solid var(--border); background: var(--surface); transition: border-color .16s ease; }
+.b-wrap:focus-within { border-top-color: var(--accent); }
+.b-wrap.busy { border-top-color: var(--accent); }
+.b-input { padding: 12px 15px 6px; min-height: 46px; font-size: 13px; line-height:1.6; }
+.b-bar { display:flex; align-items:center; gap: 4px; padding: 0 9px 9px 11px; }
+.b-ghost {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size: 11.5px; color: var(--dim); padding: 4px 8px; border-radius: 6px; cursor:default;
+}
+.b-ghost:hover { background: var(--hover); color: var(--text); }
+.b-usage { margin-left:auto; font-family: var(--mono); font-size: 10.5px; color: var(--dim); letter-spacing:.03em; padding-right: 8px; }
+.b-usage b { color: var(--text); font-weight:500; opacity:.8; }
+.b-send {
+  width: 26px; height: 26px; border-radius: 6px; display:grid; place-items:center;
+  color: var(--accent); flex:0 0 auto;
+}
+.b-send.empty { color: var(--dim); }
+.b-send.empty:hover { background: var(--hover); }
+.b-send:hover { background: var(--hover); }
+.b-send.busy { color: var(--accent); }
+
+/* ============================================================
+   方案 C —— 提示符式
+   ============================================================ */
+.c-wrap { border-top: 1px solid var(--border); background: var(--editor); }
+.c-body { display:flex; gap: 9px; padding: 12px 13px 8px; align-items:flex-start; }
+/* 字号必须与输入框一致：两边 line-height 都是 1.55，字号不同则行盒高度不同，
+   › 和正文的基线就会错开 —— 提示符式全靠这条线对齐，错一点点就散 */
+.c-prompt { font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--accent); line-height:1.55; flex:0 0 auto; user-select:none; }
+.c-input { flex:1 1 auto; min-height: 42px; font-family: var(--mono); font-size: 12.5px; line-height:1.55; }
+.c-wrap:focus-within .c-prompt { text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent); }
+.c-status {
+  display:flex; align-items:center; gap: 0; padding: 5px 13px 7px;
+  border-top:1px solid var(--border-soft);
+  font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+}
+.c-status span + span::before { content: "·"; margin: 0 8px; opacity:.45; }
+.c-status .path { opacity:.75; }
+.c-status b { color: var(--text); font-weight:500; opacity:.82; }
+.c-send { margin-left:auto; display:inline-flex; align-items:center; gap:5px; color: var(--dim); }
+.c-send.ready { color: var(--accent); }
+.c-send::before { content:none !important; }
+
+/* ---- 按钮三态 ---- */
+.states { display:flex; gap: 22px; margin-top: 18px; padding-top: 16px; border-top:1px dashed var(--page-line); }
+.state { display:flex; flex-direction:column; align-items:center; gap:8px; }
+.state .lbl { font-family: var(--mono); font-size: 10px; color: var(--page-dim); letter-spacing:.06em; }
+.state .pill { width:46px; height:46px; display:grid; place-items:center; background: var(--panel); border:1px solid var(--page-line); border-radius:9px; }
+.state .pill .btn { position:static; }
+
+/* ---- 规格表 ---- */
+.spec { margin-top: 20px; }
+.spec h3 { font-family: var(--mono); font-size: 10.5px; letter-spacing:.14em; text-transform:uppercase; color: var(--page-dim); margin: 0 0 9px; font-weight:500; }
+.spec dl { margin:0; display:grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12.5px; }
+.spec dt { font-family: var(--mono); font-size: 11px; color: var(--page-dim); white-space:nowrap; }
+.spec dd { margin:0; }
+/* 代价用 ul 而不是 dl：这些条目没有"名"，塞进 dl 会落到 auto 那一列被挤成竖排单字 */
+.spec .notes { margin:0; padding:0; list-style:none; font-size:12.5px; }
+.spec .notes li { position:relative; padding-left:13px; margin-bottom:7px; }
+.spec .notes li::before { position:absolute; left:0; top:0; font-family:var(--mono); }
+.spec .notes .cost::before { content:"−"; color: var(--warn); }
+.spec .notes .gain::before { content:"+"; color: var(--ok); }
+.spec .cost { color: color-mix(in srgb, var(--warn) 72%, var(--page-fg)); }
+.spec .gain { color: color-mix(in srgb, var(--ok) 72%, var(--page-fg)); }
+
+/* ---- 任务与子代理 ---- */
+.place-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(392px,1fr)); gap: 30px; align-items:start; }
+.place { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 24px 24px; }
+.place.no  { border-color: color-mix(in srgb, var(--warn) 46%, var(--page-line)); }
+.place.yes { border-color: color-mix(in srgb, var(--ok) 46%, var(--page-line)); }
+.verdict { font-family: var(--mono); font-size:11px; letter-spacing:.1em; margin:0 0 8px; text-transform:uppercase; }
+.place.no  .verdict { color: var(--warn); }
+.place.yes .verdict { color: var(--ok); }
+.why { color: var(--page-dim); font-size:12.5px; margin:0 0 18px; min-height: 54px; }
+
+/* 运行状态条 —— 钉在转写区顶部 */
+.runbar {
+  display:flex; align-items:center; gap:9px; padding: 6px 11px;
+  background: var(--code); border-bottom:1px solid var(--border-soft);
+  font-size: 11.5px; font-family: var(--ui);
+}
+.rb-caret { color: var(--dim); font-size:9px; }
+.rb-count { font-family: var(--mono); font-size:11px; color: var(--dim); }
+.rb-now { color: var(--text); }
+.rb-agents { margin-left:auto; color: var(--dim); white-space:nowrap; }
+.rb-agents b { color: var(--accent); font-weight:600; }
+
+.runbar-body { padding: 9px 11px 10px; background: var(--code); border-bottom:1px solid var(--border-soft); }
+.todos { margin:0; padding:0; list-style:none; font-size: 11.5px; }
+.todos li { position:relative; padding-left:16px; margin-bottom:4px; color: var(--dim); }
+.todos li::before { position:absolute; left:0; font-family: var(--mono); font-size:11px; }
+.todos li.done { color: color-mix(in srgb, var(--dim) 66%, transparent); text-decoration: line-through; }
+.todos li.done::before { content:"✓"; color: var(--ok); text-decoration:none; }
+.todos li.doing { color: var(--text); }
+.todos li.doing::before { content:"◐"; color: var(--accent); }
+.todos li:not(.done):not(.doing)::before { content:"○"; }
+.agents { margin-top:9px; padding-top:8px; border-top:1px dashed var(--border); display:flex; flex-direction:column; gap:6px; }
+.agent { display:flex; align-items:center; gap:7px; font-size:11.5px; color: var(--dim); }
+.agent b { color: var(--text); font-weight:600; font-family: var(--mono); font-size:10.5px; }
+.agent .meta { margin-left:auto; font-family: var(--mono); font-size:10px; }
+.agent .pulse { width:6px; height:6px; border-radius:50%; background: var(--accent); flex:0 0 auto; animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.22 } }
+@media (prefers-reduced-motion: reduce) { .agent .pulse { animation: none } }
+
+/* ---- 方案丙：内联在转写流 ---- */
+.tl-collapsed { font-family: var(--mono); font-size:10.5px; color: var(--dim); padding: 1px 0; }
+.toolblock { border-left: 2px solid var(--border); padding-left: 9px; }
+.tb-head { font-family: var(--mono); font-size:11px; color: var(--text); }
+.tb-head .meta { color: var(--dim); }
+.tb-body { margin-top: 5px; }
+.tb-body .bub { font-size: 11.5px; }
+.taskcard { border:1px solid var(--border-soft); border-radius: 9px; padding: 9px 11px 10px; background: var(--code); }
+.tc-head { display:flex; align-items:center; gap:8px; font-size:11.5px; color: var(--text); margin-bottom: 7px; }
+.tc-head .rb-count { margin-left:auto; }
+
+/* ---- 选择机制 ---- */
+.card, .place { position: relative; }
+.selectable { cursor: pointer; transition: border-color .15s ease; }
+.selectable:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--page-line)); }
+.selectable[aria-selected="true"] { border-color: var(--accent); }
+.pickmark {
+  position:absolute; top: 22px; right: 22px;
+  font-family: var(--mono); font-size: 10px; letter-spacing:.12em; text-transform:uppercase;
+  padding: 3px 10px; border-radius: 999px; border:1px solid var(--page-line); color: var(--page-dim);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.selectable:hover .pickmark { border-color: var(--accent); color: var(--accent); }
+.selectable[aria-selected="true"] .pickmark { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+/* 乙 方案里那个浮层：盖在输入框上方，不把布局推下去 */
+.a-comp { position: relative; }
+/* 浮层向上开，浮在转写区上——朝下开会把整个输入区盖住，
+   那正好是这一屏要比较的东西 */
+.chip-pop {
+  position:absolute; left:0; right:0; bottom:100%; margin-bottom:7px; z-index:5;
+  background: var(--panel); border:1px solid var(--border); border-radius: 9px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.34); padding: 10px 12px 11px;
+}
+.chip-pop::after {
+  content:""; position:absolute; left: 92px; bottom: -6px;
+  border-left:6px solid transparent; border-right:6px solid transparent;
+  border-top:6px solid var(--border);
+}
+.cp-head { font-family: var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); margin-bottom:8px; }
+
+/* ---- 底部选择栏 ---- */
+.pickbar {
+  position: fixed; left:0; right:0; bottom:0; z-index: 30;
+  display:flex; align-items:center; gap:11px; padding: 12px 32px;
+  background: var(--page-card); border-top:1px solid var(--page-line);
+  box-shadow: 0 -8px 24px rgba(0,0,0,.16); font-size: 13px;
+}
+.pk-label { font-family: var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); }
+.pk-val { font-weight:600; }
+.pk-val.empty { color: var(--page-dim); font-weight:400; }
+.pk-sep { width:1px; height:16px; background: var(--page-line); }
+.pk-copy {
+  margin-left:auto; font-family: var(--mono); font-size:11px; letter-spacing:.06em;
+  padding: 7px 15px; border-radius: 7px; border:1px solid var(--page-line);
+  background: transparent; color: var(--page-dim); cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.pk-copy:hover { border-color: var(--accent); color: var(--accent); }
+.pk-copy.done { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+/* ---- 任务与子代理条（已定） ---- */
+.state-col { border:1px solid var(--page-line); border-radius:12px; overflow:hidden; background: var(--page-card); }
+.state-demo { display:flex; align-items:center; gap:14px; padding: 9px 14px; border-bottom:1px solid var(--page-line); }
+.state-demo:last-child { border-bottom:0; }
+.sd-label { font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:var(--page-dim); width:76px; flex:0 0 auto; }
+.sd-note { color: var(--page-dim); font-size:11.5px; margin-left:auto; }
+.sd-note strong { color: var(--page-fg); }
+
+.ctxrow {
+  position: relative; flex: 1 1 auto; min-width:0;
+  display:flex; align-items:center; gap:10px;
+  background: var(--panel); border:1px solid var(--page-line); border-radius:8px;
+  padding: 6px 10px;
+}
+.ctx-usage { color: var(--dim); font-size:11px; white-space:nowrap; flex:0 0 auto; }
+
+/* 上下文右边那条。计数和任务名都可能被压缩，但计数绝不先掉 */
+.run-strip {
+  margin-left:auto; min-width:0; max-width: 76%;
+  display:inline-flex; align-items:center; gap:6px;
+  padding: 2px 9px 2px 8px; border-radius: 999px;
+  border:1px solid var(--border-soft); background: var(--code);
+  font-size: 11px; color: var(--dim); cursor:pointer;
+  transition: border-color .14s ease, color .14s ease;
+}
+.run-strip:hover { border-color: var(--accent); color: var(--text); }
+.rs-todo { font-family: var(--mono); color: var(--accent); flex:0 0 auto; }
+.rs-now { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color: var(--text); }
+.rs-sep { width:1px; height:11px; background: var(--border); flex:0 0 auto; }
+.rs-dot { width:5px; height:5px; border-radius:50%; background: var(--accent); flex:0 0 auto; animation: pulse 1.5s ease-in-out infinite; }
+.rs-caret { font-size:9px; opacity:.7; flex:0 0 auto; }
+
+/* 详情浮层：向上开，不推布局 */
+.run-pop {
+  position:absolute; right:0; bottom:100%; margin-bottom:8px; width: 306px; z-index:6;
+  background: var(--panel); border:1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0,0,0,.36); padding: 11px 13px 12px;
+  text-align:left; cursor:default;
+}
+.rp-head { display:flex; align-items:center; font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); margin-bottom:8px; }
+.rp-count { margin-left:auto; color: var(--accent); letter-spacing:0; }
+
+/* ---- 底部对比 ---- */
+.compare { margin-top: 62px; }
+.compare h2 { font-family: var(--serif); font-size: 26px; font-weight:600; margin: 0 0 6px; }
+.compare p { color: var(--page-dim); margin: 0 0 22px; }
+table { width:100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align:left; padding: 11px 14px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+th { font-family: var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); font-weight:500; }
+td:first-child { font-family: var(--mono); font-size:11.5px; color: var(--page-dim); white-space:nowrap; }
+tbody tr:hover { background: color-mix(in srgb, var(--page-fg) 3%, transparent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 输入区重设计</p>
+      <h1>三个方案</h1>
+      <p class="lede">
+        同一块区域、同一批控件、同一份主题变量 —— 只有构图哲学不同。
+        下面每个稿子都能点进去真的打字，聚焦态是真的（<code style="font-family:var(--mono);font-size:12px">:focus-within</code>），
+        因为输入区好不好看，一半在于聚焦时它<em>怎么回应你</em>。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="t-dark"  aria-pressed="true"  onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- ══════════════ 方案 A ══════════════ -->
+    <section class="card selectable" data-pick-group="composer" data-pick-id="A" aria-selected="false">
+      <span class="pickmark">选它</span>
+      <p class="tag">方案 A</p>
+      <h2>卡片式</h2>
+      <p class="thesis">
+        输入区是一个<strong>圆角容器</strong>，边框画在容器上，输入框本身是裸的。
+        上下文、输入、控件三样被同一个边框收进一个整体。
+      </p>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="tw-dot"></span><span class="tw-title">CCoder</span><span class="tw-strip">已连接</span></div>
+        <div class="transcript">
+          <div class="bub ai dim">正在读取 <code style="font-family:var(--mono)">ClaudePanel.kt</code>…</div>
+          <div class="bub ai dim">这个面板负责工具窗口的整体布局，输入区是它的下半部分。</div>
+        </div>
+        <div class="fade"></div>
+
+        <div class="a-comp">
+          <div class="a-chips">
+            <span class="a-chip"><b>ClaudePanel.kt</b><span class="x">×</span></span>
+            <span class="a-chip">12.3k / 200k · 6%</span>
+          </div>
+          <div class="a-input input" contenteditable="true" data-ph="输入消息，Enter 发送，Shift+Enter 换行"></div>
+          <div class="a-bar">
+            <span class="a-model">Sonnet 4.5 <span class="chev">▾</span></span>
+            <span class="a-send">
+              <svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="states">
+        <div class="state"><span class="pill"><span class="a-send idle"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span class="lbl">空</span></div>
+        <div class="state"><span class="pill"><span class="a-send"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span class="lbl">可发送</span></div>
+        <div class="state"><span class="pill"><span class="a-send busy"><svg class="ico" viewBox="0 0 16 16"><rect x="4.6" y="4.6" width="6.8" height="6.8" rx="1.6" fill="currentColor"/></svg></span></span><span class="lbl">停止</span></div>
+      </div>
+
+      <div class="spec">
+        <h3>关键尺寸</h3>
+        <dl>
+          <dt>容器</dt><dd>圆角 10 · 线 1px · 外边距 9</dd>
+          <dt>聚焦</dt><dd>线色 → <span style="color:var(--accent)">accent</span>（不变粗）</dd>
+          <dt>输入</dt><dd>裸底 · 内边距 10/13 · 13px</dd>
+          <dt>按钮</dt><dd>29px 正圆 · 实心 accent</dd>
+        </dl>
+        <h3 style="margin-top:16px">代价</h3>
+        <ul class="notes">
+          <li class="cost">窄栏里"框里套框"：气泡已经有一层背景，再加一个圆角容器，边界容易显得碎。</li>
+          <li class="gain">换来的是最不可能"分不清" —— 上次的投诉正是边界不明。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════ 方案 B ══════════════ -->
+    <section class="card selectable" data-pick-group="composer" data-pick-id="B" aria-selected="false">
+      <span class="pickmark">选它</span>
+      <p class="tag">方案 B</p>
+      <h2>内嵌式</h2>
+      <p class="thesis">
+        没有边框，也没有圆角。输入区靠<strong>一块更深的底板</strong>和顶沿那条
+        <strong>聚焦时点亮的 accent 细线</strong>划出边界 —— 像编辑器自己的内联控件。
+      </p>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="tw-dot"></span><span class="tw-title">CCoder</span><span class="tw-strip">已连接</span></div>
+        <div class="transcript">
+          <div class="bub ai dim">正在读取 <code style="font-family:var(--mono)">ClaudePanel.kt</code>…</div>
+          <div class="bub ai dim">这个面板负责工具窗口的整体布局，输入区是它的下半部分。</div>
+        </div>
+        <div class="fade"></div>
+
+        <div class="b-wrap">
+          <div class="b-input input" contenteditable="true" data-ph="输入消息，Enter 发送，Shift+Enter 换行"></div>
+          <div class="b-bar">
+            <span class="b-ghost">Sonnet 4.5 <span class="chev">▾</span></span>
+            <span class="b-usage"><b>12.3k</b> / 200k · 6%</span>
+            <span class="b-send">
+              <svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="states">
+        <div class="state"><span class="pill"><span class="b-send empty"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span class="lbl">空</span></div>
+        <div class="state"><span class="pill"><span class="b-send"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span class="lbl">可发送</span></div>
+        <div class="state"><span class="pill"><span class="b-send busy"><svg class="ico" viewBox="0 0 16 16"><rect x="4.6" y="4.6" width="6.8" height="6.8" rx="1.6" fill="currentColor"/></svg></span></span><span class="lbl">停止</span></div>
+      </div>
+
+      <div class="spec">
+        <h3>关键尺寸</h3>
+        <dl>
+          <dt>顶沿</dt><dd>2px · 常态 <span style="color:var(--dim)">border</span> · 聚焦 <span style="color:var(--accent)">accent</span></dd>
+          <dt>底板</dt><dd><span style="font-family:var(--mono);font-size:11px">--surface</span>，与面板差一层</dd>
+          <dt>输入</dt><dd>无边框 · 内边距 12/15 · 13px</dd>
+          <dt>按钮</dt><dd>26px 幽灵 · 悬停才有底</dd>
+        </dl>
+        <h3 style="margin-top:16px">代价</h3>
+        <ul class="notes">
+          <li class="cost">弱边界。<strong>低对比主题下可能又"分不清"</strong> —— 这正是你上一条反馈要我修的问题，选它等于把风险押在"底板色差够不够"上。</li>
+          <li class="gain">最安静，最不像"插件自己长的一块"，与 IDE 融为一体。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════ 方案 C ══════════════ -->
+    <section class="card selectable" data-pick-group="composer" data-pick-id="C" aria-selected="false">
+      <span class="pickmark">选它</span>
+      <p class="tag">方案 C</p>
+      <h2>提示符式</h2>
+      <p class="thesis">
+        向右的 <strong>›</strong> 是唯一的视觉锚点，等宽字，零圆角。
+        底部是一条终端风格的状态行 —— 这个输入区长得就像 Claude Code 自己。
+      </p>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="tw-dot"></span><span class="tw-title">CCoder</span><span class="tw-strip">已连接</span></div>
+        <div class="transcript">
+          <div class="bub ai dim">正在读取 <code style="font-family:var(--mono)">ClaudePanel.kt</code>…</div>
+          <div class="bub ai dim">这个面板负责工具窗口的整体布局，输入区是它的下半部分。</div>
+        </div>
+        <div class="fade"></div>
+
+        <div class="c-wrap">
+          <div class="c-body">
+            <span class="c-prompt">›</span>
+            <div class="c-input input" contenteditable="true" data-ph="给 Claude 一个任务…"></div>
+          </div>
+          <div class="c-status">
+            <span>sonnet-4.5</span>
+            <span><b>12.3k</b>/200k</span>
+            <span class="path">ClaudePanel.kt</span>
+            <span class="c-send ready">↵ 发送</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="states">
+        <div class="state"><span class="pill"><span class="c-send">↵</span></span><span class="lbl">空</span></div>
+        <div class="state"><span class="pill"><span class="c-send ready">↵</span></span><span class="lbl">可发送</span></div>
+        <div class="state"><span class="pill"><span class="c-send ready" style="font-size:15px">■</span></span><span class="lbl">停止</span></div>
+      </div>
+
+      <div class="spec">
+        <h3>关键尺寸</h3>
+        <dl>
+          <dt>提示符</dt><dd><span style="font-family:var(--mono);font-size:11px">›</span> · 13.5px 粗 · accent</dd>
+          <dt>正文</dt><dd>等宽 12.5px · 自动悬挂缩进</dd>
+          <dt>状态行</dt><dd>等宽 10.5px · <span style="font-family:var(--mono);font-size:11px">·</span> 分隔</dd>
+          <dt>发送</dt><dd>文字控件 <span style="font-family:var(--mono);font-size:11px">↵ 发送</span></dd>
+        </dl>
+        <h3 style="margin-top:16px">代价</h3>
+        <ul class="notes">
+          <li class="cost">等宽中文字宽大、笔画密，小字号下容易糊。<strong>需要你实机看一眼中文</strong>才能定。</li>
+          <li class="cost">零圆角、无按钮感，习惯图形按钮的人一开始会找不到"发"在哪。</li>
+          <li class="gain">性格最强，与 CLI 同源，上下文/模型全塞进状态行也毫不违和。</li>
+        </ul>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ══════════════ 任务与子代理条 ══════════════ -->
+  <section style="margin-top:62px">
+    <h2 style="font-family:var(--serif);font-size:26px;font-weight:600;margin:0 0 6px">任务与子代理条<span style="font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--accent);margin-left:12px;vertical-align:middle">已定</span></h2>
+    <p style="color:var(--page-dim);margin:0 0 8px;max-width:80ch">
+      按你说的定：<strong>挂在上下文右边的一条</strong>。不另起一层，也不钉在转写区顶部——它跟用量<strong>共用同一行</strong>，左边是上下文，右边是正在跑的东西，<strong>点开看详情</strong>。
+    </p>
+    <p style="color:var(--page-dim);margin:0 0 26px;max-width:80ch">
+      为什么这样合得住：用量和任务都是<strong>状态</strong>，都只在"当前这一刻"有意义。挤在同一行之后，谁也不多占一层，输入框的高度也不会被它们推来推去。
+    </p>
+
+    <h3 style="font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--page-dim);margin:0 0 12px;font-weight:500">这条的五种状态</h3>
+    <div class="state-col">
+
+      <div class="state-demo">
+        <span class="sd-label">空</span>
+        <div class="ctxrow"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+          <span class="sd-note">没有任务也没有子代理 —— <strong>整条不出现</strong>，而不是显示"0/0"</span></div>
+      </div>
+
+      <div class="state-demo">
+        <span class="sd-label">只有任务</span>
+        <div class="ctxrow"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+          <span class="run-strip"><span class="rs-todo">◐ 3/7</span><span class="rs-now">修复 extractor 指纹</span><span class="rs-caret">▾</span></span></div>
+      </div>
+
+      <div class="state-demo">
+        <span class="sd-label">只有子代理</span>
+        <div class="ctxrow"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+          <span class="run-strip"><span class="rs-dot"></span><span class="rs-todo">2</span><span class="rs-now">运行中</span><span class="rs-caret">▾</span></span></div>
+      </div>
+
+      <div class="state-demo">
+        <span class="sd-label">都有</span>
+        <div class="ctxrow"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+          <span class="run-strip"><span class="rs-todo">◐ 3/7</span><span class="rs-now">修复 extractor 指纹</span><span class="rs-sep"></span><span class="rs-dot"></span><span class="rs-todo">2</span><span class="rs-caret">▾</span></span></div>
+      </div>
+
+      <div class="state-demo">
+        <span class="sd-label">窄栏</span>
+        <div class="ctxrow" style="max-width:320px"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k</span>
+          <span class="run-strip"><span class="rs-todo">◐ 3/7</span><span class="rs-now">修复 extractor 指纹</span><span class="rs-sep"></span><span class="rs-dot"></span><span class="rs-todo">2</span><span class="rs-caret">▾</span></span></div>
+      </div>
+
+    </div>
+    <p style="color:var(--page-dim);font-size:12.5px;margin:12px 0 34px;max-width:80ch">
+      窄栏那行：用量先让位（砍掉百分比），再不够就<strong>只截任务名</strong>——<strong>计数永远留着</strong>。"3/7"和"2"是这一条存在的理由，任务名是锦上添花。
+    </p>
+
+    <div class="place-grid">
+      <div class="place">
+        <p class="verdict" style="color:var(--accent)">收起态 · 在整屏里的位置</p>
+        <p class="why">条就在用量右边，比其他任何东西都靠近你的输入框。</p>
+        <div class="tw">
+          <div class="tw-bar"><span class="tw-dot"></span><span class="tw-title">CCoder</span><span class="tw-strip">已连接</span></div>
+          <div class="transcript">
+            <div class="bub ai dim">正在读取 <code style="font-family:var(--mono)">ClaudePanel.kt</code>…</div>
+            <div class="bub ai dim">这个面板负责工具窗口的整体布局。</div>
+          </div>
+          <div class="fade"></div>
+          <div class="a-comp">
+            <div class="ctxrow"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+              <span class="run-strip"><span class="rs-todo">◐ 3/7</span><span class="rs-now">修复 extractor 指纹</span><span class="rs-sep"></span><span class="rs-dot"></span><span class="rs-todo">2</span><span class="rs-caret">▾</span></span></div>
+            <div class="a-input input" contenteditable="true" data-ph="输入消息，Enter 发送，Shift+Enter 换行"></div>
+            <div class="a-bar"><span class="a-model">Sonnet 4.5 <span class="chev">▾</span></span>
+              <span class="a-send idle"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="place">
+        <p class="verdict" style="color:var(--accent)">点开 · 详情浮层</p>
+        <p class="why">浮层<strong>向上浮在转写区上</strong>，不把输入框推下去——你正在打的字不会因为点了一下就挪位。再点一次或点别处收起。</p>
+        <div class="tw">
+          <div class="tw-bar"><span class="tw-dot"></span><span class="tw-title">CCoder</span><span class="tw-strip">已连接</span></div>
+          <div class="transcript" style="height:186px">
+            <div class="bub ai dim">正在读取 <code style="font-family:var(--mono)">ClaudePanel.kt</code>…</div>
+            <div class="bub ai dim">这个面板负责工具窗口的整体布局。</div>
+          </div>
+          <div class="fade"></div>
+          <div class="a-comp">
+            <div class="ctxrow"><span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+              <span class="run-strip" style="border-color:var(--accent);color:var(--text)"><span class="rs-todo">◐ 3/7</span><span class="rs-now">修复 extractor 指纹</span><span class="rs-sep"></span><span class="rs-dot"></span><span class="rs-todo">2</span><span class="rs-caret">▴</span></span>
+              <div class="run-pop">
+                <div class="rp-head">任务清单<span class="rp-count">3/7</span></div>
+                <ul class="todos">
+                  <li class="done">定位 manifest 与实际打包的差异</li>
+                  <li class="done">加内容指纹校验</li>
+                  <li class="doing">修复 extractor 指纹比对</li>
+                  <li>补回归测试</li>
+                </ul>
+                <div class="rp-head" style="margin-top:11px">运行中<span class="rp-count">2</span></div>
+                <div class="agents">
+                  <div class="agent"><span class="pulse"></span><b>explore</b> 查找 sidecar 启动路径 <span class="meta">12.4k tok · 8s</span></div>
+                  <div class="agent"><span class="pulse"></span><b>local_bash</b> npm run build <span class="meta">3.1k tok · 4s</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="a-input input" contenteditable="true" data-ph="输入消息，Enter 发送，Shift+Enter 换行"></div>
+            <div class="a-bar"><span class="a-model">Sonnet 4.5 <span class="chev">▾</span></span>
+              <span class="a-send idle"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M8 13.2V3.2M8 3.2 3.6 7.6M8 3.2l4.4 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="place-grid">
+      <div class="place">
+        <p class="verdict" style="color:var(--accent)">参考 · 每格数据从哪来</p>
+        <p class="why">三个数字，三个不同的 SDK 来源。</p>
+        <div class="tw" style="box-shadow:none">
+          <div class="ctxrow" style="margin:12px">
+            <span class="ctx-usage">上下文&nbsp;&nbsp;12.3k / 200k · 6%</span>
+            <span class="run-strip" style="border-color:var(--accent);color:var(--text)"><span class="rs-todo">◐ 3/7</span><span class="rs-now">修复 extractor 指纹</span><span class="rs-sep"></span><span class="rs-dot"></span><span class="rs-todo">2</span><span class="rs-caret">▾</span></span>
+          </div>
+        </div>
+        <div class="spec">
+          <h3 style="margin-top:18px">数据来源</h3>
+          <ul class="notes">
+            <li><code style="font-family:var(--mono);font-size:11px">3/7</code> 与清单 ← <code style="font-family:var(--mono);font-size:11px">TodoWrite</code> 的 tool_use input（<code style="font-family:var(--mono);font-size:11px">todos[].status</code>）</li>
+            <li><code style="font-family:var(--mono);font-size:11px">正在：…</code> ← 同为 todos 里 <code style="font-family:var(--mono);font-size:11px">status=in_progress</code> 那项的 <code style="font-family:var(--mono);font-size:11px">activeForm</code></li>
+            <li>子代理<strong>数量</strong> ← <code style="font-family:var(--mono);font-size:11px">background_tasks_changed</code>，<span class="gain">整集替换</span>而非加减</li>
+            <li>子代理<strong>行</strong> ← <code style="font-family:var(--mono);font-size:11px">task_started</code>（类型/描述）+ <code style="font-family:var(--mono);font-size:11px">task_progress</code>（token/时长）</li>
+            <li class="cost"><code style="font-family:var(--mono);font-size:11px">ambient=true</code> 的必须滤掉，否则指示器永远不归零</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+
+    <p style="margin-top:30px;font-size:13px;max-width:80ch">
+      <strong>子代理完工后不留在条里</strong>，而是回到转写流，作为<strong>嵌套块</strong>挂在触发它的那个 tool_use 下面——运行中是状态，产出是历史。
+      这需要 sidecar 打开 <code style="font-family:var(--mono);font-size:12px">forwardSubagentText: true</code>（默认关），光改 Kotlin 侧做不到。
+    </p>
+  </section>
+
+  <!-- ══════════════ 对比 ══════════════ -->
+  <section class="compare">
+    <h2>怎么选</h2>
+    <p>三个方案都躲开了同一个陷阱：<strong>把边框画在输入框本身</strong>。现在这版之所以生硬，是因为一个 1px 直角矩形直接框住了文字，像表单字段而不像对话输入。</p>
+    <table>
+      <thead>
+        <tr><th></th><th>A · 卡片式</th><th>B · 内嵌式</th><th>C · 提示符式</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>边界靠什么</td><td>圆角描边</td><td>底板色差 + 顶沿亮线</td><td>上方一条硬分割线</td></tr>
+        <tr><td>聚焦的回应</td><td>描边变蓝</td><td>顶沿点蓝</td><td>提示符发微光</td></tr>
+        <tr><td>上下文放哪</td><td>容器内顶部，成 pills</td><td>工具栏右侧，纯文字</td><td>底部状态行，等宽</td></tr>
+        <tr><td>模型切换以后放哪</td><td>底部左，独立按钮</td><td>底部左，幽灵按钮</td><td>状态行第一段</td></tr>
+        <tr><td>再加控件的成本</td><td>低（工具栏还很空）</td><td>低</td><td>低（状态行可续段）</td></tr>
+        <tr><td>窄栏表现</td><td>边框变密</td><td>最好</td><td>好，但中文密</td></tr>
+        <tr><td>"分不清"的风险</td><td>最低</td><td class="cost">最高</td><td>低</td></tr>
+        <tr><td>Swing 实现量</td><td>中（圆角自绘 ~40 行）</td><td class="gain">最小（≈ 现状 + 焦点监听）</td><td>小（提示符就是 JLabel）</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:22px;font-size:13px">
+      <strong>我的建议</strong>：选 <strong>A</strong>。它正面解决你提过的"分不清"，同时把模型切换和上下文都安排进了容器内部 —— 你后续要加的东西，位置现在就已经留好了。
+      <strong>C</strong> 是最有想法的那个，但它的成败押在"中文等宽小字号好不好看"上，值得你实机比对一次再决定要不要冒险。
+    </p>
+  </section>
+
+  <p style="margin-top:44px;font-family:var(--mono);font-size:11px;color:var(--page-dim);line-height:1.9">
+    进度条 / 百分比为真实算法（取 modelUsage 中输入量最大的一项除以 contextWindow）。
+    圆角、投影、过渡在 HTML 里是免费的，在 Swing 里不是 —— 上面每一处标注了实际代价。
+  </p>
+
+</div>
+
+<div class="pickbar">
+  <span class="pk-label">输入区</span><span class="pk-val empty" id="pk-composer">未选</span>
+  <span class="pk-sep"></span>
+  <span class="pk-label">任务条</span><span class="pk-val">已定 · 挂上下文右边，点开看详情</span>
+  <span style="color:var(--page-dim);font-size:12px;margin-left:6px">输入区还差你一个选择</span>
+  <button class="pk-copy" id="pk-copy" onclick="copyPicks()">复制选择</button>
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('t-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('t-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+// 初始主题：?theme= 优先（便于直接对比某一套），否则跟随系统
+const want = new URLSearchParams(location.search).get('theme');
+if (want === 'dark' || want === 'light') setTheme(want);
+else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) setTheme('light');
+
+// 发送按钮跟着"输入框里有没有字"变 —— 三态的切换逻辑跟 Kotlin 侧的 mainButtonState 一致
+document.querySelectorAll('.input').forEach(el => {
+  const comp = el.closest('.a-comp, .b-wrap, .c-wrap');
+  const btn  = comp.querySelector('.a-send, .b-send, .c-send');
+  if (!btn || !btn.classList.contains('a-send') && !btn.classList.contains('b-send') && !btn.classList.contains('c-send')) return;
+  const sync = () => {
+    const has = el.textContent.trim().length > 0;
+    if (btn.classList.contains('a-send')) btn.classList.toggle('idle', !has);
+    if (btn.classList.contains('b-send')) btn.classList.toggle('empty', !has);
+    if (btn.classList.contains('c-send')) btn.classList.toggle('ready', has);
+  };
+  el.addEventListener('input', sync);
+  sync();
+});
+
+// ---- 选择 ----
+const NAMES = {
+  composer: { A: 'A · 卡片式', B: 'B · 内嵌式', C: 'C · 提示符式' }
+};
+const LABEL = { composer: '输入区' };
+const picks = { composer: null };
+
+document.querySelectorAll('[data-pick-group]').forEach(card => {
+  card.addEventListener('click', ev => {
+    if (ev.target.closest('.input')) return;   // 点进输入框是打字，不是选中
+    const g = card.dataset.pickGroup, id = card.dataset.pickId;
+    document.querySelectorAll('[data-pick-group="' + g + '"]')
+      .forEach(o => o.setAttribute('aria-selected', 'false'));
+    card.setAttribute('aria-selected', 'true');
+    picks[g] = id;
+    renderPicks();
+  });
+});
+
+function renderPicks() {
+  for (const g of Object.keys(picks)) {
+    const el = document.getElementById('pk-' + g);
+    const id = picks[g];
+    el.textContent = id ? NAMES[g][id] : '未选';
+    el.classList.toggle('empty', !id);
+  }
+}
+
+function copyPicks() {
+  const text = Object.keys(picks)
+    .map(g => LABEL[g] + '：' + (picks[g] ? NAMES[g][picks[g]] : '未选'))
+    .join('\n');
+  // navigator.clipboard 在 file:// 下不是安全上下文，拿不到 —— 必须留 execCommand 这条路
+  let ok = false;
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+  } catch (e) { ok = false; }
+
+  const btn = document.getElementById('pk-copy');
+  btn.textContent = ok ? '已复制' : '复制失败，请手动选';
+  if (ok) btn.classList.add('done');
+  setTimeout(() => { btn.textContent = '复制选择'; btn.classList.remove('done'); }, 1600);
+}
+</script>
+</body>
+</html>

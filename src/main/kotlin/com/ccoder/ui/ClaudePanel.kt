@@ -20,6 +20,10 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.JBPopupListener
+import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
@@ -28,6 +32,8 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Point
+import java.awt.Rectangle
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.nio.file.Path
@@ -66,15 +72,23 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 输入框上方的上下文长度条。
-     *
-     * 初始隐藏：还没收到过 result 时没有用量数据，显示一个空占位不如不显示。
+     * 上下文用量那一半。初始隐藏：还没收到过 result 时没有数据，
+     * 显示一个空占位不如不显示（不造零值）。
      */
-    private val contextBar = JLabel().apply {
-        isVisible = false
-        foreground = UIUtil.getInactiveTextColor()
-        border = JBUI.Borders.emptyBottom(3)
-    }
+    private val usageLabel = buildUsageLabel().apply { isVisible = false }
+
+    /** 上下文**右边**那一条：任务与子代理。点开看详情。 */
+    private val runStripView = RunStripView { toggleRunDetail() }
+
+    private val contextRow = buildContextRow(usageLabel, runStripView)
+
+    /**
+     * 运行状态与任务清单。
+     *
+     * **每一个事件都喂给它**（包括 Push 给转写区的那些）—— 这里读的是
+     * "现在是什么状态"，而转写区读的是"发生过什么"，两者来源相同但用途不同。
+     */
+    private val runStatus = RunStatusTracker()
 
     private val input = ComposerTextArea(COMPOSER_MIN_ROWS, 40).apply {
         lineWrap = true
@@ -84,12 +98,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         caret = DefaultCaret().apply { updatePolicy = DefaultCaret.ALWAYS_UPDATE }
     }
     /** 发送与停止合一，显示什么由 [mainButtonState] 决定。 */
-    private val mainButton = JButton("发送")
+    private val sendButton = RoundSendButton().apply { onClick = { onMainButtonClick() } }
+
+    /** 当前模型名。由 init 事件填 —— 那是 SDK 真正在用的模型，不是设置的猜测。 */
+    private val modelLabel = buildModelLabel()
+
     private val statusLabel = JLabel("未连接")
 
     private var client: SidecarClient? = null
     private var proc: SidecarProcess? = null
     private var ready = false
+
+    /** 打开着的详情浮层。用它实现"再点一次收起"。 */
+    private var runDetailPopup: JBPopup? = null
 
     /** 回合进行中：已发出消息，但还没收到 result。 */
     private var busy = false
@@ -124,8 +145,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             }
         })
 
-        mainButton.addActionListener { onMainButtonClick() }
-
         // 顶部只留状态；发送/停止按钮在输入区下方的工具栏里
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
@@ -139,20 +158,16 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             viewport.isOpaque = false
         }
 
-        // 底部工具栏：发送按钮归位到右下，左侧留给以后的模型切换、权限模式、
-        // 用量读数等 —— 加控件不用再动结构
-        val composerToolbar = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            border = JBUI.Borders.emptyTop(4)
-            add(mainButton, BorderLayout.EAST)
-        }
+        // 底部工具栏：模型在左、发送键在右。左侧留宽是为了以后的
+        // 模型切换、权限模式 —— 加控件不必再动结构
+        val composerToolbar = buildComposerToolbar(modelLabel, sendButton)
 
-        val inputArea = buildComposerArea(contextBar, inputScroll, composerToolbar)
+        val inputArea = buildComposerCard(contextRow, inputScroll, composerToolbar)
 
-        // 顶边画一条线：即使分隔条本身在某些 LAF 下不画线，
-        // 输入区与转写区之间也始终有明确的边界
+        // 不再单独画顶边线：输入区现在是一张圆角卡片，它自己的上沿
+        // 就是与转写区之间的边界，再画一条会变成两道线
         val bottom = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.customLineTop(JBColor.border())
+            border = JBUI.Borders.empty(6, 8, 8, 8)
             add(permissionSlot, BorderLayout.NORTH)
             // 输入区放 CENTER 而不是 SOUTH：BorderLayout 只给 SOUTH 首选高度，
             // 那样把分隔条往上拖，多出来的高度会落到空着的 CENTER，输入区
@@ -206,9 +221,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     // ---- 主按钮（发送 / 停止合一）----
 
     private fun refreshMainButton() {
-        val s = mainButtonState(ready, busy, disconnected)
-        mainButton.text = s.text
-        mainButton.isEnabled = s.enabled
+        sendButton.setState(mainButtonState(ready, busy, disconnected))
     }
 
     private fun onMainButtonClick() {
@@ -226,15 +239,72 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 刷新"上下文长度"条。
+     * 刷新上下文用量。
      *
      * 没有用量数据时**保持原样**（可能是非 result 事件，也可能是 SDK 这次
      * 没带 modelUsage）—— 清空会把已有的读数抹掉。
      */
-    private fun updateContextBar(event: JsonObject) {
+    private fun updateUsage(event: JsonObject) {
         val usage = contextUsageOf(event) ?: return
-        contextBar.text = "上下文  ${formatContextUsage(usage)}"
-        contextBar.isVisible = true
+        usageLabel.text = "上下文  ${formatContextUsage(usage)}"
+        usageLabel.isVisible = true
+    }
+
+    /** 刷新右边那条。没有任务时整条消失，不是显示空条。 */
+    private fun refreshRunStrip() {
+        runStripView.setStrip(runStripOf(runStatus))
+    }
+
+    /**
+     * 点条 → 弹详情；再点一次 → 收起。
+     *
+     * 浮层不抢焦点（`setRequestFocus(false)`）：你正在输入框里打字，
+     * 点一下看一眼进度不该把光标弄丢。
+     */
+    private fun toggleRunDetail() {
+        runDetailPopup?.let { open ->
+            open.cancel()
+            return
+        }
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(buildRunDetail(runStatus), null)
+            .setRequestFocus(false)
+            .setFocusable(false)
+            .setResizable(false)
+            .setMovable(false)
+            .setCancelOnClickOutside(true)
+            .createPopup()
+
+        popup.addListener(
+            object : JBPopupListener {
+                override fun onClosed(event: LightweightWindowEvent) {
+                    runDetailPopup = null
+                    runStripView.setOpen(false)
+                }
+            }
+        )
+        runDetailPopup = popup
+        runStripView.setOpen(true)
+        showAboveOrBelow(popup)
+    }
+
+    /**
+     * 这条在工具窗口最底部，向下弹必然出屏，所以位置得自己算。
+     * 见 [popupAnchorY]。
+     */
+    private fun showAboveOrBelow(popup: JBPopup) {
+        if (!runStripView.isShowing) return
+        val anchor = runStripView.locationOnScreen
+        val screen = runStripView.graphicsConfiguration?.bounds ?: Rectangle(0, 0, 1920, 1080)
+        val y = popupAnchorY(
+            anchorTop = anchor.y,
+            anchorHeight = runStripView.height,
+            popupHeight = popup.size.height,
+            screenTop = screen.y,
+            screenBottom = screen.y + screen.height,
+            gap = JBUI.scale(4),
+        )
+        popup.showInScreenCoordinates(runStripView, Point(anchor.x, y))
     }
 
     /** 回合开始/结束时切换按钮。回合结束的信号是 result 事件。 */
@@ -257,6 +327,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     fun startSession() {
         if (proc != null) return
+
+        // 新会话，旧会话的任务与清单全部作废。
+        // SDK 的电平信号"在启动时不发任何东西"，只会在下次成员变动时重发全量 ——
+        // 所以消费者必须自己清空，否则上一轮的"2 个运行中"会一直挂在那儿
+        runStatus.reset()
+        refreshRunStrip()
+
         val base = project.basePath
         if (base == null) {
             fail("项目没有 basePath，无法确定工作目录。")
@@ -328,6 +405,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 顺序按 spec §7.4：先停会话，再关通道，最后杀进程树。
      */
     private fun stopSession() {
+        // 浮层挂在旧会话的状态上，会话没了它就该消失
+        runDetailPopup?.cancel()
+        runDetailPopup = null
+        runStripView.setOpen(false)
+
         // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
         // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。
@@ -373,8 +455,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     items.forEach { pushOp(toOp(it)) }
                     // result 是回合结束的信号，此时按钮从"停止"变回"发送"
                     if (items.any { it is RenderItem.Result }) setBusy(false)
-                    // 用量也只在 result 事件里给；取不到就保持原样
-                    updateContextBar(msg.event)
+
+                    // 用量只在 result 事件里给；取不到就保持原样
+                    updateUsage(msg.event)
+                    // init 事件带 SDK 真正在用的模型名 —— 比读设置准，
+                    // 设置里那个可能被环境变量或 SDK 默认值覆盖
+                    if (msg.event.str("subtype") == "init") {
+                        msg.event.str("model")?.let { modelLabel.text = it }
+                    }
+                    // 任务与子代理的状态要走**每一个**事件，不只是 result ——
+                    // task_progress 这类事件不会产出任何转写项，但它们正是
+                    // "现在在跑什么"的全部信息来源
+                    runStatus.consume(msg.event)
+                    refreshRunStrip()
                 }
 
                 is SidecarMessage.Failure -> {
@@ -581,6 +674,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
     }
+
+    private fun JsonObject.str(key: String): String? =
+        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
 
     private fun nextId(): String = "req-${idCounter++}"
 

@@ -1,61 +1,60 @@
 package com.ccoder.ui
 
 import com.intellij.ui.components.JBTextArea
-import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import javax.swing.BorderFactory
-import javax.swing.border.CompoundBorder
 
 /**
  * 输入框的外观。
  *
- * 用户反馈：输入框与转写区糊在一起分不清，要一条明显的边框。
- * 原来只有 `JBUI.Borders.empty(6)` —— 那是内边距，完全不画线。
+ * **这里曾经断言的是反面**：早先用户反馈"输入框与转写区糊在一起分不清"，
+ * 于是给输入框自己画了一条线边框。方案 A 把那条线挪到了外层卡片上——
+ * 卡片包住的是整个输入区（上下文行 + 输入框 + 工具栏），边界比只框住
+ * 文字那一块更明确。
+ *
+ * 所以"分不清"那个问题仍然是被回答的，只是换了地方回答：
+ * 见 [ComposerRulesTest] 里对卡片描边的断言。
  */
 class ComposerInputTest {
 
     private fun styled() = JBTextArea(3, 40).also { styleComposerInput(it) }
 
     @Test
-    fun `有可见的线边框`() {
+    fun `输入框自己不画线 —— 线归外层卡片`() {
+        // 这里再画一层就退回成"框里套框"，那是方案 A 要付的代价，
+        // 不能连它换来的好处一起丢掉
         val area = styled()
 
-        val border = area.border
-        assertTrue(
-            border is CompoundBorder,
-            "边框应是「线 + 内边距」的组合，实际是 ${border?.javaClass?.simpleName}",
+        val insets = area.border.getBorderInsets(area)
+        assertEquals(
+            0, listOf(insets.top, insets.left, insets.bottom, insets.right).count { it > 7 },
+            "边框内衬过大，像是画了线：$insets",
         )
-
-        val line = (border as CompoundBorder).outsideBorder
-        val insets = line.getBorderInsets(area)
-        assertTrue(
-            insets.top >= 1 && insets.left >= 1 && insets.bottom >= 1 && insets.right >= 1,
-            "四条边都要有线，实际内衬 $insets",
+        assertFalse(
+            area.border is javax.swing.border.CompoundBorder,
+            "输入框的边框应当只剩内边距，实际是 ${area.border.javaClass.simpleName}",
         )
     }
 
     @Test
-    fun `文字与边框之间有内边距`() {
+    fun `文字与边缘之间有内边距`() {
         val area = styled()
 
-        val padding = (area.border as CompoundBorder).insideBorder.getBorderInsets(area)
+        val padding = area.border.getBorderInsets(area)
         assertTrue(
             padding.top >= 2 && padding.left >= 2,
-            "没有内边距的话文字会贴着线，看着像被框住的段落而不是输入框，实际 $padding",
+            "没有内边距的话文字会贴着卡片的描边，看着像被框住的段落，实际 $padding",
         )
     }
 
     @Test
-    fun `底色取自 IDE 的输入框色且控件不透明`() {
-        // 只能守到"用了 IDE 的色值"这一层：JBTextArea 的默认底色本就等于
-        // 该色值，所以这条在实现前后都会通过，不具区分度。
-        // 保留它是为了钉住"不要改成硬编码颜色"。真正的显隐差异
-        // （深色主题下输入框底色比面板略亮）只在真实 IDE 主题下成立
+    fun `输入框不填底 —— 底色由卡片统一决定`() {
+        // 不透明会把卡片的底色盖掉，视觉上又变成嵌了一层。
+        // 这是"卡片是一个整体"的必要条件：内部的几块不能各自有底
         val area = styled()
 
-        assertEquals(UIUtil.getTextFieldBackground(), area.background)
-        assertTrue(area.isOpaque, "不透明才画得出底色")
+        assertFalse(area.isOpaque, "输入框不该自己填底")
     }
 }
