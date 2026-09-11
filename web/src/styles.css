@@ -28,6 +28,18 @@ body {
   line-height: 1.55;
 }
 
+/* ---- 滚动跟随（设计文档 §4.5）----
+   包装层只为了让「回到底部」按钮相对视口定位：按钮若放进 .transcript，
+   它会成为滚动内容的一部分，跟着内容一起滚走。 */
+.transcript-wrap {
+  position: relative;
+  height: 100%;
+}
+
+/* 刻意**不**设 scroll-behavior: smooth。
+   它会让一切程序化滚动（含 scrollTop = 赋值）变成动画，而流式跟随必须瞬时 ——
+   逐 token 更新下动画每次都被新内容重启，视口永远追不上。唯一值得动画的是
+   「回到底部」按钮，那里显式请求 behavior: 'smooth'。 */
 .transcript {
   height: 100%;
   overflow-y: auto;
@@ -36,7 +48,25 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  scroll-behavior: smooth;
+}
+
+.jump-to-bottom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, #3c3f41);
+  border-radius: 12px;
+  background: var(--surface, #2b2d30);
+  color: var(--text, #dcdcdc);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.jump-to-bottom:hover {
+  border-color: var(--accent, #4a88c7);
 }
 
 /* ---- 气泡（设计文档 §4.2）---- */

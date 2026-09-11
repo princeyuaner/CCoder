@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Transcript } from './Transcript'
 import type { TranscriptItem } from '../types'
@@ -132,5 +132,141 @@ describe('Transcript', () => {
     // 对应设计文档 §3.3：Kotlin 侧新增类型时旧前端不该白屏
     const bogus = { kind: 'someNewKind', id: 'z', ts } as unknown as TranscriptItem
     expect(() => render(<Transcript state={state(bogus)} />)).not.toThrow()
+  })
+})
+
+/**
+ * jsdom 不做布局：`scrollHeight` / `clientHeight` 恒为 0，`scrollTo` 与
+ * `scrollIntoView` 根本不存在（实测）。所以滚动跟随的测试必须自己安装
+ * "滚动度量" —— 一个可读回的 `scrollTop` 和可控的 `scrollHeight`。
+ *
+ * 注意：程序化赋值 `scrollTop` 在 jsdom 里**不会**派发 scroll 事件（真实浏览器
+ * 会），所以"用户滚动"一律用 `fireEvent.scroll` 显式模拟。
+ */
+function installScrollMetrics(
+  el: HTMLElement,
+  init: { scrollHeight: number; clientHeight: number; scrollTop?: number },
+) {
+  let top = init.scrollTop ?? 0
+  let scrollHeight = init.scrollHeight
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => init.clientHeight })
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (v: number) => {
+      top = v
+    },
+  })
+  return {
+    top: () => top,
+    setTop: (v: number) => {
+      top = v
+    },
+    growTo: (h: number) => {
+      scrollHeight = h
+    },
+  }
+}
+
+// 设计文档 §4.5：v1 曾有 scrollToBottom，JCEF 重写时丢失 —— 这组用例把它钉住。
+describe('Transcript 滚动跟随', () => {
+  // 距底 = scrollHeight - scrollTop - clientHeight = 1000 - top - 400
+  const METRICS = { scrollHeight: 1000, clientHeight: 400 }
+
+  /** 渲染并把滚动度量装到转写容器上。 */
+  function setup(...items: TranscriptItem[]) {
+    const view = render(<Transcript state={state(...items)} />)
+    const el = screen.getByTestId('transcript')
+    return { view, el, m: installScrollMetrics(el, METRICS) }
+  }
+
+  const first: TranscriptItem = { kind: 'user', id: 'u', ts, text: '一' }
+  const second: TranscriptItem = { kind: 'assistant', id: 'a', ts: ts + 1, text: '二' }
+
+  it('内容增长时把视口带到最底端', () => {
+    const { view, m } = setup(first)
+
+    m.growTo(1200)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(1200)
+    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+  })
+
+  it('用户向上滚动后，新内容不再移动视口', () => {
+    const { view, el, m } = setup(first)
+
+    m.setTop(200) // 距底 400px，远超阈值 → 进入暂停
+    fireEvent.scroll(el)
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(200)
+    // 按钮出现是"暂停已被登记"的可观察证据。没有这一条，本用例在完全未实现时
+    // 也会通过 —— "不移动视口"与"什么都不做"无法区分。
+    expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+  })
+
+  it('用户滚回底部附近时跟随自动恢复', () => {
+    const { view, el, m } = setup(first)
+
+    m.setTop(200)
+    fireEvent.scroll(el) // 先进入暂停
+    m.setTop(600) // 距底 0px → 恢复跟随
+    fireEvent.scroll(el)
+
+    m.growTo(1200)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(1200)
+  })
+
+  it('暂停期间到达新内容时浮出「回到底部」，点击后恢复跟随并滚到底', async () => {
+    const user = userEvent.setup()
+    const { view, el, m } = setup(first)
+
+    m.setTop(200)
+    fireEvent.scroll(el)
+
+    // 暂停但还没有新内容 —— 按钮不出现
+    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    // 有新内容仍未打扰视口，但按钮浮出
+    expect(m.top()).toBe(200)
+    await user.click(screen.getByTestId('jump-to-bottom'))
+
+    expect(m.top()).toBe(1400)
+    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+  })
+
+  it('平滑滚动动画期间不会被自己的中间位置误判为用户上滚', async () => {
+    const user = userEvent.setup()
+    const { view, el, m } = setup(first)
+    const third: TranscriptItem = { kind: 'user', id: 'u2', ts: ts + 2, text: '三' }
+
+    m.setTop(200)
+    fireEvent.scroll(el)
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    // jsdom 没有 scrollTo（实测），装上它才能走到平滑分支 ——
+    // 否则这条用例只会重复验证兜底路径，守卫依然零覆盖。
+    Object.defineProperty(el, 'scrollTo', { configurable: true, value: vi.fn() })
+    await user.click(screen.getByTestId('jump-to-bottom'))
+
+    // 动画进行中：位置仍在半途（距底 400px）。若守卫失效，这个事件会把跟随
+    // 关掉，于是下一条新内容不再把视口带到最底端。
+    m.setTop(200)
+    fireEvent.scroll(el)
+
+    m.growTo(1600)
+    view.rerender(<Transcript state={state(first, second, third)} />)
+
+    expect(m.top()).toBe(1600)
   })
 })
