@@ -17,22 +17,39 @@ import kotlin.io.path.isDirectory
  */
 object SidecarExtractor {
 
+    /**
+     * 提取完成标记。**在复制成功之后才写**，所以它的存在本身就能证明
+     * 这次提取是完整的 —— 比"index.js 在不在"强得多：后者在中断留下的
+     * 残缺目录上也可能为真。
+     */
+    private const val FINGERPRINT_FILE = ".fingerprint"
+
     /** 判定一个版本目录是否已完整提取。 */
     private fun isComplete(versioned: Path): Boolean =
         versioned.resolve("index.js").exists()
+
+    /** 读已提取目录里的内容指纹；缺失或不完整都返回 null，一律触发重提取。 */
+    private fun extractedFingerprint(versioned: Path): String? =
+        runCatching { Files.readString(versioned.resolve(FINGERPRINT_FILE)) }.getOrNull()
 
     /**
      * @param resourceRoot 插件包内的 sidecar 源目录
      * @param targetDir    提取根目录（各版本作为其子目录）
      * @param version      sidecar 版本号，取自 sidecar/package.json
+     * @param fingerprint  包内 sidecar 全部内容的内容指纹
      * @return 可直接运行的 sidecar 目录
      */
-    fun extract(resourceRoot: Path, targetDir: Path, version: String): Path {
+    fun extract(resourceRoot: Path, targetDir: Path, version: String, fingerprint: String): Path {
         val versioned = targetDir.resolve(version)
 
         // 半成品目录（上次提取中断）与完整目录必须区分对待：
-        // 只看目录是否存在会把残缺目录当成可用版本
-        if (isComplete(versioned)) {
+        // 只看目录是否存在会把残缺目录当成可用版本。
+        //
+        // 还必须比对内容指纹：目录是按版本号命名的，而 sidecar 的代码可能
+        // 在版本号不变的情况下发生变化。只判 isComplete 就会一直复用旧内容，
+        // 新代码永远不生效，且完全无声（2026-09-11 实际踩到：session.js 的
+        // interrupt 修复在非 CCoder 项目里被旧的提取结果顶掉）。
+        if (isComplete(versioned) && extractedFingerprint(versioned) == fingerprint) {
             cleanOtherVersions(targetDir, version)
             return versioned
         }
@@ -41,6 +58,8 @@ object SidecarExtractor {
 
         Files.createDirectories(versioned)
         copyDirectory(resourceRoot, versioned)
+        // 必须在复制完成之后写
+        Files.writeString(versioned.resolve(FINGERPRINT_FILE), fingerprint)
 
         cleanOtherVersions(targetDir, version)
         return versioned

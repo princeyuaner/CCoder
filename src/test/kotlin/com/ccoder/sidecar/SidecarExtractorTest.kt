@@ -23,7 +23,7 @@ class SidecarExtractorTest {
         val dst = tmp.resolve("dst")
         makeSource(src)
 
-        val result = SidecarExtractor.extract(src, dst, "0.1.0")
+        val result = SidecarExtractor.extract(src, dst, "0.1.0", "fp-1")
 
         assertEquals(dst.resolve("0.1.0"), result)
         assertTrue(Files.exists(result.resolve("index.js")))
@@ -31,19 +31,43 @@ class SidecarExtractorTest {
     }
 
     @Test
-    fun `版本相同的重复提取是幂等的`(@TempDir tmp: Path) {
+    fun `版本与内容都未变时重复提取是幂等的`(@TempDir tmp: Path) {
         val src = tmp.resolve("src")
         val dst = tmp.resolve("dst")
         makeSource(src)
 
-        val first = SidecarExtractor.extract(src, dst, "0.1.0")
+        val first = SidecarExtractor.extract(src, dst, "0.1.0", "fp-1")
         Files.writeString(first.resolve("index.js"), "已被修改")
-        val second = SidecarExtractor.extract(src, dst, "0.1.0")
+        val second = SidecarExtractor.extract(src, dst, "0.1.0", "fp-1")
 
         assertEquals(first, second)
         assertEquals(
             "已被修改", Files.readString(second.resolve("index.js")),
-            "版本未变时不应重复覆盖——避免每次启动都做无谓的磁盘写入"
+            "版本与内容都没变时不应重复覆盖——避免每次启动都做无谓的磁盘写入"
+        )
+    }
+
+    @Test
+    fun `版本相同但内容变化时必须重新提取`(@TempDir tmp: Path) {
+        // 这是本类最要紧的一条。提取目录按版本号命名，若只判 index.js 存在就复用，
+        // 那么"改了 sidecar 代码但没动版本号"的包里，新代码永远不会被提取，
+        // 旧的会一直被使用 —— 而且完全无声。实测踩过：session.js 的 interrupt
+        // 修复在非 CCoder 项目里被旧的提取结果顶掉
+        val src = tmp.resolve("src")
+        val dst = tmp.resolve("dst")
+        makeSource(src)
+
+        val first = SidecarExtractor.extract(src, dst, "0.2.0", "fp-A")
+        assertEquals("console.log('hi')", Files.readString(first.resolve("index.js")))
+
+        // 同一个版本号，但包里的内容变了
+        Files.writeString(src.resolve("index.js"), "console.log('新代码')")
+        val second = SidecarExtractor.extract(src, dst, "0.2.0", "fp-B")
+
+        assertEquals(first, second, "目录仍是同一个版本目录")
+        assertEquals(
+            "console.log('新代码')", Files.readString(second.resolve("index.js")),
+            "内容指纹变了就必须重新提取，否则新 sidecar 永远不生效"
         )
     }
 
@@ -53,10 +77,10 @@ class SidecarExtractorTest {
         val dst = tmp.resolve("dst")
         makeSource(src)
 
-        val v1 = SidecarExtractor.extract(src, dst, "0.1.0")
+        val v1 = SidecarExtractor.extract(src, dst, "0.1.0", "fp-1")
         Files.writeString(v1.resolve("stale.js"), "旧版本的残留文件")
 
-        val v2 = SidecarExtractor.extract(src, dst, "0.2.0")
+        val v2 = SidecarExtractor.extract(src, dst, "0.2.0", "fp-2")
 
         assertFalse(Files.exists(v2.resolve("stale.js")), "新版本目录必须是干净的")
         assertTrue(Files.exists(v2.resolve("index.js")))
@@ -68,8 +92,8 @@ class SidecarExtractorTest {
         val dst = tmp.resolve("dst")
         makeSource(src)
 
-        SidecarExtractor.extract(src, dst, "0.1.0")
-        val current = SidecarExtractor.extract(src, dst, "0.2.0")
+        SidecarExtractor.extract(src, dst, "0.1.0", "fp-1")
+        val current = SidecarExtractor.extract(src, dst, "0.2.0", "fp-2")
 
         val siblings = Files.list(dst).use { s -> s.map { it.fileName.toString() }.toList() }
         assertEquals(
@@ -85,7 +109,7 @@ class SidecarExtractorTest {
         makeSource(src)
         val nested = tmp.resolve("a/b/c")
 
-        val result = SidecarExtractor.extract(src, nested, "0.1.0")
+        val result = SidecarExtractor.extract(src, nested, "0.1.0", "fp-1")
 
         assertTrue(Files.exists(result.resolve("index.js")))
     }
@@ -101,7 +125,7 @@ class SidecarExtractorTest {
         Files.createDirectories(partial)
         Files.writeString(partial.resolve("half-written.js"), "残缺内容")
 
-        val result = SidecarExtractor.extract(src, dst, "0.1.0")
+        val result = SidecarExtractor.extract(src, dst, "0.1.0", "fp-1")
 
         assertTrue(Files.exists(result.resolve("index.js")), "半成品必须被重建而非当成完整版")
         assertTrue(Files.exists(result.resolve("env.js")))

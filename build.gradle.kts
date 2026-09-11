@@ -1,6 +1,8 @@
 // 显式 import：脚本作用域里 `java` 会被解析成 Gradle 的 java 扩展
 // （JavaPluginExtension），写成 java.util.zip.ZipFile 会报 Unresolved reference 'util'
 import java.io.File
+import java.security.MessageDigest
+import java.util.TreeMap
 import java.util.zip.ZipFile
 
 plugins {
@@ -121,11 +123,22 @@ val generateSidecarManifest by tasks.registering {
 
         val entries = mutableListOf<String>()
 
+        fun sha256(bytes: ByteArray): String =
+            MessageDigest.getInstance("SHA-256")
+                .digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+
+        // 逐个文件的内容摘要，最后按路径排序汇总成整包指纹。
+        // 用 TreeMap 是为了与文件系统遍历顺序无关 —— 顺序一变指纹就变，
+        // 会导致每次启动都无谓地重新提取
+        val fileDigests = TreeMap<String, String>()
+
         fun emit(relative: String, bytes: ByteArray) {
             val target = sidecarDest.resolve(relative)
             target.parentFile?.mkdirs()
             target.writeBytes(bytes)
             entries += relative
+            fileDigests[relative] = sha256(bytes)
         }
 
         fun emitFile(relative: String, file: File) {
@@ -165,7 +178,20 @@ val generateSidecarManifest by tasks.registering {
 
         // manifest 自身不进清单 —— 它由 ProductionSidecarResolver 优先读取
         sidecarDest.resolve("manifest.txt").writeText(entries.joinToString("\n"))
-        logger.lifecycle("sidecar 资源已打包：${entries.size} 个文件，版本 $version")
+
+        // 内容指纹：SidecarExtractor 据此判断"版本号没变但内容变了"，
+        // 否则新的 sidecar 永远不会被提取出来（旧的一直在用，且完全无声）。
+        // 同样不进清单：它不是 sidecar 的文件，只是给提取器看的元数据。
+        val digest = MessageDigest.getInstance("SHA-256")
+        for ((path, hash) in fileDigests) {
+            digest.update(path.toByteArray(Charsets.UTF_8))
+            digest.update(0)
+            digest.update(hash.toByteArray(Charsets.UTF_8))
+        }
+        val fingerprint = digest.digest().joinToString("") { "%02x".format(it) }
+        sidecarDest.resolve("fingerprint.txt").writeText(fingerprint)
+
+        logger.lifecycle("sidecar 资源已打包：${entries.size} 个文件，版本 $version，指纹 ${fingerprint.take(12)}")
     }
 }
 
@@ -283,6 +309,12 @@ tasks.named<Zip>("buildPlugin") {
             } finally {
                 tmp.delete()
             }
+        }
+
+        // 指纹也必须在包内：ProductionSidecarResolver 缺了它会直接抛异常，
+        // 插件在用户机器上完全起不来。构建期拦住比运行时炸好
+        if ("sidecar/fingerprint.txt" !in jarEntries) {
+            error("交付包缺少 sidecar/fingerprint.txt —— sidecar 提取缓存无法判断内容是否变化")
         }
 
         val missing = manifest.filter { "sidecar/$it" !in jarEntries }

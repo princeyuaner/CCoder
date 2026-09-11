@@ -60,10 +60,24 @@ object ProductionSidecarResolver {
 
     fun resolve(): Path {
         val version = readVersion()
+        val fingerprint = readFingerprint()
         val staged = stageResourcesToTemp()
         val target = Path.of(PathManager.getSystemPath(), "ccoder", RESOURCE_ROOT)
-        return SidecarExtractor.extract(staged, target, version)
+        return SidecarExtractor.extract(staged, target, version, fingerprint)
     }
+
+    /**
+     * 内容指纹，构建时写入；见 build.gradle.kts 的 generateSidecarManifest。
+     *
+     * 缺失就报错而不是降级成"总是复用"：那正是要修的那个 bug。
+     * 与缺 manifest 同等对待 —— 都属于构建配置出错。
+     */
+    private fun readFingerprint(): String =
+        readResource("$RESOURCE_ROOT/fingerprint.txt")?.trim()?.ifBlank { null }
+            ?: throw SidecarNotFoundException(
+                "插件包内缺少 $RESOURCE_ROOT/fingerprint.txt —— 构建配置有误，" +
+                    "请确认 generateSidecarManifest 写入了内容指纹。"
+            )
 
     /** 版本号来自构建时写入的 version.txt，与 sidecar/package.json 同步。 */
     private fun readVersion(): String =
