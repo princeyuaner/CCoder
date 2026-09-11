@@ -1,0 +1,217 @@
+/*
+ * 视觉规格来自设计文档 §4。
+ *
+ * 所有颜色与字体都走 CSS 变量，由 Kotlin 侧从平台 API 读出后注入
+ * （见 ThemeInjector）——因此明暗主题自动正确，这里不硬编码任何颜色。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg, #1e1f22);
+  color: var(--text, #dcdcdc);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.transcript {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-behavior: smooth;
+}
+
+/* ---- 气泡（设计文档 §4.2）---- */
+
+.row {
+  display: flex;
+}
+
+.row--user {
+  justify-content: flex-end;
+}
+
+.row--assistant {
+  justify-content: flex-start;
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+}
+
+.entry .timestamp {
+  margin-top: 2px;
+}
+
+.row--user + .timestamp {
+  align-self: flex-end;
+}
+
+.bubble {
+  border-radius: 12px;
+  padding: 10px 14px;
+  max-width: 92%;
+  overflow-wrap: anywhere;
+}
+
+.bubble--user {
+  background: var(--accent, #2f65ca);
+  color: #fff;
+  max-width: 85%;
+}
+
+.bubble--assistant {
+  background: var(--surface, #2b2d30);
+  border: 1px solid var(--border, #393b40);
+}
+
+.bubble--error {
+  background: var(--error-bg, #4a1f1f);
+  border: 1px solid var(--border, #393b40);
+}
+
+.bubble__text {
+  white-space: pre-wrap;
+}
+
+.timestamp {
+  font-size: 11px;
+  color: var(--text-dim, #8c8c8c);
+  padding: 0 4px;
+  user-select: text;
+}
+
+/* ---- 折叠块 ---- */
+
+.collapsible {
+  border-left: 2px solid var(--border, #393b40);
+  padding-left: 8px;
+}
+
+.collapsible--dim {
+  opacity: 0.75;
+}
+
+.collapsible__head {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--text-dim, #8c8c8c);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+}
+
+.collapsible__head:hover {
+  color: var(--text, #dcdcdc);
+}
+
+.collapsible__chevron {
+  display: inline-block;
+  transition: transform 160ms ease;
+}
+
+.collapsible__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.collapsible__body {
+  padding: 4px 0 4px 14px;
+  animation: fade-in 160ms ease-out;
+}
+
+.thinking-text {
+  color: var(--text-dim, #8c8c8c);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.tool-input {
+  margin: 0;
+  padding: 8px;
+  background: var(--code-bg, #191a1c);
+  border-radius: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* ---- 其他 ---- */
+
+.system-note,
+.result-line {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim, #8c8c8c);
+  padding: 2px 0;
+  user-select: text;
+}
+
+/* ---- 动效（设计文档 §4.4）---- */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--text, #dcdcdc);
+  vertical-align: text-bottom;
+  margin-left: 2px;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
