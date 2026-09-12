@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 会话切换 · 设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1460px; margin: 0 auto; padding: 56px 32px 130px; }
+
+/* ---- 页头 ---- */
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 68ch; margin: 0; font-size: 14.5px; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+  transition: background .15s, color .15s;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+/* ---- 前提说明 ---- */
+.brief {
+  margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+  background: var(--page-card);
+}
+.brief h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+
+/* ============================================================
+   模拟工具窗口
+   ============================================================ */
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 34px; margin-top: 34px; align-items:start; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 24px 24px 22px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 18px; }
+
+/* 工具窗口本体。420px 是真实宽度 —— 好看没用，得在这一栏里活 */
+.tw {
+  width: 420px; max-width: 100%; background: var(--panel);
+  border:1px solid var(--border); border-radius: 8px; overflow: hidden;
+  display:flex; flex-direction:column;
+}
+/* 工具窗口标题条，给上下文 */
+.tw-bar {
+  display:flex; align-items:center; gap:7px; padding: 6px 10px;
+  background: var(--surface); border-bottom:1px solid var(--border);
+  font-size: 11.5px; color: var(--dim);
+}
+.tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
+.tw-bar .sp { margin-left:auto; }
+
+/* ---- 顶部状态栏：这次改动落在这一行 ---- */
+.status-row {
+  display:flex; align-items:center; gap:8px;
+  padding: 7px 10px; border-bottom:1px solid var(--border-soft);
+  font-size: 12px;
+}
+.st-dot { width:6px; height:6px; border-radius:50%; background: var(--ok); flex:0 0 auto; }
+.st-dot.idle { background: var(--dim); }
+.st-dot.busy { background: var(--warn); }
+.st-txt { color: var(--dim); }
+
+/* 会话标签：可点，点开弹列表。带 caret 表示可展开 */
+.sess {
+  margin-left:auto; display:flex; align-items:center; gap:5px; max-width: 60%;
+  padding: 2px 6px; border-radius: 5px; cursor:pointer;
+  color: var(--text); font-size: 12px;
+  transition: background .12s;
+}
+.sess:hover { background: var(--hover); }
+.sess .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sess .caret { color: var(--dim); font-size: 9px; flex:0 0 auto; }
+.sess.faded { color: var(--dim); }
+.sess.disabled { opacity:.5; cursor:default; }
+.sess.disabled:hover { background: transparent; }
+
+/* ---- 转写区（背景，用来衬托弹出层）---- */
+.tr { padding: 12px 12px 6px; background: var(--editor); display:flex; flex-direction:column; gap:9px; }
+.bub { border-radius: 9px; padding: 7px 10px; font-size: 12px; line-height:1.5; }
+.bub.u { align-self:flex-end; background: var(--accent-soft); color: var(--text); max-width: 78%; }
+.bub.a { align-self:flex-start; background: var(--surface); border:1px solid var(--border); color: var(--text); max-width: 88%; }
+.bub .meta { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin-top: 4px; letter-spacing:.04em; }
+
+/* ---- 输入区 ---- */
+.comp { margin: 0 10px 10px; border:1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px 11px; }
+.comp .ph { color: var(--dim); font-size: 12.5px; }
+.comp .bar { display:flex; align-items:center; gap:10px; margin-top: 9px; padding-top: 8px; border-top:1px solid var(--border-soft); }
+.comp .bar .m { font-size: 11px; color: var(--dim); }
+.comp .bar .r { margin-left:auto; width: 24px; height:24px; border-radius:6px; background: var(--accent); }
+
+/* ============================================================
+   弹出列表
+   ============================================================ */
+.pop-wrap { position: relative; }
+.pop {
+  position:absolute; left: 10px; right: 10px; top: 100%; z-index: 5;
+  margin-top: 3px; background: var(--surface);
+  border:1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0,0,0,.45);
+  padding: 4px; overflow:hidden;
+}
+[data-theme="light"] .pop { box-shadow: 0 8px 26px rgba(0,0,0,.16); }
+
+.row {
+  display:flex; align-items:center; gap: 8px;
+  padding: 6px 8px; border-radius: 5px; cursor:pointer;
+  transition: background .1s;
+}
+.row:hover { background: var(--hover); }
+.row .mk { flex:0 0 13px; color: var(--accent); font-size: 11px; }
+.row .body { flex:1 1 auto; min-width:0; }
+.row .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color: var(--text); }
+.row.cur .t { font-weight: 600; }
+.row .t.empty { color: var(--dim); font-style: italic; font-weight: 400; }
+.row .s { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing:.03em; }
+.row.cur { background: var(--accent-soft); }
+.row.dim .t { color: var(--dim); }
+
+/* 变体 B：两行 */
+.vB .row { padding: 7px 8px; align-items:flex-start; }
+.vB .row .t { font-size: 12.5px; }
+.vB .row .s { display:block; margin-top: 1px; }
+
+/* 变体 C：分支做成徽章 */
+.br {
+  font-family: var(--mono); font-size: 9.5px; padding: 1px 5px; border-radius: 3px;
+  background: var(--code); color: var(--dim); border:1px solid var(--border-soft);
+  white-space: nowrap; flex:0 0 auto;
+}
+
+/* 列表底部提示 */
+.pop-foot {
+  border-top:1px solid var(--border-soft); margin: 4px 4px 0; padding: 6px 8px 3px;
+  font-size: 11px; color: var(--dim);
+}
+
+/* 忙时的提示行 */
+.notice {
+  display:flex; gap: 7px; align-items:flex-start;
+  margin: 5px 4px 2px; padding: 7px 9px; border-radius: 6px;
+  background: var(--code); border-left: 2px solid var(--warn);
+  font-size: 11.5px; color: var(--dim); line-height: 1.5;
+}
+.notice b { color: var(--text); font-weight: 600; }
+
+/* ---- 状态栏四态 ---- */
+.states { display:flex; flex-direction:column; gap: 16px; margin-top: 6px; }
+.state-line { display:flex; flex-direction:column; gap: 6px; }
+.state-cap { font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; color: var(--dim); text-transform:uppercase; }
+.state-note { font-size: 12.5px; color: var(--page-dim); margin: 0; }
+
+/* ---- 取舍表 ---- */
+.section-title { font-family: var(--serif); font-size: 27px; font-weight:600; margin: 74px 0 10px; }
+.section-lede { color: var(--page-dim); max-width: 74ch; margin: 0 0 10px; font-size: 13.5px; }
+table { width:100%; border-collapse: collapse; margin-top: 26px; font-size: 13px; }
+th, td { text-align:left; padding: 11px 14px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase; color: var(--page-dim); font-weight:500; }
+td:first-child { font-weight:600; white-space: nowrap; }
+td { color: var(--page-dim); }
+td b { color: var(--page-fg); font-weight:600; }
+td code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+
+.open-q { margin-top: 44px; padding: 20px 24px; border:1px solid var(--page-line); border-radius: 0 10px 10px 0; border-left: 3px solid var(--warn); background: var(--page-card); }
+.open-q h3 { margin: 0 0 10px; font-size: 14px; }
+.open-q ol { margin: 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.open-q li { margin-bottom: 7px; }
+.open-q li:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-12</p>
+      <h1>会话切换</h1>
+      <p class="lede">
+        恢复历史会话，列表挂在<b>顶部状态栏</b>。下面的模拟窗口都用探针从
+        <code>~/.claude/projects/</code> 取到的<b>真实会话数据</b>渲染 —— 包括那些
+        <code>"11"</code>、<code>"你好"</code> 之类的噪音会话，因为它们正是要判断的东西。
+      </p>
+    </div>
+    <div class="toggle">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <div class="brief">
+    <h3>已定的事</h3>
+    <p>
+      列表挂在顶部状态栏右侧，点开弹出；<b>不过滤</b>终端会话（实测
+      <code>includeProgrammatic: false</code> 会把插件自己的会话一起滤掉）；
+      恢复语义是<b>接着写</b>（<code>resume</code>，不 fork）；当前会话打勾。
+    </p>
+    <p>
+      下面要看的是<b>画法</b>，不是语义 —— 语义已经定了。
+    </p>
+  </div>
+
+  <h2 class="section-title">一、状态栏那一行长什么样</h2>
+  <p class="section-lede">
+    现在这一行只有左边的状态文字，右边整片空着（<code>ClaudePanel.kt:165</code>）。
+    会话名放右边。四种状态都要能一眼看出区别。
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <span class="tag">状态 · 01</span>
+      <h2>新会话</h2>
+      <p class="thesis">还没起过会话，或者刚点了「新会话」。没有 summary 可显示，所以用斜体占位而不是留空。</p>
+      <div class="states">
+        <div class="tw">
+          <div class="status-row">
+            <span class="st-dot idle"></span><span class="st-txt">已连接</span>
+            <span class="sess"><span class="nm" style="font-style:italic;opacity:.75">新会话</span><span class="caret">▾</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag">状态 · 02</span>
+      <h2>已恢复的会话</h2>
+      <p class="thesis">标题就是 summary。超过宽度就省略号截断 —— 状态栏这一行不能因为一个长标题把「已连接」挤掉。</p>
+      <div class="states">
+        <div class="tw">
+          <div class="status-row">
+            <span class="st-dot"></span><span class="st-txt">已连接</span>
+            <span class="sess"><span class="nm">PyCharm插件调用Claude Code</span><span class="caret">▾</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag">状态 · 03</span>
+      <h2>回合进行中</h2>
+      <p class="thesis">
+        状态点变黄、文字变「运行中」，会话标签变暗且<b>不可点</b>。切换要停掉 sidecar，
+        腰斩一个正在跑的回合还可能挂着权限卡片 —— 所以拦住，不是默默允许。
+      </p>
+      <div class="states">
+        <div class="tw">
+          <div class="status-row">
+            <span class="st-dot busy"></span><span class="st-txt">运行中</span>
+            <span class="sess disabled"><span class="nm">PyCharm插件调用Claude Code</span><span class="caret">▾</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag">状态 · 04</span>
+      <h2>断开</h2>
+      <p class="thesis">fatal 断开后会话标签变灰但<b>仍然可点</b> —— 这正是最需要换一个会话的时候。</p>
+      <div class="states">
+        <div class="tw">
+          <div class="status-row">
+            <span class="st-dot idle"></span><span class="st-txt">会话已断开</span>
+            <span class="sess faded"><span class="nm">PyCharm插件调用Claude Code</span><span class="caret">▾</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">二、列表的三种排布</h2>
+  <p class="section-lede">
+    数据全部来自探针实测。注意第一行是<b>当前对话</b>（就是你在看的这个），
+    最后几行是真实存在的噪音会话。看着它们，判断哪种排布最好扫。
+  </p>
+
+  <div class="grid">
+    <!-- A -->
+    <div class="card">
+      <span class="tag">排布 · A</span>
+      <h2>单行紧凑</h2>
+      <p class="thesis">标题和元信息同一行，元信息靠右。一屏能放下最多的会话，但长标题会把时间挤掉。</p>
+
+      <div class="tw">
+        <div class="status-row">
+          <span class="st-dot"></span><span class="st-txt">已连接</span>
+          <span class="sess"><span class="nm">还可以做什么功能</span><span class="caret">▾</span></span>
+        </div>
+        <div class="pop-wrap">
+          <div class="pop">
+            <div class="row cur">
+              <span class="mk">✓</span>
+              <span class="body"><span class="t">还可以做什么功能</span></span>
+              <span class="s">刚刚</span>
+            </div>
+            <div class="row">
+              <span class="mk"></span>
+              <span class="body"><span class="t">这是什么项目</span></span>
+              <span class="s">12 分钟前</span>
+            </div>
+            <div class="row">
+              <span class="mk"></span>
+              <span class="body"><span class="t">PyCharm插件调用Claude Code</span></span>
+              <span class="s">26 分钟前</span>
+            </div>
+            <div class="row dim">
+              <span class="mk"></span>
+              <span class="body"><span class="t">11</span></span>
+              <span class="s">46 分钟前</span>
+            </div>
+            <div class="row dim">
+              <span class="mk"></span>
+              <span class="body"><span class="t">你好</span></span>
+              <span class="s">昨天</span>
+            </div>
+            <div class="pop-foot">还有更早的会话…</div>
+          </div>
+        </div>
+        <div class="tr">
+          <div class="bub u">再确认一下回放的量级</div>
+          <div class="bub a">最大的会话是 804 条消息，2.6MB JSON，取回耗时 162ms。<div class="meta">14:32</div></div>
+        </div>
+        <div class="comp">
+          <div class="ph">输入消息…</div>
+          <div class="bar"><span class="m">Opus 5</span><span class="m">默认</span><span class="r"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B -->
+    <div class="card">
+      <span class="tag">排布 · B</span>
+      <h2>两行</h2>
+      <p class="thesis">标题独占一行不截断，元信息下移。扫起来最舒服，代价是同样高度只能放一半的会话。</p>
+
+      <div class="tw vB">
+        <div class="status-row">
+          <span class="st-dot"></span><span class="st-txt">已连接</span>
+          <span class="sess"><span class="nm">还可以做什么功能</span><span class="caret">▾</span></span>
+        </div>
+        <div class="pop-wrap">
+          <div class="pop">
+            <div class="row cur">
+              <span class="mk">✓</span>
+              <span class="body">
+                <span class="t">还可以做什么功能</span>
+                <span class="s">刚刚 · v0.2.0-dev</span>
+              </span>
+            </div>
+            <div class="row">
+              <span class="mk"></span>
+              <span class="body">
+                <span class="t">这是什么项目</span>
+                <span class="s">12 分钟前 · v0.2.0-dev</span>
+              </span>
+            </div>
+            <div class="row">
+              <span class="mk"></span>
+              <span class="body">
+                <span class="t">PyCharm插件调用Claude Code</span>
+                <span class="s">26 分钟前 · v0.2.0-dev · 804 条</span>
+              </span>
+            </div>
+            <div class="row dim">
+              <span class="mk"></span>
+              <span class="body">
+                <span class="t">11</span>
+                <span class="s">46 分钟前 · v0.2.0-dev</span>
+              </span>
+            </div>
+            <div class="pop-foot">还有更早的会话…</div>
+          </div>
+        </div>
+        <div class="tr">
+          <div class="bub u">再确认一下回放的量级</div>
+          <div class="bub a">最大的会话是 804 条消息，2.6MB JSON，取回耗时 162ms。<div class="meta">14:32</div></div>
+        </div>
+        <div class="comp">
+          <div class="ph">输入消息…</div>
+          <div class="bar"><span class="m">Opus 5</span><span class="m">默认</span><span class="r"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C -->
+    <div class="card">
+      <span class="tag">排布 · C</span>
+      <h2>单行 + 分支徽章</h2>
+      <p class="thesis">
+        分支做成右侧徽章。但它<b>有个问题</b>：探针里 19 条会话全在
+        <code>v0.2.0-dev</code>，徽章一行行重复，反而成了噪音。除非你真的会在多个分支间切，否则这个字段可能不该出现。
+      </p>
+
+      <div class="tw">
+        <div class="status-row">
+          <span class="st-dot"></span><span class="st-txt">已连接</span>
+          <span class="sess"><span class="nm">还可以做什么功能</span><span class="caret">▾</span></span>
+        </div>
+        <div class="pop-wrap">
+          <div class="pop">
+            <div class="row cur">
+              <span class="mk">✓</span>
+              <span class="body"><span class="t">还可以做什么功能</span><span class="s">刚刚</span></span>
+              <span class="br">v0.2.0-dev</span>
+            </div>
+            <div class="row">
+              <span class="mk"></span>
+              <span class="body"><span class="t">这是什么项目</span><span class="s">12 分钟前</span></span>
+              <span class="br">v0.2.0-dev</span>
+            </div>
+            <div class="row">
+              <span class="mk"></span>
+              <span class="body"><span class="t">PyCharm插件调用Claude Code</span><span class="s">26 分钟前</span></span>
+              <span class="br">v0.2.0-dev</span>
+            </div>
+            <div class="row dim">
+              <span class="mk"></span>
+              <span class="body"><span class="t">11</span><span class="s">46 分钟前</span></span>
+              <span class="br">v0.2.0-dev</span>
+            </div>
+            <div class="pop-foot">还有更早的会话…</div>
+          </div>
+        </div>
+        <div class="tr">
+          <div class="bub u">再确认一下回放的量级</div>
+          <div class="bub a">最大的会话是 804 条消息，2.6MB JSON，取回耗时 162ms。<div class="meta">14:32</div></div>
+        </div>
+        <div class="comp">
+          <div class="ph">输入消息…</div>
+          <div class="bar"><span class="m">Opus 5</span><span class="m">默认</span><span class="r"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">三、忙的时候点列表</h2>
+  <p class="section-lede">
+    回合进行中点了会话标签 —— 拦住的<b>样子</b>有两种画法。左边是「点了才说」，
+    右边是「一开始就说」。两者都比「点了毫无反应」好。
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <span class="tag">拦截 · A</span>
+      <h2>点了才说</h2>
+      <p class="thesis">标签看起来可以点，点开后列表置灰，顶部给一行说明。好处是不懂的人也能点一下知道为什么。</p>
+      <div class="tw">
+        <div class="status-row">
+          <span class="st-dot busy"></span><span class="st-txt">运行中</span>
+          <span class="sess"><span class="nm">还可以做什么功能</span><span class="caret">▾</span></span>
+        </div>
+        <div class="pop-wrap">
+          <div class="pop">
+            <div class="notice">
+              <span>当前回合还在跑。先按<b>停止</b>，再切会话 —— 否则这个回合会被腰斩，挂着的权限询问也会一并作废。</span>
+            </div>
+            <div class="row dim" style="pointer-events:none">
+              <span class="mk"></span>
+              <span class="body"><span class="t">这是什么项目</span></span>
+              <span class="s">12 分钟前</span>
+            </div>
+            <div class="row dim" style="pointer-events:none">
+              <span class="mk"></span>
+              <span class="body"><span class="t">PyCharm插件调用Claude Code</span></span>
+              <span class="s">26 分钟前</span>
+            </div>
+            <div class="pop-foot">还有更早的会话…</div>
+          </div>
+        </div>
+        <div class="tr">
+          <div class="bub u">跑一下全部单测</div>
+          <div class="bub a">正在运行 <code>./gradlew test</code>…</div>
+        </div>
+        <div class="comp">
+          <div class="ph">输入消息…</div>
+          <div class="bar"><span class="m">Opus 5</span><span class="m">默认</span><span class="r" style="background:var(--warn)"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag">拦截 · B</span>
+      <h2>一开始就说</h2>
+      <p class="thesis">忙时标签直接变灰、不给点，悬停有 tooltip 解释。少一次无效点击，但用户可能以为自己看错了。</p>
+      <div class="tw">
+        <div class="status-row">
+          <span class="st-dot busy"></span><span class="st-txt">运行中</span>
+          <span class="sess disabled" title="当前回合还在跑，先按停止再切会话"><span class="nm">还可以做什么功能</span><span class="caret">▾</span></span>
+        </div>
+        <div class="tr">
+          <div class="bub u">跑一下全部单测</div>
+          <div class="bub a">正在运行 <code>./gradlew test</code>…</div>
+        </div>
+        <div class="comp">
+          <div class="ph">输入消息…</div>
+          <div class="bar"><span class="m">Opus 5</span><span class="m">默认</span><span class="r" style="background:var(--warn)"></span></div>
+        </div>
+      </div>
+      <p class="thesis" style="margin-top:14px;margin-bottom:0">
+        ↑ 注意这一版<b>没有弹出层</b> —— 点不动，所以没有可看的东西。
+      </p>
+    </div>
+  </div>
+
+  <h2 class="section-title">四、取舍</h2>
+  <table>
+    <thead>
+      <tr><th>选择</th><th>好处</th><th>代价</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A · 单行紧凑</td>
+        <td>一屏放最多会话，扫时间最快</td>
+        <td>长标题会挤掉时间；<code>PyCharm插件调用Claude Code</code> 这种长度就开始省</td>
+      </tr>
+      <tr>
+        <td>B · 两行</td>
+        <td>标题不截断；能多带一个字段（条数、分支）</td>
+        <td>同样高度只能放一半；会话多了要滚动</td>
+      </tr>
+      <tr>
+        <td>C · 分支徽章</td>
+        <td>跨分支时一眼区分</td>
+        <td><b>本机 19 条会话全在同一分支</b>，徽章变成纯重复 —— 建议先不做</td>
+      </tr>
+      <tr>
+        <td>拦截 · 点了才说</td>
+        <td>不懂的人点一下就知道为什么；说明与列表同时出现</td>
+        <td>多一次无效点击</td>
+      </tr>
+      <tr>
+        <td>拦截 · 一开始就说</td>
+        <td>少一次无效点击；状态栏已经把「运行中」写在左边了</td>
+        <td>点不动的东西容易被当成 bug</td>
+      </tr>
+      <tr>
+        <td>噪音会话不弱化</td>
+        <td>它们是真实历史，没有理由撒谎</td>
+        <td>列表里混着 <code>"11"</code>、<code>"你好"</code>，找东西靠扫</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="open-q">
+    <h3>看完请回我三件事</h3>
+    <ol>
+      <li>排布选 A 还是 B？（C 我建议否掉 —— 分支字段在这台机器上没有信息量）</li>
+      <li>忙时拦住选「点了才说」还是「一开始就说」？</li>
+      <li>噪音会话要不要弱化？现在是<b>不弱化</b>，靠时间排序，你自己扫。</li>
+    </ol>
+  </div>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+// 跟随系统偏好起手
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) setTheme('light');
+</script>
+</body>
+</html>
