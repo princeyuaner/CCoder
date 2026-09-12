@@ -1203,7 +1203,32 @@ EOF
 
 **为什么没有单测**：`ClaudePanel` 依赖 `ToolWindowManager` / `ApplicationManager`，`build.gradle.kts:34` 明确不引平台测试框架。所以这里只做接线，判定一律走前五个 Task 的纯函数，靠 Step 2 的手工冒烟验证。
 
-- [ ] **Step 1: 接线**
+> **状态：已完成（2026-09-12）** —— 全量 400 / 0 失败，sidecar 89 / 0 失败。
+>
+> **执行记录 —— 离屏渲染又逮到一个真布局 bug：**
+>
+> 计划里的 `top` 是 `[WEST=已连接] + [EAST=FlowLayout(标签, ＋)]`。看着合理，
+> 但 `BorderLayout` 的 EAST 按**首选宽度**占位 —— 长会话标题要多少给多少，
+> **直接把「已连接」压过去**。渲染出来两者叠在一起。
+>
+> 而 spec §2.3 明确写过：「超过宽度就省略号截断 —— 状态栏这一行不能因为一个长标题
+> 把「已连接」挤掉」。**这条要求被违反了，单测看不出来**（它只管属性，不管位置）。
+>
+> 修法：右边改成嵌套的 `BorderLayout` —— 标签待在 `CENTER` 里只拿剩余宽度
+> （超了 `JLabel` 自己打省略号），「已连接」和「＋」都是定宽谁也推不走谁；
+> `SessionLabel` 自己右对齐，所以仍然贴着「＋」。
+>
+> 三种标题长度都渲染看过：短、24 字（全列表最长）、66 字（整段首问当摘要）——都正常。
+> 探针：`TopRowRenderProbe`，产物 `build/top-row-probe*.png`。
+>
+> 另两处小偏离：
+> - 计划里引用的 `sessions` 字段 / `refreshSessionList()` 在 Task 9 的实现里不存在
+>   （列表是作为**参数**传进 `showSessionPopup` 的）。补了 `sessionListCache` 字段
+>   与 `refreshSessionList()`。
+> - 把「换一个空会话」抽成 `startNewSession()`：删当前会话与点「＋」本来就是同一件事
+>   （设计稿 §4.3 也是这么写的），两处各写一遍迟早不一样。
+
+- [x] **Step 1: 接线**
 
 **(a)** 字段区（`SessionLabel` 附近）加：
 
@@ -1320,7 +1345,7 @@ EOF
 
 `RequestOutcome` 从 `com.ccoder.sidecar` import。`sessions` / `currentSessionId` / `refreshSessionList()` 由 `session-switch` 那份引入；若那边用的是别的名字，**照那边的名字改**，别新造一套。
 
-- [ ] **Step 2: 手工冒烟**
+- [x] **Step 2: 手工冒烟**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew buildPlugin --console=plain 2>&1 | tail -5
@@ -1338,7 +1363,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew buildPlugin --console=plain 2>&1 | 
 
 任何一条不对，回到对应 Task 的测试补一个用例再修 —— 不要直接改代码。
 
-- [ ] **Step 3: 全量回归**
+- [x] **Step 3: 全量回归**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --console=plain 2>&1 | tail -4 && cd sidecar && node --test 2>&1 | tail -6
@@ -1346,7 +1371,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --console=plain 2>&1 | tail -4
 
 预期：Kotlin 侧 `BUILD SUCCESSFUL`（用 `build/test-results/test/*.xml` 核对 `failures=0 errors=0`；总数应比开工前多 **22**：4 protocol + 6 state + 7 list + 5 button）。Node 侧 `# fail 0`。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/ClaudePanel.kt && git commit -F - <<'EOF'

@@ -6,6 +6,7 @@ import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JLabel
+import javax.swing.SwingConstants
 
 /** 标题后面那个表示"可以展开"的小三角。 */
 private const val CARET = " ▾"
@@ -24,6 +25,9 @@ internal class SessionLabel(private val onOpen: () -> Unit) : JLabel() {
     init {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         foreground = UIUtil.getInactiveTextColor()
+        // 右对齐：本控件只用在状态栏右端，与「＋」相邻。
+        // 光靠外层布局的左对齐会让它在剩余空间里靠左，离「＋」老远
+        horizontalAlignment = SwingConstants.RIGHT
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {

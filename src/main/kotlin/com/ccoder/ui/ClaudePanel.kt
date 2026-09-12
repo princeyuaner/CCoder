@@ -35,6 +35,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.event.KeyAdapter
@@ -158,6 +159,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 打开着的会话列表浮层。用它实现"再点一次收起"。 */
     private var sessionPopup: JBPopup? = null
 
+    /** 最右的「＋」。会话标签在它左边（设计稿 §一 A）。 */
+    private val newSessionButton = SessionNewButton { onNewSession() }
+
+    /** 最近一次列出来的会话。删除成功后从它里面摘掉那一行再重画。 */
+    private var sessionListCache: List<SessionInfo> = emptyList()
+
     private var client: SidecarClient? = null
     private var proc: SidecarProcess? = null
     private var ready = false
@@ -199,11 +206,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         })
 
         // 顶部：左边是连接状态，右边是会话标签（可点，点开列历史会话）
-        // 发送/停止按钮在输入区下方的工具栏里
+        // 与「＋」新建。发送/停止按钮在输入区下方的工具栏里
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
             add(statusLabel, BorderLayout.WEST)
-            add(sessionLabel, BorderLayout.EAST)
+            // 右边这组的排法有讲究。整组按**首选宽度**放 EAST 的话，长会话标题
+            // 要多少给多少，直接把「已连接」压过去 —— 实测两者叠在一起
+            // （spec §2.3 要求过这一行不能被长标题挤掉）。
+            //
+            // 所以让标签待在 CENTER 里：它只拿剩下的宽度，超了 JLabel 自己打
+            // 省略号；「已连接」和「＋」都是定宽，谁也推不走谁。
+            // SessionLabel 自己右对齐，所以它仍然贴着「＋」。
+            add(
+                JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    add(sessionLabel, BorderLayout.CENTER)
+                    add(newSessionButton, BorderLayout.EAST)
+                },
+                BorderLayout.CENTER,
+            )
         }
 
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
@@ -442,13 +463,91 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     private fun showSessionPopup(sessions: List<SessionInfo>) {
+        sessionListCache = sessions
         val block = switchBlock(busy, permissionQueue.totalPending)
-        val content = buildSessionList(sessions, currentSessionId, block) { picked ->
+        val content = buildSessionList(
+            sessions, currentSessionId, block,
+            onDelete = { s -> requestDeleteSession(s) },
+        ) { picked ->
             sessionPopup?.cancel()
             sessionPopup = null
             switchToSession(picked)
         }
         sessionPopup = showTogglePopup(sessionLabel, content) { sessionPopup = null }
+    }
+
+    /** 按缓存的列表重画弹层。删除成功后用。浮层没开着就什么都不做。 */
+    private fun refreshSessionList() {
+        if (sessionPopup == null) return
+        sessionPopup?.cancel()
+        sessionPopup = null
+        showSessionPopup(sessionListCache)
+    }
+
+    // ---- 新建与删除（设计稿 session-manage.html）----
+
+    /**
+     * 换一个空会话。
+     *
+     * **不需要任何确认** —— 旧会话不会丢，它照样在列表里，随时能恢复。
+     * 加确认反而是撒谎，暗示这个动作危险（设计稿 §边界 03）。
+     *
+     * 真正的风险只有一个：你以为在跟旧会话说话，其实已经换了。
+     * 所以这一刻标签必须立刻回到「新会话」、转写区清空。
+     */
+    private fun startNewSession() {
+        stopSession()
+        currentSessionId = null
+        currentSessionTitle = null
+        refreshSessionLabel(enabled = true)
+        pushOp(TranscriptOp.Reset)
+        startSession()
+    }
+
+    private fun onNewSession() {
+        // 按钮已置灰，这里只是兜底
+        if (switchBlock(busy, permissionQueue.totalPending) != SwitchBlock.None) return
+        startNewSession()
+    }
+
+    /**
+     * 用户已确认删除。发请求，**等回执之后才动界面**。
+     *
+     * 先摘行再等回执的话，删除失败时那一行已经不见了，用户会以为删掉了。
+     * 这是本次唯一一个不可逆的操作，宁可慢一拍。
+     */
+    private fun requestDeleteSession(session: SessionInfo) {
+        val c = client
+        if (c == null) {
+            pushOp(toOp(RenderItem.ErrorItem("删除会话失败：会话通道已关闭")))
+            return
+        }
+        val id = nextId()
+        c.request(id, Protocol.encodeDeleteSession(id, session.sessionId)) { outcome ->
+            // 回调在读取线程上，碰 Swing 必须回到 EDT
+            ApplicationManager.getApplication().invokeLater {
+                onDeleteOutcome(session.sessionId, outcome)
+            }
+        }
+    }
+
+    private fun onDeleteOutcome(sessionId: String, outcome: RequestOutcome) {
+        when (outcome) {
+            is RequestOutcome.Failed ->
+                // 行**不放回**（它本来就在），只报错。
+                // 失败时把行摘掉才是撒谎：用户会以为删掉了
+                pushOp(toOp(RenderItem.ErrorItem("删除会话失败：${outcome.reason}")))
+
+            is RequestOutcome.Answered -> {
+                sessionListCache = sessionListCache.filterNot { it.sessionId == sessionId }
+                if (sessionId == currentSessionId) {
+                    // 删的正是当前会话：停会话、清转写区、回新会话（设计稿 §4.3）。
+                    // 与「＋」完全同路 —— 这两件事本来就是一回事
+                    startNewSession()
+                }
+                refreshSessionList()
+            }
+        }
     }
 
     /**
@@ -615,6 +714,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 忙时会话标签变灰但**仍然可点** —— spec §5.1 的"点了才说"：
         // 点开能看到置灰的列表加一句说明，比一个点不动的标签强
         refreshSessionLabel(enabled = !value)
+        // 「＋」相反：单一动作按钮点了没反应更像坏了，所以直接置灰
+        newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))
         refreshMainButton()
     }
 
@@ -1079,6 +1180,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private fun updateStatusBar() {
         runCatching { PendingPermissionCount.getInstance(project).set(permissionQueue.totalPending) }
+        // 权限队列变化同样影响忙闲 —— 「＋」得跟着
+        newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))
     }
 
     /** 卡片插入时若工具窗口不可见，发粘性通知（spec §6.3）。 */
