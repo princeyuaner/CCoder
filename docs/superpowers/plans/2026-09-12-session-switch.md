@@ -2146,7 +2146,20 @@ EOF
 
 **本任务没有单测** —— `ClaudePanel` 依赖平台类，起不了单测（见 Task 7 的说明）。验证方式是**编译 + 全量测试仍绿 + Task 11 手工冒烟**。这是本项目对 `ClaudePanel` 的一贯处理方式。
 
-- [ ] **Step 1: 加会话标签到顶部那一行**
+> **状态：已完成（2026-09-12）** —— 全量 375 / 0 失败。
+>
+> **执行记录 —— 两处小偏离：**
+>
+> **① Ready 分支的标题来源改成 `resumeTargetId ?: currentSessionId`。**
+> 计划只写 `resumeTargetId`。但 fatal 断开后 `restartSession()` 重连时 `resumeTargetId`
+> 是 null，只认它的话标签会退回"新会话" —— 而那一刻用户最需要知道的是"我刚才是哪个会话"。
+>
+> **② 顺带修了一处上一批改动留下的文档错位**（不是本计划的锅）：
+> `pickPermissionMode` 的 KDoc（「只发请求，**不动标签**」）上一批加
+> `refreshModeLabel` 时被挤到了后者头上 —— 而后者恰恰**会动标签**。
+> 两个函数各归各位。留着就是一条会骗人的注释。
+
+- [x] **Step 1: 加会话标签到顶部那一行**
 
 `ClaudePanel.kt:165-168` 的 `top` 改为：
 
@@ -2181,7 +2194,7 @@ EOF
     private var sessionPopup: JBPopup? = null
 ```
 
-- [ ] **Step 2: 抽出 `showTogglePopup`**
+- [x] **Step 2: 抽出 `showTogglePopup`**
 
 三处弹出（任务详情、权限模式、会话列表）的创建参数完全一致，现在出现了第三份拷贝。在 `ClaudePanel` 里新增：
 
@@ -2248,7 +2261,7 @@ EOF
     }
 ```
 
-- [ ] **Step 3: 实现 `toggleSessionChooser`**
+- [x] **Step 3: 实现 `toggleSessionChooser`**
 
 ```kotlin
     /**
@@ -2317,7 +2330,7 @@ EOF
     }
 ```
 
-- [ ] **Step 4: 让会话标签跟着状态走**
+- [x] **Step 4: 让会话标签跟着状态走**
 
 在 `onMessage` 的 `Ready` 分支里，`ready = true` 之后加：
 
@@ -2350,7 +2363,7 @@ EOF
         sessionLabel.setTitle(resumeTargetId?.take(8), enabled = true)
 ```
 
-- [ ] **Step 5: 加常量**
+- [x] **Step 5: 加常量**
 
 在 `private companion object` 里加：
 
@@ -2361,7 +2374,7 @@ EOF
 
 并确认 import 区有：`com.ccoder.sidecar.RequestOutcome`、`com.ccoder.sidecar.SessionInfo`。
 
-- [ ] **Step 6: 编译并跑全量测试**
+- [x] **Step 6: 编译并跑全量测试**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -2369,7 +2382,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "er
 
 预期：`BUILD SUCCESSFUL`，无 `error:`。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/ClaudePanel.kt && git commit -F - <<'EOF'

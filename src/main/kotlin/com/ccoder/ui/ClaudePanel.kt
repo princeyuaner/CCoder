@@ -3,6 +3,8 @@ package com.ccoder.ui
 import com.ccoder.sidecar.NodeCheck
 import com.ccoder.sidecar.NodeStatus
 import com.ccoder.sidecar.Protocol
+import com.ccoder.sidecar.RequestOutcome
+import com.ccoder.sidecar.SessionInfo
 import com.ccoder.sidecar.SidecarClient
 import com.ccoder.sidecar.SidecarListener
 import com.ccoder.sidecar.SidecarLocator
@@ -129,6 +131,24 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private val statusLabel = JLabel("未连接")
 
+    /** 顶部右侧的会话标签。可点，点开列历史会话。 */
+    private val sessionLabel = SessionLabel { toggleSessionChooser() }
+
+    /**
+     * 当前会话 id。
+     *
+     * 两个来源：resume 时构造即知；全新会话从 `system`/`init` 事件取。
+     * **不读 `ready.sessionId`** —— 那个回显的是请求参数，全新会话时是 null
+     * （spec §10）。
+     */
+    private var currentSessionId: String? = null
+
+    /** 非空表示下一次 [startSession] 要恢复这个会话。发送后即清空。 */
+    private var resumeTargetId: String? = null
+
+    /** 打开着的会话列表浮层。用它实现"再点一次收起"。 */
+    private var sessionPopup: JBPopup? = null
+
     private var client: SidecarClient? = null
     private var proc: SidecarProcess? = null
     private var ready = false
@@ -169,10 +189,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             }
         })
 
-        // 顶部只留状态；发送/停止按钮在输入区下方的工具栏里
+        // 顶部：左边是连接状态，右边是会话标签（可点，点开列历史会话）
+        // 发送/停止按钮在输入区下方的工具栏里
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
             add(statusLabel, BorderLayout.WEST)
+            add(sessionLabel, BorderLayout.EAST)
         }
 
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
@@ -290,8 +312,29 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             open.cancel()
             return
         }
+        runDetailPopup = showTogglePopup(
+            anchor = runStripView,
+            content = buildRunDetail(runStatus),
+        ) {
+            runDetailPopup = null
+            runStripView.setOpen(false)
+        }
+        runStripView.setOpen(true)
+    }
+
+    /**
+     * 开一个"再点一次收起"的浮层。
+     *
+     * 抽出来的时机是第三份拷贝出现时 —— 任务详情、权限模式、会话列表三处的
+     * 创建参数完全一致，散着写迟早会改漏一处。位置计算复用 [showAboveOrBelow]。
+     */
+    private fun showTogglePopup(
+        anchor: JComponent,
+        content: JComponent,
+        onClosed: () -> Unit,
+    ): JBPopup {
         val popup = JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(buildRunDetail(runStatus), null)
+            .createComponentPopupBuilder(content, null)
             .setRequestFocus(false)
             .setFocusable(false)
             .setResizable(false)
@@ -301,15 +344,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         popup.addListener(
             object : JBPopupListener {
-                override fun onClosed(event: LightweightWindowEvent) {
-                    runDetailPopup = null
-                    runStripView.setOpen(false)
-                }
+                override fun onClosed(event: LightweightWindowEvent) = onClosed()
             }
         )
-        runDetailPopup = popup
-        runStripView.setOpen(true)
-        showAboveOrBelow(popup, runStripView)
+        showAboveOrBelow(popup, anchor)
+        return popup
     }
 
     /**
@@ -339,24 +378,73 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             open.cancel()
             return
         }
-        val popup = JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(buildModeList(currentMode) { pickPermissionMode(it) }, null)
-            .setRequestFocus(false)
-            .setFocusable(false)
-            .setResizable(false)
-            .setMovable(false)
-            .setCancelOnClickOutside(true)
-            .createPopup()
+        modePopup = showTogglePopup(
+            anchor = modeLabel,
+            content = buildModeList(currentMode) { pickPermissionMode(it) },
+        ) {
+            modePopup = null
+        }
+    }
 
-        popup.addListener(
-            object : JBPopupListener {
-                override fun onClosed(event: LightweightWindowEvent) {
-                    modePopup = null
+    /**
+     * 点会话标签 → 列出历史会话 → 弹层。
+     *
+     * **先请求、收到后才弹**，而不是先弹一个"载入中"。实测 listSessions 是
+     * 纯本地读取，140ms 量级，用户察觉不到；换来的是不必处理"弹出后再换内容"
+     * 那套尺寸重算。
+     */
+    private fun toggleSessionChooser() {
+        sessionPopup?.let { open ->
+            open.cancel()
+            return
+        }
+
+        val c = client
+        if (c == null) {
+            // 不静默吞掉 —— 点了没反应比明说更让人困惑
+            pushOp(toOp(RenderItem.SystemNote("会话还没建立，列不出历史会话")))
+            return
+        }
+        val dir = project.basePath
+        if (dir == null) {
+            pushOp(toOp(RenderItem.ErrorItem("项目没有 basePath，无法定位会话目录。")))
+            return
+        }
+
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeListSessions(reqId, dir, SESSION_LIST_LIMIT, 0)) { outcome ->
+            // 回调在读取线程上，碰 Swing 必须回到 EDT
+            ApplicationManager.getApplication().invokeLater {
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val msg = outcome.message as? SidecarMessage.SessionList
+                        if (msg == null) {
+                            pushOp(toOp(RenderItem.ErrorItem("会话列表返回了意外的消息。")))
+                        } else {
+                            showSessionPopup(msg.sessions)
+                        }
+                    }
+
+                    is RequestOutcome.Failed ->
+                        pushOp(toOp(RenderItem.ErrorItem("列出会话失败：${outcome.reason}")))
                 }
             }
-        )
-        modePopup = popup
-        showAboveOrBelow(popup, modeLabel)
+        }
+    }
+
+    private fun showSessionPopup(sessions: List<SessionInfo>) {
+        val block = switchBlock(busy, permissionQueue.totalPending)
+        val content = buildSessionList(sessions, currentSessionId, block) { picked ->
+            sessionPopup?.cancel()
+            sessionPopup = null
+            switchToSession(picked)
+        }
+        sessionPopup = showTogglePopup(sessionLabel, content) { sessionPopup = null }
+    }
+
+    /** 见 Task 10。 */
+    private fun switchToSession(target: SessionInfo) {
+        LOG.info("CCoder 请求切换会话：${target.sessionId}（Task 10 实现）")
     }
 
     /**
@@ -365,16 +453,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 切换失败时标签保持原样，用户看到"没变"外加一条错误说明。
      * 这和"先改后等"的区别，就是控件撒谎与不撒谎的区别。
      */
-    /**
-     * 标签的唯一出口。
-     *
-     * 它显示的是 [currentMode] 与 [autoAllow] 两个字段合起来的状态，所以只留
-     * 这一个地方决定显示什么 —— 谁改完状态就调它，免得两处各改各的然后对不上。
-     */
-    private fun refreshModeLabel() {
-        if (autoAllow) modeLabel.setAutoAllow() else modeLabel.setMode(currentMode)
-    }
-
     private fun pickPermissionMode(mode: PermissionModeSetting) {
         modePopup?.cancel()
         modePopup = null
@@ -398,10 +476,23 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         c.sendLine(Protocol.encodeSetPermissionMode(nextId(), mode.wireValue))
     }
 
+    /**
+     * 标签的唯一出口。
+     *
+     * 它显示的是 [currentMode] 与 [autoAllow] 两个字段合起来的状态，所以只留
+     * 这一个地方决定显示什么 —— 谁改完状态就调它，免得两处各改各的然后对不上。
+     */
+    private fun refreshModeLabel() {
+        if (autoAllow) modeLabel.setAutoAllow() else modeLabel.setMode(currentMode)
+    }
+
     /** 回合开始/结束时切换按钮。回合结束的信号是 result 事件。 */
     private fun setBusy(value: Boolean) {
         if (busy == value) return
         busy = value
+        // 忙时会话标签变灰但**仍然可点** —— spec §5.1 的"点了才说"：
+        // 点开能看到置灰的列表加一句说明，比一个点不动的标签强
+        sessionLabel.setTitle(currentSessionId?.take(8), enabled = !value)
         refreshMainButton()
     }
 
@@ -424,6 +515,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 所以消费者必须自己清空，否则上一轮的"2 个运行中"会一直挂在那儿
         runStatus.reset()
         refreshRunStrip()
+
+        // 恢复中的会话先显示 id 前 8 位，真正的标题要等列表回来才知道
+        sessionLabel.setTitle(resumeTargetId?.take(8), enabled = true)
 
         // 会话按设置里的模式启动，标签跟着它走 —— 显示的必须是这个会话
         // 真正的起点，而不是上一个会话留下的值
@@ -542,6 +636,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     statusLabel.text = "已连接"
                     disconnected = false
                     refreshMainButton()
+                    // 新会话还没有标题，标签显示斜体占位；
+                    // 恢复的会话标题要等列表回来才知道，先显示 id 前 8 位
+                    sessionLabel.setTitle(
+                        (resumeTargetId ?: currentSessionId)?.take(8),
+                        enabled = true,
+                    )
                     pushOp(toOp(RenderItem.SystemNote("会话已就绪")))
 
                     // 补发窗口就绪前暂存的首条消息
@@ -580,6 +680,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         ready = false
                         disconnected = true
                         setBusy(false)
+                        // 断开后标签变灰但**仍然可点** —— 这正是最需要换个会话的时候
+                        sessionLabel.setTitle(currentSessionId?.take(8), enabled = true)
                         refreshMainButton()
                     }
                 }
@@ -916,6 +1018,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private companion object {
         const val NOTIFICATION_GROUP = "CCoder Permissions"
         const val TOOL_WINDOW_ID = "CCoder"
+
+        /** 一屏够看了。不做翻页 —— 实测本机 19 条会话。 */
+        const val SESSION_LIST_LIMIT = 50
 
         val LOG = Logger.getInstance(ClaudePanel::class.java)
     }
