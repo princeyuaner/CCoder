@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDispatcher } from '../index.js';
 
-function fakeSessionFactory() {
+/** 等一拍，让 dispatcher 里 await 的那个 Promise 落地。 */
+const tick = () => new Promise((r) => setImmediate(r));
+
+function fakeSessionFactory({ setModeError = null } = {}) {
   const calls = [];
   return {
     calls,
@@ -12,7 +15,10 @@ function fakeSessionFactory() {
         sent: [],
         send(t) { this.sent.push(t); },
         interrupt: async () => { calls.push(['interrupt']); },
-        setPermissionMode: async (m) => { calls.push(['setPermissionMode', m]); },
+        setPermissionMode: async (m) => {
+          calls.push(['setPermissionMode', m]);
+          if (setModeError) throw new Error(setModeError);
+        },
         decidePermission: (id, r) => { calls.push(['decide', id, r]); },
         denyAllPending: (r) => { calls.push(['denyAll', r]); },
         stop: () => { calls.push(['stop']); },
@@ -164,6 +170,39 @@ test('permissionDecision 拒绝时带 message', () => {
   assert.equal(typeof call[2].message, 'string');
 });
 
+test('permissionDecision 透传 updatedInput', () => {
+  // AskUserQuestion 的答案就是这么回传的：允许这个工具调用时改写它的入参。
+  // PermissionResult 的 allow 分支带 updatedInput（sdk.d.ts:2340）
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
+  d.handle(START);
+
+  d.handle({
+    id: '2', method: 'permissionDecision',
+    params: {
+      requestId: 'tu-1', behavior: 'allow',
+      updatedInput: { questions: [], answers: { '你希望我做什么？': '继续改动' } },
+    },
+  });
+
+  const call = sf.calls.find((c) => c[0] === 'decide');
+  assert.deepEqual(call[2].updatedInput.answers, { '你希望我做什么？': '继续改动' });
+});
+
+test('permissionDecision 不带 updatedInput 时不塞这个字段', () => {
+  // 传 undefined 与不传语义不同：塞一个空对象进去，
+  // SDK 会当成"显式把入参改写成了空"
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
+  d.handle(START);
+
+  d.handle({ id: '2', method: 'permissionDecision',
+             params: { requestId: 'tu-1', behavior: 'allow' } });
+
+  const call = sf.calls.find((c) => c[0] === 'decide');
+  assert.ok(!('updatedInput' in call[2]), '不该凭空多出 updatedInput');
+});
+
 test('permissionDecision 可携带 updatedPermissions', () => {
   const sf = fakeSessionFactory();
   const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
@@ -198,6 +237,42 @@ test('stop 之后 send 不抛错也不卡住', () => {
 
   // 不抛错即为通过；stop 后的 send 进入 preStartQueue 等待可能的新 start
   assert.equal(d.getSession(), null);
+});
+
+test('setPermissionMode 成功后回报新模式', async () => {
+  // 界面必须等这个回执才更新标签。先改标签、后等结果的话，
+  // 切换失败时界面就会显示一个没生效的模式 —— 安全控件撒谎比不好用严重。
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  d.handle({ id: '2', method: 'setPermissionMode', params: { mode: 'plan' } });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'permissionModeChanged');
+  assert.ok(ack, '没有回执，界面无从知道切换是否生效');
+  assert.equal(ack.mode, 'plan');
+});
+
+test('setPermissionMode 被拒时上报错误，且不回报成功', async () => {
+  // 改之前这里是 `session?.setPermissionMode?.(mode)` —— 不 await，
+  // 拒绝就成了一条 unhandled rejection，界面上什么都看不见
+  const out = [];
+  const sf = fakeSessionFactory({ setModeError: 'bypass 需要启动时开启' });
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  d.handle({ id: '2', method: 'setPermissionMode', params: { mode: 'bypassPermissions' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.ok(e, '切换失败必须上报，不能静默吞掉');
+  assert.equal(e.code, 'SET_MODE_FAILED');
+  assert.equal(e.fatal, false, '切换失败不该断开整个会话');
+  assert.match(e.message, /bypass 需要启动时开启/);
+  assert.ok(!out.some((m) => m.type === 'permissionModeChanged'),
+    '失败时不能报成功，否则界面会显示一个没生效的模式');
 });
 
 test('claude 找不到时上报 CLAUDE_NOT_FOUND 且不抛错', () => {

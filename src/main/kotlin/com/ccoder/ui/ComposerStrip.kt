@@ -17,7 +17,7 @@ import javax.swing.JComponent
 private const val SEPARATOR = " │ "
 
 /** 展开指示符。它不在预算之内 —— 挤掉它这条就看不出来能点了。 */
-private const val CARET = " ▾"
+private const val CARET = EXPAND_CARET
 
 /**
  * 组装条上的文字。
@@ -76,6 +76,20 @@ internal fun ellipsize(text: String, budgetPx: Int, widthOf: (String) -> Int): S
     }
     return out.append(ellipsis).toString()
 }
+
+/**
+ * 浮层将要占据的高度。
+ *
+ * **不能读 `JBPopup.getSize()`** —— 它给的是弹窗"窗口"的尺寸，而窗口要等
+ * show 之后才建出来，在那之前恒为 null。上一版就是这么读的，于是每次点开
+ * 浮层都 NPE。（先出现在"任务条"那条路上，而那条平时不显示，所以一直没被
+ * 踩到；权限模式标签一上线就被点出来了。）
+ *
+ * 退回内容的首选高度：那正是浮层将要采用的尺寸。两者都没有时给 0 ——
+ * 0 会让 [popupAnchorY] 退化成"贴着锚点上方"，可接受；抛错则整个点击都废掉。
+ */
+internal fun popupHeightOf(size: Dimension?, contentPreferred: Dimension?): Int =
+    size?.height ?: contentPreferred?.height ?: 0
 
 /**
  * 详情浮层该出现在哪个 y（屏幕坐标）。

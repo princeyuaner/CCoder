@@ -90,14 +90,29 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
     }
 
     override fun apply() {
+        // 复选框真正参与决定。改之前它是个摆设：这里从头到尾没读过
+        // isSelected，勾不勾都照写 bypassPermissions —— "我明白风险"
+        // 那个框只是安慰剂
+        val effective = effectivePermissionMode(
+            permissionModeBox.selectedItem as PermissionModeSetting,
+            dangerousOptIn.isSelected,
+        )
+
         ClaudeSettings.getInstance(project).apply {
             claudePath = claudePathField.text.trim()
             model = modelField.text.trim()
-            permissionMode = permissionModeBox.selectedItem as PermissionModeSetting
+            permissionMode = effective
             sendShortcut = sendShortcutBox.selectedItem as SendShortcut
             pendingReminderSeconds = reminderField.text.trim().toIntOrNull() ?: 30
             extraDirs = extraDirsModel.readColumn(0).toMutableList()
             envOverrides = envModel.readPairs().toMutableMap()
+        }
+
+        // 被降级说明用户没勾确认。界面得如实显示降级后的结果，
+        // 否则会留下"显示着绕过、实际是默认"的错位
+        if (effective != permissionModeBox.selectedItem) {
+            permissionModeBox.selectedItem = effective
+            updateDangerousVisibility()
         }
     }
 
@@ -106,6 +121,9 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
         claudePathField.text = s.claudePath
         modelField.text = s.model
         permissionModeBox.selectedItem = s.permissionMode
+        // 存着绕过模式就说明当初确认过（没勾的话 apply 会把它降级掉），
+        // 所以复位时把勾也还原上
+        dangerousOptIn.isSelected = s.permissionMode.requiresDangerousOptIn
         sendShortcutBox.selectedItem = s.sendShortcut
         reminderField.text = s.pendingReminderSeconds.toString()
         updateDangerousVisibility()

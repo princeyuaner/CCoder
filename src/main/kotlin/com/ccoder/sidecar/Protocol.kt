@@ -33,6 +33,14 @@ sealed interface SidecarMessage {
         val suggestions: JsonArray? = null,
     ) : SidecarMessage
 
+    /**
+     * 权限模式切换的回执。
+     *
+     * 界面**只**在收到它之后才更新标签：先改标签、后等结果的话，切换失败时
+     * 标签会显示一个没生效的模式。这是个安全控件，显示错的比不好用严重。
+     */
+    data class PermissionModeChanged(val mode: String) : SidecarMessage
+
     /** 错误。fatal=true 表示会话已终止。 */
     data class Failure(val message: String, val code: String?, val fatal: Boolean) : SidecarMessage
 
@@ -84,6 +92,11 @@ object Protocol {
             )
 
             "event" -> obj.obj("event")?.let { SidecarMessage.Event(it) }
+
+            // 缺 mode 就无从更新标签，按畸形丢弃（返回 null）。
+            // 留着只会让界面显示一个空模式
+            "permissionModeChanged" ->
+                obj.str("mode")?.let { SidecarMessage.PermissionModeChanged(it) }
 
             "permission" -> {
                 // requestId 是关联权限决定的唯一凭据，缺了就无法回传决定，
@@ -151,17 +164,27 @@ object Protocol {
     fun encodeSetPermissionMode(id: String, mode: String): String =
         line(id, "setPermissionMode", JsonObject().apply { addProperty("mode", mode) })
 
+    /**
+     * 权限决定。
+     *
+     * [updatedInput] 是 `AskUserQuestion` 回传答案的路：允许这个工具调用时
+     * **改写它的入参**，把选中的答案塞进去（SDK 的 `PermissionResult`，
+     * 见 sdk.d.ts:2340）。为 null 时不写这个字段 —— 传空对象等于
+     * "显式把入参改写成空"，语义完全不同。
+     */
     fun encodePermissionDecision(
         id: String,
         requestId: String,
         allow: Boolean,
         updatedPermissions: JsonArray?,
         message: String?,
+        updatedInput: JsonObject? = null,
     ): String {
         val p = JsonObject().apply {
             addProperty("requestId", requestId)
             addProperty("behavior", if (allow) "allow" else "deny")
             updatedPermissions?.let { add("updatedPermissions", it) }
+            updatedInput?.let { add("updatedInput", it) }
             message?.let { addProperty("message", it) }
         }
         return line(id, "permissionDecision", p)

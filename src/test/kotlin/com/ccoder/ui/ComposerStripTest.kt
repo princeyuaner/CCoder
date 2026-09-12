@@ -132,6 +132,30 @@ class ComposerStripTest {
         assertFalse(view.isVisible, "没有任务时应该整条隐藏，而不是显示空条")
     }
 
+    // ---- 浮层多高 ----
+
+    @Test
+    fun `浮层还没显示时用内容的首选高度，而不是 null`() {
+        // JBPopup.getSize() 给的是弹窗窗口的尺寸，而窗口要等 show 之后才建出来
+        // —— 在那之前恒为 null。上一版直接读 popup.size.height，
+        // 结果每次点开浮层都 NPE。
+        //
+        // 退回内容的首选高度：那正是浮层将要采用的尺寸
+        assertEquals(220, popupHeightOf(null, Dimension(100, 220)))
+    }
+
+    @Test
+    fun `已经量过的尺寸优先于内容首选高度`() {
+        assertEquals(50, popupHeightOf(Dimension(100, 50), Dimension(100, 220)))
+    }
+
+    @Test
+    fun `两个都没有时给 0 而不是抛错`() {
+        // 0 在 popupAnchorY 里会退化成"贴着锚点上方"，可接受；
+        // 抛错则整个点击都废掉
+        assertEquals(0, popupHeightOf(null, null))
+    }
+
     // ---- 浮层往上还是往下 ----
 
     @Test

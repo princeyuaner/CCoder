@@ -86,11 +86,14 @@ export function createDispatcher({ sessionFactory, out }) {
 
       case 'permissionDecision': {
         if (!session) return session;
-        const { requestId, behavior, updatedPermissions, message } = params;
+        const { requestId, behavior, updatedPermissions, updatedInput, message } = params;
         const result = behavior === 'allow'
           ? { behavior: 'allow' }
           : { behavior: 'deny', message: message ?? '用户拒绝' };
         if (updatedPermissions) result.updatedPermissions = updatedPermissions;
+        // AskUserQuestion 的答案就走这条路：允许这个工具调用时改写它的入参。
+        // 只在给到时才加字段 —— 塞一个空对象等于"显式改写成了空"
+        if (updatedInput) result.updatedInput = updatedInput;
         session.decidePermission(requestId, result);
         return session;
       }
@@ -99,9 +102,25 @@ export function createDispatcher({ sessionFactory, out }) {
         session?.interrupt?.();
         return session;
 
-      case 'setPermissionMode':
-        session?.setPermissionMode?.(params.mode);
+      case 'setPermissionMode': {
+        // 必须 await 并回报结果。原先是不 await 的裸调用，拒绝会变成一条
+        // unhandled rejection —— 界面上什么都看不见，用户以为切成功了。
+        //
+        // 成功与失败都要回话：这是个安全控件，显示一个没生效的模式
+        // 比不好用严重得多（见 ClaudePanel 的标签更新逻辑）。
+        const mode = params.mode;
+        const call = session?.setPermissionMode;
+        if (typeof call !== 'function') {
+          // 没有会话（或会话没这个方法）时不能默默当成功 ——
+          // Promise.resolve(undefined) 会 resolve，那就成了一条假回执
+          fail('SET_MODE_FAILED', '当前会话不支持切换权限模式', false);
+          return session;
+        }
+        Promise.resolve(call.call(session, mode))
+          .then(() => out({ type: 'permissionModeChanged', mode }))
+          .catch((err) => fail('SET_MODE_FAILED', String(err?.message ?? err), false));
         return session;
+      }
 
       case 'stop':
         // 顺序重要：先清空待决权限，否则工具会挂住

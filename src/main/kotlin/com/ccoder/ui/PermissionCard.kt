@@ -27,10 +27,13 @@ import javax.swing.SwingUtilities
  * **不绑任何键盘快捷键**（按钮刻意不设 mnemonic —— 助记符就是键盘捷径）；
  * 卡片获得焦点时焦点落在"拒绝"上。
  *
- * 规则③（sdk.d.ts:249-253）："总是允许"仅在 [PermissionOptions.allowsAlwaysAllow]
- * 为真时**渲染**（不是渲染后禁用）。
+ * 规则③（sdk.d.ts:249-253）：那个"不再询问"的入口仅在
+ * [PermissionOptions.allowsAlwaysAllow] 为真时**渲染**（不是渲染后禁用）。
  *
  * 规则①由调用方保证 —— 任何终止路径都要 resolve，见 [PermissionQueue.cancelAll]。
+ *
+ * 按钮写的是「本会话不再询问」，回传的也就必须只是本会话的东西（[PermissionDecision.stopAsking]）
+ * —— 按钮上写的话和它真正授权的范围不一致，比按钮不好用严重得多。
  */
 class PermissionCard(
     private val permission: SidecarMessage.Permission,
@@ -105,15 +108,23 @@ class PermissionCard(
 
         val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
-            // 规则③：不满足条件时**不渲染**，而非渲染后禁用
+            // 规则③：不满足条件时**不渲染**，而非渲染后禁用。
+            //
+            // 注意这个闸卡的性质变了：按钮不再回传 suggestions，所以
+            // "suggestions 非空"那一半不再是**能不能**持久化的判断，
+            // 而是沿用 CLI 那句"这个请求值不值得给不再问的入口"。
+            // 保守留着：放宽它等于多给入口，宁可少给。
             if (PermissionOptions.allowsAlwaysAllow(permission)) {
-                add(JButton("总是允许").apply {
+                add(JButton(AUTO_ALLOW_LABEL).apply {
                     addActionListener {
                         onDecide(
                             PermissionDecision(
                                 allow = true,
-                                updatedPermissions = permission.suggestions,
+                                // 不传 suggestions：按钮承诺的范围是"本会话"，
+                                // 往 settings.local.json 落一条持久规则比承诺的大
+                                updatedPermissions = null,
                                 message = null,
+                                stopAsking = true,
                             )
                         )
                     }
@@ -151,7 +162,9 @@ class PermissionCard(
 
     private companion object {
         val ACCENT = JBColor(0xFFA000, 0xFFB74D)
-        val WARN = JBColor(0xD84315, 0xFF8A65)
+        // 与权限模式标签共用 —— 两者说的是同一件事（"这里要留意"），
+        // 各存一份迟早会漂移
+        val WARN = warningColor()
         val CARD_BG = JBColor(0xFFF8E1, 0x3E2C1C)
     }
 }

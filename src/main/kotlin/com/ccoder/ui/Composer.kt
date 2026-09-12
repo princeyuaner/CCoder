@@ -146,3 +146,20 @@ internal fun focusColor(): Color = JBColor.namedColor(
     "Component.focusColor",
     JBColor(Color(0x35, 0x74, 0xF0), Color(0x54, 0x8A, 0xF7)),
 )
+
+/**
+ * 可展开指示符。放在可点控件的文字末尾。
+ *
+ * **挤掉它，这条就看不出能点了** —— 所以 [RunStripView] 把它排除在宽度预算之外。
+ */
+internal const val EXPAND_CARET = " ▾"
+
+/**
+ * 危险状态的警示色。权限卡片与权限模式标签共用。
+ *
+ * 是同一个 `val` 而不是每次构造：测试要用它做**同一性**断言
+ * （"这个标签现在用的是警示色"），每次返回新实例的话那个断言就没有意义了。
+ */
+private val WARNING_COLOR: Color = JBColor(Color(0xD8, 0x43, 0x15), Color(0xFF, 0x8A, 0x65))
+
+internal fun warningColor(): Color = WARNING_COLOR

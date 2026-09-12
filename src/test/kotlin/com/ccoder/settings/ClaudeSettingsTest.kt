@@ -45,6 +45,53 @@ class ClaudeSettingsTest {
     }
 
     @Test
+    fun `权限模式有可读的中文名`() {
+        // 设置面板和输入区那个下拉都直接显示它（见 toString 那条）。
+        // 枚举名 DEFAULT / ACCEPT_EDITS 是给代码看的，不该出现在界面上
+        assertEquals("标准", PermissionModeSetting.DEFAULT.label)
+        assertEquals("自动接受编辑", PermissionModeSetting.ACCEPT_EDITS.label)
+        assertEquals("仅规划", PermissionModeSetting.PLAN.label)
+        assertEquals("不询问", PermissionModeSetting.DONT_ASK.label)
+        assertEquals("绕过权限", PermissionModeSetting.BYPASS_PERMISSIONS.label)
+    }
+
+    @Test
+    fun `toString 就是标签 —— 下拉框直接用 toString 渲染`() {
+        // ComboBox 拿 toString 当显示文本。不覆盖的话设置里显示的是
+        // DEFAULT、ACCEPT_EDITS 这种枚举名
+        PermissionModeSetting.entries.forEach {
+            assertEquals(it.label, it.toString(), "枚举 $it 的显示名不对")
+        }
+    }
+
+    @Test
+    fun `没勾危险确认时 bypass 不生效，退回默认`() {
+        // 改之前那个复选框是个摆设：apply() 从头到尾没读过 isSelected，
+        // 勾不勾都照写 bypassPermissions
+        assertEquals(
+            PermissionModeSetting.DEFAULT,
+            effectivePermissionMode(PermissionModeSetting.BYPASS_PERMISSIONS, optedIn = false),
+        )
+    }
+
+    @Test
+    fun `勾了危险确认后 bypass 才真的生效`() {
+        assertEquals(
+            PermissionModeSetting.BYPASS_PERMISSIONS,
+            effectivePermissionMode(PermissionModeSetting.BYPASS_PERMISSIONS, optedIn = true),
+        )
+    }
+
+    @Test
+    fun `安全模式不受那个复选框影响`() {
+        PermissionModeSetting.entries
+            .filter { !it.requiresDangerousOptIn }
+            .forEach {
+                assertEquals(it, effectivePermissionMode(it, optedIn = false), "$it 被误降级了")
+            }
+    }
+
+    @Test
     fun `toStartParams 把空字符串映射为 null`() {
         // 空路径传给 sidecar 会被解读为"显式指定了空路径"，
         // 触发 CLAUDE_NOT_FOUND 而非回退到 PATH 解析

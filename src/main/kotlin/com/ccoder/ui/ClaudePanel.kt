@@ -12,6 +12,7 @@ import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
+import com.ccoder.settings.PermissionModeSetting
 import com.google.gson.JsonObject
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -103,6 +104,29 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 当前模型名。由 init 事件填 —— 那是 SDK 真正在用的模型，不是设置的猜测。 */
     private val modelLabel = buildModelLabel()
 
+    /** 权限模式。可点，点开切换。 */
+    private val modeLabel = ModeLabel { toggleModeChooser() }
+
+    /**
+     * 当前生效的权限模式。
+     *
+     * **只在收到 sidecar 回执后才变**，点的那一下不发。先改标签后等结果的话，
+     * 切换失败时标签会显示一个没生效的模式 —— 这是个安全控件，
+     * 它撒谎比它不好用严重。
+     */
+    private var currentMode: PermissionModeSetting = ClaudeSettings.getInstance(project).permissionMode
+
+    /**
+     * 本会话不再询问：开着时收到的权限询问不回卡片，直接放行。
+     *
+     * 它**不是** SDK 的模式之一 —— 权限模式一个字都没变，变的是插件怎么回应
+     * 询问。所以它不需要动协议、不往设置里写东西：会话一结束就没了。
+     */
+    private var autoAllow = false
+
+    /** 打开着的模式列表浮层。用它实现"再点一次收起"。 */
+    private var modePopup: JBPopup? = null
+
     private val statusLabel = JLabel("未连接")
 
     private var client: SidecarClient? = null
@@ -158,9 +182,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             viewport.isOpaque = false
         }
 
-        // 底部工具栏：模型在左、发送键在右。左侧留宽是为了以后的
-        // 模型切换、权限模式 —— 加控件不必再动结构
-        val composerToolbar = buildComposerToolbar(modelLabel, sendButton)
+        // 底部工具栏：模型与权限模式在左、发送键在右
+        refreshModeLabel()
+        val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, sendButton)
 
         val inputArea = buildComposerCard(contextRow, inputScroll, composerToolbar)
 
@@ -285,26 +309,93 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         )
         runDetailPopup = popup
         runStripView.setOpen(true)
-        showAboveOrBelow(popup)
+        showAboveOrBelow(popup, runStripView)
     }
 
     /**
-     * 这条在工具窗口最底部，向下弹必然出屏，所以位置得自己算。
+     * 锚点都在工具窗口底部，向下弹必然出屏，所以位置得自己算。
      * 见 [popupAnchorY]。
      */
-    private fun showAboveOrBelow(popup: JBPopup) {
-        if (!runStripView.isShowing) return
-        val anchor = runStripView.locationOnScreen
-        val screen = runStripView.graphicsConfiguration?.bounds ?: Rectangle(0, 0, 1920, 1080)
+    private fun showAboveOrBelow(popup: JBPopup, anchor: JComponent) {
+        if (!anchor.isShowing) return
+        val at = anchor.locationOnScreen
+        val screen = anchor.graphicsConfiguration?.bounds ?: Rectangle(0, 0, 1920, 1080)
         val y = popupAnchorY(
-            anchorTop = anchor.y,
-            anchorHeight = runStripView.height,
-            popupHeight = popup.size.height,
+            anchorTop = at.y,
+            anchorHeight = anchor.height,
+            popupHeight = popupHeightOf(popup.size, popup.content?.preferredSize),
             screenTop = screen.y,
             screenBottom = screen.y + screen.height,
             gap = JBUI.scale(4),
         )
-        popup.showInScreenCoordinates(runStripView, Point(anchor.x, y))
+        popup.showInScreenCoordinates(anchor, Point(at.x, y))
+    }
+
+    // ---- 权限模式热切换 ----
+
+    /** 点标签 → 弹模式列表；再点一次 → 收起。 */
+    private fun toggleModeChooser() {
+        modePopup?.let { open ->
+            open.cancel()
+            return
+        }
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(buildModeList(currentMode) { pickPermissionMode(it) }, null)
+            .setRequestFocus(false)
+            .setFocusable(false)
+            .setResizable(false)
+            .setMovable(false)
+            .setCancelOnClickOutside(true)
+            .createPopup()
+
+        popup.addListener(
+            object : JBPopupListener {
+                override fun onClosed(event: LightweightWindowEvent) {
+                    modePopup = null
+                }
+            }
+        )
+        modePopup = popup
+        showAboveOrBelow(popup, modeLabel)
+    }
+
+    /**
+     * 只发请求，**不动标签** —— 标签等回执。
+     *
+     * 切换失败时标签保持原样，用户看到"没变"外加一条错误说明。
+     * 这和"先改后等"的区别，就是控件撒谎与不撒谎的区别。
+     */
+    /**
+     * 标签的唯一出口。
+     *
+     * 它显示的是 [currentMode] 与 [autoAllow] 两个字段合起来的状态，所以只留
+     * 这一个地方决定显示什么 —— 谁改完状态就调它，免得两处各改各的然后对不上。
+     */
+    private fun refreshModeLabel() {
+        if (autoAllow) modeLabel.setAutoAllow() else modeLabel.setMode(currentMode)
+    }
+
+    private fun pickPermissionMode(mode: PermissionModeSetting) {
+        modePopup?.cancel()
+        modePopup = null
+
+        // 选模式等于"回到 SDK 的模式语义"，本会话自动放行到此为止。
+        // 必须放在下面那个相等判断**之前**：用户完全可能就选着当前这个模式，
+        // 目的正是把自动放行关掉（标签此刻显示的是"本会话不再询问"）。
+        if (autoAllow) {
+            autoAllow = false
+            refreshModeLabel()
+        }
+
+        if (mode == currentMode) return
+
+        val c = client
+        if (c == null) {
+            // 没有会话可切。不静默吞掉 —— 点了没反应比明说更让人困惑
+            pushOp(toOp(RenderItem.SystemNote("会话还没建立，权限模式切换要先连上会话")))
+            return
+        }
+        c.sendLine(Protocol.encodeSetPermissionMode(nextId(), mode.wireValue))
     }
 
     /** 回合开始/结束时切换按钮。回合结束的信号是 result 事件。 */
@@ -333,6 +424,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 所以消费者必须自己清空，否则上一轮的"2 个运行中"会一直挂在那儿
         runStatus.reset()
         refreshRunStrip()
+
+        // 会话按设置里的模式启动，标签跟着它走 —— 显示的必须是这个会话
+        // 真正的起点，而不是上一个会话留下的值
+        currentMode = ClaudeSettings.getInstance(project).permissionMode
+        // 新会话从零开始：上一个会话的"不再询问"不跟过来
+        autoAllow = false
+        refreshModeLabel()
 
         val base = project.basePath
         if (base == null) {
@@ -410,6 +508,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         runDetailPopup = null
         runStripView.setOpen(false)
 
+        // 模式列表同理：它选出来的模式要发给会话，会话没了它就没意义
+        modePopup?.cancel()
+        modePopup = null
+
         // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
         // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。
@@ -471,7 +573,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 }
 
                 is SidecarMessage.Failure -> {
-                    pushOp(toOp(RenderItem.ErrorItem(authHint(msg.code, msg.message))))
+                    pushOp(toOp(RenderItem.ErrorItem(failureHint(msg.code, msg.message))))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
                         statusLabel.text = "会话已断开"
@@ -483,6 +585,21 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 }
 
                 is SidecarMessage.Permission -> showPermissionCard(msg)
+
+                // 切换**生效了**才更新标签。认不出的模式名什么都不改 ——
+                // 显示一个我们自己都不认识的模式，不如保持原样
+                is SidecarMessage.PermissionModeChanged -> {
+                    val mode = PermissionModeSetting.entries.firstOrNull { it.wireValue == msg.mode }
+                    if (mode == null) {
+                        LOG.warn("收到不认识的权限模式回执：${msg.mode}")
+                    } else {
+                        currentMode = mode
+                        refreshModeLabel()
+                        // 写回设置：下次启动还按这个模式起会话
+                        ClaudeSettings.getInstance(project).permissionMode = mode
+                        pushOp(toOp(RenderItem.SystemNote("权限模式已切换为「${mode.label}」")))
+                    }
+                }
 
                 is SidecarMessage.Exit -> {
                     statusLabel.text = "会话已结束"
@@ -497,16 +614,27 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * spec §5.3：认证失败要附带可操作的提示。
-     * 实测该失败最常见的原因是环境变量污染（spec §11.1），
+     * 错误码 → 可操作的提示。
+     *
+     * spec §5.3：认证失败要附带提示。实测最常见的原因是环境变量污染（spec §11.1），
      * 但用户看到 "authentication_failed" 无从下手。
+     *
+     * 模式切换失败同理：光说"切换失败"没用，得指出往哪儿走。
      */
-    private fun authHint(code: String?, message: String): String = when (code) {
+    private fun failureHint(code: String?, message: String): String = when (code) {
         "AUTH_FAILED" ->
             "$message\n\n请检查 ~/.claude/settings.json 的 env 块是否包含有效的 " +
                 "ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL。\n" +
                 "若配置无误，可能是宿主环境变量污染——CCoder 已剥离 " +
                 "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 等 10 个变量（设计文档 §3.2）。"
+
+        // 没有把原因说死：绕过模式究竟能不能热切，取决于 CLI 是否要求
+        // 启动时就带那个开关，这一条没验证过（见 session.js 的说明）
+        "SET_MODE_FAILED" ->
+            "$message\n\n权限模式没有切换。若目标是「绕过权限」，可能是该会话不是" +
+                "以它启动的 —— SDK 要求绕过在启动时就声明（sdk.d.ts:1853-1856）。" +
+                "可在设置里把权限模式改过去，然后重启会话。"
+
         else -> message
     }
 
@@ -562,35 +690,121 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     // ---- 权限卡片（spec §6）----
 
     private fun showPermissionCard(perm: SidecarMessage.Permission) {
+        // 本会话不再询问：不回卡片，直接放行。
+        // AskUserQuestion 除外 —— 那不是授权请求，是在问你要答案，
+        // 自动"允许"等于把那个问题吞掉（见 PermissionOptions.autoAllowApplies）
+        if (autoAllow && PermissionOptions.autoAllowApplies(perm)) {
+            sendDecision(
+                perm,
+                PermissionDecision(allow = true, updatedPermissions = null, message = null),
+            )
+            return
+        }
         permissionQueue.enqueue(perm)
         if (!isShowing) notifyPendingPermission(perm)
     }
 
-    private fun appendPermissionCard(perm: SidecarMessage.Permission, queuedCount: Int) {
-        val card = PermissionCard(perm, queuedCount) { decision ->
-            client?.sendLine(
-                Protocol.encodePermissionDecision(
-                    nextId(), perm.requestId,
-                    decision.allow, decision.updatedPermissions, decision.message,
-                )
-            )
-            permissionQueue.resolve(perm.requestId, decision)
+    /**
+     * 该用哪张卡片。
+     *
+     * `AskUserQuestion` 走 [AskQuestionCard] —— 它的语义是**选哪一个**，
+     * 而通用卡片的「拒绝 / 允许」根本表达不了，用户只能看着原始 JSON 发愣。
+     *
+     * 解析不出来就**退回**通用卡片。显示一张渲染不全的提问卡片比显示原始
+     * JSON 更糟：用户会以为那就是全部的问题，然后把一个不完整的答案送回去。
+     */
+    private fun buildPermissionCard(
+        perm: SidecarMessage.Permission,
+        queuedCount: Int,
+    ): JComponent {
+        val request = if (perm.toolName == ASK_TOOL_NAME) askRequestOf(perm.input) else null
 
-            // 卡片换成一行结论，不再占据视线
-            pendingCards.remove(perm.requestId)?.let { wrapper ->
-                permissionSlot.remove(wrapper)
-                permissionSlot.revalidate()
-                permissionSlot.repaint()
-            }
-            pushOp(
-                toOp(
-                    RenderItem.SystemNote(
-                        if (decision.allow) "已允许：${perm.toolName}" else "已拒绝：${perm.toolName}"
-                    )
+        if (request == null) {
+            return PermissionCard(perm, queuedCount) { decision -> decide(perm, decision) }
+        }
+
+        return AskQuestionCard(
+            request,
+            onSubmit = { picked ->
+                decide(
+                    perm,
+                    PermissionDecision(
+                        allow = true,
+                        updatedPermissions = null,
+                        message = null,
+                        // 答案就是这么回传的：允许这个工具调用时改写它的入参
+                        updatedInput = updatedInputFor(perm.input, request, picked),
+                    ),
+                    // 转写区里留一行"我选了哪个" —— 那正是这次交互的全部内容
+                    note = "已作答：${picked.values.flatten().joinToString("、")}",
+                )
+            },
+            onDeny = {
+                decide(
+                    perm,
+                    PermissionDecision(allow = false, updatedPermissions = null, message = "用户拒绝"),
+                )
+            },
+        )
+    }
+
+    private fun decide(
+        perm: SidecarMessage.Permission,
+        decision: PermissionDecision,
+        note: String? = null,
+    ) {
+        if (decision.stopAsking) {
+            // 开关先拨上，再回决定 —— 决定回完这条就结束了，中间的窗口越短越好。
+            //
+            // 已知的缺口：**已经排在队列里**的那几条仍会逐个弹卡片。
+            // PermissionQueue 只发 activate 回调，不经过 showPermissionCard，
+            // 所以这里够不着它们。数量有限（同一条 assistant 消息里的并行
+            // 工具调用），点完就到底，没有单独修。
+            autoAllow = true
+            refreshModeLabel()
+        }
+        sendDecision(perm, decision)
+
+        pushOp(
+            toOp(
+                RenderItem.SystemNote(
+                    note ?: when {
+                        decision.stopAsking -> "已允许：${perm.toolName}，$AUTO_ALLOW_LABEL"
+                        decision.allow -> "已允许：${perm.toolName}"
+                        else -> "已拒绝：${perm.toolName}"
+                    }
                 )
             )
-            updateStatusBar()
+        )
+    }
+
+    /**
+     * 把决定送上线路，并收拾界面上的痕迹。
+     *
+     * 自动放行那条路也走它 —— 两处各写一份发送逻辑，迟早有一处漏掉
+     * 清卡片或清状态栏。
+     */
+    private fun sendDecision(perm: SidecarMessage.Permission, decision: PermissionDecision) {
+        client?.sendLine(
+            Protocol.encodePermissionDecision(
+                nextId(), perm.requestId,
+                decision.allow, decision.updatedPermissions, decision.message,
+                decision.updatedInput,
+            )
+        )
+        permissionQueue.resolve(perm.requestId, decision)
+
+        // 卡片换成一行结论，不再占据视线
+        pendingCards.remove(perm.requestId)?.let { wrapper ->
+            permissionSlot.remove(wrapper)
+            permissionSlot.revalidate()
+            permissionSlot.repaint()
         }
+        updateStatusBar()
+    }
+
+    private fun appendPermissionCard(perm: SidecarMessage.Permission, queuedCount: Int) {
+        val card = buildPermissionCard(perm, queuedCount)
 
         val wrapper = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -673,6 +887,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         client?.sendLine(Protocol.encodeSend(nextId(), text))
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
+    }
+
+    /**
+     * 追加一段文本到输入框（右键「添加到 CCoder 聊天框」的落点）。
+     *
+     * 顺带把工具窗口激活、焦点抢到输入框：不然点完右键菜单**看不到任何反应** ——
+     * 文本被追加进一个没打开的窗口，用户会以为动作失败了。
+     */
+    fun addToComposer(text: String) {
+        appendSnippet(input, text)
+        ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.activate(null)
+        input.requestFocusInWindow()
     }
 
     private fun JsonObject.str(key: String): String? =

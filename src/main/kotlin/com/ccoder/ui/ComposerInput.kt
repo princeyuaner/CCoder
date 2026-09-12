@@ -23,3 +23,17 @@ internal fun styleComposerInput(area: JBTextArea) {
     area.isOpaque = false
     area.border = JBUI.Borders.empty(PADDING_V, PADDING_H)
 }
+
+/**
+ * 往输入框追加一段片段（右键"添加到 CCoder 聊天框"用）。
+ *
+ * 追加而不是覆盖：这个动作的用途是**攒上下文** —— 连着扔几段代码再一起问，
+ * 覆盖会把上一段吞掉。
+ */
+internal fun appendSnippet(area: JBTextArea, snippet: String) {
+    // 末尾的空白先收干净：不然连着扔两段就会攒出三四行空行
+    val existing = area.text.trimEnd()
+    area.text = if (existing.isEmpty()) snippet else "$existing\n\n$snippet"
+    // 光标停到末尾：追加完接着就能打字
+    area.caretPosition = area.text.length
+}

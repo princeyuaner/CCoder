@@ -7,7 +7,29 @@ data class PermissionDecision(
     val allow: Boolean,
     val updatedPermissions: JsonArray?,
     val message: String?,
+    /**
+     * 允许时改写工具调用的入参。
+     *
+     * `AskUserQuestion` 的答案就走这里 —— 那个工具没有别的办法把"用户选了哪个"
+     * 送回去（见 [AskQuestion.answersFor]）。其余工具都是 null。
+     */
+    val updatedInput: com.google.gson.JsonObject? = null,
+    /**
+     * 同时打开"本会话不再询问"。
+     *
+     * 只有卡片上那个按钮会给它 —— 它授权的不只是这一次调用，而是**整个会话**。
+     * 因此它和 [updatedPermissions] 是两条不同的路：那条写的是持久规则，作用
+     * 范围到设置文件为止；这条只活在当前会话里，不落任何文件。
+     */
+    val stopAsking: Boolean = false,
 )
+
+/**
+ * 「本会话不再询问」的文案。
+ *
+ * 卡片按钮与模式标签共用 —— 同一个状态在两处显示，各写一份迟早会漂移。
+ */
+internal const val AUTO_ALLOW_LABEL = "本会话不再询问"
 
 /**
  * 权限询问的串行化队列。
@@ -71,6 +93,16 @@ object PermissionOptions {
      */
     fun allowsAlwaysAllow(p: SidecarMessage.Permission): Boolean =
         !p.suppressAlwaysAllowRule && (p.suggestions?.size() ?: 0) > 0
+
+    /**
+     * 「本会话不再询问」要不要作用于这条询问。
+     *
+     * 只有一条例外：[ASK_TOOL_NAME]。它不是授权请求，是在问你要答案 ——
+     * 自动"允许"等于把那个问题吞掉，用户永远看不到它，而 Claude 会拿着
+     * 一个没人回答过的提问继续往下走。
+     */
+    fun autoAllowApplies(p: SidecarMessage.Permission): Boolean =
+        p.toolName != ASK_TOOL_NAME
 
     /**
      * 卡片主文案。

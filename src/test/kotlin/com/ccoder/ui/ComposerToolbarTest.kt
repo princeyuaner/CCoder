@@ -73,14 +73,17 @@ class ComposerToolbarTest {
     }
 
     @Test
-    fun `工具栏左边放模型、右边放发送键`() {
+    fun `工具栏左侧是状态区，右侧是发送键`() {
         val model = javax.swing.JLabel()
+        val mode = ModeLabel {}
         val send = RoundSendButton()
 
-        val bar = buildComposerToolbar(model, send)
+        val bar = buildComposerToolbar(model, mode, send)
         val layout = bar.layout as java.awt.BorderLayout
+        val west = layout.getLayoutComponent(java.awt.BorderLayout.WEST) as java.awt.Container
 
-        assertSame(model, layout.getLayoutComponent(java.awt.BorderLayout.WEST), "模型在左")
+        assertTrue(west.components.contains(model), "模型在左")
+        assertTrue(west.components.contains(mode), "权限模式也在左")
         assertSame(send, layout.getLayoutComponent(java.awt.BorderLayout.EAST), "发送键在右")
         // 不透明会把卡片的底色盖住，工具栏就成了卡片里嵌的另一块
         assertFalse(bar.isOpaque, "工具栏不该自己填底")

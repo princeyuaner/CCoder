@@ -37,4 +37,16 @@
             displayType="STICKY_BALLOON"
             isLogByDefault="false"/>
     </extensions>
+
+    <actions>
+        <!-- 编辑器右键：把选中代码带路径与行号追加到聊天输入框。
+             排在最上面（anchor="first"），没有选区时由 update() 置灰。 -->
+        <action
+            id="com.ccoder.AddSelectionToChat"
+            class="com.ccoder.ui.AddSelectionToChatAction"
+            text="添加到 CCoder 聊天框"
+            description="把选中的代码带路径与行号追加到 CCoder 输入框">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+        </action>
+    </actions>
 </idea-plugin>

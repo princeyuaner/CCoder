@@ -88,6 +88,19 @@ export function createSession({
   if (extraDirs?.length) options.additionalDirectories = extraDirs;
   if (claudePath) options.pathToClaudeCodeExecutable = claudePath;
 
+  // SDK 要求 bypassPermissions 必须配这个字段（sdk.d.ts:1853-1856），
+  // 缺了它这个模式静默失效：设置里选得中，实际什么都不绕。
+  //
+  // 只在真要以绕过模式起会话时才开。它是 SDK 那道"绕过必须有意为之"的
+  // 闸，图省事常开等于把闸拆了 —— 别处误设 bypassPermissions 时就没人拦。
+  //
+  // 注意：热切到 bypass 走的是 setPermissionMode，不走这里。那条路
+  // 需不需要启动就带这个开关，静态看不出来（校验在 CLI 二进制里，
+  // SDK 的 JS 只是透传），所以那边靠回执把失败暴露出来而非猜。
+  if (permissionMode === 'bypassPermissions') {
+    options.allowDangerouslySkipPermissions = true;
+  }
+
   let query = null;
   try {
     query = assertAsyncIterable(queryFn({ prompt: inputStream(), options }));

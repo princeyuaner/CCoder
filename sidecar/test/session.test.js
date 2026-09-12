@@ -245,6 +245,27 @@ test('可选参数仅在提供时传给 SDK', () => {
   assert.deepEqual(q2.calls.options.additionalDirectories, ['/other']);
 });
 
+test('以 bypassPermissions 启动时补上 allowDangerouslySkipPermissions', () => {
+  // SDK 对这个字段的用词是"必须"（sdk.d.ts:1853-1856）：
+  // "Must be set to true when using permissionMode: 'bypassPermissions'"。
+  // 不传的话这个模式根本生效不了 —— 设置里选得中，实际什么都不绕。
+  const q = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'bypassPermissions', queryFn: q.fn });
+  assert.equal(q.calls.options.allowDangerouslySkipPermissions, true);
+});
+
+test('非 bypass 模式不带这个开关', () => {
+  // 它是 SDK 那道"绕过必须有意为之"的闸。图省事常开等于把闸拆了 ——
+  // 真有别处误设 bypassPermissions 时，就没有任何东西拦得住了
+  const q = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  assert.ok(!('allowDangerouslySkipPermissions' in q.calls.options));
+
+  const q2 = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'plan', queryFn: q2.fn });
+  assert.ok(!('allowDangerouslySkipPermissions' in q2.calls.options));
+});
+
 test('默认 queryFn 不能声明为 async', async () => {
   // 实测踩过这个坑：async 函数返回 Promise 而非 Query 对象，
   // for await 报 "query is not async iterable"。当时 65 个单测全绿也没抓到，

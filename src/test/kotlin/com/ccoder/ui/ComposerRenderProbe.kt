@@ -1,15 +1,12 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.PermissionModeSetting
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
-import javax.swing.JButton
-import javax.swing.JLabel
-import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
@@ -22,11 +19,18 @@ import javax.swing.SwingUtilities
  * > 单测全绿，因为所有测试都在看**属性**，没有一条在**看**它。
  *
  * 产物在 `build/composer-probe.png`。改了输入区的观感就跑一下这个看一眼。
+ * 绕过权限那张单独出一张，因为警示色只有**看**才知道够不够显眼。
  */
 class ComposerRenderProbe {
 
     @Test
-    fun `把输入区画成图片`() {
+    fun `把输入区画成图片`() = render("build/composer-probe.png", PermissionModeSetting.DEFAULT)
+
+    @Test
+    fun `把绕过权限时的输入区画成图片`() =
+        render("build/composer-probe-bypass.png", PermissionModeSetting.BYPASS_PERMISSIONS)
+
+    private fun render(path: String, mode: PermissionModeSetting) {
         SwingUtilities.invokeAndWait {
             val usage = buildUsageLabel().apply {
                 text = "上下文  12.3k / 200k · 6%"
@@ -48,15 +52,16 @@ class ComposerRenderProbe {
                 viewport.isOpaque = false
             }
 
-            val model = buildModelLabel().apply { text = "Sonnet 4.5 ▾" }
+            val model = buildModelLabel().apply { text = "Sonnet 4.5" }
+            val modeLabel = ModeLabel {}.apply { setMode(mode) }
             val send = RoundSendButton().apply {
                 setState(mainButtonState(ready = true, busy = false, disconnected = false))
             }
-            val toolbar = buildComposerToolbar(model, send)
+            val toolbar = buildComposerToolbar(model, modeLabel, send)
 
             val card = buildComposerCard(contextRow, inputScroll, toolbar)
 
-            val outer = JPanel(BorderLayout()).apply {
+            val outer = javax.swing.JPanel(BorderLayout()).apply {
                 border = com.intellij.util.ui.JBUI.Borders.empty(6, 8, 8, 8)
                 background = com.intellij.util.ui.UIUtil.getPanelBackground()
                 add(card, BorderLayout.CENTER)
@@ -72,7 +77,7 @@ class ComposerRenderProbe {
             val g = img.createGraphics()
             outer.paint(g)
             g.dispose()
-            ImageIO.write(img, "png", File("build/composer-probe.png"))
+            ImageIO.write(img, "png", File(path))
         }
     }
 

@@ -18,16 +18,35 @@ import kotlin.io.path.absolutePathString
  */
 enum class PermissionModeSetting(
     val wireValue: String,
+    /** 界面上的显示名。枚举名（DEFAULT / ACCEPT_EDITS）是给代码看的。 */
+    val label: String,
     val requiresDangerousOptIn: Boolean = false,
 ) {
-    DEFAULT("default"),
-    ACCEPT_EDITS("acceptEdits"),
-    PLAN("plan"),
-    DONT_ASK("dontAsk"),
+    DEFAULT("default", "标准"),
+    ACCEPT_EDITS("acceptEdits", "自动接受编辑"),
+    PLAN("plan", "仅规划"),
+    DONT_ASK("dontAsk", "不询问"),
 
     /** SDK 要求同时设置 allowDangerouslySkipPermissions（sdk.d.ts:1852-1856）。 */
-    BYPASS_PERMISSIONS("bypassPermissions", requiresDangerousOptIn = true),
+    BYPASS_PERMISSIONS("bypassPermissions", "绕过权限", requiresDangerousOptIn = true),
+    ;
+
+    /** `ComboBox` 拿 `toString` 当显示文本，覆盖它省得处处传 label。 */
+    override fun toString(): String = label
 }
+
+/**
+ * 复选框真正参与决定 —— 这是"我明白风险"那个框的意义所在。
+ *
+ * 改之前它是个摆设：`apply()` 从头到尾没读过 `isSelected`，勾不勾都照写
+ * `BYPASS_PERMISSIONS`。凡是"用户必须明确确认"的设计，确认动作就得真的
+ * 参与计算，否则它只是安慰剂。
+ */
+internal fun effectivePermissionMode(
+    selected: PermissionModeSetting,
+    optedIn: Boolean,
+): PermissionModeSetting =
+    if (selected.requiresDangerousOptIn && !optedIn) PermissionModeSetting.DEFAULT else selected
 
 /**
  * 发送键的两种约定。

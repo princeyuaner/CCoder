@@ -81,6 +81,21 @@ class ProtocolTest {
     }
 
     @Test
+    fun `解析 permissionModeChanged 回执`() {
+        val msg = Protocol.parse("""{"type":"permissionModeChanged","mode":"plan"}""")
+        assertTrue(msg is SidecarMessage.PermissionModeChanged)
+        assertEquals("plan", (msg as SidecarMessage.PermissionModeChanged).mode)
+    }
+
+    @Test
+    fun `permissionModeChanged 缺 mode 时按畸形丢弃`() {
+        // 没有 mode 就无从更新标签。留着只会让界面显示一个空模式 ——
+        // 而这是个安全控件，显示错的比不显示严重
+        assertNull(Protocol.parse("""{"type":"permissionModeChanged"}"""))
+        assertNull(Protocol.parse("""{"type":"permissionModeChanged","mode":123}"""))
+    }
+
+    @Test
     fun `未知类型映射为 Unknown 而非 null`() {
         // spec §3.3：未知类型必须被静默忽略，但不能与"解析失败"混淆
         val msg = Protocol.parse("""{"type":"some_future_type_v99"}""")
@@ -208,6 +223,30 @@ class ProtocolTest {
         assertEquals("allow", params.get("behavior").asString)
         assertEquals(1, params.getAsJsonArray("updatedPermissions").size())
         assertTrue(!params.has("message"))
+    }
+
+    @Test
+    fun `encodePermissionDecision 可携带 updatedInput`() {
+        // AskUserQuestion 的答案就走这里：允许这个工具调用时改写它的入参。
+        // PermissionResult 的 allow 分支带 updatedInput（sdk.d.ts:2340）
+        val updated = JsonParser.parseString("""{"questions":[],"answers":{"问":"答"}}""").asJsonObject
+        val line = Protocol.encodePermissionDecision(
+            "r", "tu-1", allow = true, updatedPermissions = null, message = null,
+            updatedInput = updated,
+        )
+        val params = JsonParser.parseString(line.trim()).asJsonObject.getAsJsonObject("params")
+        val answers = params.getAsJsonObject("updatedInput").getAsJsonObject("answers")
+        assertEquals("答", answers.get("问").asString)
+    }
+
+    @Test
+    fun `没有 updatedInput 时不塞这个字段`() {
+        // 传 null 与传空对象语义不同：后者等于"显式把入参改写成空"
+        val line = Protocol.encodePermissionDecision(
+            "r", "tu-1", allow = true, updatedPermissions = null, message = null,
+        )
+        val params = JsonParser.parseString(line.trim()).asJsonObject.getAsJsonObject("params")
+        assertTrue(!params.has("updatedInput"), "不该凭空多出 updatedInput")
     }
 
     @Test

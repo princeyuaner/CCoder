@@ -146,6 +146,21 @@ class PermissionOptionsTest {
         assertTrue(PermissionOptions.allowsAlwaysAllow(perm(suppress = false, suggestions = someSuggestions)))
     }
 
+    // ---- 本会话自动放行 ----
+
+    @Test
+    fun `自动放行不吞掉提问`() {
+        // AskUserQuestion 不是授权请求，是在问你要答案。自动"允许"等于把那个
+        // 问题吞掉 —— 用户永远看不到它，而 Claude 拿着一个没人回答的提问往下走
+        assertFalse(PermissionOptions.autoAllowApplies(perm(toolName = ASK_TOOL_NAME)))
+    }
+
+    @Test
+    fun `自动放行适用于普通工具`() {
+        assertTrue(PermissionOptions.autoAllowApplies(perm(toolName = "Bash")))
+        assertTrue(PermissionOptions.autoAllowApplies(perm(toolName = "Write")))
+    }
+
     @Test
     fun `优先使用 SDK 渲染好的 title`() {
         // sdk.d.ts:228-233：title 是完整问句，不该用 toolName+input 重拼
