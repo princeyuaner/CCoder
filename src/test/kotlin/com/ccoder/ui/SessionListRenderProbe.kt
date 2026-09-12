@@ -34,7 +34,11 @@ class SessionListRenderProbe {
     fun `把忙时的会话列表画成图片`() =
         render("build/session-list-probe-blocked.png", SwitchBlock.PermissionPending)
 
-    private fun render(path: String, block: SwitchBlock) {
+    @Test
+    fun `把悬停出删除按钮的那一行画成图片`() =
+        render("build/session-list-probe-hover.png", SwitchBlock.None, hoverRow = 1)
+
+    private fun render(path: String, block: SwitchBlock, hoverRow: Int = -1) {
         SwingUtilities.invokeAndWait {
             val sessions = listOf(
                 SessionInfo("s1", "还可以做什么功能", null, now - 30_000),
@@ -45,6 +49,17 @@ class SessionListRenderProbe {
             )
 
             val list = buildSessionList(sessions, currentSessionId = "s2", block = block)
+
+            // 悬停态：往那一行派发 MOUSE_ENTERED，✕ 就会露出来
+            if (hoverRow >= 0) {
+                val row = list.components.filterIsInstance<java.awt.Component>()[hoverRow]
+                row.dispatchEvent(
+                    java.awt.event.MouseEvent(
+                        row, java.awt.event.MouseEvent.MOUSE_ENTERED,
+                        System.currentTimeMillis(), 0, 5, 5, 0, false,
+                    )
+                )
+            }
 
             // 420px 是工具窗口的真实宽度
             val outer = JPanel(BorderLayout()).apply {

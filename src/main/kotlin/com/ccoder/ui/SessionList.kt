@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SessionInfo
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
@@ -18,6 +19,9 @@ import javax.swing.SwingUtilities
 
 /** 行尾删除按钮的字符。实现与测试共用，免得两边各写一个字符然后漂移。 */
 internal const val DELETE_MARK = "✕"
+
+/** 删除按钮悬停时的颜色。与设计稿 §二 A 的 danger 同值。 */
+private val DELETE_DANGER = JBColor(0xC0392B, 0xDB5C5C)
 
 /**
  * 同一时刻只允许一行处于确认态。
@@ -138,15 +142,34 @@ private fun sessionRow(
     // ✕ 藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
     // 监听器在下面函数定义之后再挂 —— Kotlin 的局部函数不支持前向引用
     val deleteButton = JButton(DELETE_MARK).apply {
-        font = base
+        // 字号比正文大一号、用**正常前景色**而不是次要文字色。
+        //
+        // 实测反馈是"有是有但看不清楚" —— 原先照正文的次要色画，那个 ✕
+        // 在弹出层底色上几乎融进去。删除是破坏性动作，它得先看得见，
+        // 才谈得上设计稿那句"不容易误点"。
+        font = base.deriveFont(base.size2D + 1f)
+        foreground = UIUtil.getLabelForeground()
         isVisible = false
         isContentAreaFilled = false
         isBorderPainted = false
         isFocusable = false
         toolTipText = "删除这个会话"
         margin = JBUI.emptyInsets()
-        foreground = UIUtil.getInactiveTextColor()
     }
+    // 悬停变红（设计稿 §二 A 画的就是这个）。删除不可逆，
+    // 指针停在它上面时该有个明确的"这是危险动作"的信号
+    deleteButton.addMouseListener(
+        object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) {
+                deleteButton.foreground = DELETE_DANGER
+            }
+
+            override fun mouseExited(e: MouseEvent) {
+                deleteButton.foreground = UIUtil.getLabelForeground()
+            }
+        }
+    )
+
     val deleteSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
         preferredSize = JBUI.size(16, base.size)
@@ -207,46 +230,48 @@ private fun sessionRow(
 
     if (clickable) {
         row.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        row.addMouseListener(
-            object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    // ✕（以及确认行上的按钮）不冒泡成"切换会话" ——
-                    // 不拦的话点删除会先切过去，然后你可能正在删一个刚被激活的会话
-                    if (e.component is JButton) return
-                    onPick(session)
-                }
 
-                override fun mouseEntered(e: MouseEvent) {
-                    deleteButton.isVisible = true
-                }
+        // **同一个** MouseAdapter 挂到行本身**和它的每个子组件**上。
+        //
+        // 两边都得挂，这是真鼠标点击的行为决定的：事件发给鼠标底下**最深的
+        // 有监听器的组件**，不是你想的那个容器。只挂行的话，点标题（它为了
+        // 悬停也挂了监听器）会被标题吃掉，行收不到 —— 表现就是"点会话没反应"；
+        // 只挂子组件的话，点在行内空白处又没人接。
+        //
+        // **只在可点时才挂**：忙时整列不该有任何点击响应，一行也不例外
+        // （列表自己的用例就是这么断言的）。
+        val rowMouse = object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                // ✕ 与确认行上的按钮不冒泡成"切换会话" —— 不拦的话点删除
+                // 会先切过去，然后你可能正在删一个刚被激活的会话
+                if (e.component is JButton) return
+                onPick(session)
+            }
 
-                override fun mouseExited(e: MouseEvent) {
+            override fun mouseEntered(e: MouseEvent) {
+                deleteButton.isVisible = true
+            }
+
+            override fun mouseExited(e: MouseEvent) {
+                // 离开**整行**是干净信号，直接收 —— 不延后，否则测试与真人都
+                // 会看到 ✕ 多留一拍
+                if (e.component === row) {
                     deleteButton.isVisible = false
+                    return
+                }
+                // 从一个**子组件**移出则往往是移到了同一行的另一个子组件上
+                // （标题→时间），此时行本身并没有离开事件。延后一拍看指针
+                // 是否真的不在这一行里，否则 ✕ 一闪一闪
+                SwingUtilities.invokeLater {
+                    val p = row.mousePosition
+                    val inside = p != null && p.x in 0 until row.width && p.y in 0 until row.height
+                    if (!inside) deleteButton.isVisible = false
                 }
             }
-        )
-
-        // 子孙组件上的进入/离开同样要算作"在这一行上" —— 否则鼠标移到时间标签上时
-        // row 收到 mouseExited，✕ 一闪就没了。收回前先确认指针真的不在这一行里。
-        //
-        // **只在可点时才挂**：忙时整列不该有任何点击响应，一行也不该例外
-        // （列表自己的用例就是这么断言的）。
-        listOf(markSlot, titleLabel, tail, timeLabel, deleteSlot).forEach { child ->
-            child.addMouseListener(
-                object : MouseAdapter() {
-                    override fun mouseEntered(e: MouseEvent) {
-                        deleteButton.isVisible = true
-                    }
-
-                    override fun mouseExited(e: MouseEvent) {
-                        SwingUtilities.invokeLater {
-                            val p = row.mousePosition
-                            val inside = p != null && p.x in 0 until row.width && p.y in 0 until row.height
-                            if (!inside) deleteButton.isVisible = false
-                        }
-                    }
-                }
-            )
+        }
+        row.addMouseListener(rowMouse)
+        listOf(markSlot, titleLabel, tail, timeLabel, deleteSlot).forEach {
+            it.addMouseListener(rowMouse)
         }
     }
 

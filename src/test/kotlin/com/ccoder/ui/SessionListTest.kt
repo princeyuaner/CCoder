@@ -50,6 +50,19 @@ class SessionListTest {
     private fun clickableRows(root: Container): List<Component> =
         root.components.filter { it is Container && it.mouseListeners.isNotEmpty() }
 
+    /** 树里所有的 JLabel —— 要按文字找某个具体标签时用。 */
+    private fun textsAndComponents(root: Container): List<JLabel> {
+        val out = mutableListOf<JLabel>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JLabel) out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return out
+    }
+
     private fun click(component: Component) {
         component.dispatchEvent(
             MouseEvent(
@@ -98,6 +111,24 @@ class SessionListTest {
         assertEquals(3, rows.size, "三行都该可点")
         click(rows[0])
         assertEquals(listOf("s1"), picked)
+    }
+
+    @Test
+    fun `点标题也算点这一行`() {
+        // 真鼠标点下去时，事件落在鼠标底下**最深的有监听器的组件**上，
+        // 而不是你想的那个容器。标题上有悬停用的监听器，所以点行中间
+        // （标题上）时事件是发给标题的 —— 不转发的话，点会话毫无反应。
+        //
+        // 实测就栽在这儿：既有用例全都直接往"行"上派发事件，绕过了真实
+        // 命中路径，所以全绿。
+        val picked = mutableListOf<String>()
+        val list = buildSessionList(sessions, "s1", SwitchBlock.None) { picked += it.sessionId }
+        val row = list.components.filterIsInstance<JComponent>()[0]
+        val title = textsAndComponents(row).first { it.text.contains("还可以做什么功能") }
+
+        click(title)
+
+        assertEquals(listOf("s1"), picked, "点在标题上没当成点这一行")
     }
 
     @Test
