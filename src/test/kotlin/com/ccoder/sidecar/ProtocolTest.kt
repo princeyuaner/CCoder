@@ -1,7 +1,9 @@
 package com.ccoder.sidecar
 
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -256,5 +258,129 @@ class ProtocolTest {
         assertEquals(1, line.trimEnd('\n').lines().size)
         val obj = JsonParser.parseString(line.trim()).asJsonObject
         assertEquals("含\"引号\"和\\反斜杠的文本", obj.getAsJsonObject("params").get("text").asString)
+    }
+
+    // ---- 会话列表与历史（Task 2）----
+
+    @Test
+    fun `sessions 消息解析出列表`() {
+        val line = """{"type":"sessions","id":"r1","sessions":[
+            {"sessionId":"a","summary":"标题甲","firstPrompt":"甲","lastModified":111},
+            {"sessionId":"b","summary":null,"firstPrompt":null,"lastModified":222}]}"""
+        val msg = Protocol.parse(line) as SidecarMessage.SessionList
+
+        assertEquals("r1", msg.requestId)
+        assertEquals(2, msg.sessions.size)
+        assertEquals("标题甲", msg.sessions[0].summary)
+        assertEquals(111L, msg.sessions[0].lastModified)
+        assertNull(msg.sessions[1].summary)
+    }
+
+    @Test
+    fun `sessions 缺 id 时整条丢弃`() {
+        // 没有 id 就无从配对，留着只会变成一个永远等不到结果的占位
+        val line = """{"type":"sessions","sessions":[{"sessionId":"a"}]}"""
+        assertNull(Protocol.parse(line))
+    }
+
+    @Test
+    fun `sessions 里坏条目只跳过它自己`() {
+        // 一条坏数据不该让另外 49 个会话都看不见
+        val line = """{"type":"sessions","id":"r1","sessions":[
+            {"summary":"没有 id"},
+            "不是对象",
+            {"sessionId":"good","summary":"好的","lastModified":5}]}"""
+        val msg = Protocol.parse(line) as SidecarMessage.SessionList
+
+        assertEquals(1, msg.sessions.size)
+        assertEquals("good", msg.sessions[0].sessionId)
+    }
+
+    @Test
+    fun `sessions 缺 lastModified 时给 0 而不是丢弃`() {
+        val line = """{"type":"sessions","id":"r1","sessions":[{"sessionId":"a"}]}"""
+        val msg = Protocol.parse(line) as SidecarMessage.SessionList
+
+        assertEquals(0L, msg.sessions[0].lastModified)
+    }
+
+    @Test
+    fun `history 消息解析出条目`() {
+        val line = """{"type":"history","id":"r2","sessionId":"s1","items":[
+            {"type":"user","message":{"role":"user","content":"你好"}},
+            {"type":"assistant","message":{"role":"assistant","content":[]}}]}"""
+        val msg = Protocol.parse(line) as SidecarMessage.History
+
+        assertEquals("r2", msg.requestId)
+        assertEquals("s1", msg.sessionId)
+        assertEquals(2, msg.items.size)
+        assertEquals("user", msg.items[0].get("type").asString)
+    }
+
+    @Test
+    fun `history 缺 sessionId 时丢弃`() {
+        val line = """{"type":"history","id":"r2","items":[]}"""
+        assertNull(Protocol.parse(line))
+    }
+
+    @Test
+    fun `history 里非对象条目被过滤`() {
+        val line = """{"type":"history","id":"r2","sessionId":"s1","items":[1,"x",{"type":"user"}]}"""
+        val msg = Protocol.parse(line) as SidecarMessage.History
+
+        assertEquals(1, msg.items.size, "只有对象才该留下")
+    }
+
+    @Test
+    fun `encodeStart 带 resumeSessionId`() {
+        val json = Protocol.encodeStart(
+            "r1",
+            StartParams(cwd = "/tmp", permissionMode = "default", resumeSessionId = "sess-1"),
+        )
+        val obj = JsonParser.parseString(json.trim()).asJsonObject
+
+        assertEquals("sess-1", obj.getAsJsonObject("params").get("resumeSessionId").asString)
+    }
+
+    @Test
+    fun `encodeStart 不带 resumeSessionId 时不写这个字段`() {
+        // 传 null 与传空字符串语义不同 —— 绝不能写成空串
+        val json = Protocol.encodeStart("r1", StartParams(cwd = "/tmp", permissionMode = "default"))
+        val obj = JsonParser.parseString(json.trim()).asJsonObject
+
+        assertFalse(obj.getAsJsonObject("params").has("resumeSessionId"))
+    }
+
+    @Test
+    fun `encodeListSessions 与 encodeLoadHistory 的形状`() {
+        val a = JsonParser.parseString(
+            Protocol.encodeListSessions("r1", "C:/proj", 50, 0).trim()
+        ).asJsonObject
+        assertEquals("listSessions", a.get("method").asString)
+        assertEquals(50, a.getAsJsonObject("params").get("limit").asInt)
+        assertEquals("C:/proj", a.getAsJsonObject("params").get("dir").asString)
+
+        val b = JsonParser.parseString(
+            Protocol.encodeLoadHistory("r2", "C:/proj", "sess-1").trim()
+        ).asJsonObject
+        assertEquals("loadHistory", b.get("method").asString)
+        assertEquals("sess-1", b.getAsJsonObject("params").get("sessionId").asString)
+    }
+
+    @Test
+    fun `responseIdOf 只认响应类消息`() {
+        assertEquals(
+            "r1",
+            Protocol.responseIdOf(
+                SidecarMessage.SessionList("r1", emptyList())
+            ),
+        )
+        assertEquals(
+            "r2",
+            Protocol.responseIdOf(SidecarMessage.History("r2", "s", emptyList<JsonObject>())),
+        )
+        // 非响应消息必须返回 null，否则 SidecarClient 会把它们从 listener 那里截走
+        assertNull(Protocol.responseIdOf(SidecarMessage.Ready("s", "m")))
+        assertNull(Protocol.responseIdOf(SidecarMessage.Unknown("whatever")))
     }
 }

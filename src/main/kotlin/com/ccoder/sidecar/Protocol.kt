@@ -47,9 +47,42 @@ sealed interface SidecarMessage {
     /** sidecar 进程退出。 */
     data class Exit(val code: Int, val signal: String?) : SidecarMessage
 
+    /**
+     * `listSessions` 的应答。
+     *
+     * 带 [requestId] 是为了配对 —— 这是协议里第一批请求-响应式消息。
+     */
+    data class SessionList(val requestId: String, val sessions: List<SessionInfo>) : SidecarMessage
+
+    /**
+     * `loadHistory` 的应答。
+     *
+     * [items] 是 SDK 的原始消息，**形状与流式事件同构** —— 所以回放能直接
+     * 复用 MessageRenderer 与转写管线，不需要另一套渲染代码（spec §6.1）。
+     */
+    data class History(
+        val requestId: String,
+        val sessionId: String,
+        val items: List<JsonObject>,
+    ) : SidecarMessage
+
     /** 未知类型。与"解析失败"（null）区分开——这类要忽略而非报错。 */
     data class Unknown(val type: String) : SidecarMessage
 }
+
+/**
+ * 会话列表中的一条。
+ *
+ * 字段是从 SDK 的 `SDKSessionInfo` 里**裁剪**出来的（sdk.d.ts:5154）：
+ * 只留界面要用的四个。`gitBranch` 等刻意不带过来 —— 实测本机全部会话
+ * 都在同一分支，没有信息量（spec §9.5）。
+ */
+data class SessionInfo(
+    val sessionId: String,
+    val summary: String?,
+    val firstPrompt: String?,
+    val lastModified: Long,
+)
 
 data class StartParams(
     val cwd: String,
@@ -58,6 +91,8 @@ data class StartParams(
     val claudePath: String? = null,
     val extraDirs: List<String> = emptyList(),
     val envOverrides: Map<String, String> = emptyMap(),
+    /** 非空则恢复该会话（SDK 的 `Options.resume`）。空 = 开新会话。 */
+    val resumeSessionId: String? = null,
 )
 
 object Protocol {
@@ -121,6 +156,28 @@ object Protocol {
                 }
             }
 
+            // 缺 id 就无从配对，整条丢弃 —— 留着只会变成一个永远等不到结果的占位
+            "sessions" -> obj.str("id")?.let { rid ->
+                SidecarMessage.SessionList(rid, parseSessionList(obj.arr("sessions")))
+            }
+
+            "history" -> {
+                val rid = obj.str("id")
+                val sid = obj.str("sessionId")
+                if (rid == null || sid == null) {
+                    null
+                } else {
+                    SidecarMessage.History(
+                        rid,
+                        sid,
+                        obj.arr("items")
+                            ?.filter { it.isJsonObject }
+                            ?.map { it.asJsonObject }
+                            ?: emptyList(),
+                    )
+                }
+            }
+
             "error" -> SidecarMessage.Failure(
                 message = obj.str("message") ?: "未知错误",
                 code = obj.str("code"),
@@ -134,6 +191,31 @@ object Protocol {
 
             else -> SidecarMessage.Unknown(type)
         }
+    }
+
+    fun encodeListSessions(id: String, dir: String, limit: Int, offset: Int): String =
+        line(id, "listSessions", JsonObject().apply {
+            addProperty("dir", dir)
+            addProperty("limit", limit)
+            addProperty("offset", offset)
+        })
+
+    fun encodeLoadHistory(id: String, dir: String, sessionId: String): String =
+        line(id, "loadHistory", JsonObject().apply {
+            addProperty("dir", dir)
+            addProperty("sessionId", sessionId)
+        })
+
+    /**
+     * 响应类消息的关联 id。非响应消息返回 null。
+     *
+     * 放在这里而不是 [com.ccoder.sidecar.SidecarClient]：客户端不必认识每一种
+     * 消息类型，将来新增一种响应消息时也只改这一处。
+     */
+    fun responseIdOf(msg: SidecarMessage): String? = when (msg) {
+        is SidecarMessage.SessionList -> msg.requestId
+        is SidecarMessage.History -> msg.requestId
+        else -> null
     }
 
     fun encodeStart(id: String, params: StartParams): String {
@@ -151,6 +233,7 @@ object Protocol {
                     JsonObject().apply { params.envOverrides.forEach { (k, v) -> addProperty(k, v) } }
                 )
             }
+            params.resumeSessionId?.let { addProperty("resumeSessionId", it) }
         }
         return line(id, "start", p)
     }
@@ -197,6 +280,27 @@ object Protocol {
             add("params", params)
         }.toString() + "\n"
 
+    /**
+     * 逐条解析会话列表。
+     *
+     * 缺 `sessionId` 的条目**跳过而非废掉整个列表** —— 一条坏数据不该让
+     * 另外 49 个会话都看不见。`lastModified` 缺失给 0，排序时自然沉底。
+     */
+    private fun parseSessionList(arr: JsonArray?): List<SessionInfo> {
+        if (arr == null) return emptyList()
+        return arr.mapNotNull { el ->
+            if (!el.isJsonObject) return@mapNotNull null
+            val o = el.asJsonObject
+            val sid = o.str("sessionId") ?: return@mapNotNull null
+            SessionInfo(
+                sessionId = sid,
+                summary = o.str("summary"),
+                firstPrompt = o.str("firstPrompt"),
+                lastModified = o.long("lastModified") ?: 0L,
+            )
+        }
+    }
+
     // ---- 容错取值：JSON 类型不符时返回 null 而非抛出 ClassCastException ----
 
     private fun JsonObject.str(key: String): String? =
@@ -204,6 +308,9 @@ object Protocol {
 
     private fun JsonObject.num(key: String): Int? =
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
+
+    private fun JsonObject.long(key: String): Long? =
+        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
 
     private fun JsonObject.bool(key: String): Boolean? =
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean

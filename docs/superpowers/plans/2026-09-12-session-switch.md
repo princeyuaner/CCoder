@@ -165,7 +165,20 @@ EOF
   - `Protocol.encodeLoadHistory(id: String, dir: String, sessionId: String): String`
   - `Protocol.responseIdOf(msg: SidecarMessage): String?`
 
-- [ ] **Step 1: 写失败的测试**
+> **状态：已完成（2026-09-12）**
+>
+> **执行记录**：Step 4 预期的 `BUILD SUCCESSFUL` 第一次**没有**出现 ——
+> 给 sealed interface 加两个子类型后，`ClaudePanel.onMessage` 的 `when` 穷尽性检查失败
+> （它刻意没有 `else` 分支，新消息类型必须显式处理）。**计划漏了这一步。**
+>
+> 补法：在 `ClaudePanel.kt` 的 `when` 里加
+> `is SidecarMessage.SessionList, is SidecarMessage.History -> Unit`，注释说明这两条应答
+> 本该被 Task 4 的待决表按 id 截走、到不了这里，列出只为穷尽性。
+>
+> **这是新增消息类型时的固定代价** —— Task 9/10 若再加消息类型，同样要先补穷尽性分支，
+> 否则会在一个与本次改动无关的文件上报编译失败。
+
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\sidecar\ProtocolTest.kt`（文件末尾的最后一个 `}` 之前）。import 区补两条（现有 import 里还没有）：
 
@@ -300,7 +313,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
     }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.sidecar.ProtocolTest" 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -308,7 +321,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：编译失败，报 `unresolved reference: SessionList` / `resumeSessionId` / `encodeListSessions` 等。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\sidecar\Protocol.kt` 里：
 
@@ -465,23 +478,23 @@ data class StartParams(
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.sidecar.ProtocolTest" 2>&1 | grep -E "FAILED|BUILD"
 ```
 
-预期：`BUILD SUCCESSFUL`，无 `FAILED`。
+预期：`BUILD SUCCESSFUL`，无 `FAILED`。**实测**：37 通过 / 0 失败（原 26 + 新增 11）。
 
-- [ ] **Step 5: 跑全量测试确认没打破既有契约**
+- [x] **Step 5: 跑全量测试确认没打破既有契约**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "FAILED|BUILD"
 ```
 
-预期：`BUILD SUCCESSFUL`。
+预期：`BUILD SUCCESSFUL`。**实测**：342 通过 / 0 失败 / 0 错误（开工前 331）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/sidecar/Protocol.kt src/test/kotlin/com/ccoder/sidecar/ProtocolTest.kt && git commit -F - <<'EOF'
