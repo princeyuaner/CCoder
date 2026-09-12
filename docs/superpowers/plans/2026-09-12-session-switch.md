@@ -1539,7 +1539,7 @@ EOF
 
 **为什么是纯函数**：`ClaudePanel` 依赖平台类、起不了单测（`build.gradle.kts:32-35` 明确不引平台测试框架）。照 `MainButtonState.kt` 的既有做法把它抽出来，`ClaudePanel` 只负责把结果画出来。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\SessionSwitchStateTest.kt`：
 
@@ -1594,7 +1594,7 @@ class SessionSwitchStateTest {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.SessionSwitchStateTest" 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -1602,7 +1602,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：编译失败，报 `unresolved reference: switchBlock`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\SessionSwitchState.kt`：
 
@@ -1656,7 +1656,7 @@ internal fun switchBlockNotice(block: SwitchBlock): String? = when (block) {
 }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.SessionSwitchStateTest" 2>&1 | grep -E "FAILED|BUILD"
@@ -1664,7 +1664,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：`BUILD SUCCESSFUL`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/SessionSwitchState.kt src/test/kotlin/com/ccoder/ui/SessionSwitchStateTest.kt && git commit -F - <<'EOF'
