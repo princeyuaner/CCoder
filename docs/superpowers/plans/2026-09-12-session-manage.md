@@ -1029,7 +1029,7 @@ EOF
 - Consumes: `newSessionEnabled` / `newSessionTooltip`（Task 3）、`SwitchBlock`（`session-switch` Task 7）
 - Produces: `internal class SessionNewButton(private val onClick: () -> Unit) : JButton`，方法 `setBlock(block: SwitchBlock)`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\SessionNewButtonTest.kt`：
 
@@ -1104,7 +1104,7 @@ class SessionNewButtonTest {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.SessionNewButtonTest" --console=plain 2>&1 | grep -E "error:|Unresolved|FAILED" | head -10
@@ -1112,7 +1112,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.Session
 
 预期：编译失败，`Unresolved reference: SessionNewButton`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\SessionNewButton.kt`：
 
@@ -1165,7 +1165,7 @@ internal class SessionNewButton(private val onClick: () -> Unit) : JButton("＋"
 }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.SessionNewButtonTest" --console=plain 2>&1 | tail -5
@@ -1173,7 +1173,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.Session
 
 预期：`BUILD SUCCESSFUL`，5 个用例全绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/SessionNewButton.kt src/test/kotlin/com/ccoder/ui/SessionNewButtonTest.kt && git commit -F - <<'EOF'
