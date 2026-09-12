@@ -1,8 +1,11 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.SessionInfo
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -44,5 +47,55 @@ class SessionSwitchStateTest {
         val pending = switchBlockNotice(SwitchBlock.PermissionPending)!!
         assertEquals(true, running.contains("停止"), "实际：$running")
         assertEquals(true, pending.contains("权限"), "实际：$pending")
+    }
+
+    // ---- 新建会话 ----
+
+    @Test
+    fun `空闲时才能新建`() {
+        assertTrue(newSessionEnabled(SwitchBlock.None))
+    }
+
+    @Test
+    fun `忙时不能新建`() {
+        // 与切换会话拦的是同一件事：新建同样要 stopSession()，
+        // 会把正在跑的回合腰斩
+        assertFalse(newSessionEnabled(SwitchBlock.TurnRunning))
+        assertFalse(newSessionEnabled(SwitchBlock.PermissionPending))
+    }
+
+    @Test
+    fun `能点时提示说的是它做什么，不能点时说的是先做什么`() {
+        assertEquals("新建会话", newSessionTooltip(SwitchBlock.None))
+
+        val blocked = newSessionTooltip(SwitchBlock.TurnRunning)
+        assertTrue(blocked.contains("停止"), "实际：$blocked")
+    }
+
+    // ---- 标题与删除确认语 ----
+
+    private fun info(summary: String? = null, firstPrompt: String? = null) =
+        SessionInfo("s1", summary, firstPrompt, 0L)
+
+    @Test
+    fun `标题三级降级`() {
+        assertEquals("这是摘要", sessionTitle(info(summary = "这是摘要", firstPrompt = "首问")))
+        assertEquals("首问", sessionTitle(info(summary = "  ", firstPrompt = "首问")))
+        assertEquals("（无标题）", sessionTitle(info(summary = "", firstPrompt = null)))
+    }
+
+    @Test
+    fun `删普通会话时确认语点出是哪一个`() {
+        val prompt = deleteConfirmPrompt(info(summary = "这是什么项目"), isCurrent = false)
+        assertTrue(prompt.contains("这是什么项目"), "实际：$prompt")
+    }
+
+    @Test
+    fun `删当前会话时确认语说的是后果`() {
+        // 用户已经知道自己点了哪一行；他需要知道的是"删掉之后会发生什么" ——
+        // 转写区会清空、回到新会话
+        val prompt = deleteConfirmPrompt(info(summary = "这是什么项目"), isCurrent = true)
+        assertTrue(prompt.contains("当前"), "实际：$prompt")
+        assertTrue(prompt.contains("清空"), "实际：$prompt")
     }
 }

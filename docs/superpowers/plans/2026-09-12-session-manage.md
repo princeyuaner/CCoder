@@ -369,7 +369,7 @@ EOF
 
 **为什么 `sessionTitle` 放这里**：它现在内联在 `SessionList.kt` 的 `sessionRow` 里。删除确认语要用同一个标题 —— 两处各写一遍，改了一处漏一处，就会出现"确认语说的名字和那一行显示的不是同一个"。本轮顺手抽出来，`sessionRow` 改为调用它。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\SessionSwitchStateTest.kt` 的 `class SessionSwitchStateTest` 内部：
 
@@ -427,7 +427,7 @@ EOF
 
 补 import：`org.junit.jupiter.api.Assertions.assertFalse`、`com.ccoder.sidecar.SessionInfo`。
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.SessionSwitchStateTest" --console=plain 2>&1 | grep -E "error:|Unresolved|FAILED" | head -10
@@ -435,7 +435,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.Session
 
 预期：编译失败，报 `Unresolved reference: newSessionEnabled` / `sessionTitle` / `deleteConfirmPrompt`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\SessionSwitchState.kt` 末尾：
 
@@ -484,7 +484,7 @@ internal fun deleteConfirmPrompt(session: SessionInfo, isCurrent: Boolean): Stri
     }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.SessionSwitchStateTest" --console=plain 2>&1 | tail -5
@@ -492,7 +492,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.Session
 
 预期：`BUILD SUCCESSFUL`，该文件用例数比改动前多 6。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/SessionSwitchState.kt src/test/kotlin/com/ccoder/ui/SessionSwitchStateTest.kt && git commit -F - <<'EOF'

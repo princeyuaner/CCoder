@@ -1,5 +1,7 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.SessionInfo
+
 /** 会话切换被什么挡住了。 */
 internal enum class SwitchBlock {
     /** 可以切 */
@@ -45,3 +47,46 @@ internal fun switchBlockNotice(block: SwitchBlock): String? = when (block) {
     SwitchBlock.PermissionPending ->
         "还有权限询问没处理。先把它处理掉再切会话 —— 否则那条询问会作废。"
 }
+
+/**
+ * 列表行的标题。summary 优先，退回 firstPrompt，都没有给占位。
+ *
+ * 空白行看起来像渲染坏了，不如直说。列表行与删除确认语共用这一个 ——
+ * 两处各写一遍，改一处漏一处，确认语里说的名字就会和那一行显示的不是同一个。
+ */
+internal fun sessionTitle(session: SessionInfo): String =
+    session.summary?.takeIf { it.isNotBlank() }
+        ?: session.firstPrompt?.takeIf { it.isNotBlank() }
+        ?: "（无标题）"
+
+/**
+ * 「＋」能不能点。
+ *
+ * 与切换会话拦的是同一件事：新建同样要 stopSession()，会把正在跑的回合腰斩，
+ * 挂着的权限询问也会一并作废。所以直接复用 [switchBlock] 的判定。
+ */
+internal fun newSessionEnabled(block: SwitchBlock): Boolean = block == SwitchBlock.None
+
+/**
+ * 「＋」的提示语。
+ *
+ * 能点时说明它做什么，不能点时说明**先做什么** —— 光说"不能新建"没用。
+ * 不能点那种情况直接复用 [switchBlockNotice]，两句提示不必各写一份。
+ */
+internal fun newSessionTooltip(block: SwitchBlock): String =
+    switchBlockNotice(block) ?: "新建会话"
+
+/**
+ * 删除的确认语。
+ *
+ * 删当前会话时**不写"要不要删"，写"删了会怎样"** —— 用户已经知道自己点了
+ * 哪一行，他需要知道的是后果：转写区会清空、回到新会话。
+ *
+ * 注意这里不负责截断：行宽由布局决定，长标题在组件里省略。
+ */
+internal fun deleteConfirmPrompt(session: SessionInfo, isCurrent: Boolean): String =
+    if (isCurrent) {
+        "这是当前对话。删除后转写区会清空，回到新会话。"
+    } else {
+        "删除「${sessionTitle(session)}」？"
+    }
