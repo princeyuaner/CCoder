@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 状态条 B · 打磨稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm 2025.3 New UI 真实主题变量，
+   与 status-cards.html / session-manage.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --track:#33363b;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --track:#e0e2e7;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1500px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 70ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; transition: background .15s, color .15s; }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.brief { margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line); border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0; background: var(--page-card); }
+.brief h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief b { color: var(--page-fg); }
+
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(456px, 1fr)); gap: 34px; margin-top: 34px; align-items:start; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 24px 24px 22px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 18px; }
+.thesis b { color: var(--page-fg); }
+
+/* ============================================================
+   模拟工具窗口（420px 真实宽度）
+   ============================================================ */
+.tw { position: relative; width: 420px; max-width: 100%; background: var(--panel);
+  border:1px solid var(--border); border-radius: 8px; overflow: hidden; display:flex; flex-direction:column; }
+.tw-bar { display:flex; align-items:center; gap:7px; padding: 6px 10px; background: var(--surface);
+  border-bottom:1px solid var(--border); font-size: 11.5px; color: var(--dim); }
+.tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
+.tw-bar .sp { margin-left:auto; }
+.status-row { display:flex; align-items:center; gap:8px; padding: 7px 10px; border-bottom:1px solid var(--border-soft); font-size: 12px; }
+.sess { display:flex; align-items:center; gap:5px; min-width:0; padding: 2px 6px; border-radius: 5px; cursor:pointer; color: var(--text); font-size: 12px; }
+.sess .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sess .caret { color: var(--dim); font-size: 9px; flex:0 0 auto; }
+.ib { display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; flex:0 0 auto;
+  color: var(--dim); font-size:15px; line-height:1; cursor:pointer; border:1px solid transparent; margin-left:auto; }
+.tr { padding: 12px 12px 8px; background: var(--editor); display:flex; flex-direction:column; gap:9px; }
+.bub { border-radius: 9px; padding: 7px 10px; font-size: 12px; line-height:1.5; }
+.bub.u { align-self:flex-end; background: var(--accent-soft); color: var(--text); max-width: 78%; }
+.bub.a { align-self:flex-start; background: var(--surface); border:1px solid var(--border); color: var(--text); max-width: 88%; }
+.bottom { border-top:1px solid var(--border-soft); padding: 6px 8px 8px; background: var(--panel); }
+.comp { margin-top: 6px; border:1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px 11px; }
+.comp .ph { color: var(--dim); font-size: 12.5px; }
+.comp .bar { display:flex; align-items:center; gap:10px; margin-top: 9px; padding-top: 8px; border-top:1px solid var(--border-soft); }
+.comp .bar .m { font-size: 11px; color: var(--dim); }
+.comp .bar .r { margin-left:auto; width: 24px; height:24px; border-radius:6px; background: var(--accent); }
+
+/* ---- 数字一律等宽对齐：12.3k → 128k 不能让格子抖 ---- */
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
+
+/* 状态点 */
+.dot { width:6px; height:6px; border-radius:50%; background: var(--ok); flex:0 0 auto; }
+.dot.off { background: var(--dim); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--danger); }
+
+/* 微型仪表 */
+.meter { height:3px; border-radius:2px; background: var(--track); overflow:hidden; display:block; }
+.meter i { display:block; height:100%; background: var(--accent); border-radius:2px; transition: width .3s ease; }
+.meter.hi i { background: var(--warn); }
+.meter.crit i { background: var(--danger); }
+.steps { display:flex; gap:2px; }
+.steps i { flex:1 1 0; height:3px; border-radius:1px; background: var(--track); }
+.steps i.d { background: var(--ok); }
+.steps i.a { background: var(--accent); }
+
+.state { margin-bottom: 18px; }
+.state > .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); margin-bottom: 7px; }
+
+/* ============================================================
+   ██ 变体 1 · 一栏四格
+   单容器 + 三根发丝分隔线。四个"格子"各自独立，但没有八条竖线。
+   ============================================================ */
+.v1 {
+  display:flex; align-items:stretch;
+  /* 外框比内部分隔线重一档：#e8eaed 压在白底上等于没画 */
+  border:1px solid var(--border); border-radius: 9px; background: var(--surface);
+  padding: 7px 0;
+}
+.v1 .cell { flex:1 1 0; min-width:0; padding: 0 10px; display:flex; flex-direction:column; gap:3px; justify-content:center; }
+.v1 .cell + .cell { border-left:1px solid var(--border-soft); }
+.v1 .k { font-size: 10px; color: var(--dim); letter-spacing:.04em; line-height:1.2; }
+.v1 .v { font-size: 12.5px; color: var(--text); line-height:1.25; display:flex; align-items:center; gap:5px; white-space:nowrap; }
+.v1 .v.empty { color: var(--dim); opacity:.55; }
+.v1 .sub { font-size: 9.5px; color: var(--dim); line-height:1.2; }
+.v1 .meter, .v1 .steps { margin-top: 1px; }
+
+/* ============================================================
+   ██ 变体 2 · 四张独立微卡
+   保留"各自一个框"，但每个框内部按自己的信息形状画，而不是套同一个模子。
+   ============================================================ */
+.v2 { display:flex; gap:5px; }
+.v2 .mc {
+  flex:1 1 0; min-width:0; border:1px solid var(--border); border-radius: 9px;
+  background: var(--surface); padding: 7px 9px 8px;
+  display:flex; flex-direction:column; gap:4px; justify-content:space-between;
+  position:relative; overflow:hidden;
+}
+.v2 .mc .k { font-size: 10px; color: var(--dim); letter-spacing:.04em; line-height:1.2; }
+.v2 .mc .v { font-size: 13px; color: var(--text); line-height:1.2; display:flex; align-items:center; gap:5px; white-space:nowrap; }
+.v2 .mc .v.big { font-size: 16px; font-weight:500; letter-spacing:-.01em; }
+.v2 .mc .v.empty { color: var(--dim); opacity:.5; font-weight:400; }
+.v2 .mc .foot { position:absolute; left:0; right:0; bottom:0; height:3px; }
+/* 子代理没有分母：有几件在跑就亮几个点，**不画定长条** ——
+   "4 格亮 2 格"会被读成 2/4，而它根本没有总数。 */
+/* 贴底，和另外两张卡的条在同一条线上 */
+.v2 .mc .dots { position:absolute; left:10px; bottom:0; display:flex; gap:3px; }
+.v2 .mc .dots i { width:5px; height:5px; border-radius:50%; background: var(--accent); }
+.v2 .mc .dots i.idle { background: var(--track); }
+.v2 .mc.quiet { border-color: transparent; background: transparent; }
+.v2 .mc.quiet .v { color: var(--dim); opacity:.5; }
+
+/* ============================================================
+   ██ 变体 3 · 无框，纯排版
+   一根线都不画。靠字重、字号、间距和那一点点颜色分出层级。
+   ============================================================ */
+.v3 { display:flex; align-items:flex-start; gap:0; padding: 2px 2px 0; }
+.v3 .g { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; padding-right:10px; }
+.v3 .g + .g { padding-left:11px; border-left:1px solid transparent; }
+.v3 .k { font-size: 9.5px; color: var(--dim); letter-spacing:.06em; line-height:1.2; text-transform:none; }
+.v3 .v { font-size: 13px; color: var(--text); line-height:1.2; display:flex; align-items:center; gap:5px; white-space:nowrap; }
+.v3 .v.mute { color: var(--dim); }
+.v3 .sub { font-size: 9.5px; color: var(--dim); line-height:1.25; }
+/* 无框版本里，进度条就是那根"线" */
+.v3 .meter, .v3 .steps { width:100%; }
+
+/* 代价表 */
+.cost { margin-top: 20px; padding-top: 16px; border-top:1px solid var(--page-line); display:grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12.5px; }
+.cost dt { color: var(--page-dim); font-family: var(--mono); font-size: 11px; letter-spacing:.06em; text-transform:uppercase; padding-top:2px; }
+.cost dd { margin:0; color: var(--text); }
+.cost dd.bad { color: var(--danger); }
+.cost dd.good { color: var(--ok); }
+
+.verdict { margin-top: 46px; padding: 26px 28px; border:1px solid var(--page-line); border-radius: 14px; background: var(--page-card); border-left: 3px solid var(--ok); }
+.verdict h2 { font-family: var(--serif); font-size: 25px; margin: 0 0 12px; }
+.verdict p { color: var(--page-dim); margin: 0 0 10px; max-width: 78ch; }
+.verdict b { color: var(--page-fg); }
+.verdict code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 样式 B 打磨</p>
+      <h1>四个格子，三种做法</h1>
+      <p class="lede">
+        你选了 B。原来那张的问题是：<b>四个描边盒子并排 = 八条竖线</b>，在 420px 里吵；
+        而且四个格子被迫套同一个"大数字 + 小标签"的模子 ——
+        可这四样的信息形状根本不同：连接是<b>状态</b>、上下文是<b>比例</b>、
+        子任务是<b>进度</b>、子代理是<b>活物计数</b>。
+      </p>
+    </div>
+    <div class="toggle" role="group">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <div class="brief">
+    <h3>三个变体改的是同一件事：怎么把"四个格子"画得不吵</h3>
+    <p>
+      <b>1 一栏四格</b>——四条边收成一条外框，中间三根发丝线。最像"设计过的仪表"，也最不像"四张独立的卡"。<br>
+      <b>2 四张微卡</b>——保留你要的"各自一个框"，但每个框内部按自己的信息形状画：连接是点、上下文是条、子任务是七个小方块、子代理是数字。<br>
+      <b>3 无框排版</b>——一根线都不画，纯靠字号与留白。最经看，但四个格子失去了"卡片"的边界感。
+    </p>
+    <p>
+      三个变体都做了两件原来没做的事：<b>数字用等宽数字</b>（<code>tabular-nums</code>），
+      这样 <code>12.3k</code> 涨到 <code>128k</code> 时格子不会左右抖；以及
+      <b>给"空"一个明确的画法</b>——空闲时子任务/子代理是空的，原来画成灰色"—"很丧。
+    </p>
+  </div>
+
+  <div class="grid">
+
+    <!-- ==================== 变体 1 ==================== -->
+    <div class="card">
+      <p class="tag">变体 1</p>
+      <h2>一栏四格</h2>
+      <p class="thesis">四条边收成一条外框。最安静，四个格子共用一条水平基线，看起来像一个整体仪表。</p>
+
+      <div class="state">
+        <div class="lbl">忙 · 四样都有</div>
+        <div class="tw">
+          <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+          <div class="status-row"><span class="sess"><span class="nm">重构 extractor 的指纹计算</span><span class="caret">▾</span></span><span class="ib">＋</span></div>
+          <div class="tr">
+            <div class="bub u">把指纹那块的重复读去掉</div>
+            <div class="bub a">先把调用点找齐。</div>
+          </div>
+          <div class="bottom">
+            <div class="v1">
+              <div class="cell">
+                <span class="k">连接</span>
+                <span class="v"><span class="dot"></span>已连接</span>
+              </div>
+              <div class="cell">
+                <span class="k">上下文</span>
+                <span class="v num">12.3k <span style="color:var(--dim)">/ 200k</span></span>
+                <span class="meter"><i style="width:6%"></i></span>
+              </div>
+              <div class="cell">
+                <span class="k">子任务</span>
+                <span class="v num">3/7</span>
+                <span class="steps"><i class="d"></i><i class="d"></i><i class="d"></i><i class="a"></i><i></i><i></i><i></i></span>
+              </div>
+              <div class="cell">
+                <span class="k">子代理</span>
+                <span class="v num">2</span>
+                <span class="sub">在跑</span>
+              </div>
+            </div>
+            <div class="comp">
+              <div class="ph">输入消息，Enter 发送</div>
+              <div class="bar"><span class="m">Sonnet 4.5</span><span class="m">权限模式</span><span class="r"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="state">
+        <div class="lbl">空闲 · 后两格是空的</div>
+        <div class="tw">
+          <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+          <div class="status-row"><span class="sess"><span class="nm">重构 extractor 的指纹计算</span><span class="caret">▾</span></span><span class="ib">＋</span></div>
+          <div class="tr"><div class="bub a">改完了，7 处调用点都换成了新的指纹函数。</div></div>
+          <div class="bottom">
+            <div class="v1">
+              <div class="cell">
+                <span class="k">连接</span>
+                <span class="v"><span class="dot"></span>已连接</span>
+              </div>
+              <div class="cell">
+                <span class="k">上下文</span>
+                <span class="v num">12.3k <span style="color:var(--dim)">/ 200k</span></span>
+                <span class="meter"><i style="width:6%"></i></span>
+              </div>
+              <!-- 没有清单时**不画**格子条：7 个空格子会被读成"0/7"，
+                   而此刻根本没有清单。同子代理那条规矩。 -->
+              <div class="cell">
+                <span class="k">子任务</span>
+                <span class="v empty">—</span>
+                <span class="sub"></span>
+              </div>
+              <div class="cell">
+                <span class="k">子代理</span>
+                <span class="v empty">—</span>
+                <span class="sub"></span>
+              </div>
+            </div>
+            <div class="comp">
+              <div class="ph">输入消息，Enter 发送</div>
+              <div class="bar"><span class="m">Sonnet 4.5</span><span class="m">权限模式</span><span class="r"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="cost">
+        <dt>占高</dt><dd>~52px（忙闲一致，不跳）</dd>
+        <dt>好在</dt><dd class="good">最安静；四个格子天然对齐；加第五格不用改结构</dd>
+        <dt>差在</dt><dd class="bad">不太像"四张独立的卡"；每格 ~95px，子代理名字放不下</dd>
+      </dl>
+    </div>
+
+    <!-- ==================== 变体 2 ==================== -->
+    <div class="card">
+      <p class="tag">变体 2</p>
+      <h2>四张微卡</h2>
+      <p class="thesis">保留"各自一个框"。但每个框内部按<b>自己的信息形状</b>画：连接是点、上下文是条、子任务是七个小方块、子代理是大数字 + <b>几个点</b>。空闲的格子干脆<b>不画框</b>。</p>
+
+      <div class="state">
+        <div class="lbl">忙 · 四样都有</div>
+        <div class="tw">
+          <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+          <div class="status-row"><span class="sess"><span class="nm">重构 extractor 的指纹计算</span><span class="caret">▾</span></span><span class="ib">＋</span></div>
+          <div class="tr">
+            <div class="bub u">把指纹那块的重复读去掉</div>
+            <div class="bub a">先把调用点找齐。</div>
+          </div>
+          <div class="bottom">
+            <div class="v2">
+              <div class="mc">
+                <span class="k">连接</span>
+                <span class="v"><span class="dot"></span>已连接</span>
+              </div>
+              <div class="mc">
+                <span class="k">上下文</span>
+                <span class="v big num">6<span style="font-size:11px">%</span></span>
+                <span class="foot meter"><i style="width:6%"></i></span>
+              </div>
+              <div class="mc">
+                <span class="k">子任务</span>
+                <span class="v big num">3<span style="font-size:11px;color:var(--dim)">/7</span></span>
+                <span class="foot steps"><i class="d"></i><i class="d"></i><i class="d"></i><i class="a"></i><i></i><i></i><i></i></span>
+              </div>
+              <div class="mc">
+                <span class="k">子代理</span>
+                <span class="v big num">2</span>
+                <!-- 有几个在跑就亮几个点。**绝不用定长进度条** ——
+                     子代理没有分母，"2 格亮 2 格"会被读成"2/4"。 -->
+                <span class="foot dots"><i></i><i></i></span>
+              </div>
+            </div>
+            <div class="comp">
+              <div class="ph">输入消息，Enter 发送</div>
+              <div class="bar"><span class="m">Sonnet 4.5</span><span class="m">权限模式</span><span class="r"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="state">
+        <div class="lbl">空闲 · 空的格子不画框，也不画伪条</div>
+        <div class="tw">
+          <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+          <div class="status-row"><span class="sess"><span class="nm">重构 extractor 的指纹计算</span><span class="caret">▾</span></span><span class="ib">＋</span></div>
+          <div class="tr"><div class="bub a">改完了，7 处调用点都换成了新的指纹函数。</div></div>
+          <div class="bottom">
+            <div class="v2">
+              <div class="mc">
+                <span class="k">连接</span>
+                <span class="v"><span class="dot"></span>已连接</span>
+              </div>
+              <div class="mc">
+                <span class="k">上下文</span>
+                <span class="v big num">6<span style="font-size:11px">%</span></span>
+                <span class="foot meter"><i style="width:6%"></i></span>
+              </div>
+              <div class="mc quiet">
+                <span class="k">子任务</span>
+                <span class="v">空闲</span>
+              </div>
+              <div class="mc quiet">
+                <span class="k">子代理</span>
+                <span class="v">空闲</span>
+              </div>
+            </div>
+            <div class="comp">
+              <div class="ph">输入消息，Enter 发送</div>
+              <div class="bar"><span class="m">Sonnet 4.5</span><span class="m">权限模式</span><span class="r"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="cost">
+        <dt>占高</dt><dd>~58px（忙闲一致，不跳）</dd>
+        <dt>好在</dt><dd class="good">最像"四张独立的卡"；每个格子表达自己的形状；空闲格<b>收边不画框</b>，不用灰"—"占位</dd>
+        <dt>差在</dt><dd class="bad">四张卡有八条竖线，靠"空的不画框"才压得住；子代理只给数字和点数，名字仍然放不下</dd>
+      </dl>
+    </div>
+
+    <!-- ==================== 变体 3 ==================== -->
+    <div class="card">
+      <p class="tag">变体 3</p>
+      <h2>无框，纯排版</h2>
+      <p class="thesis">一根线都不画。进度条本身就是那根"线"。最经看、最不像仪表盘，四个格子的边界靠留白暗示。</p>
+
+      <div class="state">
+        <div class="lbl">忙 · 四样都有</div>
+        <div class="tw">
+          <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+          <div class="status-row"><span class="sess"><span class="nm">重构 extractor 的指纹计算</span><span class="caret">▾</span></span><span class="ib">＋</span></div>
+          <div class="tr">
+            <div class="bub u">把指纹那块的重复读去掉</div>
+            <div class="bub a">先把调用点找齐。</div>
+          </div>
+          <div class="bottom">
+            <div class="v3">
+              <div class="g">
+                <span class="k">连接</span>
+                <span class="v"><span class="dot"></span>已连接</span>
+              </div>
+              <div class="g">
+                <span class="k">上下文</span>
+                <span class="v num">12.3k<span style="color:var(--dim)">/200k</span></span>
+                <span class="meter"><i style="width:6%"></i></span>
+              </div>
+              <div class="g">
+                <span class="k">子任务</span>
+                <span class="v num">3/7</span>
+                <span class="steps"><i class="d"></i><i class="d"></i><i class="d"></i><i class="a"></i><i></i><i></i><i></i></span>
+              </div>
+              <div class="g">
+                <span class="k">子代理</span>
+                <span class="v num">2 个在跑</span>
+              </div>
+            </div>
+            <div class="comp">
+              <div class="ph">输入消息，Enter 发送</div>
+              <div class="bar"><span class="m">Sonnet 4.5</span><span class="m">权限模式</span><span class="r"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="state">
+        <div class="lbl">空闲 · 空的那两个只留标签</div>
+        <div class="tw">
+          <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+          <div class="status-row"><span class="sess"><span class="nm">重构 extractor 的指纹计算</span><span class="caret">▾</span></span><span class="ib">＋</span></div>
+          <div class="tr"><div class="bub a">改完了，7 处调用点都换成了新的指纹函数。</div></div>
+          <div class="bottom">
+            <div class="v3">
+              <div class="g">
+                <span class="k">连接</span>
+                <span class="v"><span class="dot"></span>已连接</span>
+              </div>
+              <div class="g">
+                <span class="k">上下文</span>
+                <span class="v num">12.3k<span style="color:var(--dim)">/200k</span></span>
+                <span class="meter"><i style="width:6%"></i></span>
+              </div>
+              <div class="g" style="opacity:.42">
+                <span class="k">子任务</span>
+                <span class="v mute">—</span>
+              </div>
+              <div class="g" style="opacity:.42">
+                <span class="k">子代理</span>
+                <span class="v mute">—</span>
+              </div>
+            </div>
+            <div class="comp">
+              <div class="ph">输入消息，Enter 发送</div>
+              <div class="bar"><span class="m">Sonnet 4.5</span><span class="m">权限模式</span><span class="r"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <dl class="cost">
+        <dt>占高</dt><dd>~50px（忙闲一致，不跳）</dd>
+        <dt>好在</dt><dd class="good">零线条，和现在输入卡的观感最连得上；改配色只动一处</dd>
+        <dt>差在</dt><dd class="bad">空闲时左两格有色、右两格灰掉，看着像坏了；四个格子的分界全靠感觉</dd>
+      </dl>
+    </div>
+
+  </div>
+
+  <div class="verdict">
+    <h2>我推荐变体 2</h2>
+    <p>
+      你要的是<b>「四张独立的卡」</b>，变体 2 是唯一真的给了四个独立框、又没被八条竖线毁掉的做法 ——
+      靠的是<b>空闲的格子不画框</b>。忙的时候四张卡齐齐整整，闲的时候后两张<b>收边</b>退到背景里，
+      不拿灰"—"占着位置说丧气话。
+    </p>
+    <p>
+      另外两处是我顺手一起改的，三条稿子里都有：
+    </p>
+    <p>
+      <b>一是数字改成等宽。</b><code>font-variant-numeric: tabular-nums</code>。
+      上下文从 <code>12.3k</code> 涨到 <code>128k</code>、子任务从 <code>3/7</code> 走到 <code>5/7</code>，
+      格子宽度不会跟着抖。这个不改，整条状态栏在跑起来的时候是"活"的，很晃眼。
+    </p>
+    <p>
+      <b>二是给"空"一个体面的画法。</b>变体 2 用的是"收边"（无框、正常颜色、写"空闲"），
+      不是灰"—"。你要是偏好别的，说一声。
+    </p>
+    <p>
+      <b>三是子代理不许画进度条。</b>这一条是我画第一版时自己踩的：我给子代理卡画了
+      "亮 2 格 / 共 4 格"，可<b>子代理没有分母</b> —— 在跑几个就是几个，没有"共几个"。
+      那个图形会被读成 2/4，是<b>凭空造出来的信息</b>。改成"有几个在跑就亮几个点"。
+    </p>
+    <p style="margin-top:18px; color:var(--page-fg)">
+      顺带说一句<b>变体 3 的隐患</b>：它空闲时左两格有色、右两格灰掉，
+      看上去更像"渲染坏了"而不是"这两个没数据"。除非你很确定自己不会误读，否则我把它排在最后。
+    </p>
+  </div>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('btn-dark').setAttribute('aria-pressed', t === 'dark');
+  document.getElementById('btn-light').setAttribute('aria-pressed', t === 'light');
+}
+</script>
+</body>
+</html>
