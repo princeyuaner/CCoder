@@ -2,6 +2,10 @@
 import { createInterface } from 'node:readline';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  listSessions as sdkListSessions,
+  getSessionMessages as sdkGetSessionMessages,
+} from '@anthropic-ai/claude-agent-sdk';
 import { NdjsonDecoder, encodeNdjson, parseLine } from './ndjson.js';
 import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
@@ -14,8 +18,15 @@ import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
  * @param {object} deps
  * @param {Function} deps.sessionFactory (opts) => Session
  * @param {Function} deps.out            (message) => void
+ * @param {object}   [deps.sessionApi]   { listSessions, getSessionMessages }。
+ *   这两个是 SDK 的**独立函数**，不属于任何会话 —— 注入是为了把真实 SDK
+ *   挡在单测之外。生产路径用真实实现。
  */
-export function createDispatcher({ sessionFactory, out }) {
+export function createDispatcher({
+  sessionFactory,
+  out,
+  sessionApi = { listSessions: sdkListSessions, getSessionMessages: sdkGetSessionMessages },
+}) {
   let session = null;
   const preStartQueue = [];   // start 之前到达的 send，按序补发
 
@@ -95,6 +106,47 @@ export function createDispatcher({ sessionFactory, out }) {
         // 只在给到时才加字段 —— 塞一个空对象等于"显式改写成了空"
         if (updatedInput) result.updatedInput = updatedInput;
         session.decidePermission(requestId, result);
+        return session;
+      }
+
+      // 列表与回放**不需要活会话** —— 它们是 SDK 的独立函数。
+      // 这是设计的关键点：面板一打开就能列出历史，不必先起一个会话。
+      case 'listSessions': {
+        // 刻意**不传** includeProgrammatic。SDK 文档说 "IDE session pickers
+        // pass false for parity with terminal /resume"，看着正该传 —— 但实测
+        // 那会把 19 条会话全滤光：插件自己开的会话也是 SDK 会话
+        // （entrypoint sdk-ts），会一并被滤掉，于是列表里永远看不到自己刚
+        // 恢复过的那个。传 false 不报错，只是安静地返回空，所以这个坑不
+        // 实测根本看不出来（spec §4.2）。
+        const { dir, limit = 50, offset = 0 } = params;
+        Promise.resolve(sessionApi.listSessions({ dir, limit, offset }))
+          .then((sessions) => out({
+            type: 'sessions',
+            id: msg.id,
+            // 只把界面要用的字段送过线。SDK 的 SDKSessionInfo 有十来个字段，
+            // 全送过去等于把 SDK 的结构钉进协议里
+            sessions: (sessions ?? []).map((s) => ({
+              sessionId: s.sessionId,
+              summary: s.summary ?? null,
+              firstPrompt: s.firstPrompt ?? null,
+              lastModified: s.lastModified ?? 0,
+            })),
+          }))
+          .catch((err) => fail('LIST_SESSIONS_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'loadHistory': {
+        const { dir, sessionId } = params;
+        Promise.resolve(sessionApi.getSessionMessages(sessionId, { dir }))
+          .then((items) => out({
+            type: 'history',
+            id: msg.id,
+            sessionId,
+            // 条目原样透传：它们与流式事件同构，插件侧直接复用既有渲染管线
+            items: items ?? [],
+          }))
+          .catch((err) => fail('LOAD_HISTORY_FAILED', String(err?.message ?? err), false));
         return session;
       }
 

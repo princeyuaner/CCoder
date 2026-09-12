@@ -319,3 +319,162 @@ test('畸形输入被忽略而非抛错', () => {
   assert.doesNotThrow(() => d.handle({ id: 'x' }));   // 无 method
   assert.equal(out.length, 1, '仅无 method 那条产生 UNKNOWN_METHOD');
 });
+
+// ---- 会话列表与历史（Task 3）----
+
+/** 假的 SDK 会话 API，用来把真实 SDK 挡在单测之外。 */
+function fakeSessionApi({ listError = null, historyError = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    api: {
+      listSessions: async (opts) => {
+        calls.push(['listSessions', opts]);
+        if (listError) throw new Error(listError);
+        return [
+          {
+            sessionId: 'a', summary: '标题甲', firstPrompt: '甲', lastModified: 111,
+            gitBranch: 'v0.2.0-dev', fileSize: 999, cwd: '/x', tag: null,
+          },
+        ];
+      },
+      getSessionMessages: async (sid, opts) => {
+        calls.push(['getSessionMessages', sid, opts]);
+        if (historyError) throw new Error(historyError);
+        return [{ type: 'user', message: { role: 'user', content: '你好' } }];
+      },
+    },
+  };
+}
+
+test('listSessions 不需要活会话也能应答', () => {
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  // 刻意不 start —— 面板一打开就要能列出历史，这是设计的关键点
+  d.handle({ id: 'r1', method: 'listSessions', params: { dir: '/proj', limit: 50, offset: 0 } });
+
+  return tick().then(() => {
+    const msg = out.find((m) => m.type === 'sessions');
+    assert.ok(msg, '没有活会话时也必须应答');
+    assert.equal(msg.id, 'r1', '响应必须回显请求 id');
+    assert.equal(msg.sessions.length, 1);
+    assert.equal(msg.sessions[0].summary, '标题甲');
+    assert.equal(fa.calls[0][1].dir, '/proj');
+  });
+});
+
+test('listSessions 只传界面要用的字段', () => {
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'listSessions', params: { dir: '/proj' } });
+
+  return tick().then(() => {
+    const s = out.find((m) => m.type === 'sessions').sessions[0];
+    assert.deepEqual(
+      Object.keys(s).sort(),
+      ['firstPrompt', 'lastModified', 'sessionId', 'summary'],
+      'SDK 的 gitBranch / fileSize / cwd / tag 不该过线',
+    );
+  });
+});
+
+test('listSessions 不传 includeProgrammatic', () => {
+  // 回归测试。SDK 文档说 IDE 选择器该传 false —— 但那会把插件自己的
+  // 会话也滤掉（实测本机 19/19 全被滤）。传 false 不报错，只是安静地
+  // 返回空，所以必须由测试守住这条
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'listSessions', params: { dir: '/proj' } });
+
+  return tick().then(() => {
+    const opts = fa.calls[0][1];
+    assert.ok(!('includeProgrammatic' in opts), '传了它会把插件自己的会话一起滤掉');
+    assert.ok(!('includeWorktrees' in opts), 'worktree 参数本版用不上，不要顺手带上');
+  });
+});
+
+test('listSessions 出错时以 error 回执而非静默', () => {
+  const out = [];
+  const fa = fakeSessionApi({ listError: '读不了' });
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'listSessions', params: { dir: '/proj' } });
+
+  return tick().then(() => {
+    const err = out.find((m) => m.type === 'error');
+    assert.equal(err.code, 'LIST_SESSIONS_FAILED');
+    assert.match(err.message, /读不了/);
+    assert.equal(err.fatal, false, '列不出会话不该杀掉会话');
+  });
+});
+
+test('loadHistory 把条目原样透传', () => {
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r2', method: 'loadHistory', params: { dir: '/proj', sessionId: 'sess-1' } });
+
+  return tick().then(() => {
+    const msg = out.find((m) => m.type === 'history');
+    assert.equal(msg.id, 'r2');
+    assert.equal(msg.sessionId, 'sess-1');
+    assert.equal(msg.items.length, 1);
+    assert.equal(msg.items[0].type, 'user');
+    assert.deepEqual(fa.calls[0], ['getSessionMessages', 'sess-1', { dir: '/proj' }]);
+  });
+});
+
+test('loadHistory 出错时以 error 回执', () => {
+  const out = [];
+  const fa = fakeSessionApi({ historyError: '会话不存在' });
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r2', method: 'loadHistory', params: { dir: '/proj', sessionId: 'nope' } });
+
+  return tick().then(() => {
+    const err = out.find((m) => m.type === 'error');
+    assert.equal(err.code, 'LOAD_HISTORY_FAILED');
+    assert.match(err.message, /会话不存在/);
+  });
+});
+
+test('start 把 resumeSessionId 透传给 sessionFactory', () => {
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: () => {}, sessionApi: fakeSessionApi().api });
+
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp', permissionMode: 'default', resumeSessionId: 'sess-9' } });
+
+  const created = sf.calls.find((c) => c[0] === 'create')[1];
+  assert.equal(created.resumeSessionId, 'sess-9');
+});

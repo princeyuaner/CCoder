@@ -134,7 +134,7 @@ console.log('（一次性会话已删除）');
 - 若 `init` **不出现** → Task 10 需要在 resume 路径上把模型名标签置成占位（因为那个标签只在 `init` 里更新），并把这一条写进 spec
 - 若 `init` 报的是**另一个 id**（不 fork 也这样）→ 这是严重问题，**停下来**，说明 `resume` 的语义和文档不符，整个 §5 的切换流程要重新设计
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add docs/superpowers/specs/2026-09-12-session-switch-design.md && git commit -F - <<'EOF'
@@ -531,7 +531,17 @@ EOF
   - 线上消息：`{type:'history', id, sessionId, items:[...]}`
   - `createSession({ ..., resumeSessionId })` → SDK `options.resume`
 
-- [ ] **Step 1: 写失败的测试**
+> **状态：已完成（2026-09-12）**
+>
+> **执行记录**：Step 5 预期「`# pass` 比改动前多 6 条」，实际多了 **7** 条。
+> 多出来的那条是 `start 把 resumeSessionId 透传给 sessionFactory` —— 它**一写出来就通过**：
+> dispatcher 的 start 分支用 `...params` 展开，resumeSessionId 本来就透传了，不需要任何生产改动。
+> 它不是驱动新代码的测试，是**回归守卫**（防止将来有人把展开收窄成显式字段列表）。
+> 留着有价值，但别把它当成"这条链路是这次新建的"。
+>
+> 实测：sidecar 79 → 86 用例，`fail 0`。
+
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\sidecar\test\index.test.js` 末尾。
 
@@ -696,7 +706,7 @@ test('start 把 resumeSessionId 透传给 sessionFactory', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder/sidecar" && npm test 2>&1 | grep -E "^# (pass|fail)|not ok" | head -20
@@ -704,7 +714,7 @@ cd "C:/Users/CY/Desktop/CCoder/sidecar" && npm test 2>&1 | grep -E "^# (pass|fai
 
 预期：`# fail` 大于 0，失败的正是上面这几条（`sessionApi` 参数还不存在，`listSessions` 走到 `default` 分支回了 `UNKNOWN_METHOD`）。
 
-- [ ] **Step 3: 实现 session.js 的 resume 透传**
+- [x] **Step 3: 实现 session.js 的 resume 透传**
 
 在 `C:\Users\CY\Desktop\CCoder\sidecar\session.js` 的 `createSession` 参数解构里加 `resumeSessionId`：
 
@@ -731,7 +741,7 @@ export function createSession({
   if (resumeSessionId) options.resume = resumeSessionId;
 ```
 
-- [ ] **Step 4: 实现 index.js 的分发**
+- [x] **Step 4: 实现 index.js 的分发**
 
 **(a)** 文件顶部 import 区加：
 
@@ -809,7 +819,7 @@ export function createDispatcher({
       }
 ```
 
-- [ ] **Step 5: 运行测试，确认通过**
+- [x] **Step 5: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder/sidecar" && npm test 2>&1 | grep -E "^# (pass|fail)|not ok" | head -20
@@ -817,7 +827,7 @@ cd "C:/Users/CY/Desktop/CCoder/sidecar" && npm test 2>&1 | grep -E "^# (pass|fai
 
 预期：`# fail 0`，`# pass` 比改动前多 6 条。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add sidecar/index.js sidecar/session.js sidecar/test/index.test.js && git commit -F - <<'EOF'

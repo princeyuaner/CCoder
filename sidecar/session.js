@@ -33,6 +33,7 @@ export function createSession({
   claudePath,
   extraDirs,
   envOverrides,
+  resumeSessionId,
   onEvent = () => {},
   onPermission = () => {},
   queryFn = defaultQueryFn,
@@ -87,6 +88,10 @@ export function createSession({
   if (model) options.model = model;
   if (extraDirs?.length) options.additionalDirectories = extraDirs;
   if (claudePath) options.pathToClaudeCodeExecutable = claudePath;
+
+  // 恢复既有会话。与 continue 互斥、可配 forkSession —— 本插件只用
+  // "接着写"这一种语义（spec §1.2），所以这里不带 forkSession。
+  if (resumeSessionId) options.resume = resumeSessionId;
 
   // SDK 要求 bypassPermissions 必须配这个字段（sdk.d.ts:1853-1856），
   // 缺了它这个模式静默失效：设置里选得中，实际什么都不绕。
