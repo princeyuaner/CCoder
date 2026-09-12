@@ -524,6 +524,38 @@ EOF
 - Produces:
   - `buildSessionList` 的签名扩为 `buildSessionList(sessions, currentSessionId, block, onPick = {}, onDelete: (SessionInfo) -> Unit = {}, currentSessionIdOf: (SessionInfo) -> Boolean = ...)`
 
+> **状态：已完成（2026-09-12）** —— 全量 392 / 0 失败。
+>
+> **执行记录 —— 挖出一个静默的生产 bug，是计划自己写出来的：**
+>
+> **① 尾随 lambda 绑到了错误的参数。** 计划把 `onDelete` 加在 `onPick` **后面**，
+> 并声称"保持既有调用点不破"。**恰恰相反**：Kotlin 的尾随 lambda 绑的是**最后一个参数**，
+> 于是所有既有的 `buildSessionList(s, id, block) { ... }` **静默地**从"选中回调"
+> 变成了"删除回调"——
+>
+> - 生产路径 `ClaudePanel.showSessionPopup` 里那个 → **点会话行什么都不会发生**，且不报错
+> - `SessionListTest.空闲时每行都可点` 同理，所以它红了
+>
+> 修法不是去改调用点，而是**调换参数顺序**（`onDelete` 在前、`onPick` 保持最后），
+> 既有的尾随 lambda 调用点一个字不用动，含义自动恢复。注释里写清楚了为什么是这个顺序。
+>
+> 诊断过程记一笔：`clickableRows` 报"3 行都挂着监听器"、行的类型/启用状态全对，
+> 但回调就是不触发 —— 说明问题不在监听器而在**传进去的那个 lambda 是哪一个**。
+>
+> **② 子组件的悬停转发必须收进 `if (clickable)`。** 计划写的是无条件挂，但
+> 既有用例 `忙时行根本不挂点击响应` 断言的正是"忙时没有任何点击响应" —— 红了。
+> 收进 `if (clickable)` 之后两件事同时成立。
+>
+> **③ 测试里 `clickableRows` 的定义收紧了。** 行内部现在也有交互子件（悬停用的 ✕），
+> 原来"递归找所有带监听器的容器"会把它们也数进来。改成只看列表的**直接子项**。
+>
+> **④ 计划里的 `allowDelete` 参数被去掉**：它和 `clickable` 恒等（都是 `block == None`），
+> 两个恒等的参数是漂移的温床。
+>
+> **⑤ 测试里的 `labelsIn` 改成了这个文件既有的 `textsIn`** —— 同一个东西两个名字没必要。
+>
+> **给后续 Task 的教训**：给已有函数**追加参数**时，先看它有没有被**尾随 lambda** 调用。
+
 **签名扩法**（保持既有调用点不破）：
 
 ```kotlin
@@ -544,7 +576,7 @@ internal fun buildSessionList(
 2. **同一时刻只允许一行处于确认态**。用一个 `ConfirmSlot` 持有"当前确认中的那一行如何收回"。
 3. **焦点落在「取消」**。沿用 `PermissionCard.kt:26-28` 那条规则。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\SessionListTest.kt`（文件由 `session-switch` Task 8 创建）：
 
@@ -711,7 +743,7 @@ internal fun buildSessionList(
 
 **注意**：`DELETE_MARK` 是 Task 4 Step 3 要定义的常量（`internal const val DELETE_MARK = "✕"`），与 `MARK`（`ComposerMode.kt:18`）同一个做法：实现与测试共用一份，免得两边各写一个字符然后漂移。
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.SessionListTest" --console=plain 2>&1 | grep -E "error:|Unresolved|FAILED" | head -10
@@ -719,7 +751,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.Session
 
 预期：编译失败，报 `Unresolved reference: DELETE_MARK` 等。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 **(a)** 在 `SessionList.kt` 顶部（`buildSessionList` 之前）加常量与确认态协调器：
 
@@ -956,7 +988,7 @@ private fun sessionRow(
 
 **测试对应的是 `row` 自身的 `mouseEntered`/`mouseExited`**（`hover(row, entered = true)`），所以这段子孙转发是给真实鼠标用的，不额外写用例 —— 它属于观感，靠手工冒烟（§6.3 第 5 条）确认。
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.SessionListTest" --console=plain 2>&1 | tail -5
@@ -966,7 +998,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.ui.Session
 
 **若 `点 ✕ 进入确认态，而且不触发切换` 失败**：说明 `e.component is JButton` 这道守卫没生效（Swing 在 `doClick()` 路径下 `e.component` 是那个 JButton）。改用 `SwingUtilities.isDescendingFrom(e.component, deleteSlot)` 判断即可 —— **不要让该用例变成断言"能切换"**，那条路径就是设计稿 §4.2(a) 要拦的。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/SessionList.kt src/test/kotlin/com/ccoder/ui/SessionListTest.kt && git commit -F - <<'EOF'

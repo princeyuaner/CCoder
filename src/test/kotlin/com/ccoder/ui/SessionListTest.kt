@@ -3,11 +3,14 @@ package com.ccoder.ui
 import com.ccoder.sidecar.SessionInfo
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
 import java.awt.event.MouseEvent
+import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JLabel
 
 /**
@@ -38,18 +41,14 @@ class SessionListTest {
         return out
     }
 
-    /** 树里所有挂了鼠标点击响应的容器 —— 也就是"能被点的行"。 */
-    private fun clickableRows(root: Container): List<Component> {
-        val out = mutableListOf<Component>()
-        fun walk(c: Container) {
-            for (child in c.components) {
-                if (child is Container && child.mouseListeners.isNotEmpty()) out += child
-                if (child is Container) walk(child)
-            }
-        }
-        walk(root)
-        return out
-    }
+    /**
+     * 列表里挂了鼠标点击响应的**行**。
+     *
+     * 只看列表的直接子项：行内部还有别的交互子件（悬停用的 ✕），
+     * 递归扫会把它们也数进来，"哪几行可点"就测不准了。
+     */
+    private fun clickableRows(root: Container): List<Component> =
+        root.components.filter { it is Container && it.mouseListeners.isNotEmpty() }
 
     private fun click(component: Component) {
         component.dispatchEvent(
@@ -136,5 +135,150 @@ class SessionListTest {
     fun `未来时间不显示成负数`() {
         // 时钟回拨或时区问题都可能造出未来时间戳，不该显示"-3 分钟前"
         assertEquals("刚刚", relativeTime(now, now + 60_000))
+    }
+
+    // ---- 删除（Task 4）----
+
+    private val twoSessions = listOf(
+        SessionInfo("s1", "还可以做什么功能", null, 1_000L),
+        SessionInfo("s2", "这是什么项目", null, 2_000L),
+    )
+
+    /** 找一棵组件树里所有 JButton。 */
+    private fun buttonsIn(root: Container): List<JButton> {
+        val out = mutableListOf<JButton>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JButton) out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return out
+    }
+
+    /** 一行的 ✕。列表里每行一个，按顺序取。 */
+    private fun deleteButtonOf(list: JComponent, index: Int) =
+        buttonsIn(list).filter { it.text == DELETE_MARK }[index]
+
+    private fun hover(component: Component, entered: Boolean) {
+        component.dispatchEvent(
+            MouseEvent(
+                component,
+                if (entered) MouseEvent.MOUSE_ENTERED else MouseEvent.MOUSE_EXITED,
+                System.currentTimeMillis(), 0, 5, 5, 0, false,
+            )
+        )
+    }
+
+    @Test
+    fun `✕ 平时藏着，悬停到这一行才出现`() {
+        // 列表最干净、误点率最低（设计稿 §二 A）。hover 的是**行**，
+        // 不是 ✕ 自己 —— 否则鼠标一移过去它就消失了
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        val row = list.components.filterIsInstance<JComponent>()[0]
+        val x = deleteButtonOf(list, 0)
+
+        assertFalse(x.isVisible, "没悬停时 ✕ 不该露出来")
+
+        hover(row, entered = true)
+        assertTrue(x.isVisible, "悬停后 ✕ 没出现")
+
+        hover(row, entered = false)
+        assertFalse(x.isVisible, "移开后 ✕ 没收回")
+    }
+
+    @Test
+    fun `悬停不会让时间标签左右跳`() {
+        // ✕ 藏在固定宽度的槽里。若直接把它从布局里拿掉拿进，
+        // 时间标签会左右跳一下 —— 那是能看见的抖动
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        val row = list.components.filterIsInstance<JComponent>()[0]
+        val before = row.preferredSize.width
+
+        hover(row, entered = true)
+
+        assertEquals(before, row.preferredSize.width, "悬停后行宽变了")
+    }
+
+    @Test
+    fun `点 ✕ 进入确认态，而且不触发切换`() {
+        // 这是本次唯一一个"写错了会误删"的点：整行可点、✕ 在行内，
+        // 事件冒泡上去就会先切过去，然后你可能正在删一个刚被激活的会话
+        var picked: SessionInfo? = null
+        var deleted: SessionInfo? = null
+        val list = buildSessionList(
+            twoSessions, currentSessionId = null, block = SwitchBlock.None,
+            onPick = { picked = it },
+            onDelete = { deleted = it },
+        )
+
+        deleteButtonOf(list, 0).doClick()
+
+        assertNull(picked, "点 ✕ 竟然触发了切换会话")
+        assertNull(deleted, "确认之前不该真的删")
+        assertTrue(
+            textsIn(list).any { it.contains("删除") },
+            "没有进入确认态：${textsIn(list)}",
+        )
+    }
+
+    @Test
+    fun `确认后才回调 onDelete`() {
+        var deleted: SessionInfo? = null
+        val list = buildSessionList(
+            twoSessions, currentSessionId = null, block = SwitchBlock.None,
+            onDelete = { deleted = it },
+        )
+
+        deleteButtonOf(list, 0).doClick()
+        // 确认行上的"删除"按钮：确认态那两个按钮之一，文字是"删除"
+        buttonsIn(list).first { it.text == "删除" }.doClick()
+
+        assertEquals("s1", deleted?.sessionId)
+    }
+
+    @Test
+    fun `同一时刻只有一行处于确认态`() {
+        // 点了 A 行的 ✕ 又去点 B 行的 ✕，A 行必须收回原样 ——
+        // 否则界面上同时挂着两个待确认的删除
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+
+        deleteButtonOf(list, 0).doClick()
+        // A 行进了确认态，它自己的 ✕ 已经不在树里了 —— 现在只剩 B 行那一个
+        deleteButtonOf(list, 0).doClick()
+
+        val confirmRows = textsIn(list).count { it.contains("删除「") }
+        assertEquals(1, confirmRows, "同时存在多个确认态：${textsIn(list)}")
+    }
+
+    @Test
+    fun `取消后回到原样，且没有回调`() {
+        var deleted: SessionInfo? = null
+        val list = buildSessionList(
+            twoSessions, currentSessionId = null, block = SwitchBlock.None,
+            onDelete = { deleted = it },
+        )
+
+        deleteButtonOf(list, 0).doClick()
+        buttonsIn(list).first { it.text == "取消" }.doClick()
+
+        assertNull(deleted)
+        assertTrue(
+            textsIn(list).any { it.contains("还可以做什么功能") },
+            "取消后标题没回来：${textsIn(list)}",
+        )
+    }
+
+    @Test
+    fun `删当前会话时确认语说的是后果`() {
+        val list = buildSessionList(twoSessions, currentSessionId = "s1", block = SwitchBlock.None)
+
+        deleteButtonOf(list, 0).doClick()
+
+        assertTrue(
+            textsIn(list).any { it.contains("清空") },
+            "删当前会话没说明后果：${textsIn(list)}",
+        )
     }
 }
