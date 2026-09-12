@@ -20,6 +20,7 @@ import javax.swing.SwingUtilities
 class TranscriptPump(
     private val exec: (String) -> Unit,
     throttleMs: Long = DEFAULT_THROTTLE_MS,
+    private val maxBatch: Int = DEFAULT_MAX_BATCH,
 ) {
     private val lock = Any()
     private val buffer = mutableListOf<TranscriptOp>()
@@ -51,7 +52,13 @@ class TranscriptPump(
 
         val batch = synchronized(lock) {
             if (buffer.isEmpty()) return
-            buffer.toList().also { buffer.clear() }
+            // 单批上限。回放会把几百条一次塞进来（实测最大会话 804 条），
+            // 全发出去就是一次几 MB 的 executeJavaScript，跨 CEF 进程边界
+            // 会明显卡顿。留一部分给下一拍，代价只是多几帧。
+            val n = minOf(buffer.size, maxBatch)
+            val head = buffer.take(n)
+            buffer.subList(0, n).clear()
+            head
         }
 
         // 失败只影响本次批次（桥可能临时不可用，页面重载中），
@@ -74,6 +81,14 @@ class TranscriptPump(
 
     companion object {
         const val DEFAULT_THROTTLE_MS = 16L
+
+        /**
+         * 单批操作数上限。
+         *
+         * 200 是估的：正常流式推送一拍只有几条到几十条，这个值不影响它；
+         * 而 804 条的回放会被切成 5 拍（约 80ms）推完，用户看不出来。
+         */
+        const val DEFAULT_MAX_BATCH = 200
 
         private val LOG = Logger.getInstance(TranscriptPump::class.java)
     }

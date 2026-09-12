@@ -1361,9 +1361,27 @@ EOF
 - Consumes: 无
 - Produces: `TranscriptPump(exec, throttleMs, maxBatch)`；常量 `DEFAULT_MAX_BATCH = 200`
 
+> **状态：已完成（2026-09-12）**
+>
+> **执行记录 —— 计划漏了一条既有用例：**
+>
+> Step 4 说「预期 `BUILD SUCCESSFUL`，包括原有的 12 条」，实际原有 **11** 条，
+> 而且其中 `并发入队不丢操作` **必然失败**（期望 800、实得 200）：
+> 它假设「一次 `flushNow()` 把缓冲全部发出」，而那正是本次要改掉的行为。
+>
+> 这是**改契约**而非测试写错 —— 批上限是刻意加的。修法：那条用例改成
+> `repeat(10) { pump.flushNow() }` 冲到空为止。它守的性质是
+> 「并发入队一条都不丢」，不是「一次发得完」；改成循环后顺带也守住了
+> 「加上限之后仍然不丢」，比原来更强。
+>
+> **教训（给后续 Task 用）**：凡是改动某个组件的输出契约，先把该组件
+> **既有的**用例过一遍 —— 计划作者列「原有的 N 条」时多半是凭印象写的。
+>
+> 实测：`TranscriptPumpTest` 11 → 14 用例；全量 358 / 0 失败。
+
 **背景**：`flushNow` 会把缓冲区**全部**发出去。回放一次性 enqueue 804 条（实测最大会话），下一拍就是一批 2.6MB 过 JCEF 桥。加上限后，多出来的留到下一拍——代价只是多几帧。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `TranscriptPumpTest.kt` 的 `withPump` 辅助函数里加上 `maxBatch` 参数：
 
@@ -1429,7 +1447,7 @@ EOF
     }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.TranscriptPumpTest" 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -1437,7 +1455,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：编译失败，报 `unresolved reference: maxBatch` / `DEFAULT_MAX_BATCH`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `TranscriptPump.kt` 里：
 
@@ -1480,7 +1498,7 @@ class TranscriptPump(
         const val DEFAULT_MAX_BATCH = 200
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.TranscriptPumpTest" 2>&1 | grep -E "FAILED|BUILD"
@@ -1488,7 +1506,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：`BUILD SUCCESSFUL`，包括原有的 12 条。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/TranscriptPump.kt src/test/kotlin/com/ccoder/ui/TranscriptPumpTest.kt && git commit -F - <<'EOF'

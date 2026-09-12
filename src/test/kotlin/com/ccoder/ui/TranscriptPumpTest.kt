@@ -16,10 +16,11 @@ class TranscriptPumpTest {
 
     private fun withPump(
         throttleMs: Long = 10_000,
+        maxBatch: Int = TranscriptPump.DEFAULT_MAX_BATCH,
         exec: (String) -> Unit,
         block: (TranscriptPump) -> Unit,
     ) {
-        val pump = TranscriptPump(exec = exec, throttleMs = throttleMs)
+        val pump = TranscriptPump(exec = exec, throttleMs = throttleMs, maxBatch = maxBatch)
         try {
             block(pump)
         } finally {
@@ -113,7 +114,11 @@ class TranscriptPumpTest {
             }
             threads.forEach { it.start() }
             threads.forEach { it.join() }
-            pump.flushNow()
+
+            // 批有上限，一次 flush 发不完 —— 冲到空为止。这条守的是
+            // "并发入队一条都不丢"，不是"一次发得完"；顺带也就守住了
+            // 加上限之后仍然不丢
+            repeat(10) { pump.flushNow() }
 
             val total = executed.sumOf { JsonParser.parseString(it).asJsonArray.size() }
             assertEquals(800, total, "并发入队不能丢操作")
@@ -163,5 +168,47 @@ class TranscriptPumpTest {
         pump.dispose()
         Thread.sleep(300)
         assertEquals(0, executed.size, "dispose 后不该再有推送")
+    }
+
+    // ---- 批大小上限（Task 6）----
+
+    /** 数一批推送里装了多少个操作。 */
+    private fun opsIn(json: String): Int = JsonParser.parseString(json).asJsonArray.size()
+
+    @Test
+    fun `单批不超过上限`() {
+        val batches = mutableListOf<Int>()
+        withPump(maxBatch = 200, exec = { batches += opsIn(it) }) { pump ->
+            repeat(500) { pump.enqueue(TranscriptOp.AppendDelta("assistant", "$it")) }
+            pump.flushNow()
+
+            assertEquals(1, batches.size)
+            assertEquals(200, batches[0], "回放的 804 条一次全发出去就是一次几 MB 的跨边界调用")
+        }
+    }
+
+    @Test
+    fun `超出的部分留到下一拍而不是丢弃`() {
+        val batches = mutableListOf<Int>()
+        withPump(maxBatch = 200, exec = { batches += opsIn(it) }) { pump ->
+            repeat(500) { pump.enqueue(TranscriptOp.AppendDelta("assistant", "$it")) }
+            pump.flushNow()
+            pump.flushNow()
+            pump.flushNow()
+            pump.flushNow()
+
+            assertEquals(listOf(200, 200, 100), batches, "一共 500 条，一条都不能少")
+        }
+    }
+
+    @Test
+    fun `不足一批时一次发完`() {
+        val batches = mutableListOf<Int>()
+        withPump(maxBatch = 200, exec = { batches += opsIn(it) }) { pump ->
+            repeat(5) { pump.enqueue(TranscriptOp.AppendDelta("assistant", "$it")) }
+            pump.flushNow()
+
+            assertEquals(listOf(5), batches)
+        }
     }
 }
