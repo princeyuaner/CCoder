@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.sidecar.SidecarMessage
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -194,5 +195,67 @@ class MessageRendererTest {
                 )
             ).size
         )
+    }
+
+    // ---- 回放路径的 user 消息（Task 5）----
+
+    private fun prompt(json: String) = MessageRenderer.renderPrompt(JsonParser.parseString(json).asJsonObject)
+
+    @Test
+    fun `纯文本提问被取出`() {
+        val text = prompt("""{"type":"user","message":{"role":"user","content":"这是什么项目"}}""")
+        assertEquals("这是什么项目", text)
+    }
+
+    @Test
+    fun `工具结果被丢弃`() {
+        // 实测：247 条 user 消息里 236 条是这个形状。不过滤会把转写区淹掉
+        val text = prompt(
+            """{"type":"user","message":{"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"t1","content":"一堆文件内容"}]}}"""
+        )
+        assertNull(text, "工具结果不是提问")
+    }
+
+    @Test
+    fun `数组形式的文本块被拼接`() {
+        val text = prompt(
+            """{"type":"user","message":{"role":"user","content":[
+                {"type":"text","text":"第一段"},
+                {"type":"text","text":"第二段"}]}}"""
+        )
+        assertEquals("第一段\n第二段", text)
+    }
+
+    @Test
+    fun `同时含文本块与工具结果时整条丢弃`() {
+        // 真实提问不会和 tool_result 混在一条里。混着出现说明这是工具回合，
+        // 那点文本是工具上下文而非用户输入
+        val text = prompt(
+            """{"type":"user","message":{"role":"user","content":[
+                {"type":"text","text":"顺带一提"},
+                {"type":"tool_result","tool_use_id":"t1","content":"x"}]}}"""
+        )
+        assertNull(text)
+    }
+
+    @Test
+    fun `空白提问返回 null`() {
+        assertNull(prompt("""{"type":"user","message":{"role":"user","content":"   "}}"""))
+        assertNull(prompt("""{"type":"user","message":{"role":"user","content":[]}}"""))
+    }
+
+    @Test
+    fun `非 user 类型返回 null`() {
+        assertNull(prompt("""{"type":"assistant","message":{"role":"assistant","content":"x"}}"""))
+        assertNull(prompt("""{"type":"system","subtype":"init"}"""))
+    }
+
+    @Test
+    fun `畸形输入不抛错`() {
+        // 回放会把整份历史喂进来，任何一条畸形都不能让整个过程崩掉
+        assertNull(prompt("""{"type":"user"}"""))
+        assertNull(prompt("""{"type":"user","message":"不是对象"}"""))
+        assertNull(prompt("""{"type":"user","message":{"role":"user","content":42}}"""))
     }
 }

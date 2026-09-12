@@ -1200,7 +1200,7 @@ EOF
 
 **背景**：`renderEvent`（`MessageRenderer.kt:38-45`）只认 `assistant` / `result` / `system` / `stream_event`，`type: "user"` 落到 `else` 返回空。live 路径下没问题（用户气泡是 `sendCurrentInput()` 直接推的），但回放必须从事件里把提问挖出来。实测最大会话的 247 条 user 消息里，**236 条是工具结果，真实提问只有 11 条** —— 不过滤会把转写区淹掉。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\MessageRendererTest.kt`（最后一个 `}` 之前）。import 区补一条（现有 import 里还没有，而下面的用例大量用它）：
 
@@ -1272,7 +1272,7 @@ import org.junit.jupiter.api.Assertions.assertNull
     }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.MessageRendererTest" 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -1280,7 +1280,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：编译失败，报 `unresolved reference: renderPrompt`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `MessageRenderer.kt` 的 `fun render(msg: SidecarMessage)` 之后插入：
 
@@ -1322,7 +1322,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
     }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.MessageRendererTest" 2>&1 | grep -E "FAILED|BUILD"
@@ -1330,7 +1330,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：`BUILD SUCCESSFUL`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/MessageRenderer.kt src/test/kotlin/com/ccoder/ui/MessageRendererTest.kt && git commit -F - <<'EOF'

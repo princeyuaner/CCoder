@@ -35,6 +35,42 @@ object MessageRenderer {
         else -> emptyList()
     }
 
+    /**
+     * 从一条**历史**消息里取出"真实提问"的文本。
+     *
+     * **只供回放路径调用。** live 路径下用户气泡是 `sendCurrentInput()` 直接
+     * 推的，这里再产一次就会变成两条 —— 所以刻意不并进 [renderEvent]。
+     *
+     * 必须过滤工具结果：实测最大会话的 247 条 user 消息里，236 条是工具结果，
+     * 真实提问只有 11 条。全渲染出来会把转写区淹掉。
+     *
+     * @return 提问文本；不是提问（工具结果、畸形、空白）时返回 null
+     */
+    fun renderPrompt(item: JsonObject): String? {
+        if (item.str("type") != "user") return null
+        val content = item.obj("message")?.get("content") ?: return null
+
+        // 形式一：纯文本提问
+        if (content.isJsonPrimitive && content.asJsonPrimitive.isString) {
+            return content.asString.takeIf { it.isNotBlank() }
+        }
+        if (!content.isJsonArray) return null
+
+        val blocks = content.asJsonArray.filter { it.isJsonObject }.map { it.asJsonObject }
+
+        // 含工具结果即判定为工具回合。真实提问不会和 tool_result 混在一条里，
+        // 混着出现时那点文本是工具上下文而非用户输入
+        if (blocks.any { it.str("type") == "tool_result" }) return null
+
+        val text = blocks
+            .filter { it.str("type") == "text" }
+            .mapNotNull { it.str("text") }
+            .joinToString("\n")
+            .trim()
+
+        return text.takeIf { it.isNotEmpty() }
+    }
+
     private fun renderEvent(event: JsonObject): List<RenderItem> =
         when (event.str("type")) {
             "assistant" -> renderAssistant(event)
