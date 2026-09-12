@@ -42,16 +42,24 @@ class RunStripViewTest {
     // ---- 上下文行 ----
 
     @Test
-    fun `上下文行里用量在左、条在右`() {
-        // 用户明确要的就是这个位置关系：条挂在上下文右边
+    fun `上下文行里状态与用量在左、条在右`() {
+        // 用户明确要的就是这个位置关系：条挂在上下文右边；
+        // 连接状态也挪到这一行（它原先独占顶部一行，那一行只为了它撑高度）
+        val status = JLabel()
         val usage = JLabel()
         val strip = JPanel()
 
-        val row = buildContextRow(usage, strip)
+        val row = buildContextRow(status, usage, strip)
         val layout = row.layout as BorderLayout
+        val left = layout.getLayoutComponent(BorderLayout.WEST) as JPanel
 
-        assertSame(usage, layout.getLayoutComponent(BorderLayout.WEST), "用量在左")
         assertSame(strip, layout.getLayoutComponent(BorderLayout.EAST), "条在右")
+        assertTrue(left.components.contains(status), "状态该在左边那一组里")
+        assertTrue(left.components.contains(usage), "用量该在左边那一组里")
+        assertTrue(
+            left.components.indexOf(status) < left.components.indexOf(usage),
+            "状态该排在用量前面",
+        )
     }
 
     // ---- 详情 ----

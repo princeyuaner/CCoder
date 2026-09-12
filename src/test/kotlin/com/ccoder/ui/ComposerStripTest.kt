@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import javax.swing.JLabel
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
@@ -18,6 +19,20 @@ import javax.swing.JPanel
 class ComposerStripTest {
 
     private val ten = { s: String -> s.length * 10 }
+
+    /**
+     * 递归布局。
+     *
+     * `doLayout()` **只管直接子项、不递归** —— 而生产里走的是 `validate()`，
+     * 它递归。组件树一旦嵌了一层（比如上下文行左边现在是"状态+用量"一个组），
+     * 只调最外层就会让里层的组件宽度恒为 0，断言看起来像功能坏了。
+     */
+    private fun layoutAll(c: Container) {
+        c.doLayout()
+        for (child in c.components) {
+            if (child is Container) layoutAll(child)
+        }
+    }
 
     private fun strip(todo: String? = null, task: String? = null, running: Int = 0) =
         RunStrip(todoProgress = todo, currentTask = task, runningCount = running)
@@ -114,9 +129,9 @@ class ComposerStripTest {
         val strip = RunStripView {}
         strip.setStrip(RunStrip(todoProgress = "3/7", currentTask = "修复 extractor 指纹", runningCount = 2))
 
-        val row = buildContextRow(usage, strip)
+        val row = buildContextRow(JLabel("已连接"), usage, strip)
         row.setSize(430, 30)
-        row.doLayout()
+        layoutAll(row)
 
         assertTrue(strip.width > 80, "条在布局里被压成了一个点：宽 ${strip.width}")
         assertTrue(usage.width > 0, "用量那一半也应该还在")

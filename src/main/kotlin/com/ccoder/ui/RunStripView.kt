@@ -7,6 +7,7 @@ import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
@@ -58,18 +59,31 @@ internal class RoundedLineBorder(
 // ---- 上下文行 ----
 
 /**
- * 用量与运行状态共用的那一行。
+ * 连接状态、用量与运行状态共用的那一行。
  *
- * 左边是用量，右边是任务条 —— 两者都是"当前这一刻"的状态，挤在同一行
- * 谁也不多占一层，输入框的高度就不会被它们推来推去。
+ * 左边是**连接状态 + 用量**，右边是任务条 —— 三者都是"当前这一刻"的状态，
+ * 挤在同一行谁也不多占一层，输入框的高度就不会被它们推来推去。
+ *
+ * 连接状态原先在顶部单独一行，那一行于是只为了它一个人撑着高度。
+ * 挪下来之后顶部那行让给了会话标签。
  */
-internal fun buildContextRow(usage: JComponent, runStrip: JComponent): JPanel =
-    JPanel(BorderLayout()).apply {
-        isOpaque = false
-        border = JBUI.Borders.empty(0, 1, 3, 1)
-        add(usage, BorderLayout.WEST)
-        add(runStrip, BorderLayout.EAST)
-    }
+internal fun buildContextRow(
+    status: JComponent,
+    usage: JComponent,
+    runStrip: JComponent,
+): JPanel = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    border = JBUI.Borders.empty(0, 1, 3, 1)
+    add(
+        JPanel(FlowLayout(FlowLayout.LEFT, 10, 0)).apply {
+            isOpaque = false
+            add(status)
+            add(usage)
+        },
+        BorderLayout.WEST,
+    )
+    add(runStrip, BorderLayout.EAST)
+}
 
 /** 用量那一半。取不到用量时整条隐藏，所以它自己不负责可见性。 */
 internal fun buildUsageLabel(): JLabel = JBLabel().apply {

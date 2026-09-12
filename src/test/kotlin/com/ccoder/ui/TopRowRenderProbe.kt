@@ -53,25 +53,28 @@ class TopRowRenderProbe {
                 setBlock(if (enabled) SwitchBlock.None else SwitchBlock.TurnRunning)
             }
 
-            // 与 ClaudePanel 的 top 同构：嵌套的 BorderLayout，
-            // 标签待在 CENTER 里拿剩余宽度
+            // 与 ClaudePanel 的 top 同构：标签靠左、「＋」在最右，
+            // 连接状态已经挪到下面的上下文行
             val top = JPanel(BorderLayout()).apply {
                 border = JBUI.Borders.empty(4, 8)
-                add(status, BorderLayout.WEST)
-                add(
-                    JPanel(BorderLayout()).apply {
-                        isOpaque = false
-                        add(sessionLabel, BorderLayout.CENTER)
-                        add(newButton, BorderLayout.EAST)
-                    },
-                    BorderLayout.CENTER,
-                )
+                add(sessionLabel, BorderLayout.CENTER)
+                add(newButton, BorderLayout.EAST)
             }
+
+            // 上下文行也画进来 —— 状态挪过去之后，这两行得**一起**看才知道
+            // 整体是什么样
+            val usage = buildUsageLabel().apply {
+                text = "上下文  12.3k / 200k · 6%"
+                isVisible = true
+            }
+            val contextRow = buildContextRow(status, usage, RunStripView {})
 
             val outer = JPanel(BorderLayout()).apply {
                 isOpaque = true
                 background = UIUtil.getPanelBackground()
+                isOpaque = true
                 add(top, BorderLayout.NORTH)
+                add(contextRow, BorderLayout.SOUTH)
             }
 
             val w = 420

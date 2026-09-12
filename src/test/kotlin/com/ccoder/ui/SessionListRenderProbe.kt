@@ -35,7 +35,7 @@ class SessionListRenderProbe {
         render("build/session-list-probe-blocked.png", SwitchBlock.PermissionPending)
 
     @Test
-    fun `把悬停出删除按钮的那一行画成图片`() =
+    fun `把悬停强调的那一行画成图片`() =
         render("build/session-list-probe-hover.png", SwitchBlock.None, hoverRow = 1)
 
     private fun render(path: String, block: SwitchBlock, hoverRow: Int = -1) {

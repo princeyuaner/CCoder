@@ -25,9 +25,8 @@ internal class SessionLabel(private val onOpen: () -> Unit) : JLabel() {
     init {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         foreground = UIUtil.getInactiveTextColor()
-        // 右对齐：本控件只用在状态栏右端，与「＋」相邻。
-        // 光靠外层布局的左对齐会让它在剩余空间里靠左，离「＋」老远
-        horizontalAlignment = SwingConstants.RIGHT
+        // 靠左：会话信息放在顶部行的左端，与「＋」分居两侧
+        horizontalAlignment = SwingConstants.LEFT
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {

@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.sidecar.SessionInfo
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -203,20 +204,33 @@ class SessionListTest {
     }
 
     @Test
-    fun `✕ 平时藏着，悬停到这一行才出现`() {
-        // 列表最干净、误点率最低（设计稿 §二 A）。hover 的是**行**，
-        // 不是 ✕ 自己 —— 否则鼠标一移过去它就消失了
+    fun `✕ 常驻可见，悬停时提亮`() {
+        // 设计稿 §二 A 选的是"悬停才出现"（列表最干净），但实测反馈**两轮**
+        // "看不清楚" —— 悬停才出来的东西，人根本没机会看清它是什么。
+        // 所以改成常驻。这条守的就是"不悬停也看得见"，别再改回去。
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
         val row = list.components.filterIsInstance<JComponent>()[0]
         val x = deleteButtonOf(list, 0)
 
-        assertFalse(x.isVisible, "没悬停时 ✕ 不该露出来")
+        assertTrue(x.isVisible, "没悬停时也该看得见 ✕")
 
+        val calm = x.foreground
         hover(row, entered = true)
-        assertTrue(x.isVisible, "悬停后 ✕ 没出现")
+        assertNotEquals(calm, x.foreground, "悬停后该提亮")
 
         hover(row, entered = false)
-        assertFalse(x.isVisible, "移开后 ✕ 没收回")
+        assertEquals(calm, x.foreground, "移开后该回到安静的次要色")
+    }
+
+    @Test
+    fun `忙时不露删除入口`() {
+        // 忙时整列不可点，删除自然也不该露出入口
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.TurnRunning)
+
+        assertTrue(
+            buttonsIn(list).none { it.text == DELETE_MARK && it.isVisible },
+            "忙时不该有看得见、点得动的删除入口",
+        )
     }
 
     @Test

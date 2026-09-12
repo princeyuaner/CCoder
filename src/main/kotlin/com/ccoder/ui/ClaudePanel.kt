@@ -76,6 +76,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
+     * 连接状态。
+     *
+     * 放在**上下文那一行**而不是顶部独占一行 —— 它是"当前这一刻"的状态，
+     * 和用量、任务条是一类东西；而且顶部那一行原先只为了它一个人撑高度。
+     */
+    private val statusLabel = JLabel("未连接")
+
+    /**
      * 上下文用量那一半。初始隐藏：还没收到过 result 时没有数据，
      * 显示一个空占位不如不显示（不造零值）。
      */
@@ -84,7 +92,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 上下文**右边**那一条：任务与子代理。点开看详情。 */
     private val runStripView = RunStripView { toggleRunDetail() }
 
-    private val contextRow = buildContextRow(usageLabel, runStripView)
+    private val contextRow = buildContextRow(statusLabel, usageLabel, runStripView)
 
     /**
      * 运行状态与任务清单。
@@ -130,9 +138,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 打开着的模式列表浮层。用它实现"再点一次收起"。 */
     private var modePopup: JBPopup? = null
 
-    private val statusLabel = JLabel("未连接")
-
-    /** 顶部右侧的会话标签。可点，点开列历史会话。 */
+    /** 顶部左侧的会话标签。可点，点开列历史会话。 */
     private val sessionLabel = SessionLabel { toggleSessionChooser() }
 
     /**
@@ -207,24 +213,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         // 顶部：左边是连接状态，右边是会话标签（可点，点开列历史会话）
         // 与「＋」新建。发送/停止按钮在输入区下方的工具栏里
+        // 顶部这一行现在只有会话：标签靠左，「＋」仍在最右（用户最初要的就是右上角）。
+        // 连接状态已经挪到下面的上下文行 —— 那一行原先只为了它一个人撑高度。
+        //
+        // 标签待在 CENTER 里拿剩余宽度而不是给固定首选宽：长标题才不会把
+        // 「＋」挤出去，超了自己打省略号（spec §2.3 的同一条理由）。
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
-            add(statusLabel, BorderLayout.WEST)
-            // 右边这组的排法有讲究。整组按**首选宽度**放 EAST 的话，长会话标题
-            // 要多少给多少，直接把「已连接」压过去 —— 实测两者叠在一起
-            // （spec §2.3 要求过这一行不能被长标题挤掉）。
-            //
-            // 所以让标签待在 CENTER 里：它只拿剩下的宽度，超了 JLabel 自己打
-            // 省略号；「已连接」和「＋」都是定宽，谁也推不走谁。
-            // SessionLabel 自己右对齐，所以它仍然贴着「＋」。
-            add(
-                JPanel(BorderLayout()).apply {
-                    isOpaque = false
-                    add(sessionLabel, BorderLayout.CENTER)
-                    add(newSessionButton, BorderLayout.EAST)
-                },
-                BorderLayout.CENTER,
-            )
+            add(sessionLabel, BorderLayout.CENTER)
+            add(newSessionButton, BorderLayout.EAST)
         }
 
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框

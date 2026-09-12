@@ -142,31 +142,44 @@ private fun sessionRow(
     // ✕ 藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
     // 监听器在下面函数定义之后再挂 —— Kotlin 的局部函数不支持前向引用
     val deleteButton = JButton(DELETE_MARK).apply {
-        // 字号比正文大一号、用**正常前景色**而不是次要文字色。
+        // **常驻可见**，不再"悬停才浮出来"。
         //
-        // 实测反馈是"有是有但看不清楚" —— 原先照正文的次要色画，那个 ✕
-        // 在弹出层底色上几乎融进去。删除是破坏性动作，它得先看得见，
-        // 才谈得上设计稿那句"不容易误点"。
-        font = base.deriveFont(base.size2D + 1f)
-        foreground = UIUtil.getLabelForeground()
-        isVisible = false
+        // 设计稿 §二 A 选的是悬停才出现（列表最干净），但实测反馈**两轮**
+        // "看不清楚" —— 悬停才出来的东西，人根本没机会看清它是什么；
+        // 第一轮我只改了颜色和字号，没动这个行为，所以没解决问题。
+        //
+        // 现在的层次是：平时次要色（列表仍然安静）→ 指针到这一行上提亮 →
+        // 停在按钮上时变红并长出一个真的按钮框（危险信号 + 可点 affordance）。
+        font = base.deriveFont(base.size2D + 2f)
+        foreground = UIUtil.getInactiveTextColor()
         isContentAreaFilled = false
         isBorderPainted = false
         isFocusable = false
         toolTipText = "删除这个会话"
         margin = JBUI.emptyInsets()
     }
-    // 悬停变红（设计稿 §二 A 画的就是这个）。删除不可逆，
-    // 指针停在它上面时该有个明确的"这是危险动作"的信号
+
+    /**
+     * 三档强调。删除不可逆，光标越靠近它信号越强。
+     *
+     * @param danger 指针就在按钮上：变红 + 长出按钮框
+     * @param strong 指针在这一行上：提亮到正常前景色
+     */
+    fun paintDelete(danger: Boolean, strong: Boolean) {
+        deleteButton.foreground = when {
+            danger -> DELETE_DANGER
+            strong -> UIUtil.getLabelForeground()
+            else -> UIUtil.getInactiveTextColor()
+        }
+        deleteButton.isContentAreaFilled = danger
+        deleteButton.isBorderPainted = danger
+        deleteButton.repaint()
+    }
+
     deleteButton.addMouseListener(
         object : MouseAdapter() {
-            override fun mouseEntered(e: MouseEvent) {
-                deleteButton.foreground = DELETE_DANGER
-            }
-
-            override fun mouseExited(e: MouseEvent) {
-                deleteButton.foreground = UIUtil.getLabelForeground()
-            }
+            override fun mouseEntered(e: MouseEvent) = paintDelete(danger = true, strong = true)
+            override fun mouseExited(e: MouseEvent) = paintDelete(danger = false, strong = true)
         }
     )
 
@@ -187,7 +200,10 @@ private fun sessionRow(
         row.add(markSlot, BorderLayout.WEST)
         row.add(titleLabel, BorderLayout.CENTER)
         row.add(tail, BorderLayout.EAST)
-        deleteButton.isVisible = false
+        // 忙时整列不可点，删除自然也不该露出入口 —— 用可见性而不是禁用，
+        // 禁用会留下一个"看得见点不动"的东西
+        deleteButton.isVisible = clickable
+        paintDelete(danger = false, strong = false)
         row.revalidate()
         row.repaint()
     }
@@ -249,23 +265,22 @@ private fun sessionRow(
             }
 
             override fun mouseEntered(e: MouseEvent) {
-                deleteButton.isVisible = true
+                paintDelete(danger = false, strong = true)
             }
 
             override fun mouseExited(e: MouseEvent) {
-                // 离开**整行**是干净信号，直接收 —— 不延后，否则测试与真人都
-                // 会看到 ✕ 多留一拍
+                // 离开**整行**是干净信号，直接收
                 if (e.component === row) {
-                    deleteButton.isVisible = false
+                    paintDelete(danger = false, strong = false)
                     return
                 }
                 // 从一个**子组件**移出则往往是移到了同一行的另一个子组件上
                 // （标题→时间），此时行本身并没有离开事件。延后一拍看指针
-                // 是否真的不在这一行里，否则 ✕ 一闪一闪
+                // 是否真的不在这一行里，否则强调会一闪一闪
                 SwingUtilities.invokeLater {
                     val p = row.mousePosition
                     val inside = p != null && p.x in 0 until row.width && p.y in 0 until row.height
-                    if (!inside) deleteButton.isVisible = false
+                    if (!inside) paintDelete(danger = false, strong = false)
                 }
             }
         }

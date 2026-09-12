@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.settings.PermissionModeSetting
 import com.intellij.ui.components.JBScrollPane
 import org.junit.jupiter.api.Test
+import javax.swing.JLabel
 import java.awt.BorderLayout
 import java.awt.image.BufferedImage
 import java.io.File
@@ -39,7 +40,8 @@ class ComposerRenderProbe {
             val strip = RunStripView {}.apply {
                 setStrip(RunStrip(todoProgress = "3/7", currentTask = "修复 extractor 指纹", runningCount = 2))
             }
-            val contextRow = buildContextRow(usage, strip)
+            val status = JLabel("已连接")
+            val contextRow = buildContextRow(status, usage, strip)
 
             val input = ComposerTextArea(COMPOSER_MIN_ROWS, 40).apply {
                 lineWrap = true
