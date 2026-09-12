@@ -135,6 +135,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private val sessionLabel = SessionLabel { toggleSessionChooser() }
 
     /**
+     * 当前会话的标题。null = 还不知道（全新会话，或者刚恢复还没拿到标题）。
+     *
+     * **界面上永远不显示会话 id** —— 列表里显示的是标题，一串 UUID 前缀
+     * 对不上号，纯噪音。标签的显示规则就一条：有标题显示标题，没有显示
+     * 斜体的「新会话」。
+     */
+    private var currentSessionTitle: String? = null
+
+    /**
      * 当前会话 id。
      *
      * 两个来源：resume 时构造即知；全新会话从 `system`/`init` 事件取。
@@ -460,9 +469,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         LOG.info("CCoder 切换会话：${target.sessionId}")
         stopSession()
         // 标题从列表里就知道，不必等 loadHistory
-        val title = target.summary?.takeIf { it.isNotBlank() }
+        currentSessionTitle = target.summary?.takeIf { it.isNotBlank() }
             ?: target.firstPrompt?.takeIf { it.isNotBlank() }
-        sessionLabel.setTitle(title, enabled = true)
+        refreshSessionLabel(enabled = true)
         resumeTargetId = target.sessionId
         startSession()
     }
@@ -546,7 +555,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         resumeTargetId = null
         setBusy(false)
         statusLabel.text = "恢复失败"
-        sessionLabel.setTitle(null, enabled = true)
+        currentSessionTitle = null
+        refreshSessionLabel(enabled = true)
         pushOp(toOp(RenderItem.ErrorItem("恢复会话失败：$reason")))
     }
 
@@ -580,6 +590,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
+     * 会话标签的唯一出口。规则见 [currentSessionTitle]。
+     *
+     * @param enabled false 时变灰（忙时）—— 但**仍然可点**，见 [setBusy]
+     */
+    private fun refreshSessionLabel(enabled: Boolean = !busy) {
+        sessionLabel.setTitle(currentSessionTitle, enabled = enabled)
+    }
+
+    /**
      * 标签的唯一出口。
      *
      * 它显示的是 [currentMode] 与 [autoAllow] 两个字段合起来的状态，所以只留
@@ -595,7 +614,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         busy = value
         // 忙时会话标签变灰但**仍然可点** —— spec §5.1 的"点了才说"：
         // 点开能看到置灰的列表加一句说明，比一个点不动的标签强
-        sessionLabel.setTitle(currentSessionId?.take(8), enabled = !value)
+        refreshSessionLabel(enabled = !value)
         refreshMainButton()
     }
 
@@ -619,8 +638,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         runStatus.reset()
         refreshRunStrip()
 
-        // 恢复中的会话先显示 id 前 8 位，真正的标题要等列表回来才知道
-        sessionLabel.setTitle(resumeTargetId?.take(8), enabled = true)
+        // 标题由 [switchToSession] 在切之前就设好了（列表里现成的）；
+        // 全新会话这里是 null，标签显示斜体的「新会话」
+        refreshSessionLabel()
 
         // 会话按设置里的模式启动，标签跟着它走 —— 显示的必须是这个会话
         // 真正的起点，而不是上一个会话留下的值
@@ -752,7 +772,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         beginReplay(resuming)
                     } else {
                         pushOp(toOp(RenderItem.SystemNote("会话已就绪")))
-                        sessionLabel.setTitle(null, enabled = true)
+                        // 全新会话：没有标题可显示，标签是斜体的「新会话」
+                        currentSessionTitle = null
+                        refreshSessionLabel(enabled = true)
 
                         // 补发窗口就绪前暂存的首条消息
                         pendingFirstMessage?.let { text ->
@@ -777,11 +799,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         msg.event.str("model")?.let { modelLabel.text = it }
 
                         // 真正的会话 id 只在这里。**不读 ready.sessionId** ——
-                        // 那个回显的是请求参数，全新会话时是 null（spec §10）
-                        msg.event.str("session_id")?.let { sid ->
-                            currentSessionId = sid
-                            sessionLabel.setTitle(sid.take(8), enabled = !busy)
-                        }
+                        // 那个回显的是请求参数，全新会话时是 null（spec §10）。
+                        //
+                        // 只记 id，**不动标签**：全新会话的标签该保持斜体的「新会话」
+                        // （设计稿 A，也是 Task 11 冒烟 6 的验收条件）。
+                        // 把 id 前 8 位写上去的话，用户看到的是一串对不上号的 UUID ——
+                        // 列表里显示的是标题，不是 id。
+                        msg.event.str("session_id")?.let { currentSessionId = it }
                     }
                     // 任务与子代理的状态要走**每一个**事件，不只是 result ——
                     // task_progress 这类事件不会产出任何转写项，但它们正是
@@ -799,7 +823,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         disconnected = true
                         setBusy(false)
                         // 断开后标签变灰但**仍然可点** —— 这正是最需要换个会话的时候
-                        sessionLabel.setTitle(currentSessionId?.take(8), enabled = true)
+                        refreshSessionLabel(enabled = true)
                         refreshMainButton()
                     }
                 }
