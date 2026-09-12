@@ -1696,9 +1696,30 @@ EOF
   - `internal fun buildSessionList(sessions: List<SessionInfo>, currentSessionId: String?, block: SwitchBlock, onPick: (SessionInfo) -> Unit): JComponent`
   - `internal fun relativeTime(nowMs: Long, thenMs: Long): String`
 
+> **状态：已完成（2026-09-12）**
+>
+> **执行记录 —— 两处偏离，都是"计划多虑了"：**
+>
+> **① 没有照抄 `private const val MARK`。** 计划让 `SessionList.kt` 自己声明一个
+> `MARK = "✓"`，但 `ComposerMode.kt:18` 已经有一个 `internal const val MARK`，
+> 同一个包。再声明一份正是那个常量自己的注释在防的事
+> （「实现与测试共用 —— 免得两边各写一个字符然后漂移」）。直接复用现有的。
+>
+> **② 计划标为"已知未覆盖"的那条风险，实测不成立。** 原文写：「`JLabel` 默认**不截断**，
+> 标题过长时会把右侧的时间挤出可视区……理论上时间不会丢，但**理论上不等于测过**」。
+>
+> 补了 `SessionListRenderProbe`（离屏渲染成 PNG，照 `ComposerRenderProbe` 的做法），
+> 420px 下拿一条超长标题试：**`JLabel` 自己就打了省略号，时间完好**。
+> 原因是 `BasicLabelUI` 走 `layoutCompoundLabel`，放不下时本来就截断 —— 计划作者漏了这一层。
+>
+> 两张产物：`build/session-list-probe.png`（空闲）、`build/session-list-probe-blocked.png`（忙时）。
+> 忙时那张确认了：说明行按定宽换行、四行整体变灰，与可用态一眼可辨。
+>
+> 实测：`SessionListTest` 10 用例全绿。Task 11 里"420px 下时间会不会被挤掉"这一条可以划掉了。
+
 **形状照 `ModeLabel`（`ComposerMode.kt:39`）与 `buildModeList`（`ComposerMode.kt:89`）** —— 那个控件已经解决了"可点、点开弹列表、选中项打勾、未选中也占同样缩进位"这几件事，踩过的坑不必再踩一遍。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\SessionListTest.kt`：
 
@@ -1845,7 +1866,7 @@ class SessionListTest {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.SessionListTest" 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -1853,7 +1874,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：编译失败，报 `unresolved reference: buildSessionList` / `relativeTime`。
 
-- [ ] **Step 3: 实现 `SessionLabel.kt`**
+- [x] **Step 3: 实现 `SessionLabel.kt`**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\SessionLabel.kt`：
 
@@ -1912,7 +1933,7 @@ internal class SessionLabel(private val onOpen: () -> Unit) : JLabel() {
 
 **注意**：上面的 `enabled` 只改外观，**不改点击行为** —— 忙时仍然可点（点开看到置灰的列表 + 说明行，这是 spec §5.1 定的"点了才说"）。真正的拦截在 `buildSessionList` 里。
 
-- [ ] **Step 4: 实现 `SessionList.kt`**
+- [x] **Step 4: 实现 `SessionList.kt`**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\SessionList.kt`：
 
@@ -2078,7 +2099,7 @@ internal fun relativeTime(nowMs: Long, thenMs: Long): String {
 
 **已知未覆盖**：`JLabel` 默认**不截断**，标题过长时它会把右侧的时间挤出可视区。`BorderLayout` 会把 CENTER 压到剩余宽度，所以时间本身不会被裁掉，但弹层可能被撑得比工具窗口还宽。实测若出现这种情况，按 Step 5 的说明改成自绘截断。
 
-- [ ] **Step 5: 运行测试，确认通过**
+- [x] **Step 5: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.ui.SessionListTest" 2>&1 | grep -E "FAILED|BUILD"
@@ -2090,7 +2111,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 **本任务测不到的部分**（交给 Task 11 冒烟）：单行布局在 420px 宽度下的实际效果，尤其标题为 `PyCharm插件调用Claude Code` 时右侧时间是否被挤掉。`BorderLayout` 会给 CENTER 让位给 EAST，理论上时间不会丢，但**理论上不等于测过**。若实测被挤掉，给 `titleLabel` 设 `minimumSize = JBUI.size(0, base.size)`，并在标题过长时改用 `JLabel` 自绘截断（`RunStripView` 里有现成的做法）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/SessionLabel.kt src/main/kotlin/com/ccoder/ui/SessionList.kt src/test/kotlin/com/ccoder/ui/SessionListTest.kt && git commit -F - <<'EOF'
