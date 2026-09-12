@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   listSessions as sdkListSessions,
   getSessionMessages as sdkGetSessionMessages,
+  deleteSession as sdkDeleteSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import { NdjsonDecoder, encodeNdjson, parseLine } from './ndjson.js';
 import { createSession } from './session.js';
@@ -18,14 +19,18 @@ import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
  * @param {object} deps
  * @param {Function} deps.sessionFactory (opts) => Session
  * @param {Function} deps.out            (message) => void
- * @param {object}   [deps.sessionApi]   { listSessions, getSessionMessages }。
- *   这两个是 SDK 的**独立函数**，不属于任何会话 —— 注入是为了把真实 SDK
- *   挡在单测之外。生产路径用真实实现。
+ * @param {object}   [deps.sessionApi]   { listSessions, getSessionMessages, deleteSession }。
+ *   这几个是 SDK 的**独立函数**，不属于任何会话 —— 注入是为了把真实 SDK
+ *   挡在单测之外。生产路径用真实实现（默认值就是它）。
  */
 export function createDispatcher({
   sessionFactory,
   out,
-  sessionApi = { listSessions: sdkListSessions, getSessionMessages: sdkGetSessionMessages },
+  sessionApi = {
+    listSessions: sdkListSessions,
+    getSessionMessages: sdkGetSessionMessages,
+    deleteSession: sdkDeleteSession,
+  },
 }) {
   let session = null;
   const preStartQueue = [];   // start 之前到达的 send，按序补发
@@ -147,6 +152,20 @@ export function createDispatcher({
             items: items ?? [],
           }))
           .catch((err) => fail('LOAD_HISTORY_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'deleteSession': {
+        // 与 listSessions 同一条：不需要活会话。删除是列表上的动作，
+        // 要求先起会话等于让用户在删东西之前先建立连接 —— 没道理
+        const sessionId = params.sessionId;
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          fail('DELETE_FAILED', '删除会话缺少 sessionId', false);
+          return session;
+        }
+        Promise.resolve(sessionApi.deleteSession({ sessionId }))
+          .then(() => out({ type: 'sessionDeleted', id: msg.id, sessionId }))
+          .catch((err) => fail('DELETE_FAILED', String(err?.message ?? err), false));
         return session;
       }
 

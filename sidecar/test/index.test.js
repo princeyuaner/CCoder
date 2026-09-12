@@ -323,7 +323,7 @@ test('畸形输入被忽略而非抛错', () => {
 // ---- 会话列表与历史（Task 3）----
 
 /** 假的 SDK 会话 API，用来把真实 SDK 挡在单测之外。 */
-function fakeSessionApi({ listError = null, historyError = null } = {}) {
+function fakeSessionApi({ listError = null, historyError = null, deleteFails = false } = {}) {
   const calls = [];
   return {
     calls,
@@ -342,6 +342,10 @@ function fakeSessionApi({ listError = null, historyError = null } = {}) {
         calls.push(['getSessionMessages', sid, opts]);
         if (historyError) throw new Error(historyError);
         return [{ type: 'user', message: { role: 'user', content: '你好' } }];
+      },
+      deleteSession: async (opts) => {
+        calls.push(['deleteSession', opts]);
+        if (deleteFails) throw new Error('找不到这个会话');
       },
     },
   };
@@ -477,4 +481,58 @@ test('start 把 resumeSessionId 透传给 sessionFactory', () => {
 
   const created = sf.calls.find((c) => c[0] === 'create')[1];
   assert.equal(created.resumeSessionId, 'sess-9');
+});
+
+// ---- 删除会话（Task 2）----
+
+test('deleteSession 不需要活会话也能应答', () => {
+  // 删除是列表上的动作，不该要求先起会话 —— 同 listSessions
+  const fa = fakeSessionApi();
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'deleteSession', params: { sessionId: 'sess-9' } });
+
+  assert.equal(fa.calls.length, 1);
+  assert.deepEqual(fa.calls[0][1], { sessionId: 'sess-9' });
+});
+
+test('删除成功回 sessionDeleted，且带 id 回显', async () => {
+  const fa = fakeSessionApi();
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r7', method: 'deleteSession', params: { sessionId: 'sess-9' } });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'sessionDeleted');
+  assert.ok(ack, '没有回 sessionDeleted');
+  assert.equal(ack.id, 'r7');
+  assert.equal(ack.sessionId, 'sess-9');
+});
+
+test('删除失败回 error，且不回 sessionDeleted', async () => {
+  // 会话已经被终端删掉时 SDK 会抛错。必须如实报出去 ——
+  // 假装删成功了，界面上那一行就会消失，而那是在撒谎（见设计稿 §4.4）
+  const fa = fakeSessionApi({ deleteFails: true });
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r8', method: 'deleteSession', params: { sessionId: 'gone' } });
+  await tick();
+
+  assert.ok(out.some((m) => m.type === 'error' && m.code === 'DELETE_FAILED'));
+  assert.ok(!out.some((m) => m.type === 'sessionDeleted'), '失败了不该回成功回执');
 });

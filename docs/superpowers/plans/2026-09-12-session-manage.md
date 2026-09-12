@@ -216,7 +216,7 @@ EOF
 
 **关键约束：没有活会话时也必须能应答。** 删除是列表上的动作，不该要求先起会话 —— 与 `listSessions` 同一条理由。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `C:\Users\CY\Desktop\CCoder\sidecar\test\index.test.js` 里，`session-switch` 建的 `fakeSessionApi()` 辅助函数（`listSessions` / `getSessionMessages` 那个）上加一项，并在文件末尾追加三个用例：
 
@@ -280,7 +280,7 @@ test('删除失败回 error，且不回 sessionDeleted', async () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test test/index.test.js 2>&1 | tail -20
@@ -288,7 +288,7 @@ cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test test/index.test.js 2>&1 |
 
 预期：三个新用例失败 —— 分发里没有 `deleteSession` 分支，会走到 `UNKNOWN_METHOD`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `sidecar/index.js` 的 `handle` 的 `switch` 里，`loadHistory` 分支之后插入：
 
@@ -327,7 +327,7 @@ cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test test/index.test.js 2>&1 |
 
 （`sdk` 即 `import * as sdk from '@anthropic-ai/claude-agent-sdk'`；若 `session-switch` 用的是具名 import，照它的写法加 `deleteSession` 即可。）
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test 2>&1 | tail -8
@@ -335,7 +335,7 @@ cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test 2>&1 | tail -8
 
 预期：全部通过，`# fail 0`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add sidecar/index.js sidecar/test/index.test.js && git commit -F - <<'EOF'
