@@ -67,67 +67,70 @@ CCoder/
 **Files:**
 - 不修改任何文件。这是一次性探针。
 
-- [ ] **Step 1: 跑探针**
+> **执行记录（2026-09-12，已跑完）**：结论是 **`init` 会重发，且 id 与传入的一致**，
+> Task 10 不需要为 resume 路径做特殊处理。完整实测写进了 spec §9.7。
+>
+> **下面这版探针是修过的。** 初版有两处缺陷，都已踩过：
+> 1. 它用 `forkSession: true` —— fork 必然产生新 id，于是「init 报的 id 与 resume 一致」
+>    这条判读**永远不可能成立**，跑出来是个无法判读的结果。
+> 2. 它把 `q.interrupt?.()` 放在 `break` 之后调用，此时传输已关，脚本抛
+>    `ProcessTransport is not ready for writing` **死在清理之前**，留下一个 fork 会话没删。
+>
+> 修法是：**不 fork，改成自造一个一次性会话再 resume 它**。既满足"不污染真实会话"，
+> 又保住了判读力；而且全程只碰自造的会话，问完即删。
+
+- [x] **Step 1: 跑探针**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --input-type=module -e "
 const m = await import('./node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs');
-
-// 挑一个最小的会话，resume 到它上面；fork 保证原会话不被改写
 const dir = 'C:/Users/CY/Desktop/CCoder';
-const list = await m.listSessions({ dir, limit: 200 });
-const src = list.slice().sort((a,b) => a.fileSize - b.fileSize)[0];
-console.log('源会话:', src.sessionId, src.fileSize, '字节');
+const env = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 
-const seen = [];
-async function* input() {
+async function* one() {
   yield { type:'user', message:{ role:'user', content:'1' }, parent_tool_use_id:null };
 }
 
-const q = m.query({
-  prompt: input(),
-  options: {
-    cwd: dir,
-    permissionMode: 'default',
-    resume: src.sessionId,
-    forkSession: true,
-    includePartialMessages: false,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME,
-           USERPROFILE: process.env.USERPROFILE },
-  },
-});
-
-for await (const msg of q) {
-  if (msg.type === 'system' && msg.subtype === 'init') {
-    console.log('init 事件: session_id =', msg.session_id, ' model =', msg.model);
-    seen.push(msg.session_id);
-  }
+// 1. 造一个一次性会话（不碰任何真实会话）
+let created = null;
+const q1 = m.query({ prompt: one(), options: { cwd: dir, permissionMode:'default', includePartialMessages:false, env } });
+for await (const msg of q1) {
+  if (msg.type === 'system' && msg.subtype === 'init') created = msg.session_id;
   if (msg.type === 'result') break;
 }
-await q.interrupt?.();
+console.log('造出来的会话:', created);
 
-console.log('---');
-console.log('init 是否出现:', seen.length > 0 ? '是' : '否');
-if (seen.length) {
-  const forked = await m.listSessions({ dir, limit: 200 });
-  const newest = forked.sort((a,b) => b.lastModified - a.lastModified)[0];
-  console.log('最新会话 id:', newest.sessionId);
-  console.log('init 报的 id 与最新会话一致:', seen[seen.length-1] === newest.sessionId);
-  await m.deleteSession(newest.sessionId, { dir });
-  console.log('（探针产生的 fork 会话已删除）');
+// 2. resume 它 —— 不 fork，走的正是插件切换时那条路
+let initId = null, model = null, initCount = 0;
+const q2 = m.query({ prompt: one(), options: { cwd: dir, permissionMode:'default', resume: created, includePartialMessages:false, env } });
+for await (const msg of q2) {
+  if (msg.type === 'system' && msg.subtype === 'init') { initId = msg.session_id; model = msg.model; initCount++; }
+  if (msg.type === 'result') break;
 }
+
+console.log('init 出现次数:', initCount);
+console.log('resume 传的 id:', created);
+console.log('init 报的 id  :', initId);
+console.log('两者一致:', initId === created);
+console.log('init 带的 model:', model);
+
+// 3. 清理：两个都删
+await m.deleteSession(created, { dir });
+console.log('（一次性会话已删除）');
 "
 ```
 
-- [ ] **Step 2: 记录结论**
+**注意**：不要在 `break` 之后调 `q.interrupt?.()` —— 那一刻传输已在关闭，会抛错并跳过清理。
 
-把下面两行填进 spec §10「待实现时确认」那一节，替换掉原来的待确认项：
+- [x] **Step 2: 记录结论**
 
-- `resume` 之后是否重发 `system`/`init`：**（填：是 / 否）**
-- 若是，`init` 报的 id **（填：与 resume 的 id 相同 / 是另一个新 id）**
+实测结果（原始输出见 spec §9.7）：
+
+- `resume` 之后是否重发 `system`/`init`：**是**
+- 若是，`init` 报的 id：**与 `resume` 的 id 相同**
 
 **判读**：
-- 若 `init` 出现且 id 与 resume 的一致 → Task 10 什么都不用特殊处理，现有的 `init` 分支照常更新模型名标签
+- 若 `init` 出现且 id 与 resume 的一致 → Task 10 什么都不用特殊处理，现有的 `init` 分支照常更新模型名标签 ← **本次落在这条**
 - 若 `init` **不出现** → Task 10 需要在 resume 路径上把模型名标签置成占位（因为那个标签只在 `init` 里更新），并把这一条写进 spec
 - 若 `init` 报的是**另一个 id**（不 fork 也这样）→ 这是严重问题，**停下来**，说明 `resume` 的语义和文档不符，整个 §5 的切换流程要重新设计
 
