@@ -860,7 +860,31 @@ EOF
   - `SidecarClient.request(id: String, json: String, callback: (RequestOutcome) -> Unit)`
   - `SidecarClient` 构造器新增可选参数 `requestTimeoutMs: Long = 10_000L`
 
-- [ ] **Step 1: 写失败的测试**
+> **状态：已完成（2026-09-12）**
+>
+> **执行记录 —— 三处偏离，其中一处是真 bug：**
+>
+> **① 计划给的测试顺序有竞态。** Step 1 的用例写成 `client.start()` 再 `client.request(...)`，
+> 但 `ByteArrayInputStream` 会被读线程**一发读完**，于是响应（或流结束）发生在登记之前。
+> 实测两条用例 `TimeoutException`。生产里不会这样 —— 管道上响应只可能在请求写出去之后才到，
+> 而 `request()` 是先登记后 `sendLine`。修法：用例 1/2/6 改成**先 request 再 start**。
+>
+> **② 每实例 `Timer` 撞上平台线程泄漏检测。** 原设计在构造器里 `Timer(...)`，于是每个
+> `SidecarClient` 占一个线程；只 `sendLine` 从不 `request` 的实例（`sendLine 原样写出` 就是）
+> 白占一个，被 `com.intellij.testFramework` 判为 `Thread leaked` 而失败。
+> 改为**懒创建**：`timer` 变成 `var`，首次 `request()` 时才建，`close()` 里 `timer?.cancel()`。
+>
+> **③ 登记与排期拆开是一段真窗口（这条影响生产）。** 计划特意用「先登记再调度」防丢回调，
+> 但没堵反向：读线程恰好在两步之间因流结束跑 `failAllPending`，会把那条取走并
+> `cancel()` 掉**还没排期**的 TimerTask，主线程随后 `schedule` 抛
+> `IllegalStateException: Task already scheduled or cancelled` —— 而且是在**调用方的线程**上抛，
+> 调用方拿不到 `RequestOutcome`。实测 `close 时待决请求全部以 Failed 回调` 命中。
+> 修法：`registerAndSchedule` / `resolvePending` / `failAllPending` / `onTimeout`
+> **全部 `@Synchronized`**，登记与排期合成一个原子操作。改完连跑三次稳定。
+>
+> 实测：`SidecarClientTest` 6 → 12 用例；全量 348 / 0 失败；sidecar 86 / 0 失败。
+
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\sidecar\SidecarClientTest.kt` 的 `class SidecarClientTest` 内部（最后一个 `}` 之前）。
 
@@ -980,7 +1004,7 @@ import 区补一条（下面的用例都用短名）：
 import java.util.concurrent.CompletableFuture
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.sidecar.SidecarClientTest" 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -988,7 +1012,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：编译失败，报 `unresolved reference: RequestOutcome` / `request` / `requestTimeoutMs`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\sidecar\SidecarClient.kt` 里：
 
@@ -1126,7 +1150,7 @@ class SidecarClient(
 
 **(h)** import 区补 `import java.util.Timer` 和 `import java.util.TimerTask`。
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccoder.sidecar.SidecarClientTest" 2>&1 | grep -E "FAILED|BUILD"
@@ -1134,7 +1158,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon --tests "com.ccode
 
 预期：`BUILD SUCCESSFUL`。
 
-- [ ] **Step 5: 跑全量测试**
+- [x] **Step 5: 跑全量测试**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "FAILED|BUILD"
@@ -1142,7 +1166,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "FA
 
 预期：`BUILD SUCCESSFUL`。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/sidecar/SidecarClient.kt src/test/kotlin/com/ccoder/sidecar/SidecarClientTest.kt && git commit -F - <<'EOF'
