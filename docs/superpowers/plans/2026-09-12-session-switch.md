@@ -2414,7 +2414,22 @@ EOF
 
 **本任务没有单测**，理由同 Task 9。
 
-- [ ] **Step 1: 把 resume 目标带进 start 参数**
+> **状态：已完成（2026-09-12）** —— 全量 375 / 0 失败，sidecar 86 / 0 失败。
+>
+> **执行记录 —— 一处**留给冒烟时判断**的张力，我没有自作主张改：**
+>
+> Step 2 的 init 分支会把标签设成 `sid.take(8)`（会话 id 前 8 位）。这对**恢复**路径没问题
+> ——Task 9 的注释就是这么写的（"恢复的会话标题要等列表回来才知道，先显示 id 前 8 位"）。
+> 但同一个分支对**全新会话**也生效，于是新会话的标签最终显示成一串 UUID 前缀，
+> 而**设计稿 A 画的是「新会话」**（斜体占位）。
+>
+> 两处都是你自己的东西（设计稿在先、计划在后），我按**计划逐字**执行了 ——
+> 计划是更具体、更可执行的那一份。但 `aeff3659` 这种标签对用户没有可用信息量：
+> 列表里显示的是标题不是 id，对不上号。
+>
+> **冒烟时请留意这一条**：如果看着别扭，把 init 分支里的 `sessionLabel.setTitle(...)`
+> 删掉即可（`currentSessionId = sid` 要留着 —— 列表打勾和后续操作都靠它），
+> 标签就会保持「新会话」。一行的事。
 
 在 `startSession()` 里，`Protocol.encodeStart(...)` 那一处（`ClaudePanel.kt:441-446`）改为：
 
@@ -2428,7 +2443,7 @@ EOF
                 )
 ```
 
-- [ ] **Step 2: 记录新会话的 id**
+- [x] **Step 2: 记录新会话的 id**
 
 在 `onMessage` 的 `Event` 分支里，`init` 那处（`ClaudePanel.kt:536-538`）改为：
 
@@ -2445,7 +2460,7 @@ EOF
                     }
 ```
 
-- [ ] **Step 3: Ready 之后走回放**
+- [x] **Step 3: Ready 之后走回放**
 
 `onMessage` 的 `Ready` 分支改为：
 
@@ -2475,7 +2490,7 @@ EOF
                 }
 ```
 
-- [ ] **Step 4: 实现 `switchToSession` 与 `beginReplay`**
+- [x] **Step 4: 实现 `switchToSession` 与 `beginReplay`**
 
 替换 Task 9 里放的占位实现：
 
@@ -2589,7 +2604,7 @@ EOF
     }
 ```
 
-- [ ] **Step 5: 清理 `stopSession` 里的会话状态**
+- [x] **Step 5: 清理 `stopSession` 里的会话状态**
 
 在 `stopSession()`（`ClaudePanel.kt:476-499`）的 `ready = false` 之前加：
 
@@ -2601,7 +2616,7 @@ EOF
 
 **注意**：**不要**在 `stopSession()` 里清 `currentSessionId` —— `restartSession()` 会调它，而重开后还是同一个会话的延续（只是 fatal 重连）。
 
-- [ ] **Step 6: 编译并跑全量测试**
+- [x] **Step 6: 编译并跑全量测试**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "error:|FAILED|BUILD"
@@ -2609,7 +2624,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --no-daemon 2>&1 | grep -E "er
 
 预期：`BUILD SUCCESSFUL`，无 `error:`。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/ui/ClaudePanel.kt && git commit -F - <<'EOF'

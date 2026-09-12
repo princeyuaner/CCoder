@@ -442,9 +442,112 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         sessionPopup = showTogglePopup(sessionLabel, content) { sessionPopup = null }
     }
 
-    /** 见 Task 10。 */
+    /**
+     * 切换到另一个历史会话。
+     *
+     * 步骤见 spec §5.2。**不复用 [restartSession]** —— 那个刻意保留转写历史
+     * （见它的注释），而切换要的正是清空，语义相反。
+     */
     private fun switchToSession(target: SessionInfo) {
-        LOG.info("CCoder 请求切换会话：${target.sessionId}（Task 10 实现）")
+        // 双保险：列表已经把忙时的点击拦住了，但那之后到真正执行之间
+        // 状态可能变（比如又来了一个权限询问）
+        val block = switchBlock(busy, permissionQueue.totalPending)
+        if (block != SwitchBlock.None) {
+            pushOp(toOp(RenderItem.SystemNote(switchBlockNotice(block) ?: return)))
+            return
+        }
+
+        LOG.info("CCoder 切换会话：${target.sessionId}")
+        stopSession()
+        // 标题从列表里就知道，不必等 loadHistory
+        val title = target.summary?.takeIf { it.isNotBlank() }
+            ?: target.firstPrompt?.takeIf { it.isNotBlank() }
+        sessionLabel.setTitle(title, enabled = true)
+        resumeTargetId = target.sessionId
+        startSession()
+    }
+
+    /**
+     * 把历史灌进转写区。
+     *
+     * 历史条目与流式事件**同构**，所以整条渲染管线（含 toOp 的映射）
+     * 原样复用，React 侧零改动（spec §6.1）。
+     */
+    private fun beginReplay(sessionId: String) {
+        val c = client
+        if (c == null) {
+            failReplay("会话通道已关闭")
+            return
+        }
+        val dir = project.basePath
+        if (dir == null) {
+            failReplay("项目没有 basePath")
+            return
+        }
+
+        // 清空转写区。Reset 是既有操作，Kotlin 编码与 React 消费都已实现
+        // 并有测试（codec.test.ts「reset 清空全部」）
+        pushOp(TranscriptOp.Reset)
+        statusLabel.text = "正在载入历史…"
+        // 回放期间不接受输入：否则历史与实时消息会交错（spec §10 的风险项）
+        setBusy(true)
+
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeLoadHistory(reqId, dir, sessionId)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val msg = outcome.message as? SidecarMessage.History
+                        if (msg == null) {
+                            failReplay("历史接口返回了意外的消息")
+                        } else {
+                            replayItems(msg.items)
+                        }
+                    }
+
+                    is RequestOutcome.Failed -> failReplay(outcome.reason)
+                }
+            }
+        }
+    }
+
+    /**
+     * 逐条灌入历史。
+     *
+     * 先试 [MessageRenderer.renderPrompt]（提问），再走 [MessageRenderer.render]
+     * （其余）。顺序不能反：`render` 对 `type:"user"` 一律返回空，所以两条路
+     * 不会重复产出。
+     */
+    private fun replayItems(items: List<JsonObject>) {
+        var rendered = 0
+        for (item in items) {
+            MessageRenderer.renderPrompt(item)?.let {
+                pushOp(toOp(RenderItem.UserText(it)))
+                rendered++
+            }
+            val rest = MessageRenderer.render(SidecarMessage.Event(item))
+            rest.forEach { pushOp(toOp(it)) }
+            rendered += rest.size
+        }
+
+        resumeTargetId = null
+        setBusy(false)
+        statusLabel.text = "已连接"
+        pushOp(toOp(RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示")))
+    }
+
+    /**
+     * 回放失败。
+     *
+     * **不回退到新会话** —— 那会让用户以为历史加载好了（spec §7.5 反对静默
+     * 丢失）。转写区保持在 Reset 之后的空白状态，并明确说明失败原因。
+     */
+    private fun failReplay(reason: String) {
+        resumeTargetId = null
+        setBusy(false)
+        statusLabel.text = "恢复失败"
+        sessionLabel.setTitle(null, enabled = true)
+        pushOp(toOp(RenderItem.ErrorItem("恢复会话失败：$reason")))
     }
 
     /**
@@ -564,7 +667,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 c.sendLine(
                     Protocol.encodeStart(
                         nextId(),
-                        ClaudeSettings.getInstance(project).toStartParams(Path.of(base)),
+                        ClaudeSettings.getInstance(project).toStartParams(Path.of(base))
+                            .copy(resumeSessionId = resumeTargetId),
                     )
                 )
             } catch (e: SidecarNotFoundException) {
@@ -606,6 +710,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         modePopup?.cancel()
         modePopup = null
 
+        // 浮层挂在旧会话的列表上，会话没了它就该消失
+        sessionPopup?.cancel()
+        sessionPopup = null
+
         // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
         // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。
@@ -636,19 +744,22 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     statusLabel.text = "已连接"
                     disconnected = false
                     refreshMainButton()
-                    // 新会话还没有标题，标签显示斜体占位；
-                    // 恢复的会话标题要等列表回来才知道，先显示 id 前 8 位
-                    sessionLabel.setTitle(
-                        (resumeTargetId ?: currentSessionId)?.take(8),
-                        enabled = true,
-                    )
-                    pushOp(toOp(RenderItem.SystemNote("会话已就绪")))
 
-                    // 补发窗口就绪前暂存的首条消息
-                    pendingFirstMessage?.let { text ->
-                        pendingFirstMessage = null
-                        client?.sendLine(Protocol.encodeSend(nextId(), text))
-                        setBusy(true)
+                    val resuming = resumeTargetId
+                    if (resuming != null) {
+                        // 恢复路径：id 构造即知，同时把它记成当前会话
+                        currentSessionId = resuming
+                        beginReplay(resuming)
+                    } else {
+                        pushOp(toOp(RenderItem.SystemNote("会话已就绪")))
+                        sessionLabel.setTitle(null, enabled = true)
+
+                        // 补发窗口就绪前暂存的首条消息
+                        pendingFirstMessage?.let { text ->
+                            pendingFirstMessage = null
+                            client?.sendLine(Protocol.encodeSend(nextId(), text))
+                            setBusy(true)
+                        }
                     }
                 }
 
@@ -664,6 +775,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // 设置里那个可能被环境变量或 SDK 默认值覆盖
                     if (msg.event.str("subtype") == "init") {
                         msg.event.str("model")?.let { modelLabel.text = it }
+
+                        // 真正的会话 id 只在这里。**不读 ready.sessionId** ——
+                        // 那个回显的是请求参数，全新会话时是 null（spec §10）
+                        msg.event.str("session_id")?.let { sid ->
+                            currentSessionId = sid
+                            sessionLabel.setTitle(sid.take(8), enabled = !busy)
+                        }
                     }
                     // 任务与子代理的状态要走**每一个**事件，不只是 result ——
                     // task_progress 这类事件不会产出任何转写项，但它们正是
