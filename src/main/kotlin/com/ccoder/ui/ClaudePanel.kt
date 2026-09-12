@@ -855,7 +855,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 // 请求-响应式的应答本该由 SidecarClient 的待决表按 id 截走
                 // （Task 4），到不了这里。列出来只为穷尽性 —— 真漏过来说明
                 // 配对没接上，而那个症状会在发起请求的那一侧超时暴露，不在这里补救
-                is SidecarMessage.SessionList, is SidecarMessage.History -> Unit
+                is SidecarMessage.SessionList,
+                is SidecarMessage.History,
+                is SidecarMessage.SessionDeleted,
+                -> Unit
 
                 is SidecarMessage.Unknown -> Unit // 静默忽略（spec §3.3）
             }

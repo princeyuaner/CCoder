@@ -383,4 +383,45 @@ class ProtocolTest {
         assertNull(Protocol.responseIdOf(SidecarMessage.Ready("s", "m")))
         assertNull(Protocol.responseIdOf(SidecarMessage.Unknown("whatever")))
     }
+
+    // ---- 删除会话 ----
+
+    @Test
+    fun `encodeDeleteSession 带 id 与 sessionId`() {
+        val line = Protocol.encodeDeleteSession("r7", "d9617553-1a2b-3c4d-5e6f-7890abcdef12")
+        val obj = JsonParser.parseString(line.trim()).asJsonObject
+
+        assertEquals("r7", obj.get("id").asString)
+        assertEquals("deleteSession", obj.get("method").asString)
+        assertEquals(
+            "d9617553-1a2b-3c4d-5e6f-7890abcdef12",
+            obj.getAsJsonObject("params").get("sessionId").asString,
+        )
+    }
+
+    @Test
+    fun `sessionDeleted 解析出 id 与 sessionId`() {
+        val line = """{"type":"sessionDeleted","id":"r7","sessionId":"abc-123"}"""
+
+        val msg = Protocol.parse(line)
+
+        assertTrue(msg is SidecarMessage.SessionDeleted)
+        assertEquals("r7", (msg as SidecarMessage.SessionDeleted).requestId)
+        assertEquals("abc-123", msg.sessionId)
+    }
+
+    @Test
+    fun `sessionDeleted 缺 sessionId 时丢弃`() {
+        // 缺了它就不知道该把哪一行从列表里去掉 —— 留着只会让界面删错行
+        assertNull(Protocol.parse("""{"type":"sessionDeleted","id":"r7"}"""))
+    }
+
+    @Test
+    fun `responseIdOf 认得 sessionDeleted`() {
+        // 不认的话这条回执就配不上对，删除会一直挂到超时
+        assertEquals(
+            "r7",
+            Protocol.responseIdOf(SidecarMessage.SessionDeleted("r7", "abc-123")),
+        )
+    }
 }

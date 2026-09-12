@@ -77,7 +77,7 @@ sidecar/test/index.test.js                              + 3 个用例
   - `Protocol.encodeDeleteSession(id: String, sessionId: String): String`
   - `Protocol.responseIdOf` 新增一个分支（`SessionDeleted` → `requestId`）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\sidecar\ProtocolTest.kt` 的 `class ProtocolTest` 内部（最后一个 `}` 之前）：
 
@@ -126,7 +126,7 @@ sidecar/test/index.test.js                              + 3 个用例
 
 （`JsonParser` / `assertNull` / `assertTrue` / `assertEquals` 在该文件里已经 import 过；若缺 `assertNull` 补上 `import org.junit.jupiter.api.Assertions.assertNull`。）
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.sidecar.ProtocolTest" --console=plain 2>&1 | grep -E "error:|Unresolved|FAILED|BUILD" | head -20
@@ -134,7 +134,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.sidecar.Pr
 
 预期：编译失败，报 `Unresolved reference: SessionDeleted` / `encodeDeleteSession`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 **(a)** 在 `Protocol.kt` 的 `sealed interface SidecarMessage` 内部，`SessionList` / `History` 之后插入：
 
@@ -178,7 +178,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.sidecar.Pr
     }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.sidecar.ProtocolTest" --console=plain 2>&1 | tail -5
@@ -186,7 +186,7 @@ cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests "com.ccoder.sidecar.Pr
 
 预期：`BUILD SUCCESSFUL`。核对新增用例数：`build/test-results/test/TEST-com.ccoder.sidecar.ProtocolTest.xml` 里的 `tests=` 比改动前多 4。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder" && git add src/main/kotlin/com/ccoder/sidecar/Protocol.kt src/test/kotlin/com/ccoder/sidecar/ProtocolTest.kt && git commit -F - <<'EOF'

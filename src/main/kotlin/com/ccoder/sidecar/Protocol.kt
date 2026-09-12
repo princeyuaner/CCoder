@@ -66,6 +66,14 @@ sealed interface SidecarMessage {
         val items: List<JsonObject>,
     ) : SidecarMessage
 
+    /**
+     * 删除会话的回执。
+     *
+     * `sessionDeleted` 缺 `sessionId` 时整条丢弃（见 [Protocol.parse]）——
+     * 不知道删掉的是哪一个，就不知道该把哪一行从列表里去掉。
+     */
+    data class SessionDeleted(val requestId: String, val sessionId: String) : SidecarMessage
+
     /** 未知类型。与"解析失败"（null）区分开——这类要忽略而非报错。 */
     data class Unknown(val type: String) : SidecarMessage
 }
@@ -178,6 +186,14 @@ object Protocol {
                 }
             }
 
+            "sessionDeleted" -> {
+                // 两个字段缺一不可：requestId 用来配对，sessionId 用来知道删了哪个
+                val requestId = obj.str("id")
+                val sessionId = obj.str("sessionId")
+                if (requestId == null || sessionId == null) null
+                else SidecarMessage.SessionDeleted(requestId, sessionId)
+            }
+
             "error" -> SidecarMessage.Failure(
                 message = obj.str("message") ?: "未知错误",
                 code = obj.str("code"),
@@ -206,6 +222,9 @@ object Protocol {
             addProperty("sessionId", sessionId)
         })
 
+    fun encodeDeleteSession(id: String, sessionId: String): String =
+        line(id, "deleteSession", JsonObject().apply { addProperty("sessionId", sessionId) })
+
     /**
      * 响应类消息的关联 id。非响应消息返回 null。
      *
@@ -215,6 +234,7 @@ object Protocol {
     fun responseIdOf(msg: SidecarMessage): String? = when (msg) {
         is SidecarMessage.SessionList -> msg.requestId
         is SidecarMessage.History -> msg.requestId
+        is SidecarMessage.SessionDeleted -> msg.requestId
         else -> null
     }
 
