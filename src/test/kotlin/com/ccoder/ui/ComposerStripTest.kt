@@ -189,4 +189,49 @@ class ComposerStripTest {
         assertEquals(0, popupAnchorY(anchorTop = 300, anchorHeight = 20, popupHeight = 900,
             screenTop = 0, screenBottom = 500, gap = 30))
     }
+
+    // ---- 浮层水平居中于面板 ----
+
+    @Test
+    fun `宽度退回内容首选宽度`() {
+        assertEquals(300, popupWidthOf(null, Dimension(300, 100)))
+    }
+
+    @Test
+    fun `已经量过的宽度优先于内容首选宽度`() {
+        assertEquals(120, popupWidthOf(Dimension(120, 50), Dimension(300, 100)))
+    }
+
+    @Test
+    fun `宽度两个都没有时也给 0`() {
+        assertEquals(0, popupWidthOf(null, null))
+    }
+
+    @Test
+    fun `浮层居中于面板`() {
+        // 面板在 x=1000、宽 400，浮层宽 200 → 左边缘 = 1000 + (400-200)/2 = 1100
+        assertEquals(
+            1100,
+            popupCenteredX(panelLeft = 1000, panelWidth = 400, popupWidth = 200,
+                screenLeft = 0, screenRight = 3000),
+        )
+    }
+
+    @Test
+    fun `面板贴屏幕右边时浮层被钳回屏幕内`() {
+        // 这一条正是原来的 bug：锚点（会话标签）右对齐，标题短时它缩到最右，
+        // 弹层跟着跑到屏幕外。X 方向原先**完全没有**边界钳制
+        val x = popupCenteredX(panelLeft = 1900, panelWidth = 400, popupWidth = 200,
+            screenLeft = 0, screenRight = 1920)
+
+        assertTrue(x + 200 <= 1920, "溢出屏幕右边：x=$x, 右边缘=${x + 200}")
+    }
+
+    @Test
+    fun `面板贴屏幕左边时浮层不会越过左边界`() {
+        val x = popupCenteredX(panelLeft = 0, panelWidth = 100, popupWidth = 200,
+            screenLeft = 0, screenRight = 1920)
+
+        assertTrue(x >= 0, "越过屏幕左边：$x")
+    }
 }

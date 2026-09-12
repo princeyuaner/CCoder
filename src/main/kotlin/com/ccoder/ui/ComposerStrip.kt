@@ -91,6 +91,10 @@ internal fun ellipsize(text: String, budgetPx: Int, widthOf: (String) -> Int): S
 internal fun popupHeightOf(size: Dimension?, contentPreferred: Dimension?): Int =
     size?.height ?: contentPreferred?.height ?: 0
 
+/** 浮层将要采用的宽度。与 [popupHeightOf] 同一套退回逻辑，只是取宽。 */
+internal fun popupWidthOf(size: Dimension?, contentPreferred: Dimension?): Int =
+    size?.width ?: contentPreferred?.width ?: 0
+
 /**
  * 详情浮层该出现在哪个 y（屏幕坐标）。
  *
@@ -118,6 +122,30 @@ internal fun popupAnchorY(
     // 上下都放不下（任务很多时浮层可以比屏幕还高）：贴屏幕顶。
     // 贴底会让标题看不见，而标题是"这是什么"的唯一线索
     return screenTop
+}
+
+/**
+ * 浮层该出现在哪个 x（屏幕坐标）：**居中于面板**，再钳进屏幕。
+ *
+ * 为什么不沿用"左边缘对齐锚点"：会话列表的锚点是**右对齐**的会话标签 ——
+ * 标题短时它缩到最右，弹层左边缘跟着跑过去，整块溢出到面板外面。
+ * X 方向原先**完全没有**边界钳制（Y 方向有 [popupAnchorY] 管上下）。
+ *
+ * 基准取**面板**而不是屏幕：用户看到的是面板；以屏幕中线为准，面板在
+ * 左半边时弹层会跟它脱开。
+ */
+internal fun popupCenteredX(
+    panelLeft: Int,
+    panelWidth: Int,
+    popupWidth: Int,
+    screenLeft: Int,
+    screenRight: Int,
+): Int {
+    val centered = panelLeft + (panelWidth - popupWidth) / 2
+    // 浮层比屏幕还宽时区间会反过来，coerceIn 遇空区间会抛 —— 先保证 lo <= hi
+    val lo = screenLeft
+    val hi = maxOf(lo, screenRight - popupWidth)
+    return centered.coerceIn(lo, hi)
 }
 
 /**
