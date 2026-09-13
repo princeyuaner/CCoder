@@ -67,7 +67,7 @@ class ComposerRenderProbe {
             val send = RoundSendButton().apply {
                 setState(mainButtonState(ready = true, busy = false, disconnected = false))
             }
-            val toolbar = buildComposerToolbar(model, modeLabel, send)
+            val toolbar = buildComposerToolbar(model, modeLabel, send, onAttach = {})
 
             // 空附件条：这一张要看的是"没有图时它不占高度"——
             // 若它没藏好，输入框与状态卡之间会多出一条空白带

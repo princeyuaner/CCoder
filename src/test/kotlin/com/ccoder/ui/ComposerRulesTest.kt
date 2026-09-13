@@ -75,6 +75,24 @@ class ComposerRulesTest {
         assertEquals(SendShortcut.ENTER, SendShortcut.DEFAULT)
     }
 
+    // ---- 有什么可发 ----
+
+    @Test
+    fun `空的输入框发不出任何东西`() {
+        assertFalse(hasSendableContent("", 0))
+        assertFalse(hasSendableContent("   \n ", 0))
+    }
+
+    @Test
+    fun `只有图没有文字也能发 —— 纯图提问是合法的`() {
+        assertTrue(hasSendableContent("", 1))
+    }
+
+    @Test
+    fun `有文字就能发`() {
+        assertTrue(hasSendableContent("你好", 0))
+    }
+
     // ---- 布局 ----
 
     private fun card(toolbar: JComponent = JPanel()) =

@@ -129,17 +129,22 @@ internal class RoundSendButton : JComponent() {
  * 控件工具栏：左边状态（模型、权限模式），右边发送键。
  *
  * 左侧刻意留宽 —— 以后要加的模型切换等控件都往这儿添，不必再动结构。
+ *
+ * [onAttach] 一路传给回形针：它是个入口而不是状态，但和状态挤在同一行里，
+ * 所以由这里统一收口。三个入口（粘贴 / 拖拽 / 回形针）共用同一条下游。
  */
-internal fun buildComposerToolbar(model: JComponent, mode: JComponent, send: JComponent): JPanel =
-    JPanel(BorderLayout()).apply {
-        // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
-        isOpaque = false
-        border = JBUI.Borders.emptyTop(2)
-        // 回调暂时是空的 —— 采集接线（选文件、addImages）在 Task 6，
-        // 这里只把入口摆到位。三个入口共用同一条下游，按钮只是其中一个
-        add(buildStatusRow(buildAttachButton {}, model, mode), BorderLayout.WEST)
-        add(send, BorderLayout.EAST)
-    }
+internal fun buildComposerToolbar(
+    model: JComponent,
+    mode: JComponent,
+    send: JComponent,
+    onAttach: () -> Unit,
+): JPanel = JPanel(BorderLayout()).apply {
+    // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
+    isOpaque = false
+    border = JBUI.Borders.emptyTop(2)
+    add(buildStatusRow(buildAttachButton(onAttach), model, mode), BorderLayout.WEST)
+    add(send, BorderLayout.EAST)
+}
 
 /** 回形针。做成安静的次要色 —— 它是入口，不是动作，不该跟发送键抢注意力。 */
 internal fun buildAttachButton(onClick: () -> Unit): JComponent = JLabel("📎").apply {
@@ -147,7 +152,11 @@ internal fun buildAttachButton(onClick: () -> Unit): JComponent = JLabel("📎")
     toolTipText = "添加图片（也可以直接粘贴或拖进来）"
     cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
     addMouseListener(object : MouseAdapter() {
-        override fun mouseClicked(e: MouseEvent) = onClick()
+        // 只认左键。右键也触发的话，接上线之后那一按会弹出一个没人要的模态
+        // 文件选择器 —— 而右键在 Swing 里本来就另有含义（macOS 上就是辅助点击）
+        override fun mouseClicked(e: MouseEvent) {
+            if (e.button == MouseEvent.BUTTON1) onClick()
+        }
     })
 }
 

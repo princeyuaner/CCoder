@@ -15,11 +15,11 @@ import java.awt.event.MouseEvent
  */
 class ComposerToolbarTest {
 
-    private fun click(component: java.awt.Component) {
+    private fun click(component: java.awt.Component, button: Int = MouseEvent.BUTTON1) {
         component.dispatchEvent(
             MouseEvent(
                 component, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
-                0, 5, 5, 1, false, MouseEvent.BUTTON1,
+                0, 5, 5, 1, false, button,
             )
         )
     }
@@ -78,7 +78,7 @@ class ComposerToolbarTest {
         val mode = ModeLabel {}
         val send = RoundSendButton()
 
-        val bar = buildComposerToolbar(model, mode, send)
+        val bar = buildComposerToolbar(model, mode, send, onAttach = {})
         val layout = bar.layout as java.awt.BorderLayout
         val west = layout.getLayoutComponent(java.awt.BorderLayout.WEST) as java.awt.Container
 
@@ -95,6 +95,22 @@ class ComposerToolbarTest {
     }
 
     @Test
+    fun `工具栏把回形针的点击一路传到调用方`() {
+        // 曾经断在这里：工具栏自己 new 了一个空回调的回形针，于是"点了没反应"
+        // 而这个口子谁都没发现（Task 4 → Task 6）
+        var clicks = 0
+        val bar = buildComposerToolbar(
+            javax.swing.JLabel(), ModeLabel {}, RoundSendButton(), onAttach = { clicks++ },
+        )
+        val west = (bar.layout as java.awt.BorderLayout)
+            .getLayoutComponent(java.awt.BorderLayout.WEST) as java.awt.Container
+
+        click(west.components.first())
+
+        assertEquals(1, clicks, "回形针的点击到不了调用方，选文件这条路就是死的")
+    }
+
+    @Test
     fun `点回形针把动作报出去`() {
         var clicks = 0
         val attach = buildAttachButton { clicks++ }
@@ -102,5 +118,17 @@ class ComposerToolbarTest {
         click(attach)
 
         assertEquals(1, clicks, "报不出去，这个入口就是个装饰")
+    }
+
+    @Test
+    fun `右键不触发回形针 —— 否则会弹出一个没人要的模态选择器`() {
+        var clicks = 0
+        val attach = buildAttachButton { clicks++ }
+
+        click(attach, button = MouseEvent.BUTTON3)
+        assertEquals(0, clicks, "右键不该开文件选择器")
+
+        click(attach)
+        assertEquals(1, clicks, "左键照旧")
     }
 }

@@ -22,6 +22,8 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -119,6 +121,21 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 权限模式。可点，点开切换。 */
     private val modeLabel = ModeLabel { toggleModeChooser() }
+
+    /**
+     * 输入框上方的附件条。
+     *
+     * 是字段而不是 init 里的局部量：[addImages] 要把缩略图与提示行设进去。
+     * 无图时它整条隐藏，所以空着也不占高度（组件自己管）。
+     */
+    private val attachments = ComposerAttachments(onRemove = {})
+
+    /**
+     * 待发送的图。
+     *
+     * **组件不持有真相** —— 这一份才是：顺序就是用户添加的顺序，发送后两边一起清。
+     */
+    private var attachList: List<ImageAttachment> = emptyList()
 
     /**
      * 当前生效的权限模式。
@@ -242,14 +259,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         // 底部工具栏：模型与权限模式在左、发送键在右
         refreshModeLabel()
-        val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, sendButton)
+        val composerToolbar = buildComposerToolbar(
+            modelLabel, modeLabel, sendButton,
+            onAttach = { onAttachClicked() },
+        )
 
         // 四张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
 
-        // 附件条：无图时整条隐藏，所以空的时候它不占高度，也不顶分隔条的默认比例。
-        // 它的 onRemove 与三个入口的接线（addImages）在 Task 6，这一层先只到位
-        val attachments = ComposerAttachments(onRemove = {})
+        // 三个入口都汇到 addImages：读剪贴板、读盘、归一化全在它里面离开 EDT。
+        // 附件条（字段）无图时整条隐藏，所以空着的时候它不占高度，
+        // 也不顶分隔条的默认比例
+        installImagePaste(input, onImages = { addImages { readClipboardImages() } })
+        installImageDrop(this, onFiles = { files -> addImages { readImageFiles(files) } })
 
         val inputArea = buildComposerCard(inputScroll, attachments, composerToolbar)
 
@@ -1333,6 +1355,62 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         input.requestFocusInWindow()
     }
 
+    // ---- 附件（粘贴 / 拖拽 / 回形针）----
+
+    /**
+     * 收图。三个入口（粘贴 / 拖拽 / 选文件）都走这里。
+     *
+     * [read] 在**后台线程**上跑：读剪贴板、解字节、缩放都在里面，几十到几百毫秒。
+     * 在 EDT 上做会卡住整个 IDE。
+     *
+     * 存量在进后台**之前**取：附件条与 [attachList] 都只在 EDT 上被改，后台线程
+     * 不该去读组件（两者在 EDT 上恒等，见 [attachList] 的"组件不持有真相"）。
+     */
+    internal fun addImages(read: () -> List<RawImage>) {
+        val existing = attachList.size
+        ApplicationManager.getApplication().executeOnPooledThread {
+            // 采集层自己吞掉读失败（见 ImageIngest 的文件头），这里再兜一次 ——
+            // 后台线程上抛出去没人接，用户看到的是"点了没反应"
+            val raw = runCatching { read() }.getOrDefault(emptyList())
+            // 空手而归**一个字都不说**：0 字节与读不出来的都被采集层静默跳过了
+            // （同那里的裁决），界面上不该留下痕迹
+            if (raw.isEmpty()) return@executeOnPooledThread
+
+            val intake = acceptImages(existing, raw)
+            ApplicationManager.getApplication().invokeLater {
+                if (intake.accepted.isNotEmpty()) {
+                    attachList += intake.accepted
+                    attachments.setImages(attachList)
+                }
+                // 顺序承重：setImages 会清掉上一次的提示，所以提示必须**后**设，
+                // 这一批的结果由它补上（见 ComposerAttachments.setImages）
+                attachments.setNotice(attachmentNotice(intake))
+            }
+        }
+    }
+
+    /**
+     * 回形针：选图片文件。
+     *
+     * 选择器本身是模态的、就开在 EDT 上 —— 那只是弹窗；真正读盘与归一化照旧
+     * 交给 [addImages] 去后台做。
+     *
+     * 第二个参数传 null 而不是 [project]：这是一次与项目结构无关的挑文件，
+     * 不需要选择器按项目根目录来组织。
+     */
+    private fun onAttachClicked() {
+        val chooser = FileChooserFactory.getInstance().createFileChooser(
+            FileChooserDescriptorFactory.createMultipleFilesNoJarsDescriptor()
+                .withTitle("选择图片")
+                .withFileFilter { it.extension?.lowercase() in IMAGE_EXTENSIONS },
+            null,
+            this,
+        )
+        val files = chooser.choose(project).map { java.io.File(it.path) }
+        // 取消了就什么都不做 —— 空表进去只会白跑一趟后台
+        if (files.isNotEmpty()) addImages { readImageFiles(files) }
+    }
+
     private fun JsonObject.str(key: String): String? =
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
 
@@ -1350,3 +1428,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val LOG = Logger.getInstance(ClaudePanel::class.java)
     }
 }
+
+/** 一条消息有没有东西可发。纯图无文字是合法的（spec §5），所以不能只看文字。 */
+internal fun hasSendableContent(text: String, imageCount: Int): Boolean =
+    text.isNotBlank() || imageCount > 0
