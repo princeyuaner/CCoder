@@ -1,6 +1,8 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.RequestOutcome
 import com.ccoder.sidecar.SessionInfo
+import com.ccoder.sidecar.SidecarMessage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -97,5 +99,88 @@ class SessionSwitchStateTest {
         val prompt = deleteConfirmPrompt(info(summary = "这是什么项目"), isCurrent = true)
         assertTrue(prompt.contains("当前"), "实际：$prompt")
         assertTrue(prompt.contains("清空"), "实际：$prompt")
+    }
+
+    // ---- 打开面板时恢复哪一条 ----
+
+    private fun at(sessionId: String, lastModified: Long, summary: String? = null) =
+        SessionInfo(sessionId, summary, null, lastModified)
+
+    @Test
+    fun `没有历史会话时不恢复`() {
+        // 首次使用。这里必须给 null —— 打开面板要退回"开新会话"，
+        // 给一个占位会话的话，用户会进到一个不存在的东西里
+        assertNull(mostRecentSession(emptyList<SessionInfo>()))
+    }
+
+    @Test
+    fun `取修改时间最新的一条，与列表给的顺序无关`() {
+        // 实测 SDK 是新的在顶上，但它的文档没承诺排序。
+        // 按下标取 first() 的话，哪天顺序变了会安静地恢复错的那一条
+        val picked = mostRecentSession(
+            listOf(
+                at("旧的", 1_000),
+                at("最新的", 3_000),
+                at("中间的", 2_000),
+            )
+        )
+        assertEquals("最新的", picked?.sessionId)
+    }
+
+    @Test
+    fun `修改时间并列时取列表里靠前的那条`() {
+        // 并列是可能的（两次改动落在同一毫秒）。规则要定死，
+        // 否则同一个列表在不同调用里可能给出不同答案
+        val picked = mostRecentSession(listOf(at("前", 5_000), at("后", 5_000)))
+        assertEquals("前", picked?.sessionId)
+    }
+
+    // ---- 打开面板时那份回执的读法 ----
+
+    @Test
+    fun `有历史就挑最新的一条恢复`() {
+        val pick = openPick(
+            RequestOutcome.Answered(
+                SidecarMessage.SessionList(
+                    "r1",
+                    listOf(at("旧的", 1_000), at("最新的", 2_000)),
+                )
+            )
+        )
+        assertEquals(OpenPick.Resume(at("最新的", 2_000)), pick)
+    }
+
+    @Test
+    fun `没有历史会话是正常情况，不提示`() {
+        // 首次使用就是这样。这里若算成"失败"，用户每开一个新项目都会收到
+        // 一句"列不出历史会话" —— 而其实什么都没出错
+        val pick = openPick(RequestOutcome.Answered(SidecarMessage.SessionList("r1", emptyList())))
+        assertEquals(OpenPick.None, pick)
+    }
+
+    @Test
+    fun `请求失败要说得出原因`() {
+        // 与上面那条的区别正是"不静默"：问不出来是异常，
+        // 得让用户知道为什么打开面板没回到上次那条
+        val pick = openPick(RequestOutcome.Failed("请求超时"))
+        assertEquals(OpenPick.Unavailable("请求超时"), pick)
+    }
+
+    @Test
+    fun `回执是别的消息时也算问不出来`() {
+        val pick = openPick(RequestOutcome.Answered(SidecarMessage.SessionDeleted("r1", "s1")))
+        assertEquals(true, pick is OpenPick.Unavailable, "实际：$pick")
+    }
+
+    // ---- 标签上的会话名 ----
+
+    @Test
+    fun `标签标题没有标题时给 null，而不是占位文字`() {
+        // 标签的显示规则是"有标题显示标题，没有显示斜体「新会话」"。
+        // 这里若给「（无标题）」，打开一个无标题的会话会把标签写成一个
+        // 看起来像真标题的东西 —— 那是列表行的占位，不是标签的
+        assertEquals("这是摘要", sessionLabelTitle(info(summary = "这是摘要", firstPrompt = "首问")))
+        assertEquals("首问", sessionLabelTitle(info(summary = "  ", firstPrompt = "首问")))
+        assertNull(sessionLabelTitle(info(summary = "", firstPrompt = null)))
     }
 }

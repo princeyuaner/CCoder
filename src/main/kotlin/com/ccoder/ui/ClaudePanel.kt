@@ -38,6 +38,8 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Point
 import java.awt.Rectangle
+import java.awt.event.HierarchyEvent
+import java.awt.event.HierarchyListener
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.nio.file.Path
@@ -177,6 +179,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var proc: SidecarProcess? = null
     private var ready = false
 
+    /**
+     * 正在起会话。
+     *
+     * [proc] 要等 sidecar 建好才有值，而那是异步的 —— 同一拍里的第二次触发会从
+     * [proc] 的判空里漏过去，起出第二个 node 进程（约 250MB，且没人收）。
+     * 面板"显示出来"这件事现在有两个触发点（见 [showingWatcher] 与 [addNotify]），
+     * 所以必须有这个**同步置位**的闸。
+     *
+     * 归位只有两处：起好了（赋值 [proc] 时）与起失败了（[fail]）。
+     */
+    @Volatile
+    private var starting = false
+
     /** 打开着的详情浮层。用它实现"再点一次收起"。 */
     private var runDetailPopup: JBPopup? = null
 
@@ -287,29 +302,53 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 面板真正上屏时建立会话。
+     * 面板**真正**显示出来时建立会话。
      *
      * 时机选择：打开 CCoder 窗口就连（而不是发第一条消息才连）。状态栏立刻
      * 显示"已连接"，第一条消息零等待；代价是窗口开着期间常驻一个 node +
      * claude 进程（实测约 250MB）。
      *
-     * 用 addNotify 而非在 createToolWindowContent 里直接连：后者在"项目启动时
-     * 工具窗口本就处于显示状态"的情况下也会被调用，会退化成"IDE 一打开就连"。
-     * addNotify 只在组件真正进入可显示层级时触发。
+     * **为什么是 SHOWING_CHANGED 而不是 addNotify**：addNotify 只代表"变得
+     * **可**显示"（displayable），不代表"正在显示"（showing）。实测三次启动全中 ——
+     * 每次启动的第一次 addNotify 里 `isShowing` 都是 false，而那唯一一次机会就此
+     * 用掉：界面停在"未连接"，要切到别的工具窗口再切回来（内容被摘掉重挂，第二次
+     * addNotify 时 isShowing 才是 true）才连上。
      *
-     * 隐藏窗口**不**断开：sidecar 目前不支持会话恢复（SDK 的 session id 只用于
-     * 显示，没有回传给启动参数），断开重连会让模型丢掉上下文，而界面上的历史
-     * 还在、看不出区别 —— 那属于静默丢失（spec §7.5 明确反对）。进程随内容
-     * 的 Disposer 结束，即移除工具窗口或关闭项目时（见 ClaudeToolWindowFactory）。
+     * 延后一拍（invokeLater）也救不了：它只是换个时刻再问一次 isShowing，窗口那时
+     * 仍然没显示出来。Swing 实测 SHOWING_CHANGED 会派发到深层子组件，所以监在自己
+     * 身上就够。
+     *
+     * 隐藏窗口**不**断开：断开重连会让模型丢掉上下文，而界面上的历史还在、
+     * 看不出区别 —— 那属于静默丢失（spec §7.5 明确反对）。这也让"打开面板恢复
+     * 最近会话"只发生一次：隐藏后再显示时 [proc] 还在，[startSession] 直接返回，
+     * 不会把用户从正在聊的那个会话上拽走。进程随内容的 Disposer 结束，
+     * 即移除工具窗口或关闭项目时（见 ClaudeToolWindowFactory）。
      */
+    private val showingWatcher = HierarchyListener { e ->
+        if (e.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L && isShowing) {
+            LOG.info("CCoder 面板显示（SHOWING_CHANGED），据此决定是否建会话")
+            // 打开面板默认回到最近那条会话 —— 用户要的是"接着上次聊"，
+            // 而不是每次开窗都从零开始（旧行为见 session-switch spec §1.3）
+            startSession(pickMostRecent = true)
+        }
+    }
+
     override fun addNotify() {
         super.addNotify()
-        // 延后一拍再判 isShowing：addNotify 时组件尚未完成布局，此刻 isShowing
-        // 还可能是 false，直接判会漏掉本该连的情况
+        addHierarchyListener(showingWatcher)
+
+        // 兜住"装监听时它已经显示完了"这一种：那时 SHOWING_CHANGED 早就发生在
+        // 装监听之前，不会有事件再来。延后一拍再判 isShowing，避开布局未完成的时刻。
         ApplicationManager.getApplication().invokeLater {
             LOG.info("CCoder 面板上屏：isShowing=$isShowing，据此决定是否建会话")
-            if (isShowing) startSession()
+            if (isShowing) startSession(pickMostRecent = true)
         }
+    }
+
+    override fun removeNotify() {
+        // 不摘的话每开合一次工具窗口就漏一个监听器，而它捕获着这个面板
+        removeHierarchyListener(showingWatcher)
+        super.removeNotify()
     }
 
     // ---- 主按钮（发送 / 停止合一）----
@@ -640,8 +679,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         LOG.info("CCoder 切换会话：${target.sessionId}")
         stopSession()
         // 标题从列表里就知道，不必等 loadHistory
-        currentSessionTitle = target.summary?.takeIf { it.isNotBlank() }
-            ?: target.firstPrompt?.takeIf { it.isNotBlank() }
+        currentSessionTitle = sessionLabelTitle(target)
         refreshSessionLabel(enabled = true)
         resumeTargetId = target.sessionId
         startSession()
@@ -802,8 +840,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     // ---- 会话生命周期 ----
 
-    fun startSession() {
-        if (proc != null) return
+    /**
+     * 起一个会话。
+     *
+     * @param pickMostRecent 打开面板时用：先列出本项目的历史会话，恢复**最近**
+     *   的那一条；没有历史或问不出来则退回新会话。**只有打开这条路**传 true ——
+     *   「＋」新建、删掉当前会话、断开后重启，语义都是"要一个新的"，不该被抢走。
+     *
+     * 打开这条路刻意**不是**"先起新会话再切过去"：那样会在硬盘上真的留下一条
+     * 空会话（列表里越攒越多），用户也会看见转写区闪一下。
+     */
+    fun startSession(pickMostRecent: Boolean = false) {
+        if (proc != null || starting) return
+        starting = true
 
         // 新会话，旧会话的任务与清单全部作废。
         // SDK 的电平信号"在启动时不发任何东西"，只会在下次成员变动时重发全量 ——
@@ -855,15 +904,56 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 ApplicationManager.getApplication().invokeLater {
                     proc = p
                     client = c
+                    // 起好了，启动闸归位（见 [starting]）
+                    starting = false
                 }
                 c.start()
-                c.sendLine(
-                    Protocol.encodeStart(
-                        nextId(),
-                        ClaudeSettings.getInstance(project).toStartParams(Path.of(base))
-                            .copy(resumeSessionId = resumeTargetId),
-                    )
-                )
+
+                if (!pickMostRecent) {
+                    sendStart(c, base)
+                    return@executeOnPooledThread
+                }
+
+                // 打开面板：先问一句"这个项目有哪些历史会话"，再决定起哪一个。
+                // listSessions 不需要活会话（sidecar/index.js:117），所以这里问得出口
+                val reqId = nextId()
+                c.request(
+                    reqId,
+                    Protocol.encodeListSessions(reqId, base, SESSION_LIST_LIMIT, 0),
+                ) { outcome ->
+                    // 回调在读取线程上，碰 Swing 必须回到 EDT
+                    ApplicationManager.getApplication().invokeLater {
+                        // 抢先发消息会走 stopSession + startSession 重开，那时这个
+                        // client 已经废了（照发 start 会打到一条没人读的通道上）。
+                        // 那条路的 resumeTargetId 是 null，本来就该开新会话，
+                        // 所以这里直接放弃，什么都不用补
+                        if (client !== c) return@invokeLater
+
+                        when (val pick = openPick(outcome)) {
+                            is OpenPick.Resume -> {
+                                LOG.info("CCoder 打开时恢复最近会话：${pick.session.sessionId}")
+                                currentSessionTitle = sessionLabelTitle(pick.session)
+                                resumeTargetId = pick.session.sessionId
+                                refreshSessionLabel(enabled = true)
+                            }
+
+                            // 没有历史：一个字都不说，与「＋」新建同一条路。
+                            // 这里报"列不出会话"的话，每开一个新项目都会收到一句
+                            // 并不存在的错误
+                            OpenPick.None -> Unit
+
+                            is OpenPick.Unavailable ->
+                                pushOp(
+                                    toOp(
+                                        RenderItem.SystemNote(
+                                            "列不出历史会话（${pick.reason}），已开新会话"
+                                        )
+                                    )
+                                )
+                        }
+                        sendStart(c, base)
+                    }
+                }
             } catch (e: SidecarNotFoundException) {
                 fail(e.message ?: "未找到 sidecar 目录。")
             } catch (e: Exception) {
@@ -872,7 +962,28 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
     }
 
+    /**
+     * 发出 `start`。
+     *
+     * 打开面板那条路要等列表回来才发，其余入口立即发 —— 抽出来是为了让两条路
+     * 共用一个调用点。各写一遍的话，`resumeTargetId` 这种"发出时才读"的字段
+     * 迟早有一处忘了带，而忘了带的表现是"恢复了、但模型没有上下文"，界面上
+     * 完全看不出来。
+     */
+    private fun sendStart(c: SidecarClient, base: String) {
+        c.sendLine(
+            Protocol.encodeStart(
+                nextId(),
+                ClaudeSettings.getInstance(project).toStartParams(Path.of(base))
+                    .copy(resumeSessionId = resumeTargetId),
+            )
+        )
+    }
+
     private fun fail(text: String) {
+        // 起会话中途失败的每一条路都走这里（NodeCheck 不过、sidecar 找不到、
+        // 建进程抛错），启动闸必须在这里归位，否则面板从此再也起不了会话
+        starting = false
         ApplicationManager.getApplication().invokeLater {
             setConnection("启动失败")
             pushOp(toOp(RenderItem.ErrorItem(text)))
