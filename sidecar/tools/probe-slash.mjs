@@ -193,6 +193,18 @@ try {
     console.log(`  !! 失败：${err.message}`);
   }
 
+  console.log('\n--- 问题 1b：reloadSkills() 那份（C，只用来分组） ---');
+  try {
+    const skills = await Promise.race([
+      q.reloadSkills(),
+      new Promise((_, rj) => setTimeout(() => rj(new Error('reloadSkills 超时')), 20000)),
+    ]);
+    const list = skills?.skills ?? [];
+    console.log(`  拿到 ${list.length} 条：${JSON.stringify(list.map((c) => c.name))}`);
+  } catch (err) {
+    console.log(`  !! 失败：${err.message}`);
+  }
+
   const extra = process.argv.slice(2);
   if (extra.length > 0) {
     for (const text of extra) {

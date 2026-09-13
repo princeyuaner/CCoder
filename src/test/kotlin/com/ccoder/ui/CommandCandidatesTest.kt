@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.ccoder.sidecar.CommandInfo
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -48,6 +49,55 @@ class CommandCandidatesTest {
         assertEquals("debug-issue", normalizeCommandName("Debug Issue"))
         assertEquals("debug-issue", normalizeCommandName("  DEBUG   issue "))
         assertEquals("code-review:code-review", normalizeCommandName("code-review:code-review"))
+    }
+
+    // ---- 插件命名空间（2026-09-13 探针实测）----
+
+    @Test
+    fun `可发送名带插件前缀时照样配上`() {
+        // 下面三对全是探针从真实数据里抓的：不认这一层的话 45 条只配上 27 条，
+        // superpowers 整个技能库一条都不显示
+        assertTrue(sameCommand("brainstorming", "superpowers:brainstorming"))
+        assertTrue(sameCommand("frontend-design", "frontend-design:frontend-design"))
+        assertTrue(sameCommand("skill-creator", "skill-creator:skill-creator"))
+    }
+
+    @Test
+    fun `不带前缀的老写法仍然配上`() {
+        assertTrue(sameCommand("compact", "compact"))
+        assertTrue(sameCommand("Debug Issue", "debug-issue"))
+        assertTrue(sameCommand("code-review:code-review", "code-review:code-review"))
+    }
+
+    @Test
+    fun `不是同一条命令的不要误配`() {
+        assertFalse(sameCommand("compact", "context"))
+        assertFalse(sameCommand("clear", "code-review:clear-ish"), "只有整段后缀才算")
+        assertFalse(sameCommand("brainstorming", "superpowers:writing-plans"))
+    }
+
+    @Test
+    fun `命令候选整条走通：显示名不带前缀，插入名带`() {
+        val out = commandCandidates(
+            commands = listOf(cmd("brainstorming", "想清楚")),
+            skills = emptyList(),
+            sendable = setOf("superpowers:brainstorming"),
+        )
+
+        assertEquals(1, out.size)
+        assertEquals("brainstorming", out[0].display, "列表里显示的是人话名")
+        assertEquals("superpowers:brainstorming", out[0].insert, "发出去要带前缀，否则 CLI 认不得")
+    }
+
+    @Test
+    fun `技能组的分组也认前缀 —— 否则整组会被误判成内置`() {
+        val out = commandCandidates(
+            commands = listOf(cmd("brainstorming")),
+            skills = listOf(cmd("brainstorming")),
+            sendable = setOf("superpowers:brainstorming"),
+        )
+
+        assertEquals(GROUP_SKILL, out[0].group)
     }
 
     @Test

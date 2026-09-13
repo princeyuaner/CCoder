@@ -17,6 +17,29 @@ internal fun normalizeCommandName(name: String): String =
     name.trim().lowercase().replace(Regex("\\s+"), "-")
 
 /**
+ * 两个名字是否指同一条命令。
+ *
+ * 除了归一化，还要容忍**插件命名空间**。实测（2026-09-13 探针）两份来源的写法：
+ *
+ * | 显示（A） | 可发送（B） |
+ * |---|---|
+ * | `brainstorming` | `superpowers:brainstorming` |
+ * | `frontend-design` | `frontend-design:frontend-design` |
+ * | `skill-creator` | `skill-creator:skill-creator` |
+ *
+ * 不认这一层的话 45 条里只配上 27 条 —— **superpowers 整个技能库一条都不显示**，
+ * 而那正是用户日常在用的那套。容忍之后 45/45 全部配上。
+ *
+ * 两个方向都试（`na` 带前缀或 `nb` 带前缀），因为哪一边带命名空间取决于
+ * 命令来自哪一层，不是固定的。
+ */
+internal fun sameCommand(a: String, b: String): Boolean {
+    val na = normalizeCommandName(a)
+    val nb = normalizeCommandName(b)
+    return na == nb || nb.endsWith(":$na") || na.endsWith(":$nb")
+}
+
+/**
  * 把三份来源拼成候选。
  *
  * @param commands 显示信息（A）
@@ -31,17 +54,14 @@ internal fun commandCandidates(
     skills: List<CommandInfo>,
     sendable: Set<String>,
 ): List<CompletionItem> {
-    val byNormalized = sendable.associateBy { normalizeCommandName(it) }
-    val skillNames = skills.mapTo(mutableSetOf()) { normalizeCommandName(it.name) }
-
     return commands.mapNotNull { cmd ->
-        val insert = byNormalized[normalizeCommandName(cmd.name)] ?: return@mapNotNull null
+        val insert = sendable.firstOrNull { sameCommand(cmd.name, it) } ?: return@mapNotNull null
         CompletionItem(
             display = cmd.name,
             insert = insert,
             description = describeCommand(cmd),
             aliases = cmd.aliases,
-            group = if (normalizeCommandName(insert) in skillNames) GROUP_SKILL else GROUP_BUILTIN,
+            group = if (skills.any { sameCommand(insert, it.name) }) GROUP_SKILL else GROUP_BUILTIN,
         )
     }
 }
