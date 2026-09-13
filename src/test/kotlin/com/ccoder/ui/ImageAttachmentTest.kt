@@ -81,6 +81,22 @@ class ImageAttachmentTest {
     }
 
     @Test
+    fun `GIF 源被重编码成 PNG 后，mediaType 跟着改成 png`() {
+        // 与规则③同一类：报了 image/gif 却给 PNG 字节，Claude 会直接解不开。
+        // 这条路径从 Task 4 的拖拽/选文件就能走到 —— 用户拖一张 gif 进来
+        for (ext in listOf("gif", "bmp")) {
+            // bmp 走的是同一条路：encode(jpeg = false) 写出来的永远是 PNG 字节
+            val img = BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB)
+            val out = ByteArrayOutputStream()
+            ImageIO.write(img, ext, out)
+
+            val a = normalizeImage(out.toByteArray(), "image/$ext")
+
+            assertEquals("image/png", a.mediaType, "$ext 源")
+        }
+    }
+
+    @Test
     fun `解不开的字节原样返回，不缩放也不抛`() {
         // webp 就走这条路：Java 原生解不开，但 Claude 认这个格式
         val raw = byteArrayOf(1, 2, 3, 4, 5)

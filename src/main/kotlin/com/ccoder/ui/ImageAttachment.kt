@@ -83,8 +83,11 @@ internal fun normalizeImage(raw: ByteArray, hintMediaType: String): ImageAttachm
     }
 
     // 格式跟着**实际**编码走：把 PNG 降成了 JPEG 却还报 PNG，Claude 会按 PNG 去解。
+    // 这里不能回落到 hint —— `encode(jpeg = false)` 写出来的**永远是 PNG 字节**，
+    // 源是 gif / bmp 时 hint 说的是假话（拖一张 gif 进来就会撞上）。
+    // 两条早退返回的是没动过的原始字节，那时 hint 才是对的，保持原样。
     // 仍超限也照发（spec §8：宁可不省，不丢图）
-    val mediaType = if (best.jpeg) "image/jpeg" else hintMediaType
+    val mediaType = if (best.jpeg) "image/jpeg" else "image/png"
     return ImageAttachment(mediaType, Base64.getEncoder().encodeToString(best.bytes))
 }
 
