@@ -69,7 +69,9 @@ class ComposerRenderProbe {
             }
             val toolbar = buildComposerToolbar(model, modeLabel, send)
 
-            val card = buildComposerCard(inputScroll, toolbar)
+            // 空附件条：这一张要看的是"没有图时它不占高度"——
+            // 若它没藏好，输入框与状态卡之间会多出一条空白带
+            val card = buildComposerCard(inputScroll, ComposerAttachments(onRemove = {}), toolbar)
 
             val outer = javax.swing.JPanel(BorderLayout()).apply {
                 border = com.intellij.util.ui.JBUI.Borders.empty(6, 8, 8, 8)

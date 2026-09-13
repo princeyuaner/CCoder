@@ -247,7 +247,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 四张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
 
-        val inputArea = buildComposerCard(inputScroll, composerToolbar)
+        // 附件条：无图时整条隐藏，所以空的时候它不占高度，也不顶分隔条的默认比例。
+        // 它的 onRemove 与三个入口的接线（addImages）在 Task 6，这一层先只到位
+        val attachments = ComposerAttachments(onRemove = {})
+
+        val inputArea = buildComposerCard(inputScroll, attachments, composerToolbar)
 
         // 权限卡与状态卡共用 NORTH：两块都在输入卡**外面**、它的上方。
         // 顺序是权限卡在上（它更急）、状态卡紧贴输入框

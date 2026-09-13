@@ -2,6 +2,14 @@ package com.ccoder.ui
 
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import java.awt.datatransfer.DataFlavor
+import java.awt.event.ActionEvent
+import java.io.File
+import javax.swing.AbstractAction
+import javax.swing.JComponent
+import javax.swing.JTextArea
+import javax.swing.TransferHandler
+import javax.swing.text.DefaultEditorKit
 
 /** 输入框内边距（垂直, 水平），未缩放 px。 */
 private const val PADDING_V = 5
@@ -36,4 +44,57 @@ internal fun appendSnippet(area: JBTextArea, snippet: String) {
     area.text = if (existing.isEmpty()) snippet else "$existing\n\n$snippet"
     // 光标停到末尾：追加完接着就能打字
     area.caretPosition = area.text.length
+}
+
+/**
+ * 装一个"先看剪贴板里有没有图"的粘贴动作。
+ *
+ * **必须替换 ActionMap 里的 paste**，不能只覆写 `JTextArea.paste()`：
+ * Swing 的 Ctrl+V 绑的是 ActionMap 里那个 action，不走那个方法。
+ *
+ * 这里只做**便宜的那一步**（判 flavor）。真正读图 + 归一化是几十到几百毫秒的
+ * 活，交给 [onImages] 去后台做 —— 在 EDT 上解一张 4K 截图会卡住整个 IDE。
+ */
+internal fun installImagePaste(area: JTextArea, onImages: () -> Unit) {
+    val original = area.actionMap.get(DefaultEditorKit.pasteAction)
+    area.actionMap.put(
+        DefaultEditorKit.pasteAction,
+        object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) {
+                val flavors = runCatching {
+                    java.awt.Toolkit.getDefaultToolkit().systemClipboard.availableDataFlavors.toList()
+                }.getOrDefault(emptyList())
+
+                // 没有图就原样放行 —— 纯文本粘贴的行为一个字都不变
+                if (clipHasImage(flavors)) onImages() else original?.actionPerformed(e)
+            }
+        },
+    )
+}
+
+/**
+ * 拖拽落点。只接图片文件；拖一堆别的进来不会粘上任何东西。
+ *
+ * 与粘贴共用同一条下游（[onFiles] 拿到的也是原始文件），读盘与归一化同样
+ * 交出去在后台做。
+ */
+internal fun installImageDrop(component: JComponent, onFiles: (List<File>) -> Unit) {
+    component.transferHandler = object : TransferHandler() {
+        override fun canImport(support: TransferSupport): Boolean =
+            support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) &&
+                runCatching {
+                    @Suppress("UNCHECKED_CAST")
+                    (support.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>)
+                        .any { isImageFile(it.name) }
+                }.getOrDefault(false)
+
+        override fun importData(support: TransferSupport): Boolean {
+            val files = runCatching {
+                @Suppress("UNCHECKED_CAST")
+                (support.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>)
+            }.getOrNull() ?: return false
+            onFiles(files)
+            return true
+        }
+    }
 }

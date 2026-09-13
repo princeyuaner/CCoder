@@ -3,8 +3,19 @@ package com.ccoder.ui
 import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.Transferable
+import java.io.File
+import java.nio.file.Path
+import javax.swing.JPanel
+import javax.swing.JTextArea
+import javax.swing.TransferHandler
+import javax.swing.text.DefaultEditorKit
 
 /**
  * 输入框的外观。
@@ -57,4 +68,51 @@ class ComposerInputTest {
 
         assertFalse(area.isOpaque, "输入框不该自己填底")
     }
+
+    // ---- 图片入口 ----
+
+    @Test
+    fun `粘贴动作被换掉 —— Ctrl+V 绑的是 ActionMap 里那个，覆写 paste() 拦不住`() {
+        val area = JTextArea()
+        val before = area.actionMap.get(DefaultEditorKit.pasteAction)
+
+        installImagePaste(area) {}
+
+        val after = area.actionMap.get(DefaultEditorKit.pasteAction)
+        assertNotNull(after, "换完必须还有一个 paste 动作，否则 Ctrl+V 直接失灵")
+        assertNotSame(before, after, "没换掉的话 Ctrl+V 根本走不到我们的判定")
+    }
+
+    @Test
+    fun `拖拽只认图片文件 —— 拖一堆别的进来不粘任何东西`(@TempDir dir: Path) {
+        val png = dir.resolve("a.png").toFile()
+        val txt = dir.resolve("b.txt").toFile()
+        val area = JPanel()
+        var got: List<File>? = null
+        installImageDrop(area) { got = it }
+        val handler = area.transferHandler
+
+        assertTrue(handler.canImport(drop(area, listOf(png))), "图片文件该接")
+        assertFalse(
+            handler.canImport(drop(area, listOf(txt))),
+            "一堆非图片不该接 —— 接了等于什么都没发生，却让人以为粘上了",
+        )
+        assertTrue(handler.importData(drop(area, listOf(png, txt))))
+        assertEquals(listOf(png, txt), got, "整批交下去；挑图片是采集层的事（readImageFiles）")
+    }
+
+    /** 一个只认 javaFileListFlavor 的 Transferable，模拟从资源管理器拖文件进来。 */
+    private fun drop(component: java.awt.Component, files: List<File>) =
+        TransferHandler.TransferSupport(
+            component,
+            object : Transferable {
+                override fun getTransferDataFlavors(): Array<DataFlavor> =
+                    arrayOf(DataFlavor.javaFileListFlavor)
+
+                override fun isDataFlavorSupported(flavor: DataFlavor): Boolean =
+                    flavor == DataFlavor.javaFileListFlavor
+
+                override fun getTransferData(flavor: DataFlavor): Any = files
+            },
+        )
 }

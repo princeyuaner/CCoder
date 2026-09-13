@@ -1,16 +1,18 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.SendShortcut
+import com.intellij.ui.components.JBScrollPane
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.event.KeyEvent
+import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.JTextArea
 import javax.swing.border.CompoundBorder
 
 /**
@@ -75,30 +77,49 @@ class ComposerRulesTest {
 
     // ---- 布局 ----
 
+    private fun card(toolbar: JComponent = JPanel()) =
+        buildComposerCard(JBScrollPane(JTextArea()), ComposerAttachments(onRemove = {}), toolbar)
+
     @Test
-    fun `输入框居中、工具栏在下，NORTH 空着`() {
+    fun `附件条在 NORTH、输入框居中、工具栏在下`() {
         val scroll = JPanel()
         val toolbar = JPanel()
+        val attachments = ComposerAttachments(onRemove = {})
 
-        val card = buildComposerCard(scroll, toolbar)
+        val card = buildComposerCard(scroll, attachments, toolbar)
 
         val layout = card.layout as BorderLayout
+        // NORTH 归附件条。四张状态卡仍是独立的一排，在输入卡**外面** ——
+        // 它们不是输入框的一部分，所以不在这张卡里的任何区域
+        assertSame(
+            attachments, layout.getLayoutComponent(BorderLayout.NORTH),
+            "附件条该在输入框上方",
+        )
         assertSame(scroll, layout.getLayoutComponent(BorderLayout.CENTER), "输入框应在中间区域")
         assertSame(
             toolbar, layout.getLayoutComponent(BorderLayout.SOUTH),
             "工具栏必须在下方；摆到 EAST 就退回成「按钮挤在输入框右边」，右侧放不下以后的控件",
         )
-        assertNull(
-            layout.getLayoutComponent(BorderLayout.NORTH),
-            "NORTH 该空着 —— 四张状态卡是独立的一排，在输入卡外面",
-        )
+    }
+
+    @Test
+    fun `没有附件时输入卡的最小高度不受影响`() {
+        // 附件条无图时整条隐藏 —— 不隐藏的话输入区永远挂一条空白，而且它的
+        // 最小高度会顶住分隔条的默认比例（同 COMPOSER_MIN_ROWS 那个坑）
+        val empty = ComposerAttachments(onRemove = {})
+        val card = buildComposerCard(JBScrollPane(JTextArea()), empty, JPanel())
+        val baseline = card.minimumSize.height
+
+        empty.setImages(listOf(ImageAttachment("image/png", "AAAA")))
+        card.doLayout()
+        assertTrue(card.minimumSize.height > baseline, "有图时应当变高")
     }
 
     @Test
     fun `卡片自己画圆角描边，边框不在输入框上`() {
         // 方案 A 的核心取舍：边框包住**整个输入区**（输入框 + 工具栏），
         // 输入框自己是裸的。若边框回到输入框上，就退回成"一个直角矩形框住文字"
-        val card = buildComposerCard(JPanel(), JPanel())
+        val card = card()
 
         val outer = card.border as CompoundBorder
         assertTrue(outer.outsideBorder is RoundedLineBorder, "卡片应有圆角描边")
@@ -106,7 +127,7 @@ class ComposerRulesTest {
 
     @Test
     fun `聚焦只换描边颜色，不加粗 —— 加粗会让正在输入的文字抖一下`() {
-        val card = buildComposerCard(JPanel(), JPanel())
+        val card = card()
         val border = (card.border as CompoundBorder).outsideBorder as RoundedLineBorder
 
         val probe = JPanel()

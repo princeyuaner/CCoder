@@ -12,6 +12,7 @@ import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
 import java.awt.BorderLayout
 
@@ -134,9 +135,21 @@ internal fun buildComposerToolbar(model: JComponent, mode: JComponent, send: JCo
         // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
         isOpaque = false
         border = JBUI.Borders.emptyTop(2)
-        add(buildStatusRow(model, mode), BorderLayout.WEST)
+        // 回调暂时是空的 —— 采集接线（选文件、addImages）在 Task 6，
+        // 这里只把入口摆到位。三个入口共用同一条下游，按钮只是其中一个
+        add(buildStatusRow(buildAttachButton {}, model, mode), BorderLayout.WEST)
         add(send, BorderLayout.EAST)
     }
+
+/** 回形针。做成安静的次要色 —— 它是入口，不是动作，不该跟发送键抢注意力。 */
+internal fun buildAttachButton(onClick: () -> Unit): JComponent = JLabel("📎").apply {
+    foreground = UIUtil.getInactiveTextColor()
+    toolTipText = "添加图片（也可以直接粘贴或拖进来）"
+    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    addMouseListener(object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) = onClick()
+    })
+}
 
 /**
  * 工具栏左侧的状态区。
@@ -144,11 +157,16 @@ internal fun buildComposerToolbar(model: JComponent, mode: JComponent, send: JCo
  * 这两个都是"现在是什么"的显示，不是按钮 —— 所以用安静的次要文字，
  * 让发送键保持唯一的视觉重点。（权限模式切到绕过时会自己跳成警示色，
  * 那是它应得的例外。）
+ *
+ * [attach] 摆在最前：它也是入口而不是状态，但比模型名更靠外 —— 靠外的位置
+ * 留给"往里添东西"的动作，视线扫过去不会把两样状态读混。
  */
-internal fun buildStatusRow(model: JComponent, mode: JComponent): JPanel =
+internal fun buildStatusRow(attach: JComponent, model: JComponent, mode: JComponent): JPanel =
     JPanel().apply {
         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
         isOpaque = false
+        add(attach)
+        add(javax.swing.Box.createHorizontalStrut(JBUI.scale(10)))
         add(model)
         add(javax.swing.Box.createHorizontalStrut(JBUI.scale(10)))
         add(mode)
