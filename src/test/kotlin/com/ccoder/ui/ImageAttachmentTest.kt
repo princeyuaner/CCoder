@@ -193,4 +193,35 @@ class ImageAttachmentTest {
         assertEquals(1, intake.accepted.size)
         assertNull(intake.reason)
     }
+
+    // ---- 张数上限的第二道闸 ----
+
+    /** 缩略图那一步才解 base64，这里只当个占位。 */
+    private val one = ImageAttachment("image/png", "AAAA")
+
+    @Test
+    fun `还有位置时原样通过，没有被截的`() {
+        val (kept, clamped) = clampToLimit(List(3) { one }, currentCount = 1)
+
+        assertEquals(3, kept.size)
+        assertEquals(0, clamped)
+    }
+
+    @Test
+    fun `已经满了就全拒 —— 两次粘贴落在同一个解码窗口里的那一半`() {
+        // 第一道闸在后台线程上看到的 existing 是旧数，两边都可能以为"还有位置"。
+        // 这一道是在 EDT 上按当下的张数截的，所以必须全拒而不是再收 5 张
+        val (kept, clamped) = clampToLimit(List(5) { one }, currentCount = MAX_IMAGES)
+
+        assertTrue(kept.isEmpty())
+        assertEquals(5, clamped, "被这道截掉几张，就该报几张 —— 否则提示行不会出现")
+    }
+
+    @Test
+    fun `只剩两个位置时留两个，其余算被截`() {
+        val (kept, clamped) = clampToLimit(List(5) { one }, currentCount = MAX_IMAGES - 2)
+
+        assertEquals(2, kept.size)
+        assertEquals(3, clamped)
+    }
 }

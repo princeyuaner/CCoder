@@ -77,24 +77,35 @@ internal fun installImagePaste(area: JTextArea, onImages: () -> Unit) {
  *
  * 与粘贴共用同一条下游（[onFiles] 拿到的也是原始文件），读盘与归一化同样
  * 交出去在后台做。
+ *
+ * **原来的处理器必须留着**：输入框自带一个（`BasicTextUI` 的
+ * `TextTransferHandler`，"从编辑器拖一段文字进来"就是它在管），而 Swing 的拖放
+ * **不向父级冒泡** —— 光标下最深的那层是唯一落点。所以本处理器会直接装在输入框
+ * 上（而不是只挂在面板上），并且把非图片的拖拽原样交回给原来那个；
+ * 直接覆盖等于把那个既有能力悄悄吃掉。
  */
 internal fun installImageDrop(component: JComponent, onFiles: (List<File>) -> Unit) {
+    val original = component.transferHandler
     component.transferHandler = object : TransferHandler() {
-        override fun canImport(support: TransferSupport): Boolean =
-            support.isDataFlavorSupported(DataFlavor.javaFileListFlavor) &&
-                runCatching {
-                    @Suppress("UNCHECKED_CAST")
-                    (support.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>)
-                        .any { isImageFile(it.name) }
-                }.getOrDefault(false)
-
-        override fun importData(support: TransferSupport): Boolean {
-            val files = runCatching {
+        /** 只有真含图片时才轮到我们；返回 null 表示"不归我管，问原来的去"。 */
+        private fun imageFiles(support: TransferSupport): List<File>? =
+            if (!support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) null
+            else runCatching {
                 @Suppress("UNCHECKED_CAST")
                 (support.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>)
-            }.getOrNull() ?: return false
-            onFiles(files)
-            return true
+                    .filter { isImageFile(it.name) }
+            }.getOrNull()?.takeIf { it.isNotEmpty() }
+
+        override fun canImport(support: TransferSupport): Boolean =
+            imageFiles(support) != null || original?.canImport(support) == true
+
+        override fun importData(support: TransferSupport): Boolean {
+            val files = imageFiles(support)
+            if (files != null) {
+                onFiles(files)
+                return true
+            }
+            return original?.importData(support) ?: false
         }
     }
 }

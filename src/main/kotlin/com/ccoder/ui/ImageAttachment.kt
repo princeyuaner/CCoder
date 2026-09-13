@@ -142,6 +142,9 @@ private fun ByteArray.b64(): String = Base64.getEncoder().encodeToString(this)
  * 收图策略：先按大小过、再按张数截。
  *
  * **拒绝要给出理由**：粘了 6 张只发 5 张却不吭声，用户会以为全发出去了。
+ *
+ * 这是张数上限的**第一道**；第二道是 [clampToLimit]，管的是"后台这段解码窗口里
+ * 存量又变了"——两道都改了才动得了这个上限。
  */
 internal fun acceptImages(existingCount: Int, incoming: List<RawImage>): ImageIntake {
     val accepted = mutableListOf<ImageAttachment>()
@@ -162,4 +165,23 @@ internal fun acceptImages(existingCount: Int, incoming: List<RawImage>): ImageIn
         accepted += normalizeImage(raw.bytes, mediaTypeOf(raw.name))
     }
     return ImageIntake(accepted, rejected, reason)
+}
+
+/**
+ * 按**当下**的已有张数再截一次。张数上限的第二道闸。
+ *
+ * 为什么需要第二道：[acceptImages] 是在后台线程上跑的，它看到的 existing 是
+ * 跳线程**之前**快照下来的。两次粘贴落在同一个解码窗口里（几百毫秒）时，两边
+ * 看到的都是旧数，于是各收 5 张 —— 上限被翻倍，而且两次都没"被拒"，
+ * 提示行是 null，用户什么都看不到（spec §8 的反面）。
+ *
+ * @return 保留的、以及**因为这道截断**又被拒掉的张数
+ */
+internal fun clampToLimit(
+    accepted: List<ImageAttachment>,
+    currentCount: Int,
+): Pair<List<ImageAttachment>, Int> {
+    val room = (MAX_IMAGES - currentCount).coerceAtLeast(0)
+    val kept = accepted.take(room)
+    return kept to (accepted.size - kept.size)
 }

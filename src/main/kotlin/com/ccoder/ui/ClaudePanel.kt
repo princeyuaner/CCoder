@@ -271,7 +271,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 附件条（字段）无图时整条隐藏，所以空着的时候它不占高度，
         // 也不顶分隔条的默认比例
         installImagePaste(input, onImages = { addImages { readClipboardImages() } })
-        installImageDrop(this, onFiles = { files -> addImages { readImageFiles(files) } })
+
+        // 拖拽要装**两层**：Swing 的拖放不向父级冒泡，光标下最深的那层才是落点，
+        // 而输入框自带一个 transfer handler —— 只挂在面板上的话，往输入框里拖
+        // 永远收不到货。面板那一层管的是输入框四周的空白
+        installImageDrop(this) { files -> addImages { readImageFiles(files) } }
+        installImageDrop(input) { files -> addImages { readImageFiles(files) } }
 
         val inputArea = buildComposerCard(inputScroll, attachments, composerToolbar)
 
@@ -1363,28 +1368,40 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * [read] 在**后台线程**上跑：读剪贴板、解字节、缩放都在里面，几十到几百毫秒。
      * 在 EDT 上做会卡住整个 IDE。
      *
-     * 存量在进后台**之前**取：附件条与 [attachList] 都只在 EDT 上被改，后台线程
-     * 不该去读组件（两者在 EDT 上恒等，见 [attachList] 的"组件不持有真相"）。
+     * **必须在 EDT 上调用**：存量是在这里读的，而 [attachList] 与附件条都只在
+     * EDT 上被改（两者在 EDT 上恒等，见 [attachList] 的"组件不持有真相"）。
+     * 三个入口都是从 EDT 进来的。
      */
     internal fun addImages(read: () -> List<RawImage>) {
         val existing = attachList.size
         ApplicationManager.getApplication().executeOnPooledThread {
-            // 采集层自己吞掉读失败（见 ImageIngest 的文件头），这里再兜一次 ——
-            // 后台线程上抛出去没人接，用户看到的是"点了没反应"
-            val raw = runCatching { read() }.getOrDefault(emptyList())
-            // 空手而归**一个字都不说**：0 字节与读不出来的都被采集层静默跳过了
-            // （同那里的裁决），界面上不该留下痕迹
-            if (raw.isEmpty()) return@executeOnPooledThread
+            // 整段包起来：read() 会读盘/读剪贴板，acceptImages 会解压与缩放
+            // （一个不到 5MB 的解压炸弹就能在那一步抛），而后台线程上抛出去
+            // 没人接 —— 用户看到的是"点了没反应"
+            val intake = runCatching {
+                val raw = read()
+                // 空手而归**一个字都不说**：0 字节与读不出来的都被采集层静默跳过了
+                // （见 ImageIngest 的文件头），界面上不该留下痕迹
+                if (raw.isEmpty()) null else acceptImages(existing, raw)
+            }.getOrNull() ?: return@executeOnPooledThread
 
-            val intake = acceptImages(existing, raw)
             ApplicationManager.getApplication().invokeLater {
-                if (intake.accepted.isNotEmpty()) {
-                    attachList += intake.accepted
+                // 后台跑的这段时间里存量可能变了（两次粘贴落在同一个解码窗口里），
+                // 所以按**当下**的张数再截一次 —— 否则 5 张上限会被翻倍，而且两次
+                // 都不算"被拒"、提示行也不出现
+                val (kept, clamped) = clampToLimit(intake.accepted, attachList.size)
+                if (kept.isNotEmpty()) {
+                    attachList += kept
                     attachments.setImages(attachList)
                 }
+                // 截断拒掉的那几张，原因只能是张数上限 —— 不能沿用 intake 里
+                // 可能是"单张超过 5MB"的那条
+                val reason = if (clamped > 0) "一次最多 5 张" else intake.reason
                 // 顺序承重：setImages 会清掉上一次的提示，所以提示必须**后**设，
                 // 这一批的结果由它补上（见 ComposerAttachments.setImages）
-                attachments.setNotice(attachmentNotice(intake))
+                attachments.setNotice(
+                    attachmentNotice(ImageIntake(kept, intake.rejected + clamped, reason))
+                )
             }
         }
     }

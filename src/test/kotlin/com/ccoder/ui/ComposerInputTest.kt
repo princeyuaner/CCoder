@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -98,7 +99,58 @@ class ComposerInputTest {
             "一堆非图片不该接 —— 接了等于什么都没发生，却让人以为粘上了",
         )
         assertTrue(handler.importData(drop(area, listOf(png, txt))))
-        assertEquals(listOf(png, txt), got, "整批交下去；挑图片是采集层的事（readImageFiles）")
+        assertEquals(listOf(png), got, "只把图片交下去；非图片在这一层就挑掉了")
+    }
+
+    @Test
+    fun `图片文件先归我们 —— 原来的处理器不参与`() {
+        val png = File("a.png")
+        val area = JPanel()
+        val original = FakeOriginal()
+        area.transferHandler = original
+        var got: List<File>? = null
+        installImageDrop(area) { got = it }
+        val handler = area.transferHandler
+
+        assertTrue(handler.canImport(drop(area, listOf(png))), "图片该接")
+        assertEquals(0, original.canImportCalls, "图片轮不到原来的处理器")
+        assertTrue(handler.importData(drop(area, listOf(png))))
+        assertEquals(listOf(png), got)
+        assertEquals(0, original.importCalls)
+    }
+
+    @Test
+    fun `非图片拖拽交回原来的处理器 —— 从编辑器拖段文字进来的能力不能弄丢`() {
+        // 输入框自带 BasicTextUI$TextTransferHandler，而 Swing 的拖放**不向父级
+        // 冒泡**：本层若不把非图片的拖拽转交出去，那个既有能力就被我们吃掉了
+        val area = JTextArea()
+        val original = FakeOriginal()
+        area.transferHandler = original
+        var got: List<File>? = null
+        installImageDrop(area) { got = it }
+        val handler = area.transferHandler
+
+        assertTrue(handler.canImport(drop(area, listOf(File("b.txt")))), "原来的处理器接得住，整体就该接得住")
+        assertEquals(1, original.canImportCalls, "没有委派的话，问都没问过它")
+        assertTrue(handler.importData(drop(area, listOf(File("b.txt")))), "原处理器接下了，就该报 true")
+        assertEquals(1, original.importCalls, "导入也要委派")
+        assertNull(got, "非图片不该进我们的回调")
+    }
+
+    /** 假的"原来的处理器"：只记自己被问过几次，并声称自己接得住任何东西。 */
+    private class FakeOriginal : TransferHandler() {
+        var canImportCalls = 0
+        var importCalls = 0
+
+        override fun canImport(support: TransferSupport): Boolean {
+            canImportCalls++
+            return true
+        }
+
+        override fun importData(support: TransferSupport): Boolean {
+            importCalls++
+            return true
+        }
     }
 
     /** 一个只认 javaFileListFlavor 的 Transferable，模拟从资源管理器拖文件进来。 */
