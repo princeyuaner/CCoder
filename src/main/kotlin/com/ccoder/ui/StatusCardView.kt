@@ -120,6 +120,18 @@ internal class StatusCardView(
     fun isOpen(): Boolean = open
 
     /**
+     * 最小高度 = 首选高度：**卡不能被压扁**，压扁就是几行字叠在一起。
+     *
+     * 不覆写的话这里会报出 15px —— `JLabel` 没有布局管理器，它的
+     * `getMinimumSize()` 落到 `Component.size()`，也就是 0，于是 BoxLayout
+     * 累出来的最小高度只剩边框那几像素。分隔条设了
+     * `honorComponentsMinimumSize`，拿这个值当底线，用户就能把状态行
+     * 拖成一条缝。
+     */
+    override fun getMinimumSize(): Dimension =
+        Dimension(super.getMinimumSize().width, preferredSize.height)
+
+    /**
      * 描边色。**收边时给全透明** —— 不是去掉 border，那样 insets 会变。
      */
     private fun strokeColor(): Color = when {
