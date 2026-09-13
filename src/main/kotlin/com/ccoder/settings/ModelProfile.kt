@@ -94,3 +94,29 @@ fun modelProfileEnv(profile: ModelProfile, secret: String): Map<String, String> 
  */
 fun ModelProfile.displayName(): String =
     name.trim().ifEmpty { modelId.trim() }.ifEmpty { "未命名" }
+
+/**
+ * 把选中的模型配置产生的环境变量并进用户的 `envOverrides`。
+ *
+ * **profile 优先** —— `Map.plus` 的右侧覆盖左侧。理由见 spec §6：
+ * profile 是显式选择，`envOverrides` 是背景设置，背景不该盖过当次选择。
+ */
+fun mergeProfileEnv(
+    base: Map<String, String>,
+    profileEnv: Map<String, String>,
+): Map<String, String> = base + profileEnv
+
+/**
+ * `envOverrides` 里和模型配置抢同一批变量的键。
+ *
+ * 有冲突不是错误（profile 会赢，见上），但用户得知道 —— 否则他会对着一个
+ * "改了却不生效"的 envOverrides 发懵。spec §6 要求把这条提示做进模型页。
+ */
+fun conflictingEnvKeys(envOverrides: Map<String, String>): List<String> =
+    envOverrides.keys.filter { it in MODEL_ENV_KEYS }.sorted()
+
+private val MODEL_ENV_KEYS = setOf(
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+)

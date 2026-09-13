@@ -139,17 +139,41 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
     }
 
     /**
+     * 打包成 `start` 消息的参数。
+     *
      * 空字符串一律映射为 null —— 空路径传给 sidecar 会被当成"显式指定了空路径"，
      * 触发 CLAUDE_NOT_FOUND 而非回退到 PATH 解析。
+     *
+     * 选中的模型配置在这里翻成环境变量，并进 `envOverrides` —— 那条通路
+     * `Protocol.encodeStart` 已经在序列化了，所以协议与 sidecar 都不用动。
+     *
+     * 没有选中任何配置时，这里产出的东西与从前**一字不差**。
+     *
+     * @param profiles 模型配置的来源。**默认 null 就代表"一条都没配"**，而不是
+     *   自己去 `getInstance()` —— 单测环境里没有 Application 服务，而 Kotlin 的
+     *   默认参数**照样会被求值**，那种 `runCatching` 兜底兜不住任何东西，还会顺手
+     *   把生产路径上真实的注册失败也吞掉。生产侧由 `sendStart` 显式传入（Task 6）。
      */
-    fun toStartParams(cwd: Path): StartParams = StartParams(
-        cwd = cwd.absolutePathString(),
-        permissionMode = permissionMode.wireValue,
-        model = model.ifBlank { null },
-        claudePath = claudePath.ifBlank { null },
-        extraDirs = extraDirs.filter { it.isNotBlank() },
-        envOverrides = envOverrides.filterValues { it.isNotBlank() },
-    )
+    fun toStartParams(cwd: Path, profiles: ModelProfiles? = null): StartParams {
+        val picked = profiles?.selected()
+        val env = picked?.let { profile ->
+            // 官方端点下密钥为空是合法的，modelProfileEnv 自己会处理
+            modelProfileEnv(profile, profiles.secretOf(profile.id))
+        } ?: emptyMap()
+
+        return StartParams(
+            cwd = cwd.absolutePathString(),
+            permissionMode = permissionMode.wireValue,
+            // 选中了配置就用它的模型；没选中则回退到老字段
+            model = picked?.modelId?.ifBlank { null } ?: model.ifBlank { null },
+            claudePath = claudePath.ifBlank { null },
+            extraDirs = extraDirs.filter { it.isNotBlank() },
+            envOverrides = mergeProfileEnv(
+                envOverrides.filterValues { it.isNotBlank() },
+                env,
+            ).filterValues { it.isNotBlank() },
+        )
+    }
 
     companion object {
         /** 项目级服务必须经 Project 获取，不能用 ApplicationManager。 */
