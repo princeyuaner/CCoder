@@ -300,3 +300,56 @@ test('query 抛错时转为 stream_error 事件而非静默吞掉', async () => 
   assert.equal(seen[0].type, 'ccoder_stream_error');
   assert.match(seen[0].message, /SDK 启动失败/);
 });
+
+/** 在 fakeQuery 的基础上补上命令相关的 control 方法。 */
+function withCommands(q, methods) {
+  const orig = q.fn;
+  q.fn = (params) => Object.assign(orig(params), methods);
+  return q;
+}
+
+test('supportedCommands 拿到就原样返回', async () => {
+  const list = [{ name: 'compact', description: '压缩', argumentHint: '', aliases: [] }];
+  const q = withCommands(fakeQuery(), { supportedCommands: async () => list });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.supportedCommands(), list);
+});
+
+test('supportedCommands 失败时回空数组，不抛 —— 命令补全挂着不该把聊天带崩', async () => {
+  const q = withCommands(fakeQuery(), {
+    supportedCommands: async () => { throw new Error('control 请求失败'); },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.supportedCommands(), []);
+});
+
+test('会话根本没有 supportedCommands 时也回空数组（老 SDK）', async () => {
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.supportedCommands(), []);
+});
+
+test('skills 从 reloadSkills 的回执里取 skills 字段', async () => {
+  const q = withCommands(fakeQuery(), {
+    reloadSkills: async () => ({ skills: [{ name: 'brainstorming' }] }),
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.skills(), [{ name: 'brainstorming' }]);
+});
+
+test('skills 失败或缺失时回空数组', async () => {
+  const boom = withCommands(fakeQuery(), {
+    reloadSkills: async () => { throw new Error('control 请求失败'); },
+  });
+  const s1 = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: boom.fn });
+  assert.deepEqual(await s1.skills(), []);
+
+  const plain = createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: fakeQuery().fn,
+  });
+  assert.deepEqual(await plain.skills(), []);
+});

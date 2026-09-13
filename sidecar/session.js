@@ -177,6 +177,34 @@ export function createSession({
       await query?.setPermissionMode?.(mode);
     },
 
+    /**
+     * 会话可用的命令列表（带描述）。
+     *
+     * 尽力而为：取不到给空数组，**不抛**。命令补全挂着不该把聊天带崩 ——
+     * 调用方（listCommands）拿空数组就当成"没有候选"。
+     */
+    async supportedCommands() {
+      try {
+        return (await query?.supportedCommands?.()) ?? [];
+      } catch {
+        return [];
+      }
+    },
+
+    /**
+     * 命令列表里的**技能子集**，只用来分组。
+     *
+     * `reloadSkills` 名字里带 reload，但它同时就把刷新后的列表返回了，
+     * 不需要先调再查。同样尽力而为。
+     */
+    async skills() {
+      try {
+        return (await query?.reloadSkills?.())?.skills ?? [];
+      } catch {
+        return [];
+      }
+    },
+
     stop() {
       if (stopped) return;
       stopped = true;

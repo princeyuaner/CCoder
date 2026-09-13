@@ -193,6 +193,28 @@ export function createDispatcher({
         return session;
       }
 
+      case 'listCommands': {
+        // 命令列表是会话的属性，没有会话就没有命令可报。打错是"问早了"
+        // 而不是"出错了"——插件在 ready 之后才问，所以不致命
+        const cmds = session?.supportedCommands;
+        const skills = session?.skills;
+        if (typeof cmds !== 'function' || typeof skills !== 'function') {
+          fail('NO_SESSION', '会话尚未建立', false);
+          return session;
+        }
+        // 两个方法自己吞掉异常回空数组（见 session.js），所以这里 .catch
+        // 只兜真正意外的东西 —— 它是最后一道，不是唯一一道
+        Promise.all([cmds.call(session), skills.call(session)])
+          .then(([commands, skillList]) => out({
+            type: 'commands',
+            id: msg.id,
+            commands,
+            skills: skillList,
+          }))
+          .catch((err) => fail('LIST_COMMANDS_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
       case 'stop':
         // 顺序重要：先清空待决权限，否则工具会挂住
         session?.denyAllPending?.('会话已终止');

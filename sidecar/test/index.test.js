@@ -536,3 +536,76 @@ test('删除失败回 error，且不回 sessionDeleted', async () => {
   assert.ok(out.some((m) => m.type === 'error' && m.code === 'DELETE_FAILED'));
   assert.ok(!out.some((m) => m.type === 'sessionDeleted'), '失败了不该回成功回执');
 });
+
+test('listCommands 把命令与技能一并上报', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  // 给假 session 补上这两个方法
+  const s = d.getSession();
+  s.supportedCommands = async () => [{ name: 'compact', description: '压缩', argumentHint: '', aliases: [] }];
+  s.skills = async () => [{ name: 'brainstorming', description: '想清楚', argumentHint: '', aliases: [] }];
+
+  d.handle({ id: '9', method: 'listCommands', params: {} });
+  await tick();
+
+  const msg = out.find((m) => m.type === 'commands');
+  assert.ok(msg, '应有一条 commands 消息');
+  assert.equal(msg.id, '9');
+  assert.equal(msg.commands.length, 1);
+  assert.equal(msg.commands[0].name, 'compact');
+  assert.equal(msg.skills[0].name, 'brainstorming');
+});
+
+test('未 start 就 listCommands 时回一条错误，不抛', async () => {
+  const out = [];
+  const d = createDispatcher({ sessionFactory: fakeSessionFactory().factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '9', method: 'listCommands', params: {} });
+  await tick();
+
+  assert.equal(out.at(-1).type, 'error');
+  assert.equal(out.at(-1).code, 'NO_SESSION');
+});
+
+test('命令列表取不到时回空数组，不是错误', async () => {
+  // "取不到"这一层的兜底在 session.js（它自己吞掉 control 失败回空数组），
+  // 分发层只管透传。真正的吞异常断言在 session.test.js
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  const s = d.getSession();
+  s.supportedCommands = async () => [];
+  s.skills = async () => [];
+
+  d.handle({ id: '9', method: 'listCommands', params: {} });
+  await tick();
+
+  const msg = out.find((m) => m.type === 'commands');
+  assert.ok(msg, '空列表也要有一条 commands，不是 error');
+  assert.deepEqual(msg.commands, []);
+  assert.deepEqual(msg.skills, []);
+});
+
+test('会话方法意外抛错时回 error，不静默挂着', async () => {
+  // session.js 是吞异常的那一层，所以走到这里说明出了它没兜住的事。
+  // 那时必须出声 —— 静默的话插件会一直等一条永远不来的回执
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  const s = d.getSession();
+  s.supportedCommands = async () => { throw new Error('control 请求失败'); };
+  s.skills = async () => { throw new Error('control 请求失败'); };
+
+  d.handle({ id: '9', method: 'listCommands', params: {} });
+  await tick();
+
+  assert.ok(out.some((m) => m.type === 'error' && m.code === 'LIST_COMMANDS_FAILED'));
+  assert.ok(!out.some((m) => m.type === 'commands'), '失败了不该回一份空列表假装成功');
+});
