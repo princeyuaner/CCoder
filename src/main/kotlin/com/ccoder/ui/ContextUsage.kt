@@ -40,16 +40,21 @@ internal fun formatTokenCount(tokens: Long): String = when {
 }
 
 /**
- * "12.3k / 200k · 6%"
+ * 上下文占用百分比，四舍五入到整数。窗口未知时给 null —— **不做除法**。
  *
- * 窗口未知（≤ 0）时只显示已用量，不做除法。
+ * 与 [contextRatioText] 分开而不是返回一个拼好的字符串：卡片要把百分比
+ * 放大、把绝对数放小，两者得能分开取。
  */
-internal fun formatContextUsage(usage: ContextUsage): String {
+internal fun contextPercentOf(usage: ContextUsage): Int? {
+    if (usage.contextWindow <= 0) return null
+    return Math.round(usage.inputTokens * 100.0 / usage.contextWindow).toInt()
+}
+
+/** "12.3k / 200k"。窗口未知时只给已用量，仍然不做除法。 */
+internal fun contextRatioText(usage: ContextUsage): String {
     val used = formatTokenCount(usage.inputTokens)
     if (usage.contextWindow <= 0) return used
-
-    val percent = Math.round(usage.inputTokens * 100.0 / usage.contextWindow)
-    return "$used / ${formatTokenCount(usage.contextWindow)} · $percent%"
+    return "$used / ${formatTokenCount(usage.contextWindow)}"
 }
 
 /** 200000 → "200k" 而不是 "200.0k"；用 ROOT locale 避免某些语言下小数点是逗号。 */

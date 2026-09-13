@@ -91,27 +91,21 @@ class ContextUsageTest {
     }
 
     @Test
-    fun `完整格式是 已用 除 窗口 点 百分比`() {
-        assertEquals(
-            "12.3k / 200k · 6%",
-            formatContextUsage(ContextUsage(inputTokens = 12345, contextWindow = 200000)),
-        )
+    fun `比例与绝对数分开给，卡片各取所需`() {
+        val usage = ContextUsage(inputTokens = 12345, contextWindow = 200000)
+        assertEquals(6, contextPercentOf(usage))
+        assertEquals("12.3k / 200k", contextRatioText(usage))
     }
 
     @Test
-    fun `窗口未知时不显示比例，也不做除零`() {
-        assertEquals(
-            "500",
-            formatContextUsage(ContextUsage(inputTokens = 500, contextWindow = 0)),
-        )
+    fun `窗口未知时不给比例，绝对数只给已用量`() {
+        val usage = ContextUsage(inputTokens = 500, contextWindow = 0)
+        assertNull(contextPercentOf(usage), "没有窗口就没有比例，也不许除零")
+        assertEquals("500", contextRatioText(usage))
     }
 
     @Test
     fun `占用比例四舍五入`() {
-        // 1000 缩写成 "1k"（与 200k 同样的"去掉多余 .0"规则），不是 "1.0k"
-        assertEquals(
-            "1k / 200k · 1%",
-            formatContextUsage(ContextUsage(inputTokens = 1000, contextWindow = 200000)),
-        )
+        assertEquals(1, contextPercentOf(ContextUsage(inputTokens = 1000, contextWindow = 200000)))
     }
 }

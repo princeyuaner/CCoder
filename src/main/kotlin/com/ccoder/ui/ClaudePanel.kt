@@ -319,7 +319,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private fun updateUsage(event: JsonObject) {
         val usage = contextUsageOf(event) ?: return
-        usageLabel.text = "上下文  ${formatContextUsage(usage)}"
+        // 过渡写法：formatContextUsage 已拆成两个函数（卡片要分开取百分比
+        // 与绝对数）。这里先拼回原样保住编译，Task 5 把它整个换成卡片刷新
+        val percent = contextPercentOf(usage)
+        usageLabel.text = "上下文  ${contextRatioText(usage)}" +
+            if (percent != null) " · $percent%" else ""
         usageLabel.isVisible = true
     }
 

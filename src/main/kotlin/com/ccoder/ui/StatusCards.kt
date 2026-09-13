@@ -1,0 +1,143 @@
+package com.ccoder.ui
+
+/**
+ * 卡片的色调。**只描述语义上的"要不要紧"**，具体颜色由视图决定：
+ *
+ * - 状态点：Ok 绿 / Warn 琥珀 / Danger 红 / Idle 次要色
+ * - 指示器（条、分段、点）：Warn 琥珀 / Danger 红 / **其余一律强调色**
+ *
+ * 分成两层是因为上下文卡的进度条既不该是灰的（那是装饰），
+ * 也不该是绿的（"绿"会被读成"正常"，可它平时就是正常，说它绿等于没说）。
+ */
+internal enum class Tone { Ok, Warn, Danger, Idle }
+
+/**
+ * 卡片底部那条微指示。
+ *
+ * **每一种都必须有真实分母或真实计数。** 画一个固定长度的格子条出来，
+ * 会被读成"M 分之 N"，而那个 M 如果不存在，就是凭空造的信息。
+ * 子代理正是这种情况 —— 它只有计数，没有总数，所以只能画 N 个点。
+ */
+internal sealed interface Indicator {
+    object None : Indicator
+
+    /** 比例条。fraction 恒在 0..1。 */
+    data class Meter(val fraction: Double) : Indicator
+
+    /** 分段。分母真实 —— 就是任务清单的条数。 */
+    data class Segments(val done: Int, val total: Int) : Indicator
+
+    /** N 个点，N 就是在跑的任务数。**没有分母。** */
+    data class Dots(val count: Int) : Indicator
+}
+
+/**
+ * 一张卡要显示的全部内容。
+ *
+ * @param quiet true = 这格没内容，**收边**：不画边框、值降为次要色。
+ *   与 [Tone.Idle] 分开而不是合并 —— `Tone.Idle` 也在连接卡上用
+ *   （"未连接"是真实状态，该有边框），而 quiet 只表示"没数据"。
+ */
+internal data class StatusCardModel(
+    val label: String,
+    val value: String,
+    val tone: Tone = Tone.Idle,
+    val sub: String? = null,
+    val indicator: Indicator = Indicator.None,
+    val quiet: Boolean = false,
+)
+
+/** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
+internal const val CARD_IDLE_TEXT = "空闲"
+
+/** 点数封顶。数字才是权威，点只是让"2"变得看得见。 */
+internal const val MAX_DOTS = 6
+
+private fun quietCard(label: String) =
+    StatusCardModel(label = label, value = CARD_IDLE_TEXT, quiet = true)
+
+// ---- 连接 ----
+
+/**
+ * 八种文字映射到四种色调。
+ *
+ * `else` 落到 Idle 而不是抛错：将来 [ClaudePanel] 多写一种状态文字，
+ * 该退化成"看不出要紧"，而不是让整条状态行崩掉。
+ */
+internal fun connectionTone(status: String): Tone = when (status) {
+    "已连接" -> Tone.Ok
+    "正在启动…", "正在载入历史…" -> Tone.Warn
+    "启动失败", "会话已断开", "恢复失败" -> Tone.Danger
+    else -> Tone.Idle
+}
+
+/** 连接卡**永远不空闲** —— "未连接"是一种状态，不是"没数据"。 */
+internal fun connectionCardOf(status: String) = StatusCardModel(
+    label = "连接",
+    value = status,
+    tone = connectionTone(status),
+)
+
+// ---- 上下文 ----
+
+/**
+ * 上下文卡。
+ *
+ * 值给百分比（"还剩多少"一眼可见），副值给绝对数（"12.3k / 200k"）——
+ * 绝对数在拆卡前就显示着，不能因为格子变窄就弄丢。
+ *
+ * 阈值 70/90 是计划外新增：一个永远同色的进度条是装饰，而上下文写满
+ * 是长会话里唯一会**静默**毁掉会话的事。
+ */
+internal fun contextCardOf(usage: ContextUsage?): StatusCardModel {
+    if (usage == null) return quietCard("上下文")
+
+    val percent = contextPercentOf(usage)
+    return StatusCardModel(
+        label = "上下文",
+        value = if (percent != null) "$percent%" else formatTokenCount(usage.inputTokens),
+        tone = when {
+            percent == null -> Tone.Idle
+            percent >= 90 -> Tone.Danger
+            percent >= 70 -> Tone.Warn
+            else -> Tone.Idle
+        },
+        sub = contextRatioText(usage),
+        indicator = if (percent != null) Indicator.Meter(percent / 100.0) else Indicator.None,
+    )
+}
+
+// ---- 子任务 ----
+
+/**
+ * 子任务卡。
+ *
+ * `total == 0` 也收边：一条清单都没拆出来时画"0/0"或七个空格子，
+ * 都是在说并不存在的事。
+ */
+internal fun todoCardOf(todos: TaskList?): StatusCardModel {
+    if (todos == null || todos.total == 0) return quietCard("子任务")
+
+    return StatusCardModel(
+        label = "子任务",
+        value = "${todos.completed}/${todos.total}",
+        indicator = Indicator.Segments(done = todos.completed, total = todos.total),
+    )
+}
+
+// ---- 子代理 ----
+
+/**
+ * 子代理卡。
+ *
+ * **不画进度条。** 子代理没有分母 —— 在跑几个就是几个。见 [Indicator]。
+ */
+internal fun runningCardOf(running: List<RunningTask>): StatusCardModel {
+    if (running.isEmpty()) return quietCard("子代理")
+
+    return StatusCardModel(
+        label = "子代理",
+        value = running.size.toString(),
+        indicator = Indicator.Dots(minOf(running.size, MAX_DOTS)),
+    )
+}
