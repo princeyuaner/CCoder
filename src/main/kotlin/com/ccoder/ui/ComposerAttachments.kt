@@ -16,7 +16,7 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
-/** 缩略图高度（未缩放 px）。 */
+/** 缩略图的长边上限（未缩放 px）：等比缩进 64×64 的框里，所以横图只有 48 高。 */
 internal const val THUMB_BOX = 64
 
 /** 提示行文字。被拒了就明说拒了几张、为什么。 */
@@ -66,15 +66,30 @@ internal class ComposerAttachments(
 
     fun imageCount(): Int = images.size
 
+    /**
+     * 提示行的文字，没有提示时为 null。测试用它钉住"换一批图会清掉上一次的提示"。
+     *
+     * `JLabel.getText()` 在 `setText(null)` 之后**返回的就是 null**（不是 ""），
+     * 所以判空得用 `?.`：平台类型上直接点 `ifEmpty` 会在清空那一刻 NPE。
+     */
+    internal fun noticeText(): String? = notice.text?.takeIf { it.isNotEmpty() }
+
+    /**
+     * 换一批缩略图。
+     *
+     * **会顺手清掉提示行**：那条提示说的是"上一次添加的结果"，新的一批进来它就过期了
+     * —— 留着会变成一句假话（"已跳过 2 张"挂在一批刚刚全部成功的图下面）。
+     * 所以调用顺序是**先 setImages 再 setNotice**，同一批的结果由后者补上。
+     */
     fun setImages(next: List<ImageAttachment>) {
         images = next
         row.removeAll()
         next.forEachIndexed { index, image ->
             row.add(thumb(image, index))
         }
+        setNotice(null) // 见上面的顺序约定
         row.revalidate()
         row.repaint()
-        refreshVisibility()
     }
 
     fun setNotice(text: String?) {

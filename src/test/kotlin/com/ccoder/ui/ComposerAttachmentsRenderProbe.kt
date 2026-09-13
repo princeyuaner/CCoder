@@ -42,6 +42,15 @@ class ComposerAttachmentsRenderProbe {
             setNotice(attachmentNotice(ImageIntake(emptyList(), 2, "单张超过 5MB")))
         }
         write(withNotice, "build/attachments-probe-notice.png", "带超限提示")
+
+        // 窄宽 + 满额 5 张：工具窗口能拖窄，而张数上限就是 5，换行是必然会撞上的形态
+        val five = listOf(img(400, 300), img(300, 500), img(1200, 200), img(500, 500), img(200, 400))
+        write(strip(five), "build/attachments-probe-narrow.png", "420 宽 + 满额 5 张（仍不换行）", width = 420)
+
+        // 换行临界之下的一张。5 张单行需要 358px，这里给 340 —— 会换行。
+        // JDK 21 的 FlowLayout.preferredLayoutSize **不按换行算高度**（恒为单行 64），
+        // 所以第二行被摆到父组件外面，整整一张图凭空消失。这张图就是那个现象的现场
+        write(strip(five), "build/attachments-probe-wrap.png", "340 宽（低于 358 换行临界）", width = 340)
     }
 
     private fun strip(images: List<ImageAttachment>) =
@@ -60,22 +69,22 @@ class ComposerAttachmentsRenderProbe {
         return ImageAttachment("image/png", Base64.getEncoder().encodeToString(out.toByteArray()))
     }
 
-    private fun write(strip: ComposerAttachments, path: String, caption: String) {
+    private fun write(strip: ComposerAttachments, path: String, caption: String, width: Int = 460) {
         val root = JPanel(BorderLayout()).apply {
             background = UIUtil.getPanelBackground()
             // 前景色交给 LAF 默认值：探针要看的是附件条，不是标题行的配色
             add(JLabel("  $caption"), BorderLayout.NORTH)
             add(strip, BorderLayout.CENTER)
         }
-        root.setSize(460, 200)
+        root.setSize(width, 200)
         layoutAll(root)
         val height = root.preferredSize.height.coerceAtLeast(40)
-        root.setSize(460, height)
+        root.setSize(width, height)
         // 必须递归：doLayout() 只管直接子组件，附件条内部的 row / 缩略图拿不到尺寸，
         // 画出来就是一张空图 —— 而"空图"和"整条隐藏"长得一模一样，最容易骗过眼睛
         layoutAll(root)
 
-        val image = BufferedImage(460, height, BufferedImage.TYPE_INT_RGB)
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
         image.createGraphics().apply {
             color = UIUtil.getPanelBackground()
             fillRect(0, 0, image.width, image.height)
