@@ -16,7 +16,11 @@ import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
+import com.ccoder.settings.ModelProfile
+import com.ccoder.settings.ModelProfiles
 import com.ccoder.settings.PermissionModeSetting
+import com.ccoder.settings.displayName
+import com.ccoder.settings.showModelProfilesDialog
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.notification.NotificationAction
@@ -26,6 +30,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
@@ -38,6 +43,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Point
@@ -50,7 +56,6 @@ import java.nio.file.Path
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
-import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
 import javax.swing.text.DefaultCaret
@@ -121,8 +126,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 发送与停止合一，显示什么由 [mainButtonState] 决定。 */
     private val sendButton = RoundSendButton().apply { onClick = { onMainButtonClick() } }
 
-    /** 当前模型名。由 init 事件填 —— 那是 SDK 真正在用的模型，不是设置的猜测。 */
-    private val modelLabel = buildModelLabel()
+    /**
+     * 当前模型配置。可点，点开切换。
+     *
+     * 写它只有 [refreshModelLabel] 一个出口 —— 显示的是**用户选中的那条配置**
+     * （spec §8），来源是 [ModelProfiles]，不是 SDK 报上来的模型名。
+     * 标签的文字与那个 `▾` 是 [ModelLabel] 自己拼的，这里直接写 `.text`
+     * 会把箭头抹掉、与弹层里的勾对不上。
+     */
+    private val modelLabel = ModelLabel { toggleModelChooser() }
 
     /** 权限模式。可点，点开切换。 */
     private val modeLabel = ModeLabel { toggleModeChooser() }
@@ -146,6 +158,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 打开着的模式列表浮层。用它实现"再点一次收起"。 */
     private var modePopup: JBPopup? = null
+
+    /** 打开着的模型列表浮层。同上，也由它实现"再点一次收起"。 */
+    private var modelPopup: JBPopup? = null
 
     /** 顶部左侧的会话标签。可点，点开列历史会话。 */
     private val sessionLabel = SessionLabel { toggleSessionChooser() }
@@ -173,6 +188,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 打开着的会话列表浮层。用它实现"再点一次收起"。 */
     private var sessionPopup: JBPopup? = null
+
+    /**
+     * 右上角的齿轮。造型照 [newSessionButton] —— 同一行里两个按钮，一个有边框
+     * 一个没有会很扎眼（字号 15f 也是照它）。
+     *
+     * **不随忙闲置灰**：它开的是设置对话框，而对话框只读写配置、不碰会话
+     * （见 [showModelProfilesDialog]），会话进行中也该能开。
+     */
+    private val settingsButton = JButton("⚙").apply {
+        isContentAreaFilled = false
+        isBorderPainted = false
+        isFocusable = false
+        margin = JBUI.emptyInsets()
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        font = font.deriveFont(15f)
+        foreground = UIUtil.getLabelForeground()
+        toolTipText = "设置"
+        addActionListener { showModelProfilesDialog(project) }
+    }
 
     /** 最右的「＋」。会话标签在它左边（设计稿 §一 A）。 */
     private val newSessionButton = SessionNewButton { onNewSession() }
@@ -299,15 +333,23 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         // 顶部：左边是连接状态，右边是会话标签（可点，点开列历史会话）
         // 与「＋」新建。发送/停止按钮在输入区下方的工具栏里
-        // 顶部这一行现在只有会话：标签靠左，「＋」仍在最右（用户最初要的就是右上角）。
+        // 顶部这一行现在只有会话：标签靠左，齿轮与「＋」在右（用户最初要的就是右上角）。
         // 连接状态已经挪到下面的上下文行 —— 那一行原先只为了它一个人撑高度。
         //
         // 标签待在 CENTER 里拿剩余宽度而不是给固定首选宽：长标题才不会把
-        // 「＋」挤出去，超了自己打省略号（spec §2.3 的同一条理由）。
+        // 右边两个按钮挤出去，超了自己打省略号（spec §2.3 的同一条理由）。
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(4, 8)
             add(sessionLabel, BorderLayout.CENTER)
-            add(newSessionButton, BorderLayout.EAST)
+            add(
+                JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
+                    isOpaque = false
+                    add(settingsButton)   // 齿轮在左
+                    add(newSessionButton) // 「＋」仍在最右 —— 用户最初要的就是右上角
+                },
+                BorderLayout.EAST,
+            )
         }
 
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
@@ -319,6 +361,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         // 底部工具栏：模型与权限模式在左、发送键在右
         refreshModeLabel()
+        refreshModelLabel()
         val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, sendButton)
 
         // 四张卡先灌一次初值，否则它们是一排没有内容的空框
@@ -464,6 +507,16 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
+     * 模型标签的唯一出口，与 [refreshModeLabel] 同一个道理。
+     *
+     * 显示的是**选中的配置**，而选中态存在 [ModelProfiles] 里 —— 谁改了它就
+     * 调一下这里，免得标签与真实生效的那条对不上。
+     */
+    private fun refreshModelLabel() {
+        modelLabel.setProfile(ModelProfiles.getInstance().selected())
+    }
+
+    /**
      * 点卡 → 弹它那一段详情；再点一次 → 收起。
      *
      * 两张卡共用一个浮层字段：同一时刻只该有一个浮层挂着，而 [todosOpen]
@@ -587,6 +640,65 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             modePopup = null
         }
     }
+
+    // ---- 模型切换 ----
+
+    /** 点模型标签 → 弹切换列表；再点一次 → 收起。 */
+    private fun toggleModelChooser() {
+        modelPopup?.let { open ->
+            open.cancel()
+            return
+        }
+        val profiles = ModelProfiles.getInstance()
+        modelPopup = showTogglePopup(modelLabel, buildModelList(
+            profiles = profiles.profiles(),
+            currentId = profiles.selectedId(),
+            onPick = { pick -> switchModel(pick) },
+            onManage = { showModelProfilesDialog(project) },
+        ), centerOverPanel = true) { modelPopup = null }
+    }
+
+    /**
+     * 切换模型 = 重开会话。
+     *
+     * 模型是会话启动参数（`toStartParams` → `start` → `options.model`），
+     * 没有热切换这条路。转写历史留着 —— 走 [restartSession] 那条既有路径。
+     */
+    private fun switchModel(pick: ModelProfile) {
+        // 列表的任务到此为止，先收起来 —— 与 [pickPermissionMode] 同一条规矩。
+        // 不收的话它会一直挂在面板上，而底下正在重开会话
+        modelPopup?.cancel()
+        modelPopup = null
+
+        val profiles = ModelProfiles.getInstance()
+        if (profiles.selectedId() == pick.id) return
+
+        // 会话进行中先把"上下文会丢"说清楚，别让用户切完才发现。
+        // **确认放在改选中态之前**：用户点了取消，选中态就该原样不动。
+        // 先改后回滚会留下"标签闪了一下又变回去"的中间态，而且回滚那一步
+        // 一旦忘了写，选中态就永久跑偏 —— 这里干脆不给它跑偏的机会
+        if (busy && !confirmModelSwitch(pick)) return
+
+        profiles.select(pick.id)
+        refreshModelLabel()
+        restartSession()
+    }
+
+    /**
+     * 会话进行中切换时的确认。
+     *
+     * 这条提示**不能省** —— 少了它用户会以为切完还能接着聊，
+     * 等发现上下文没了已经晚了（spec §9）。
+     */
+    private fun confirmModelSwitch(pick: ModelProfile): Boolean =
+        Messages.showYesNoDialog(
+            project,
+            "切换会重开会话，这段对话的上下文不保留。",
+            "切换到「${pick.displayName()}」",
+            "切换并重开",
+            "取消",
+            null,
+        ) == Messages.YES
 
     /**
      * 点会话标签 → 列出历史会话 → 弹层。
@@ -1044,7 +1156,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         c.sendLine(
             Protocol.encodeStart(
                 nextId(),
-                ClaudeSettings.getInstance(project).toStartParams(Path.of(base))
+                ClaudeSettings.getInstance(project)
+                    // 模型配置必须显式传进来：toStartParams 的默认值是 null，
+                    // 也就是"一条配置都没配"。漏传不会报错，只会安静地退回旧行为，
+                    // 症状是"配了模型却不生效"（spec §5）
+                    .toStartParams(Path.of(base), ModelProfiles.getInstance())
                     .copy(resumeSessionId = resumeTargetId),
             )
         )
@@ -1197,11 +1313,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
                     // 用量只在 result 事件里给；取不到就保持原样
                     updateUsage(msg.event)
-                    // init 事件带 SDK 真正在用的模型名 —— 比读设置准，
-                    // 设置里那个可能被环境变量或 SDK 默认值覆盖
+                    // init 事件里那个 model **不再写进标签**：标签现在由
+                    // refreshModelLabel 填，写的是用户选中的那条配置（spec §8）。
+                    // 直接写 .text 会连它的展开箭头一起抹掉，也会与弹层里
+                    // 打勾的那条对不上
                     if (msg.event.str("subtype") == "init") {
-                        msg.event.str("model")?.let { modelLabel.text = it }
-
                         // 可发送的命令名。与显示名不是一回事（设计稿 §2 事实 5），
                         // 补全列表要靠它才知道选中后该写什么进输入框
                         msg.event.arr("slash_commands")

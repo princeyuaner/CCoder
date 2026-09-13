@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.PermissionModeSetting
 import com.intellij.ui.components.JBScrollPane
 import org.junit.jupiter.api.Test
@@ -62,7 +63,9 @@ class ComposerRenderProbe {
                 viewport.isOpaque = false
             }
 
-            val model = buildModelLabel().apply { text = "Sonnet 4.5" }
+            // 工具栏不再提供模型标签的工厂 —— 标签由 ClaudePanel 构造后传进来
+            // （与 ModeLabel 一样），所以这里也自己造一个
+            val model = ModelLabel {}.apply { setProfile(ModelProfile(name = "Sonnet 4.5")) }
             val modeLabel = ModeLabel {}.apply { setMode(mode) }
             val send = RoundSendButton().apply {
                 setState(mainButtonState(ready = true, busy = false, disconnected = false))

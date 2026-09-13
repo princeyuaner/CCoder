@@ -154,11 +154,6 @@ internal fun buildStatusRow(model: JComponent, mode: JComponent): JPanel =
         add(mode)
     }
 
-/** 模型名。做成安静的次要文字 —— 它是状态，不该跟发送键抢注意力。 */
-internal fun buildModelLabel(): javax.swing.JLabel = javax.swing.JLabel().apply {
-    foreground = UIUtil.getInactiveTextColor()
-}
-
 /** 悬停时压暗一档。没有做完整的调色板，够用即可。 */
 private fun darken(c: Color): Color = Color(
     (c.red * 0.88).toInt().coerceIn(0, 255),
