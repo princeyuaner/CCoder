@@ -1191,7 +1191,8 @@ Expected: 编译失败（`encodeSend` 不接受三个参数）
 
 - [ ] **Step 6: 跑两侧测试**
 
-Run: `./gradlew test -x buildWebUi --console=plain` 与 `cd sidecar && node --test test/`
+Run: `./gradlew test -x buildWebUi --console=plain` 与 `cd sidecar && node --test "test/*.test.js"`
+（**别写 `node --test test/`** —— Node 24 / Windows 上跑不起来，Task 5 实测。）
 Expected: 全绿；`session.test.js` 里既有的纯文本断言**一条都不该改**
 
 - [ ] **Step 7: 提交**
@@ -2010,7 +2011,7 @@ git commit -m "feat(image): 发送路径带图，暂存结构一起改
 
 ```bash
 ./gradlew test -x buildWebUi --console=plain
-cd sidecar && node --test test/
+cd sidecar && node --test "test/*.test.js"
 cd ../web && node node_modules/vitest/vitest.mjs run && node node_modules/typescript/bin/tsc -b
 ```
 Expected: 三侧全绿，tsc 退出码 0
