@@ -7,6 +7,7 @@ import com.ccoder.sidecar.Protocol
 import com.ccoder.sidecar.RequestOutcome
 import com.ccoder.sidecar.SessionInfo
 import com.ccoder.sidecar.SidecarClient
+import com.ccoder.sidecar.SidecarExit
 import com.ccoder.sidecar.SidecarListener
 import com.ccoder.sidecar.SidecarLocator
 import com.ccoder.sidecar.SidecarMessage
@@ -213,6 +214,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var disconnected = false
     private var idCounter = 0L
     private var messageCounter = 0L
+
+    /**
+     * 会话代次。每次 [startSession] 递增。
+     *
+     * 用来丢弃"上一个 sidecar 进程死了"的陈旧消息：换会话时会先杀掉旧进程，
+     * 它的死讯属于上一条会话，不该打到新会话的界面上。
+     */
+    private var sessionEpoch = 0
 
     /** 并发权限询问的串行化队列（spec §6.4）。 */
     private val permissionQueue = PermissionQueue { perm, queued -> appendPermissionCard(perm, queued) }
@@ -932,6 +941,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         setConnection("正在启动…")
         refreshMainButton() // ready 仍为 false → 按钮显示"启动中…"并禁用
         LOG.info("CCoder 会话启动：cwd=$base")
+        val epoch = ++sessionEpoch
 
         ApplicationManager.getApplication().executeOnPooledThread {
             // spec §5.3：node 与 claude 的缺失各有独立原因，
@@ -950,7 +960,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
             try {
                 val sidecarDir = SidecarLocator.resolve(base)
-                val p = SidecarProcess(sidecarDir, nodePath = "node")
+                val p = SidecarProcess(sidecarDir, nodePath = "node") { exit ->
+                    // 回调在看门狗线程上，碰 Swing 必须回 EDT
+                    ApplicationManager.getApplication().invokeLater {
+                        // 已经换过会话了，这条死讯属于上一个进程
+                        if (epoch != sessionEpoch) return@invokeLater
+                        onSidecarDied(exit)
+                    }
+                }
                 p.start()
                 val c = SidecarClient(p.stdout!!, p.stdin!!, this)
 
@@ -1047,6 +1064,43 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             setBusy(false)
             refreshMainButton()
         }
+    }
+
+    /**
+     * sidecar 进程**自己**退出了（不是我们杀的 —— 那种情况被 SidecarProcess
+     * 的 shuttingDown 挡掉，到不了这里）。
+     *
+     * 启动期退出必须当成启动失败。否则：进程没了，但 [proc] 非空、`ready` 仍为
+     * false，界面停在「正在启动…」且按钮禁用 —— 用户没有恢复路径，只能重启 IDE。
+     * 2026-09-13 的现场正是这个形态：`sidecar/package.json` 被写坏，node 报
+     * `ERR_INVALID_PACKAGE_CONFIG` 后立刻退出，而那条报错从头到尾没机会显示。
+     *
+     * 会话建好之后退出是"断开"：转写历史留着供参考，按钮变「重启会话」。
+     */
+    private fun onSidecarDied(exit: SidecarExit) {
+        // 进程已经死了，但它拉起的 claude 可能成了孤儿继续耗额度 ——
+        // shutdown 的最后一步是杀整棵树，不能因为进程死了就省掉
+        client?.close()
+        proc?.shutdown()
+        proc = null
+        client = null
+        starting = false
+
+        val detail = sidecarExitReport(exit)
+
+        if (!ready) {
+            // fail 会置 disconnected → 按钮变「重启会话」，用户点一下就能重试，
+            // 不必重启 IDE
+            fail(detail)
+            return
+        }
+
+        setConnection("会话已断开")
+        ready = false
+        disconnected = true
+        setBusy(false)
+        refreshMainButton()
+        pushOp(toOp(RenderItem.ErrorItem(detail)))
     }
 
     /**
