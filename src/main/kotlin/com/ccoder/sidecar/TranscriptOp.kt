@@ -1,5 +1,8 @@
 package com.ccoder.sidecar
 
+/** 转写区里的一张图。与 [ImageAttachment] 同形 —— 后者是插件内部模型，这个是对外契约。 */
+data class TranscriptImage(val mediaType: String, val base64: String)
+
 /**
  * 转写区中的一条消息项。
  *
@@ -10,7 +13,14 @@ sealed interface TranscriptItem {
     val id: String
     val ts: Long
 
-    data class User(override val id: String, override val ts: Long, val text: String) : TranscriptItem
+    data class User(
+        override val id: String,
+        override val ts: Long,
+        val text: String,
+        val images: List<TranscriptImage> = emptyList(),
+        /** 回放时因体积预算被省掉的张数（见 MessageRenderer 的 replayBudget）。 */
+        val omittedImages: Int = 0,
+    ) : TranscriptItem
 
     data class Assistant(override val id: String, override val ts: Long, val text: String) : TranscriptItem
 

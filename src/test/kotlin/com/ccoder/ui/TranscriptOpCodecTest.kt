@@ -1,9 +1,11 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.TranscriptImage
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -85,5 +87,33 @@ class TranscriptOpCodecTest {
         val call = TranscriptOpCodec.encodePushCall(batch)
 
         assertTrue(!call.contains("\n") && !call.contains("\r"), "调用必须单行：$call")
+    }
+
+    @Test
+    fun `带图的用户项输出 images 数组`() {
+        val json = TranscriptOpCodec.encodeBatch(
+            listOf(
+                TranscriptOp.Append(
+                    TranscriptItem.User(
+                        "m1", 1L, "看这个",
+                        listOf(TranscriptImage("image/png", "AAA")),
+                    )
+                )
+            )
+        )
+        val item = JsonParser.parseString(json).asJsonArray[0].asJsonObject.getAsJsonObject("item")
+        assertEquals("看这个", item.get("text").asString)
+        assertEquals("image/png", item.getAsJsonArray("images")[0].asJsonObject.get("mediaType").asString)
+        assertEquals("AAA", item.getAsJsonArray("images")[0].asJsonObject.get("data").asString)
+    }
+
+    @Test
+    fun `零值字段一个都不写 —— 老前端照常工作`() {
+        val json = TranscriptOpCodec.encodeBatch(
+            listOf(TranscriptOp.Append(TranscriptItem.User("m1", 1L, "纯文字")))
+        )
+        val item = JsonParser.parseString(json).asJsonArray[0].asJsonObject.getAsJsonObject("item")
+        assertFalse(item.has("images"))
+        assertFalse(item.has("omittedImages"))
     }
 }

@@ -28,7 +28,33 @@ class TranscriptOpCodecTest {
         assertEquals("appendDelta", kinds[3])
         assertEquals("finalizeDelta", kinds[5])
         assertEquals("clearDelta", kinds[8])
-        assertEquals(12, kinds.size)
+        assertEquals(13, kinds.size)
+    }
+
+    /**
+     * 图片是 Task 7 新加进契约的，两侧测试读的都是这一份 fixture ——
+     * 所以这里钉的是**键名**：编码器写 `mediaType` / `data`，
+     * fixture 就得是这两个名字，改一侧会让另一侧静默丢图。
+     */
+    @Test
+    fun `fixture 里的图片带着约定的键`() {
+        val array = JsonParser.parseString(Files.readString(fixturePath())).asJsonArray
+        // 只有 append 才带 item —— reset / appendDelta 那些没有，得先滤掉
+        fun itemById(id: String) = array
+            .mapNotNull { it.asJsonObject.get("item")?.asJsonObject }
+            .first { it.get("id").asString == id }
+
+        // 带文字那条：图与文字并存
+        val withText = itemById("m0")
+        assertEquals("你好", withText.get("text").asString)
+        assertEquals("image/png", withText.getAsJsonArray("images")[0].asJsonObject.get("mediaType").asString)
+        assertEquals("iVBORw0KGgo=", withText.getAsJsonArray("images")[0].asJsonObject.get("data").asString)
+
+        // 纯图那条：文字为空，被省掉的张数明确写着（回放预算的输入）
+        val imageOnly = itemById("m0b")
+        assertEquals("", imageOnly.get("text").asString)
+        assertEquals("image/jpeg", imageOnly.getAsJsonArray("images")[0].asJsonObject.get("mediaType").asString)
+        assertEquals(2, imageOnly.get("omittedImages").asInt)
     }
 
     @Test

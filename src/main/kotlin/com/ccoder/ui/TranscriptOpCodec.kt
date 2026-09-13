@@ -77,6 +77,19 @@ object TranscriptOpCodec {
             is TranscriptItem.User -> {
                 obj.addProperty("kind", "user")
                 obj.addProperty("text", item.text)
+                // 零值不写：老前端只认 text，多余字段它本来就会忽略，
+                // 但契约 fixture 是两侧共用的，多写等于把噪音钉进契约
+                if (item.images.isNotEmpty()) {
+                    obj.add("images", JsonArray().apply {
+                        item.images.forEach { img ->
+                            add(JsonObject().apply {
+                                addProperty("mediaType", img.mediaType)
+                                addProperty("data", img.base64)
+                            })
+                        }
+                    })
+                }
+                if (item.omittedImages > 0) obj.addProperty("omittedImages", item.omittedImages)
             }
 
             is TranscriptItem.Assistant -> {
