@@ -2,8 +2,10 @@ package com.ccoder.ui
 
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import java.awt.datatransfer.Clipboard
 import java.awt.datatransfer.DataFlavor
 import java.awt.event.ActionEvent
+import java.awt.event.InputEvent
 import java.io.File
 import javax.swing.AbstractAction
 import javax.swing.JComponent
@@ -78,15 +80,19 @@ internal fun installImagePaste(area: JTextArea, onImages: () -> Unit) {
  * 与粘贴共用同一条下游（[onFiles] 拿到的也是原始文件），读盘与归一化同样
  * 交出去在后台做。
  *
- * **原来的处理器必须留着**：输入框自带一个（`BasicTextUI` 的
- * `TextTransferHandler`，"从编辑器拖一段文字进来"就是它在管），而 Swing 的拖放
- * **不向父级冒泡** —— 光标下最深的那层是唯一落点。所以本处理器会直接装在输入框
- * 上（而不是只挂在面板上），并且把非图片的拖拽原样交回给原来那个；
- * 直接覆盖等于把那个既有能力悄悄吃掉。
+ * **原来的处理器必须整个留着**：输入框自带一个（`BasicTextUI` 的
+ * `TextTransferHandler`），它同时管着两件事 —— 拖入（"从编辑器拖一段文字进来"）
+ * 与**拖出**（Ctrl+C / Ctrl+X 走的正是它的源码侧）。而 Swing 的拖放
+ * **不向父级冒泡**：光标下最深的那层是唯一落点。所以本处理器直接装在输入框上，
+ * 并且把两半都原样交回给原来那个：非图片的拖入、以及整个源码侧。
+ * 少委派源码侧的话，输入框里的复制/剪切会**静默失效** —— 不报错、不提示，
+ * 剪贴板纹丝不动。
  */
 internal fun installImageDrop(component: JComponent, onFiles: (List<File>) -> Unit) {
     val original = component.transferHandler
     component.transferHandler = object : TransferHandler() {
+        // ---- 拖入：我们要加的那一半 ----
+
         /** 只有真含图片时才轮到我们；返回 null 表示"不归我管，问原来的去"。 */
         private fun imageFiles(support: TransferSupport): List<File>? =
             if (!support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) null
@@ -106,6 +112,32 @@ internal fun installImageDrop(component: JComponent, onFiles: (List<File>) -> Un
                 return true
             }
             return original?.importData(support) ?: false
+        }
+
+        // ---- 拖出（复制 / 剪切）：两个**公开**入口原样委派 ----
+        //
+        // Ctrl+C / Ctrl+X 用的是**同一个** transferHandler 的源码侧：cut/copy 绑的是
+        // TransferHandler 自带的 TransferAction，它调 getSourceActions +
+        // exportToClipboard。只重写拖入那一半的话，源码侧会退化成 NONE —— 复制
+        // 什么都不做，而且不报错、不提示，剪贴板纹丝不动。
+        //
+        // 只委派这两个公开方法是有意的：`createTransferable` / `exportDone` 在
+        // TransferHandler 里是 **protected**，Java 与 Kotlin 都不允许在"另一个实例"上
+        // 调它（编译器原话：it is protected in 'javax/swing/TransferHandler'），所以
+        // 委派不了。但也不需要：拖出只有这两条路，各自内部的 createTransferable
+        // 与 exportDone 都跑在原处理器自己身上（见下）
+        override fun getSourceActions(c: JComponent): Int =
+            original?.getSourceActions(c) ?: TransferHandler.NONE
+
+        // 复制 / 剪切走这条（Ctrl+C、Ctrl+X）
+        override fun exportToClipboard(c: JComponent, clip: Clipboard, action: Int) {
+            original?.exportToClipboard(c, clip, action)
+        }
+
+        // 把选中的文字往外拖走这条。基准实现自己会调 createTransferable + exportDone，
+        // 整个交出去就等于那两半也交出去了
+        override fun exportAsDrag(c: JComponent, trigger: InputEvent, action: Int) {
+            original?.exportAsDrag(c, trigger, action)
         }
     }
 }

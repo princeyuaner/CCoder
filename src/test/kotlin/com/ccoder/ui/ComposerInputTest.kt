@@ -9,10 +9,14 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.awt.datatransfer.Clipboard
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
+import java.awt.event.InputEvent
+import java.awt.event.MouseEvent
 import java.io.File
 import java.nio.file.Path
+import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JTextArea
 import javax.swing.TransferHandler
@@ -137,10 +141,12 @@ class ComposerInputTest {
         assertNull(got, "非图片不该进我们的回调")
     }
 
-    /** 假的"原来的处理器"：只记自己被问过几次，并声称自己接得住任何东西。 */
+    /** 假的"原来的处理器"：记下自己被问过几次，并声称自己接得住任何东西。 */
     private class FakeOriginal : TransferHandler() {
         var canImportCalls = 0
         var importCalls = 0
+        var exportCalls = 0
+        var exportAsDragCalls = 0
 
         override fun canImport(support: TransferSupport): Boolean {
             canImportCalls++
@@ -151,6 +157,70 @@ class ComposerInputTest {
             importCalls++
             return true
         }
+
+        override fun getSourceActions(c: JComponent): Int = TransferHandler.COPY
+
+        override fun exportToClipboard(c: JComponent, clip: Clipboard, action: Int) {
+            exportCalls++
+        }
+
+        override fun exportAsDrag(c: JComponent, trigger: InputEvent, action: Int) {
+            exportAsDragCalls++
+        }
+    }
+
+    @Test
+    fun `复制剪切的源码侧原样交回原来的处理器 —— 不能是 NONE`() {
+        // Ctrl+C / Ctrl+X 用的是**同一个** transferHandler 的源码侧：BasicTextUI 把
+        // cut/copy 绑成 TransferAction，它调 getSourceActions + exportToClipboard。
+        // 只重写拖入那一半的话，源码侧退化成 NONE —— 复制静默失效
+        val area = JTextArea()
+        val original = FakeOriginal()
+        area.transferHandler = original
+        installImageDrop(area) {}
+        val handler = area.transferHandler
+
+        assertEquals(
+            TransferHandler.COPY, handler.getSourceActions(area),
+            "源码侧应当就是原处理器报的那个",
+        )
+        assertEquals(
+            original.getSourceActions(area), handler.getSourceActions(area),
+            "NONE 意味着 Ctrl+C 什么都不做，而且不报错、不提示",
+        )
+    }
+
+    @Test
+    fun `把选中的文字往外拖也交回原来的处理器`() {
+        // 与复制同属源码侧：createTransferable / exportDone 是 protected，委派不了，
+        // 所以整条 exportAsDrag 交出去 —— 基准实现内部的 createTransferable 与
+        // exportDone 就都跑在原处理器身上了
+        val area = JTextArea()
+        val original = FakeOriginal()
+        area.transferHandler = original
+        installImageDrop(area) {}
+        val handler = area.transferHandler
+
+        handler.exportAsDrag(
+            area,
+            MouseEvent(area, MouseEvent.MOUSE_DRAGGED, System.currentTimeMillis(), 0, 5, 5, 0, false),
+            TransferHandler.COPY,
+        )
+
+        assertEquals(1, original.exportAsDragCalls, "拖出没委派的话，选中的文字拖不出去")
+    }
+
+    @Test
+    fun `复制真的交回原来的处理器去执行`() {
+        val area = JTextArea()
+        val original = FakeOriginal()
+        area.transferHandler = original
+        installImageDrop(area) {}
+        val handler = area.transferHandler
+
+        handler.exportToClipboard(area, Clipboard("ccoder-test"), TransferHandler.COPY)
+
+        assertEquals(1, original.exportCalls, "没有委派的话，剪贴板纹丝不动")
     }
 
     /** 一个只认 javaFileListFlavor 的 Transferable，模拟从资源管理器拖文件进来。 */
