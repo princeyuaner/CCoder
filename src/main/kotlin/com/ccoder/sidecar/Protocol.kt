@@ -1,5 +1,6 @@
 package com.ccoder.sidecar
 
+import com.ccoder.ui.ImageAttachment
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -258,8 +259,30 @@ object Protocol {
         return line(id, "start", p)
     }
 
-    fun encodeSend(id: String, text: String): String =
-        line(id, "send", JsonObject().apply { addProperty("text", text) })
+    /**
+     * 发送一条用户消息。
+     *
+     * [images] 为空时**一个字段都不多写** —— 纯文本走的就是老形状，
+     * 老版本 sidecar 照常工作。
+     *
+     * 是 `internal` 而非 public：`ImageAttachment` 本身是 internal 的，
+     * 公开函数签名里挂一个 internal 类型 Kotlin 直接报错。插件只有一个模块，
+     * 调用方全在模块内，收窄可见性没有任何代价。
+     */
+    internal fun encodeSend(id: String, text: String, images: List<ImageAttachment> = emptyList()): String =
+        line(id, "send", JsonObject().apply {
+            addProperty("text", text)
+            if (images.isNotEmpty()) {
+                add("images", JsonArray().apply {
+                    images.forEach { img ->
+                        add(JsonObject().apply {
+                            addProperty("mediaType", img.mediaType)
+                            addProperty("data", img.base64)
+                        })
+                    }
+                })
+            }
+        })
 
     fun encodeSimple(id: String, method: String): String =
         line(id, method, JsonObject())

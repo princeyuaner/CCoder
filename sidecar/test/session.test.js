@@ -54,6 +54,50 @@ test('多条 send 按序进入输入流', async () => {
   assert.deepEqual(got, ['一', '二', '三']);
 });
 
+test('带图发送：content 是内容块数组，图在前文字在后', async () => {
+  // 顺序与 CLI 自己写进会话 jsonl 的一致（实测真实会话：先图后文）。
+  // 队列是闭包私有的，但输入流这侧本来就是公开接缝 —— prompt 是 AsyncIterable
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('看看这个', [{ mediaType: 'image/png', data: 'AAA' }]);
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+
+  assert.deepEqual(value.message.content, [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } },
+    { type: 'text', text: '看看这个' },
+  ]);
+});
+
+test('只发图不带文字时，不塞空的 text 块', async () => {
+  // content 里一个 {"type":"text","text":""} 是没意义的内容块，API 侧只会多花 token
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('', [{ mediaType: 'image/png', data: 'AAA' }]);
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+
+  assert.deepEqual(value.message.content, [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } },
+  ]);
+});
+
+test('多张图按传入顺序排列', async () => {
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('两张', [
+    { mediaType: 'image/png', data: 'A' },
+    { mediaType: 'image/jpeg', data: 'B' },
+  ]);
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+
+  assert.deepEqual(
+    value.message.content.map((c) => c.source?.data ?? c.text),
+    ['A', 'B', '两张'],
+  );
+});
+
 test('注册了 canUseTool 与 includePartialMessages', () => {
   const q = fakeQuery();
   createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });

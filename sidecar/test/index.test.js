@@ -519,6 +519,54 @@ test('删除成功回 sessionDeleted，且带 id 回显', async () => {
   assert.equal(ack.sessionId, 'sess-9');
 });
 
+// ---- 带图发送（Task 5）----
+
+test('send 把图透传给 session', () => {
+  const calls = [];
+  const d = createDispatcher({
+    sessionFactory: () => ({ send: (t, i) => calls.push([t, i]) }),
+    out: () => {},
+  });
+  d.handle({ method: 'start', params: { cwd: '/x' } });
+  d.handle({ method: 'send', params: { text: '看', images: [{ mediaType: 'image/png', data: 'A' }] } });
+
+  assert.equal(calls[0][0], '看');
+  assert.deepEqual(calls[0][1], [{ mediaType: 'image/png', data: 'A' }]);
+});
+
+test('start 之前到达的 send 连图一起补发', () => {
+  // 排队的是整个条目而不只是文本 —— 只存 text 的话抢跑发的那几张图会被丢掉，
+  // 而且用户看到的是一句没有图的话
+  const calls = [];
+  const d = createDispatcher({
+    sessionFactory: () => ({ send: (t, i) => calls.push([t, i]) }),
+    out: () => {},
+  });
+  d.handle({ method: 'send', params: { text: '看', images: [{ mediaType: 'image/png', data: 'A' }] } });
+  assert.equal(calls.length, 0);
+
+  d.handle({ method: 'start', params: { cwd: '/x' } });
+
+  assert.equal(calls[0][0], '看');
+  assert.deepEqual(calls[0][1], [{ mediaType: 'image/png', data: 'A' }]);
+});
+
+test('没有 images 字段时传空数组而非 undefined', () => {
+  // 老插件（0.2.4 及以前）发的 send 里根本没有 images 这个字段。
+  // 归一成空数组，session 侧就只有一个形状要处理 —— 纯文本走哪条分支由
+  // content 决定，不靠第二个参数是不是 undefined 来猜
+  const calls = [];
+  const d = createDispatcher({
+    sessionFactory: () => ({ send: (t, i) => calls.push([t, i]) }),
+    out: () => {},
+  });
+  d.handle({ method: 'start', params: { cwd: '/x' } });
+  d.handle({ method: 'send', params: { text: '纯文本' } });
+
+  assert.equal(calls[0][0], '纯文本');
+  assert.deepEqual(calls[0][1], []);
+});
+
 test('删除失败回 error，且不回 sessionDeleted', async () => {
   // 会话已经被终端删掉时 SDK 会抛错。必须如实报出去 ——
   // 假装删成功了，界面上那一行就会消失，而那是在撒谎（见设计稿 §4.4）

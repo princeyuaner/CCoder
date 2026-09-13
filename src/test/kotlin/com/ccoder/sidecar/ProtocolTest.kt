@@ -1,5 +1,6 @@
 package com.ccoder.sidecar
 
+import com.ccoder.ui.ImageAttachment
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -187,6 +188,24 @@ class ProtocolTest {
             1, line.trimEnd('\n').lines().size,
             "载荷中的换行必须被 JSON 转义，否则会破坏 NDJSON 分帧"
         )
+    }
+
+    @Test
+    fun `带图发送：images 是对象数组，字段名与 SDK 对齐`() {
+        val line = Protocol.encodeSend("req-1", "这报错什么意思", listOf(ImageAttachment("image/png", "AAA")))
+        val params = JsonParser.parseString(line.trim()).asJsonObject.getAsJsonObject("params")
+
+        assertEquals("这报错什么意思", params.get("text").asString)
+        val img = params.getAsJsonArray("images")[0].asJsonObject
+        assertEquals("image/png", img.get("mediaType").asString)
+        assertEquals("AAA", img.get("data").asString)
+    }
+
+    @Test
+    fun `不带图时一个字段都不多 —— 纯文本行为不变`() {
+        val line = Protocol.encodeSend("req-1", "你好")
+        val params = JsonParser.parseString(line.trim()).asJsonObject.getAsJsonObject("params")
+        assertFalse(params.has("images"))
     }
 
     @Test

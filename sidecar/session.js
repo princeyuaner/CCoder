@@ -136,11 +136,22 @@ export function createSession({
   }
 
   return {
-    send(text) {
+    send(text, images = []) {
       if (stopped) return;
+      // 图在前、文字在后 —— 与 CLI 自己写进历史的顺序一致（真实会话 jsonl 实测）。
+      // 无图时退回字符串形式：形状与老版本完全一致，省掉一次无用解析
+      const content = images.length === 0
+        ? text
+        : [
+            ...images.map((i) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: i.mediaType, data: i.data },
+            })),
+            ...(text ? [{ type: 'text', text }] : []),
+          ];
       queue.push({
         type: 'user',
-        message: { role: 'user', content: text },
+        message: { role: 'user', content },
         parent_tool_use_id: null,
       });
       notifyInput?.('go');

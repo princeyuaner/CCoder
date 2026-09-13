@@ -86,17 +86,18 @@ export function createDispatcher({
         }
         session = created;
         out({ type: 'ready', sessionId: params.sessionId ?? null, model: params.model ?? null });
-        for (const text of preStartQueue.splice(0)) session.send(text);
+        for (const item of preStartQueue.splice(0)) session.send(item.text, item.images);
         return session;
       }
 
       case 'send': {
+        const images = Array.isArray(params.images) ? params.images : [];
         if (!session) {
           // 排队而非丢弃 —— 用户可能抢在 ready 之前就发了消息
-          preStartQueue.push(params.text ?? '');
+          preStartQueue.push({ text: params.text ?? '', images });
           return session;
         }
-        session.send(params.text ?? '');
+        session.send(params.text ?? '', images);
         return session;
       }
 
