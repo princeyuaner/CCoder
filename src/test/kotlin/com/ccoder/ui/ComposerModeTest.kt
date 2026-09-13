@@ -29,6 +29,18 @@ class ComposerModeTest {
         )
     }
 
+    /** 悬停/移开。直接调监听器：离屏组件收不到真实的鼠标进出事件。 */
+    private fun hover(component: Component, entered: Boolean) {
+        val e = MouseEvent(
+            component,
+            if (entered) MouseEvent.MOUSE_ENTERED else MouseEvent.MOUSE_EXITED,
+            System.currentTimeMillis(), 0, 5, 5, 0, false,
+        )
+        component.mouseListeners.forEach {
+            if (entered) it.mouseEntered(e) else it.mouseExited(e)
+        }
+    }
+
     /** 收集一棵组件树里所有 JLabel 的文字，用来断言弹层里显示了什么。 */
     private fun textsIn(root: Container): List<String> {
         val out = mutableListOf<String>()
@@ -99,6 +111,49 @@ class ComposerModeTest {
         click(label)
 
         assertEquals(1, opened)
+    }
+
+    /**
+     * 悬停反馈：模型标签那边也有一对对称的（[ComposerModelTest]）——
+     * 两个标签并排站在同一行，一个有一个没有，看起来就像坏了。
+     *
+     * 这里额外钉一条**安全**性质：绕过的警示色不能因为鼠标划过来一趟就丢。
+     * 这个标签的职责就是"Claude 现在被允许做什么"，丢色等于丢了那句话。
+     */
+    @Test
+    fun `悬停时亮起来，移开把警示色原样放回来`() {
+        val label = ModeLabel {}
+        label.setMode(PermissionModeSetting.BYPASS_PERMISSIONS)
+
+        hover(label, true)
+        assertEquals(UIUtil.getLabelForeground(), label.foreground, "悬停没有反馈")
+
+        hover(label, false)
+        assertSame(warningColor(), label.foreground, "移开后警示色丢了")
+    }
+
+    @Test
+    fun `普通模式悬停也亮，移开回到次要文字`() {
+        val label = ModeLabel {}
+        label.setMode(PermissionModeSetting.DEFAULT)
+
+        hover(label, true)
+        assertEquals(UIUtil.getLabelForeground(), label.foreground, "悬停没有反馈")
+
+        hover(label, false)
+        assertEquals(UIUtil.getInactiveTextColor(), label.foreground, "移开后没有恢复")
+    }
+
+    @Test
+    fun `自动放行时悬停，移开同样放回警示色`() {
+        val label = ModeLabel {}
+        label.setAutoAllow()
+
+        hover(label, true)
+        assertEquals(UIUtil.getLabelForeground(), label.foreground)
+
+        hover(label, false)
+        assertSame(warningColor(), label.foreground, "自动放行的警示色丢了")
     }
 
     // ---- 弹层里的列表 ----

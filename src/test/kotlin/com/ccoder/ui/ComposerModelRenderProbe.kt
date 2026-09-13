@@ -37,26 +37,52 @@ class ComposerModelRenderProbe {
     )
     private val official = ModelProfile(id = "p3", name = "官方", modelId = "claude-sonnet-4-5")
 
-    /** 常态与悬停各一行，好比较"悬停到底看不看得出来"。 */
+    /**
+     * 两个标签 × 悬停。
+     *
+     * **两个标签的悬停要长得一样** —— 它们并排站在同一行，一个有一个没有
+     * 会很扎眼（第一轮审查就是这么看出来的）。行序：
+     * 常态 / 模型悬停 / 权限悬停 / 没配置 / 没配置+模型悬停 / 绕过+权限悬停。
+     */
     @Test
-    fun `把模型标签的四种状态画成图片`() = renderLabel(
+    fun `把两个标签的悬停画成图片`() = renderLabel(
         "build/probe/composer-model-label.png",
-        model = opus,
-        mode = PermissionModeSetting.DEFAULT,
+        listOf(
+            Shot(opus, PermissionModeSetting.DEFAULT),
+            Shot(opus, PermissionModeSetting.DEFAULT, hoverModel = true),
+            Shot(opus, PermissionModeSetting.DEFAULT, hoverMode = true),
+            Shot(null, PermissionModeSetting.DEFAULT),
+            Shot(null, PermissionModeSetting.DEFAULT, hoverModel = true),
+            // 绕过的警示色被悬停顶掉是什么样，也得看一眼
+            Shot(opus, PermissionModeSetting.BYPASS_PERMISSIONS, hoverMode = true),
+        ),
     )
 
     /**
      * 最长的那一版单独出一张。
      *
      * 工具栏左侧是和权限模式标签**共享**宽度的，名字一长就会把模式标签挤出去 ——
-     * 这条不看图发现不了。
+     * 这条不看图发现不了。第二行两个标签一起悬停，顺带看挤在一起时的对比。
      */
     @Test
     fun `把最长的模型名画成图片`() = renderLabel(
         "build/probe/composer-model-label-long.png",
-        model = ModelProfile(name = "Claude Opus 4 中转（公司代理）", modelId = "claude-opus-4-6"),
-        mode = PermissionModeSetting.BYPASS_PERMISSIONS,
+        listOf(
+            Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS),
+            Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS, hoverModel = true, hoverMode = true),
+        ),
     )
+
+    /** 一行的样子：选中的配置、模式，以及哪个标签被鼠标压着。 */
+    private data class Shot(
+        val profile: ModelProfile?,
+        val mode: PermissionModeSetting,
+        val hoverModel: Boolean = false,
+        val hoverMode: Boolean = false,
+    )
+
+    private val longName =
+        ModelProfile(name = "Claude Opus 4 中转（公司代理）", modelId = "claude-opus-4-6")
 
     /** 弹层：有配置时。宽度看它的首选尺寸，不用跟标签对齐。 */
     @Test
@@ -79,12 +105,9 @@ class ComposerModelRenderProbe {
         baseUrl = "https://api.anthropic-relay.internal.corp.example.com",
     )
 
-    private fun renderLabel(path: String, model: ModelProfile?, mode: PermissionModeSetting) {
+    private fun renderLabel(path: String, shots: List<Shot>) {
         SwingUtilities.invokeAndWait {
-            // 四行：常态 / 悬停 × 有配置 / 没配置
-            val rows = listOf(model, model, null, null).mapIndexed { i, p ->
-                labelRow(p, mode, hovered = i % 2 == 1)
-            }
+            val rows = shots.map { labelRow(it) }
 
             val outer = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -103,11 +126,13 @@ class ComposerModelRenderProbe {
     }
 
     /** 一行真实的工具栏：模型标签 + 权限模式标签 + 发送键。 */
-    private fun labelRow(profile: ModelProfile?, mode: PermissionModeSetting, hovered: Boolean): JPanel {
-        val modelLabel = ModelLabel {}.apply { setProfile(profile) }
-        if (hovered) hover(modelLabel)
+    private fun labelRow(shot: Shot): JPanel {
+        val modelLabel = ModelLabel {}.apply { setProfile(shot.profile) }
+        if (shot.hoverModel) hover(modelLabel)
 
-        val modeLabel = ModeLabel {}.apply { setMode(mode) }
+        val modeLabel = ModeLabel {}.apply { setMode(shot.mode) }
+        if (shot.hoverMode) hover(modeLabel)
+
         val send = RoundSendButton().apply {
             setState(mainButtonState(ready = true, busy = false, disconnected = false))
         }
@@ -151,10 +176,10 @@ class ComposerModelRenderProbe {
         }
     }
 
-    private fun hover(label: ModelLabel) {
+    private fun hover(c: java.awt.Component) {
         // 离屏组件收不到真实的鼠标进出事件，直接喊监听器
-        val e = MouseEvent(label, MouseEvent.MOUSE_ENTERED, System.currentTimeMillis(), 0, 5, 5, 0, false)
-        label.mouseListeners.forEach { it.mouseEntered(e) }
+        val e = MouseEvent(c, MouseEvent.MOUSE_ENTERED, System.currentTimeMillis(), 0, 5, 5, 0, false)
+        c.mouseListeners.forEach { it.mouseEntered(e) }
     }
 
     private fun write(c: Container, w: Int, h: Int, path: String) {

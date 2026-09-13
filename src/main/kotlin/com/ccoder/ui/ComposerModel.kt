@@ -52,7 +52,7 @@ internal class ModelLabel(private val onOpen: () -> Unit) : JLabel() {
                 }
 
                 // 这行标签看着就是普通文字，不给悬停反馈就没人知道它能点。
-                // ModeLabel 现在还没有，回头一起补上
+                // [ModeLabel] 里是同一套写法 —— 两个标签并排站着，手感得一样
                 override fun mouseEntered(e: MouseEvent) {
                     hovered = true
                     applyForeground()

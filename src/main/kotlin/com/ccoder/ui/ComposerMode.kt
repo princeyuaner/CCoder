@@ -38,6 +38,16 @@ internal const val MARK = "✓"
  */
 internal class ModeLabel(private val onOpen: () -> Unit) : JLabel() {
 
+    private var hovered = false
+
+    /**
+     * 不悬停时该显示的颜色（模式色 / 警示色）。
+     *
+     * 悬停只是临时顶掉它，移开要原样放回来 —— 绕过的警示色不能因为鼠标
+     * 划过一趟就丢了。
+     */
+    private var resting: Color = UIUtil.getInactiveTextColor()
+
     init {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         foreground = UIUtil.getInactiveTextColor()
@@ -46,13 +56,26 @@ internal class ModeLabel(private val onOpen: () -> Unit) : JLabel() {
                 override fun mouseClicked(e: MouseEvent) {
                     onOpen()
                 }
+
+                // 可点就该有反馈：这行看着就是普通灰字，不给反馈没人知道它能点。
+                // 与 [ModelLabel] 同一套写法 —— 两个标签并排站着，手感得一样
+                override fun mouseEntered(e: MouseEvent) {
+                    hovered = true
+                    applyForeground()
+                }
+
+                override fun mouseExited(e: MouseEvent) {
+                    hovered = false
+                    applyForeground()
+                }
             }
         )
     }
 
     fun setMode(mode: PermissionModeSetting) {
         text = mode.label + EXPAND_CARET
-        foreground = modeColor(mode)
+        resting = modeColor(mode)
+        applyForeground()
         repaint()
     }
 
@@ -68,8 +91,13 @@ internal class ModeLabel(private val onOpen: () -> Unit) : JLabel() {
      */
     fun setAutoAllow() {
         text = AUTO_ALLOW_LABEL + EXPAND_CARET
-        foreground = warningColor()
+        resting = warningColor()
+        applyForeground()
         repaint()
+    }
+
+    private fun applyForeground() {
+        foreground = if (hovered) UIUtil.getLabelForeground() else resting
     }
 }
 
