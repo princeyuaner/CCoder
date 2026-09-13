@@ -424,4 +424,57 @@ class ProtocolTest {
             Protocol.responseIdOf(SidecarMessage.SessionDeleted("r7", "abc-123")),
         )
     }
+
+    @Test
+    fun `commands 消息解析出命令与技能两组`() {
+        val line = """
+            {"type":"commands","id":"7","commands":[
+              {"name":"compact","description":"压缩上下文","argumentHint":"","aliases":["compress"]},
+              {"name":"Debug Issue","description":"查问题","argumentHint":"","aliases":[]}
+            ],"skills":[{"name":"Debug Issue","description":"查问题","argumentHint":"","aliases":[]}]}
+        """.trimIndent()
+
+        val msg = Protocol.parse(line) as SidecarMessage.Commands
+
+        assertEquals("7", msg.requestId)
+        assertEquals(2, msg.commands.size)
+        assertEquals("compact", msg.commands[0].name)
+        assertEquals(listOf("compress"), msg.commands[0].aliases)
+        assertEquals(1, msg.skills.size)
+        assertEquals(listOf("Debug Issue"), msg.skills.map { it.name })
+    }
+
+    @Test
+    fun `commands 缺 id 时整条丢弃 —— 留着会变成永远等不到结果的占位`() {
+        val line = """{"type":"commands","commands":[],"skills":[]}"""
+        assertNull(Protocol.parse(line))
+    }
+
+    @Test
+    fun `commands 里缺 name 的条目跳过，不废掉整个列表`() {
+        val line = """
+            {"type":"commands","id":"7","commands":[
+              {"description":"没有名字"},
+              {"name":"compact","description":"压缩","argumentHint":"","aliases":[]}
+            ],"skills":[]}
+        """.trimIndent()
+
+        val msg = Protocol.parse(line) as SidecarMessage.Commands
+        assertEquals(1, msg.commands.size)
+        assertEquals("compact", msg.commands[0].name)
+    }
+
+    @Test
+    fun `commands 是响应消息，带关联 id`() {
+        val line = """{"type":"commands","id":"7","commands":[],"skills":[]}"""
+        val msg = Protocol.parse(line)!!
+        assertEquals("7", Protocol.responseIdOf(msg))
+    }
+
+    @Test
+    fun `encodeListCommands 不带参数`() {
+        val json = Protocol.encodeListCommands("req-1")
+        assertTrue(json.contains(""""method":"listCommands""""))
+        assertTrue(json.endsWith("\n"), "NDJSON 必须以换行结尾")
+    }
 }

@@ -1143,6 +1143,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 is SidecarMessage.SessionList,
                 is SidecarMessage.History,
                 is SidecarMessage.SessionDeleted,
+                is SidecarMessage.Commands,
                 -> Unit
 
                 is SidecarMessage.Unknown -> Unit // 静默忽略（spec §3.3）

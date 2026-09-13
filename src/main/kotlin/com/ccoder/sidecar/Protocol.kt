@@ -74,6 +74,18 @@ sealed interface SidecarMessage {
      */
     data class SessionDeleted(val requestId: String, val sessionId: String) : SidecarMessage
 
+    /**
+     * `listCommands` 的应答。
+     *
+     * [commands] 是**显示信息**（名字、描述、参数提示、别名）；
+     * [skills] 是其中的**技能子集**，只用来分组，不是另一份候选。
+     */
+    data class Commands(
+        val requestId: String,
+        val commands: List<CommandInfo>,
+        val skills: List<CommandInfo>,
+    ) : SidecarMessage
+
     /** 未知类型。与"解析失败"（null）区分开——这类要忽略而非报错。 */
     data class Unknown(val type: String) : SidecarMessage
 }
@@ -90,6 +102,20 @@ data class SessionInfo(
     val summary: String?,
     val firstPrompt: String?,
     val lastModified: Long,
+)
+
+/**
+ * 一条可补全的命令。
+ *
+ * 字段裁自 SDK 的 `SlashCommand`（sdk.d.ts:8453）。**`name` 是显示名，
+ * 不一定是可发送的字符串** —— 实测 `/Debug Issue`（空格大写）对应的可发送名
+ * 是 `debug-issue`。可发送名来自 init 事件，见设计稿 §4.1。
+ */
+data class CommandInfo(
+    val name: String,
+    val description: String?,
+    val argumentHint: String?,
+    val aliases: List<String>,
 )
 
 data class StartParams(
@@ -194,6 +220,15 @@ object Protocol {
                 else SidecarMessage.SessionDeleted(requestId, sessionId)
             }
 
+            // 缺 id 就无从配对，整条丢弃 —— 同 sessions
+            "commands" -> obj.str("id")?.let { rid ->
+                SidecarMessage.Commands(
+                    rid,
+                    parseCommands(obj.arr("commands")),
+                    parseCommands(obj.arr("skills")),
+                )
+            }
+
             "error" -> SidecarMessage.Failure(
                 message = obj.str("message") ?: "未知错误",
                 code = obj.str("code"),
@@ -225,6 +260,8 @@ object Protocol {
     fun encodeDeleteSession(id: String, sessionId: String): String =
         line(id, "deleteSession", JsonObject().apply { addProperty("sessionId", sessionId) })
 
+    fun encodeListCommands(id: String): String = encodeSimple(id, "listCommands")
+
     /**
      * 响应类消息的关联 id。非响应消息返回 null。
      *
@@ -235,6 +272,7 @@ object Protocol {
         is SidecarMessage.SessionList -> msg.requestId
         is SidecarMessage.History -> msg.requestId
         is SidecarMessage.SessionDeleted -> msg.requestId
+        is SidecarMessage.Commands -> msg.requestId
         else -> null
     }
 
@@ -317,6 +355,30 @@ object Protocol {
                 summary = o.str("summary"),
                 firstPrompt = o.str("firstPrompt"),
                 lastModified = o.long("lastModified") ?: 0L,
+            )
+        }
+    }
+
+    /**
+     * 逐条解析命令。
+     *
+     * 缺 `name` 的条目**跳过而非废掉整个列表** —— 与 [parseSessionList] 同一条
+     * 理由：一条坏数据不该让另外 44 个命令都补全不出来。
+     */
+    private fun parseCommands(arr: JsonArray?): List<CommandInfo> {
+        if (arr == null) return emptyList()
+        return arr.mapNotNull { el ->
+            if (!el.isJsonObject) return@mapNotNull null
+            val o = el.asJsonObject
+            val name = o.str("name") ?: return@mapNotNull null
+            CommandInfo(
+                name = name,
+                description = o.str("description"),
+                argumentHint = o.str("argumentHint"),
+                aliases = o.arr("aliases")
+                    ?.filter { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+                    ?.map { it.asString }
+                    ?: emptyList(),
             )
         }
     }
