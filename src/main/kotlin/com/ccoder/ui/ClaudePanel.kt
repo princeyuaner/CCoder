@@ -225,9 +225,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     // ---- 补全（设计稿 §3）----
 
-    /** 命令显示信息与技能分组，会话就绪后拉一次。 */
+    /** 命令显示信息，会话就绪后拉一次。 */
     private var commandList: List<CommandInfo> = emptyList()
-    private var skillList: List<CommandInfo> = emptyList()
 
     /** 可发送的命令名，来自最近一条 `init` 事件的 `slash_commands`。 */
     private var sendableNames: Set<String> = emptySet()
@@ -1062,7 +1061,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 命令列表随会话走（设计稿 §4.1）。留着它会让未连接时打 `/`
         // 弹出一份过期的
         commandList = emptyList()
-        skillList = emptyList()
         sendableNames = emptySet()
         closeCompletion()
 
@@ -1523,7 +1521,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val filtered = visibleCandidates(
             when (q.trigger) {
                 Trigger.Command ->
-                    filterCandidates(commandCandidates(commandList, skillList, sendableNames), q.query)
+                    filterCandidates(commandCandidates(commandList, sendableNames), q.query)
 
                 Trigger.File -> fileCandidates(allProjectFiles(), q.query)
             }
@@ -1595,8 +1593,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             ApplicationManager.getApplication().invokeLater {
                 val msg = (outcome as? RequestOutcome.Answered)?.message as? SidecarMessage.Commands
                     ?: return@invokeLater
+                // msg.skills 暂时不用：分组走可发送名的命名空间（见 GROUP_PLUGIN）。
+                // 那份数据接进来是因为它是 SDK 的真实应答，将来 CLI 支持
+                // reload_skills 时分组能更准
                 commandList = msg.commands
-                skillList = msg.skills
             }
         }
     }

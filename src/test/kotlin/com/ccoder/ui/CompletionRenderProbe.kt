@@ -40,24 +40,29 @@ class CompletionRenderProbe {
 
     /** 数据取自实测：`brainstorming` 那条是本例里最长的真实描述。 */
     private fun commands() = listOf(
-        CompletionItem("compact", "compact", "参数 <optional custom summarization instructions>", group = GROUP_BUILTIN),
+        CompletionItem("compact", "compact", "参数 <optional custom summarization instructions>", group = GROUP_OTHER),
         CompletionItem(
             "clear", "clear", "Start a new session with empty context · 别名 reset、new",
-            group = GROUP_BUILTIN,
+            group = GROUP_OTHER,
         ),
-        CompletionItem("context", "context", "Show current context usage", group = GROUP_BUILTIN),
-        CompletionItem("usage", "usage", "Show the total cost and duration · 别名 cost、stats", group = GROUP_BUILTIN),
+        CompletionItem("context", "context", "Show current context usage", group = GROUP_OTHER),
+        CompletionItem("usage", "usage", "Show the total cost and duration · 别名 cost、stats", group = GROUP_OTHER),
         CompletionItem(
             "Debug Issue", "debug-issue",
             "Systematically debug issues using graph-powered code navigation (user)",
-            group = GROUP_SKILL,
+            group = GROUP_OTHER,
         ),
         CompletionItem(
-            "brainstorming", "brainstorming",
+            "caveman", "caveman",
+            "Upstream: github.com/JuliusBrussee/caveman",
+            group = GROUP_OTHER,
+        ),
+        CompletionItem(
+            "brainstorming", "superpowers:brainstorming",
             "You MUST use this before any creative work - creating features, building components, " +
                 "adding functionality, or modifying behavior. Explores user intent, requirements " +
                 "and design before implementation.",
-            group = GROUP_SKILL,
+            group = GROUP_PLUGIN,
         ),
     )
 

@@ -7,9 +7,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * 三份来源拼成候选（设计稿 §4.1）。
+ * 两份来源拼成候选（设计稿 §4.1）。
  *
- * A = supportedCommands()（显示信息）、B = init 的可发送名、C = reloadSkills()（分组）。
+ * A = supportedCommands()（显示信息）、B = init 的可发送名。
+ * 设计稿原定的 C（`reloadSkills()`）实测这台 CLI 不支持，分组改走命名空间。
  */
 class CommandCandidatesTest {
 
@@ -24,7 +25,6 @@ class CommandCandidatesTest {
     fun `显示名与可发送名不同时，显示 A 插入 B`() {
         val out = commandCandidates(
             commands = listOf(cmd("Debug Issue", "查问题")),
-            skills = emptyList(),
             sendable = setOf("debug-issue"),
         )
 
@@ -37,7 +37,6 @@ class CommandCandidatesTest {
     fun `配不上可发送名的命令直接不出现`() {
         val out = commandCandidates(
             commands = listOf(cmd("Debug Issue"), cmd("compact")),
-            skills = emptyList(),
             sendable = setOf("compact"),
         )
 
@@ -80,7 +79,6 @@ class CommandCandidatesTest {
     fun `命令候选整条走通：显示名不带前缀，插入名带`() {
         val out = commandCandidates(
             commands = listOf(cmd("brainstorming", "想清楚")),
-            skills = emptyList(),
             sendable = setOf("superpowers:brainstorming"),
         )
 
@@ -89,40 +87,25 @@ class CommandCandidatesTest {
         assertEquals("superpowers:brainstorming", out[0].insert, "发出去要带前缀，否则 CLI 认不得")
     }
 
-    @Test
-    fun `技能组的分组也认前缀 —— 否则整组会被误判成内置`() {
-        val out = commandCandidates(
-            commands = listOf(cmd("brainstorming")),
-            skills = listOf(cmd("brainstorming")),
-            sendable = setOf("superpowers:brainstorming"),
-        )
-
-        assertEquals(GROUP_SKILL, out[0].group)
-    }
+    // ---- 分组 ----
 
     @Test
-    fun `在技能列表里的进技能组，其余进内置组`() {
+    fun `带插件命名空间的进插件组，其余进其它组`() {
         val out = commandCandidates(
-            commands = listOf(cmd("compact"), cmd("brainstorming")),
-            skills = listOf(cmd("brainstorming")),
-            sendable = setOf("compact", "brainstorming"),
+            commands = listOf(cmd("compact"), cmd("brainstorming"), cmd("caveman")),
+            sendable = setOf("compact", "superpowers:brainstorming", "caveman"),
         )
 
-        assertEquals(GROUP_BUILTIN, out.first { it.display == "compact" }.group)
-        assertEquals(GROUP_SKILL, out.first { it.display == "brainstorming" }.group)
-    }
-
-    @Test
-    fun `技能列表取不到时全部退化成内置组，而不是丢候选`() {
-        val out = commandCandidates(
-            commands = listOf(cmd("brainstorming")),
-            skills = emptyList(),
-            sendable = setOf("brainstorming"),
+        assertEquals(GROUP_OTHER, out.first { it.display == "compact" }.group)
+        assertEquals(GROUP_PLUGIN, out.first { it.display == "brainstorming" }.group)
+        assertEquals(
+            GROUP_OTHER,
+            out.first { it.display == "caveman" }.group,
+            "用户技能目录里的是裸名，协议分不出来 —— 所以标签只能叫「其它」，",
         )
-
-        assertEquals(1, out.size)
-        assertEquals(GROUP_BUILTIN, out[0].group)
     }
+
+    // ---- 副标题 ----
 
     @Test
     fun `描述压成单行并截断 —— 真实的技能描述是整段的`() {

@@ -2,9 +2,19 @@ package com.ccoder.ui
 
 import com.ccoder.sidecar.CommandInfo
 
-/** 分组标题。 */
-internal const val GROUP_BUILTIN = "内置"
-internal const val GROUP_SKILL = "技能"
+/**
+ * 分组标题。
+ *
+ * 为什么是「插件 / 其它」而不是「技能 / 内置」：**协议里没有字段能区分
+ * "CLI 内置命令"和"用户技能目录里的技能"** —— 实测（2026-09-13 探针）
+ * `caveman`、`react-doctor`、`verify` 这些用户技能和 `compact`、`clear`
+ * 在可发送名那一份里**长得一模一样，都是裸名**。把这一组叫「内置」是在撒谎。
+ *
+ * 唯一的结构性信号是**插件命名空间**（`superpowers:brainstorming`），
+ * 拿它当分界线：带前缀的确实是插件，其余确实不是。标签照实说。
+ */
+internal const val GROUP_PLUGIN = "插件"
+internal const val GROUP_OTHER = "其它"
 
 /**
  * 命令名归一化：小写、空白折成连字符。
@@ -40,18 +50,20 @@ internal fun sameCommand(a: String, b: String): Boolean {
 }
 
 /**
- * 把三份来源拼成候选。
+ * 把两份来源拼成候选。
  *
  * @param commands 显示信息（A）
- * @param skills   技能子集，只用来分组（C）
  * @param sendable 可发送的名字（B，来自 init 事件）
  *
  * 只在 A 里有、或配不上 B 的命令**直接不出现** —— 显示一个发出去会被当
  * 普通文本的"命令"，比不显示更糟（设计稿 §4.1 规则 2）。
+ *
+ * 分组只看**可发送名带不带插件命名空间**（见 [GROUP_PLUGIN]）。设计稿 §4.1
+ * 原定的 C 来源是 `reloadSkills()`，但实测这台 CLI 不支持
+ * （`Unsupported control request subtype: reload_skills`），所以走命名空间。
  */
 internal fun commandCandidates(
     commands: List<CommandInfo>,
-    skills: List<CommandInfo>,
     sendable: Set<String>,
 ): List<CompletionItem> {
     return commands.mapNotNull { cmd ->
@@ -61,7 +73,7 @@ internal fun commandCandidates(
             insert = insert,
             description = describeCommand(cmd),
             aliases = cmd.aliases,
-            group = if (skills.any { sameCommand(insert, it.name) }) GROUP_SKILL else GROUP_BUILTIN,
+            group = if (insert.contains(':')) GROUP_PLUGIN else GROUP_OTHER,
         )
     }
 }

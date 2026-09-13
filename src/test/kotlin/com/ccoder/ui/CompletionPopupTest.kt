@@ -13,8 +13,8 @@ import javax.swing.JLabel
  */
 class CompletionPopupTest {
 
-    private val builtin = CompletionItem("compact", "compact", "压缩上下文", group = GROUP_BUILTIN)
-    private val skill = CompletionItem("brainstorming", "brainstorming", "想清楚", group = GROUP_SKILL)
+    private val builtin = CompletionItem("compact", "compact", "压缩上下文", group = GROUP_OTHER)
+    private val skill = CompletionItem("brainstorming", "brainstorming", "想清楚", group = GROUP_PLUGIN)
 
     private fun labelsOf(c: Component): List<JLabel> = buildList {
         if (c is JLabel) add(c)
@@ -25,7 +25,7 @@ class CompletionPopupTest {
 
     /** 去掉分组标题，剩下的就是候选行。 */
     private fun rowsOf(c: Component): List<JLabel> =
-        labelsOf(c).filter { it.text != GROUP_BUILTIN && it.text != GROUP_SKILL }
+        labelsOf(c).filter { it.text != GROUP_OTHER && it.text != GROUP_PLUGIN }
 
     @Test
     fun `弹层不可聚焦 —— 焦点跑掉的话接下来的字符就进了弹层`() {
@@ -36,23 +36,23 @@ class CompletionPopupTest {
     @Test
     fun `分组标题只在换组时出现一次`() {
         val two = buildCompletionList(listOf(builtin, skill), selected = 0)
-        assertEquals(1, textsOf(two).count { it == GROUP_BUILTIN })
-        assertEquals(1, textsOf(two).count { it == GROUP_SKILL })
+        assertEquals(1, textsOf(two).count { it == GROUP_OTHER })
+        assertEquals(1, textsOf(two).count { it == GROUP_PLUGIN })
     }
 
     @Test
     fun `同组连续多项只画一个标题`() {
-        val a = CompletionItem("a", "a", group = GROUP_BUILTIN)
-        val b = CompletionItem("b", "b", group = GROUP_BUILTIN)
+        val a = CompletionItem("a", "a", group = GROUP_OTHER)
+        val b = CompletionItem("b", "b", group = GROUP_OTHER)
         val list = buildCompletionList(listOf(a, b), selected = 0)
-        assertEquals(1, textsOf(list).count { it == GROUP_BUILTIN })
+        assertEquals(1, textsOf(list).count { it == GROUP_OTHER })
     }
 
     @Test
     fun `没有分组的候选不画标题`() {
         val list = buildCompletionList(listOf(CompletionItem("x", "x")), selected = 0)
-        assertFalse(textsOf(list).contains(GROUP_BUILTIN))
-        assertFalse(textsOf(list).contains(GROUP_SKILL))
+        assertFalse(textsOf(list).contains(GROUP_OTHER))
+        assertFalse(textsOf(list).contains(GROUP_PLUGIN))
     }
 
     @Test
@@ -66,7 +66,7 @@ class CompletionPopupTest {
 
     @Test
     fun `弹层高度取内容的真实首选高，末一行不会被裁掉`() {
-        val many = (1..3).map { CompletionItem("c$it", "c$it", group = GROUP_BUILTIN) }
+        val many = (1..3).map { CompletionItem("c$it", "c$it", group = GROUP_OTHER) }
         val list = buildCompletionList(many, selected = 0)
         val column = (list as java.awt.Container).components.single()
 
