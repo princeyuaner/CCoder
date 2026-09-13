@@ -172,7 +172,14 @@ body {
 .bubble__omitted {
   margin-top: 4px;
   font-size: 11px;
-  color: var(--text-dim, #8c8c8c);
+  /* 跟着气泡自己的前景色走：--text-dim 是给**面板背景**用的次要色，塞进 accent 蓝的
+     用户气泡上只有 1.63:1，等于看不见 —— 而这条正是"丢失必须可见"的载体（spec §7.1）。
+     inherit 让它在用户气泡里是白、在助手气泡里是正文色。
+     不降透明度：0.75 是 3.83:1、不达标；0.9 是 4.77:1，过线但只余 0.27，而这条字的
+     对比度天花板由气泡底色定死（#fff on #2f65ca = 5.48:1）—— 主题换个更浅的 accent，
+     白字整体一起往下掉，先掉出去的正是被降过透明度的那条。要淡就用字号，别用透明度。
+     注：这几个数是 build/probe/image-bubble-probe.mjs 用真 Chromium 量的（jsdom 量不出布局与颜色） */
+  color: inherit;
 }
 
 .timestamp {
