@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.CommandInfo
 import com.ccoder.sidecar.NodeCheck
 import com.ccoder.sidecar.NodeStatus
 import com.ccoder.sidecar.Protocol
@@ -15,6 +16,7 @@ import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
 import com.ccoder.settings.PermissionModeSetting
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -29,6 +31,7 @@ import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
@@ -48,6 +51,7 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.event.DocumentEvent
 import javax.swing.text.DefaultCaret
 
 /**
@@ -219,9 +223,59 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 懒启动（spec §7.2）：第一次发消息才起 sidecar。 */
     private var pendingFirstMessage: String? = null
 
+    // ---- 补全（设计稿 §3）----
+
+    /** 命令显示信息与技能分组，会话就绪后拉一次。 */
+    private var commandList: List<CommandInfo> = emptyList()
+    private var skillList: List<CommandInfo> = emptyList()
+
+    /** 可发送的命令名，来自最近一条 `init` 事件的 `slash_commands`。 */
+    private var sendableNames: Set<String> = emptySet()
+
+    private val completion = CompletionPopup()
+    private var completionQuery: CompletionQuery? = null
+    private var completionItems: List<CompletionItem> = emptyList()
+    private var completionIndex = 0
+
+    /**
+     * 项目文件列表，**按弹层生命周期缓存**。
+     *
+     * 不缓存的话每次按键都要走一遍 ProjectFileIndex，那是几万条 VFS 访问。
+     * 关层时清掉，所以新开的弹层总能看到新建的文件。
+     */
+    private var projectFiles: List<String>? = null
+
+    /** 采纳时的程序化改写会触发文档监听，用它挡掉自引发的重算。 */
+    private var suppressCompletion = false
+
+    /** 这一回合是命令回合（发出去的消息以 `/` 开头）。 */
+    private var lastSendWasCommand = false
+
     init {
+        // 补全：文本变了就重算候选。用文档监听而不是按键监听 ——
+        // 粘贴、撤销、退格都会改文本，而它们不都是"按键"
+        input.document.addDocumentListener(object : DocumentAdapter() {
+            override fun textChanged(e: DocumentEvent) = refreshCompletion()
+        })
+        // 光标挪走（点了一下别处）时弹层要跟着收，否则它会停在一个
+        // 已经没有查询词的位置上
+        input.addCaretListener { refreshCompletion() }
+
         input.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
+                // 补全开着时，上下键与 Enter/Tab/Esc 归补全。
+                // **只在真开着时短路** —— 关着的时候 Enter 该不该发送
+                // 仍然是 isSendKey 的事，那个函数一行都不改
+                if (completion.isOpen) {
+                    when (completionKey(e.keyCode)) {
+                        CompletionKey.Up -> { e.consume(); moveCompletion(-1); return }
+                        CompletionKey.Down -> { e.consume(); moveCompletion(1); return }
+                        CompletionKey.Accept -> { e.consume(); acceptCompletion(); return }
+                        CompletionKey.Dismiss -> { e.consume(); closeCompletion(); return }
+                        CompletionKey.Ignore -> Unit
+                    }
+                }
+
                 // 哪个键算发送由设置决定（聊天惯例 / 编辑器惯例，见 SendShortcut）
                 val shortcut = ClaudeSettings.getInstance(project).sendShortcut
 
@@ -1005,6 +1059,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 顺序按 spec §7.4：先停会话，再关通道，最后杀进程树。
      */
     private fun stopSession() {
+        // 命令列表随会话走（设计稿 §4.1）。留着它会让未连接时打 `/`
+        // 弹出一份过期的
+        commandList = emptyList()
+        skillList = emptyList()
+        sendableNames = emptySet()
+        closeCompletion()
+
         // 浮层挂在旧会话的状态上，会话没了它就该消失
         runDetailPopup?.cancel()
         runDetailPopup = null
@@ -1049,6 +1110,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     setConnection("已连接")
                     disconnected = false
                     refreshMainButton()
+                    requestCommands()
 
                     val resuming = resumeTargetId
                     if (resuming != null) {
@@ -1082,6 +1144,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // 设置里那个可能被环境变量或 SDK 默认值覆盖
                     if (msg.event.str("subtype") == "init") {
                         msg.event.str("model")?.let { modelLabel.text = it }
+
+                        // 可发送的命令名。与显示名不是一回事（设计稿 §2 事实 5），
+                        // 补全列表要靠它才知道选中后该写什么进输入框
+                        msg.event.arr("slash_commands")
+                            ?.filter { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+                            ?.map { it.asString }
+                            ?.toSet()
+                            ?.let { sendableNames = it }
 
                         // 真正的会话 id 只在这里。**不读 ready.sessionId** ——
                         // 那个回显的是请求参数，全新会话时是 null（spec §10）。
@@ -1415,6 +1485,100 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     // ---- 输入 ----
 
+    // ---- 补全（设计稿 §3）----
+
+    /**
+     * 重算候选并更新弹层。文档变化与光标变化都走这里。
+     *
+     * **两类触发各自过滤，不共用 [filterCandidates]。** 文件那条要的是
+     * "路径前缀**或文件名**前缀"（`Comp` 要能命中
+     * `src/main/kotlin/com/ccoder/ui/Composer.kt`），而通用过滤走的是
+     * 显示串整体前缀 —— 共用的话按文件名搜会一条都搜不到。
+     */
+    private fun refreshCompletion() {
+        if (suppressCompletion) return
+        val q = completionQuery(input.text, input.caretPosition)
+        if (q == null) return closeCompletion()
+
+        val filtered = when (q.trigger) {
+            Trigger.Command ->
+                filterCandidates(commandCandidates(commandList, skillList, sendableNames), q.query)
+
+            Trigger.File -> fileCandidates(allProjectFiles(), q.query)
+        }
+        if (filtered.isEmpty()) return closeCompletion()
+
+        completionQuery = q
+        completionItems = filtered
+        completionIndex = 0
+        showCompletion()
+    }
+
+    /** 全部项目文件，按弹层生命周期缓存，见 [projectFiles]。 */
+    private fun allProjectFiles(): List<String> =
+        projectFiles ?: collectProjectFiles(project).also { projectFiles = it }
+
+    private fun showCompletion() {
+        val caret = caretRect()
+        // modelToView2D 在没有布局时返回 null（面板还没显示），此时不弹
+        if (caret == null) return closeCompletion()
+        completion.show(input, caret, completionItems, completionIndex)
+    }
+
+    /**
+     * 光标那一格的矩形（相对输入框）。
+     *
+     * `JBTextArea.modelToView2D` 只在组件已布局时有效，未布局时返回 null ——
+     * 直接解引用会在面板还没显示时 NPE。
+     */
+    private fun caretRect(): Rectangle? =
+        runCatching { input.modelToView2D(input.caretPosition)?.bounds }.getOrNull()
+
+    private fun moveCompletion(delta: Int) {
+        completionIndex = nextHighlight(completionIndex, delta, completionItems.size)
+        showCompletion()
+    }
+
+    private fun acceptCompletion() {
+        val q = completionQuery ?: return
+        val item = completionItems.getOrNull(completionIndex) ?: return
+        val (text, caret) = applyCompletion(input.text, input.caretPosition, q, item)
+
+        // 程序化改写会触发文档监听；不挡住的话它会拿旧的光标位置重算一次，
+        // 命令那种没有尾随空格的文本还会把弹层又弹回来
+        suppressCompletion = true
+        try {
+            input.text = text
+            input.caretPosition = caret
+        } finally {
+            suppressCompletion = false
+        }
+        closeCompletion()
+    }
+
+    private fun closeCompletion() {
+        completion.hide()
+        completionQuery = null
+        completionItems = emptyList()
+        completionIndex = 0
+        // 关层即丢缓存：下次打开能看到这一轮新建的文件
+        projectFiles = null
+    }
+
+    /** 会话就绪后拉一次命令列表。取不到就保持空 —— 补全靠不到它照常工作。 */
+    private fun requestCommands() {
+        val c = client ?: return
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeListCommands(reqId)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                val msg = (outcome as? RequestOutcome.Answered)?.message as? SidecarMessage.Commands
+                    ?: return@invokeLater
+                commandList = msg.commands
+                skillList = msg.skills
+            }
+        }
+    }
+
     private fun sendCurrentInput() {
         if (input.text.isBlank()) return
         val text = input.text.trim()
@@ -1437,6 +1601,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
 
         client?.sendLine(Protocol.encodeSend(nextId(), text))
+        // 记住这一回合是不是命令 —— 命令的空输出不该画气泡（设计稿 §5.1）。
+        // 判据只能用"发出去的是什么"：实测 result.local_command 恒为 null
+        lastSendWasCommand = text.startsWith("/")
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
     }
@@ -1455,6 +1622,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private fun JsonObject.str(key: String): String? =
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+
+    private fun JsonObject.arr(key: String): JsonArray? =
+        get(key)?.takeIf { it.isJsonArray }?.asJsonArray
 
     private fun nextId(): String = "req-${idCounter++}"
 
