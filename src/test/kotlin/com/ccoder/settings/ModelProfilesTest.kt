@@ -94,28 +94,9 @@ class ModelProfilesTest {
         assertNull(m.selected())
     }
 
-    @Test
-    fun `persist 出去的字符串里没有密钥`() {
-        // spec §4 的硬要求：密钥不落盘明文。这条对着**产出的数据**断言，
-        // 不是对着字段名断言 —— 后者证明不了什么
-        val m = fresh()
-        val a = ModelProfile(name = "A", baseUrl = "https://a")
-        m.upsert(a)
-        m.setSecret(a.id, "sk-should-not-appear")
-
-        val serialized = m.serializedForTest()
-
-        assertFalse(
-            serialized.contains("sk-should-not-appear"),
-            "密钥出现在了持久化数据里：$serialized",
-        )
-        assertTrue(serialized.contains(a.id), "id 必须留下 —— 密钥靠它找回")
-    }
-
     /**
-     * 上一条测的是一段手写的字符串；这一条才是平台真正会写进 XML 的那份数据。
-     *
-     * 密钥混进去就是明文落盘，而手写串那条**照样是绿的** —— 两条都要有。
+     * spec §4 的硬要求：密钥不落盘明文。这条对着**产出的数据**断言，
+     * 不是对着字段名断言 —— 后者证明不了什么。
      */
     @Test
     fun `XmlSerializer 写出的 XML 里也没有密钥`() {

@@ -1,6 +1,7 @@
 package com.ccoder.settings
 
 import com.intellij.openapi.project.Project
+import com.intellij.ui.components.JBPasswordField
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -9,11 +10,13 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
+import java.awt.event.FocusEvent
 import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import java.lang.reflect.Proxy
 import javax.imageio.ImageIO
+import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.SwingUtilities
@@ -256,6 +259,9 @@ class ModelProfilesDialogProbe {
  * 单看代码是看不出来的：`selectedItem` 在挂监听器之前赋值、`JBPasswordField(text)`
  * 在挂监听器之前构造，这两处的**顺序**一旦被后人调换，症状是"一打开对话框就写一次库"，
  * 而没有任何用例会红。
+ *
+ * 「认证方式」那个下拉与密钥框的打码也归这里 —— 两者都是"控件状态 → 落盘/显示"
+ * 这类单看代码看不出对错的接线（见各自用例上的说明）。
  */
 class ModelProfilesDialogSaveTest {
 
@@ -295,6 +301,11 @@ class ModelProfilesDialogSaveTest {
             ?: findFirst(input, { it is JTextComponent }) as? JTextComponent
             ?: error("「$label」下面没有输入控件")
     }
+
+    /** 字段下面那个下拉。 */
+    private fun comboOf(dialog: ModelProfilesDialog, label: String): JComboBox<*> =
+        inputOf(dialog.contentPanel, label) as? JComboBox<*>
+            ?: error("「$label」下面不是下拉框")
 
     /**
      * 在某个字段里"打字"：改的是真 Document，所以走的是真监听器。
@@ -377,6 +388,87 @@ class ModelProfilesDialogSaveTest {
         appendChar(dialog, "API Key", "!")
         assertEquals("sk-secret!", store.map["p1"], "改过的密钥要落进库")
         assertEquals(1, store.writes)
+    }
+
+    /**
+     * 下拉的**初值**必须是存下来的那个。
+     *
+     * 它是"认证方式"唯一落盘通路上的第一环：初值要是丢了（比如 `selectedItem = ...`
+     * 那行被删），下拉会显示第一项 API_KEY，而用户在**名称**里随便打一个字触发 save()
+     * 时，`authKind.selectedItem` 就被当成了他的选择 —— 认证方式被静默改掉。
+     */
+    @Test
+    fun `打开表单时下拉显示的是存下来的认证方式`() {
+        val store = MemoryStore()
+        val (dialog, _) = openOn(store, p1)   // p1 存的是 AUTH_TOKEN
+
+        assertEquals(
+            AuthKind.AUTH_TOKEN,
+            comboOf(dialog, "认证方式").selectedItem,
+            "下拉的初值必须与落盘的那个一致",
+        )
+    }
+
+    /**
+     * 改下拉要立刻落库 —— 这是"认证方式"**唯一落盘的通路**。
+     *
+     * 坏了就是"下拉显示 Bearer、实际发 x-api-key"的静默 401，而那看起来和
+     * "密钥填错了"一模一样（见 AuthKind 的说明）。挂监听器那行删掉时，这条会红。
+     */
+    @Test
+    fun `改认证方式立刻落库`() {
+        val store = MemoryStore(mapOf("p1" to "sk-secret"))
+        val (dialog, service) = openOn(store, p1)
+
+        SwingUtilities.invokeAndWait {
+            comboOf(dialog, "认证方式").selectedItem = AuthKind.API_KEY
+        }
+
+        assertEquals(
+            AuthKind.API_KEY.name,
+            service.profiles().single().authKind,
+            "下拉的改动必须已经落进 ModelProfiles",
+        )
+        assertEquals(0, store.writes, "只改了认证方式，密钥一个字没动，不该写凭据库")
+    }
+
+    /**
+     * spec §7 的第三半：「失焦即恢复打码」。
+     *
+     * 前两半（默认打码 + 👁 切明文）都有实现，但只看代码分不出第三半在不在：
+     * 不挂监听器的话，**只有点另一行**（整张表单重建）才会重新打码，光把焦点移开
+     * 不会 —— 明文就一直留在屏幕上，直到切换配置或关窗，而那正是这个字段唯一要防的事。
+     *
+     * 临时失焦**不能**复位：点 ComboBox 弹下拉会让焦点临时移走再还回来，
+     * 那种也复位的话，眼睛刚点开的明文会跟着闪一下。
+     */
+    @Test
+    fun `密钥失焦恢复打码，临时失焦不复位`() {
+        val store = MemoryStore(mapOf("p1" to "sk-secret"))
+        val (dialog, _) = openOn(store, p1)
+        val secret = fieldOf(dialog, "API Key") as JBPasswordField
+        val masked = secret.echoChar
+
+        SwingUtilities.invokeAndWait {
+            val eye = findFirst(dialog.contentPanel) { it is JLabel && it.toolTipText == "显示/隐藏密钥" }
+                ?: error("找不到那只眼睛")
+            clickOn(eye)
+        }
+        assertEquals(0.toChar(), secret.echoChar, "点了眼睛就该是明文")
+
+        SwingUtilities.invokeAndWait {
+            secret.focusListeners.forEach {
+                it.focusLost(FocusEvent(secret, FocusEvent.FOCUS_LOST, true, null))
+            }
+        }
+        assertEquals(0.toChar(), secret.echoChar, "临时失焦（点下拉那种）不该复位，否则明文会闪")
+
+        SwingUtilities.invokeAndWait {
+            secret.focusListeners.forEach {
+                it.focusLost(FocusEvent(secret, FocusEvent.FOCUS_LOST, false, null))
+            }
+        }
+        assertEquals(masked, secret.echoChar, "真失焦就该恢复打码 —— 明文不该留在屏幕上")
     }
 
     /**

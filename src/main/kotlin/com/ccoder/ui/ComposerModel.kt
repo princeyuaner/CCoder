@@ -20,7 +20,7 @@ import javax.swing.JPanel
  *
  * 实现与测试共用，免得两边各写一遍然后漂移（同 [MARK]）。
  */
-internal const val MANAGE_LABEL = "管理模型配置…"
+internal const val MANAGE_LABEL = "⚙ 管理模型…"
 
 /** 一条配置都没有时的说明。弹层空着看起来像抽风，得讲清楚并给出唯一的出路。 */
 private const val NO_PROFILE_LABEL = "还没有配置任何模型"

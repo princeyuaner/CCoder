@@ -9,6 +9,7 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 密钥的读写口。
@@ -66,11 +67,17 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
     /**
      * 密钥的内存缓存。
      *
-     * `toStartParams` 会在 EDT 上被调用（`sendStart` 的两条路里有一条在 EDT），
-     * 每次去 PasswordSafe 同步读一次是拿 UI 线程在等 I/O。读一次记住即可 ——
-     * 唯一的写入方是本类的 [setSecret]，它负责让缓存与存储同步。
+     * **它会被两种线程同时碰**：读它的 `toStartParams` 由 `sendStart` 调用，
+     * 而那两条路一条在 EDT、一条在**池化线程**上（`ClaudePanel.startSession` 的
+     * `executeOnPooledThread`）；写它的 [setSecret] 由设置对话框在 EDT 上调用。
+     * 对话框是 application-modal，**挡不住池化线程** —— 所以"EDT 写 / 后台读"
+     * 同时发生是可达的，缓存因此是 [ConcurrentHashMap]（读一次记住，别拿 UI 线程
+     * 同步等 PasswordSafe 的 I/O 这件事本身没变）。
+     *
+     * 同一批线程问题也适用于本类对 `myState.profiles` 的那些遍历：它们都先取快照，
+     * 理由见 [selected]。
      */
-    private val secretCache = mutableMapOf<String, String>()
+    private val secretCache = ConcurrentHashMap<String, String>()
 
     override fun getState(): State = myState
 
@@ -79,12 +86,20 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
         secretCache.clear()
     }
 
+    /** 快照。理由同 [selected]。 */
     fun profiles(): List<ModelProfile> = myState.profiles.toList()
 
     fun selectedId(): String? = myState.selectedId
 
+    /**
+     * 先对整个列表取快照再找。
+     *
+     * 这个读会在**池化线程**上发生（见 [secretCache]），而 EDT 上的 [upsert] /
+     * [remove] 正同时往 `myState.profiles` 里增删。直接遍历那个活 `ArrayList`
+     * 可能读到半个列表 —— 症状不是崩溃，是"密钥时有时无"这类最难查的形态。
+     */
     fun selected(): ModelProfile? =
-        myState.profiles.firstOrNull { it.id == myState.selectedId }
+        myState.profiles.toList().firstOrNull { it.id == myState.selectedId }
 
     /** 传一个不存在的 id 等于没选 —— 免得启动路径读到一个空引用。 */
     fun select(id: String?) {
@@ -112,12 +127,6 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
         secrets.write(id, trimmed)
         if (trimmed.isEmpty()) secretCache.remove(id) else secretCache[id] = trimmed
     }
-
-    /** 只给测试用：看看真正会被写进 XML 的东西长什么样。 */
-    internal fun serializedForTest(): String =
-        myState.profiles.joinToString("\n") {
-            "${it.id}|${it.name}|${it.baseUrl}|${it.modelId}|${it.authKind}"
-        } + "\nselected=${myState.selectedId}"
 
     companion object {
         fun getInstance(): ModelProfiles =

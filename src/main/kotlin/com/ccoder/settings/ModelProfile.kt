@@ -77,8 +77,11 @@ fun modelProfileEnv(profile: ModelProfile, secret: String): Map<String, String> 
     }
 
     if (key.isEmpty()) {
+        // 名字用 displayName() 而不是 name：只填了 modelId 的配置（很常见 ——
+        // 名字是想起来才补的）会显示成「模型「」填了 Base URL…」，
+        // 而这是产品里最需要"说人话"的那条消息
         throw ModelProfileIncomplete(
-            "模型「${profile.name}」填了 Base URL（$url）却没有密钥。\n" +
+            "模型「${profile.displayName()}」填了 Base URL（$url）却没有密钥。\n" +
                 "第三方端点必须有密钥 —— 否则请求会安静地发出去然后失败。"
         )
     }

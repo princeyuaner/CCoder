@@ -1267,6 +1267,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         sessionPopup?.cancel()
         sessionPopup = null
 
+        // 模型列表同理：它选中的那条要等重开才生效。
+        // [dispose] 也走这里 —— 不取消的话面板都没了它还留在屏幕上，
+        // 而且手里攥着一个已销毁面板的 lambda
+        modelPopup?.cancel()
+        modelPopup = null
+
         // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
         // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。

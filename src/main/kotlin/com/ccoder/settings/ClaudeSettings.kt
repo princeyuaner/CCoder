@@ -164,14 +164,17 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         return StartParams(
             cwd = cwd.absolutePathString(),
             permissionMode = permissionMode.wireValue,
-            // 选中了配置就用它的模型；没选中则回退到老字段
-            model = picked?.modelId?.ifBlank { null } ?: model.ifBlank { null },
+            // 选中了配置就**只**用它的模型；老字段只在没选中任何配置时生效（spec §6）。
+            // 写成 `picked?.modelId?.ifBlank { null } ?: model.ifBlank { null }` 会把
+            // "选中了一条没填模型 ID 的第三方配置"变成"回退到当初给官方端点写的那
+            // 个模型名"，然后把它发给网关
+            model = if (picked != null) picked.modelId.ifBlank { null } else model.ifBlank { null },
             claudePath = claudePath.ifBlank { null },
             extraDirs = extraDirs.filter { it.isNotBlank() },
             envOverrides = mergeProfileEnv(
                 envOverrides.filterValues { it.isNotBlank() },
                 env,
-            ).filterValues { it.isNotBlank() },
+            ),
         )
     }
 

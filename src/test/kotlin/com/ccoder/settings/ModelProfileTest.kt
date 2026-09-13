@@ -70,6 +70,30 @@ class ModelProfileTest {
     }
 
     @Test
+    fun `认证方式有可读的标签`() {
+        // 设置页那个下拉直接显示它（对话框里靠 renderer 取 label），
+        // 枚举名 API_KEY / AUTH_TOKEN 是给代码看的，不该出现在界面上
+        // —— 照 ClaudeSettingsTest 里 PermissionModeSetting.label 的先例
+        assertEquals("API Key", AuthKind.API_KEY.label)
+        assertEquals("Bearer", AuthKind.AUTH_TOKEN.label)
+    }
+
+    @Test
+    fun `没有密钥的报错用显示名点名模型`() {
+        // 名字是想起来才补的，只填 modelId 的配置很常见。
+        // 插值 profile.name 的话这条消息会变成「模型「」填了 Base URL…」，
+        // 而它恰恰是产品里最需要"说人话"的那条
+        val ex = assertThrows(ModelProfileIncomplete::class.java) {
+            modelProfileEnv(
+                ModelProfile(baseUrl = "https://x", modelId = "glm-4.6"),
+                secret = "",
+            )
+        }
+
+        assertTrue(ex.message!!.contains("glm-4.6"), "实际：${ex.message}")
+    }
+
+    @Test
     fun `默认认证方式按 baseUrl 是否为空推断`() {
         assertEquals(AuthKind.API_KEY, defaultAuthKind(""))
         assertEquals(AuthKind.API_KEY, defaultAuthKind("   "))

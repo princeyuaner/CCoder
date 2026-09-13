@@ -17,6 +17,8 @@ import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.Box
@@ -336,8 +338,19 @@ internal class ModelProfilesDialog(
      * 默认打码（spec §7），但得留一个"看一眼"的出口：第三方网关的密钥多半是从
      * 别处复制来的，粘完想核对一下很正常。切换只动 `echoChar`，**不重建组件** ——
      * 重建会顺手把光标位置和选区丢掉。
+     *
+     * 看完了要**自己合上**（spec §7「失焦即恢复打码」）：不挂这个监听器的话，
+     * 只有点另一行（整张表单重建）才会重新打码，于是明文一直留在屏幕上 ——
+     * 那正是这个字段唯一要防的事。
      */
     private fun secretField(secret: JBPasswordField): JComponent {
+        secret.addFocusListener(object : FocusAdapter() {
+            override fun focusLost(e: FocusEvent) {
+                // 只认真正的失焦：点 ComboBox 弹下拉会让焦点**临时**移走再还回来，
+                // 那种也复位的话，眼睛里看到的明文会跟着闪一下
+                if (!e.isTemporary) secret.echoChar = ECHO_MASKED
+            }
+        })
         val eye = JBLabel(AllIcons.General.InspectionsEye).apply {
             toolTipText = "显示/隐藏密钥"
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
