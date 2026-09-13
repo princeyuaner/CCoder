@@ -101,8 +101,16 @@ object TranscriptOpCodec {
 
             is TranscriptItem.ToolUse -> {
                 obj.addProperty("kind", "toolUse")
+                obj.addProperty("toolUseId", item.toolUseId)
                 obj.addProperty("name", item.name)
                 obj.addProperty("input", item.input)
+            }
+
+            is TranscriptItem.ToolResult -> {
+                obj.addProperty("kind", "toolResult")
+                obj.addProperty("toolUseId", item.toolUseId)
+                obj.addProperty("text", item.text)
+                obj.addProperty("isError", item.isError)
             }
 
             is TranscriptItem.Result -> {

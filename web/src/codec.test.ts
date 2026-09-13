@@ -23,7 +23,7 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    expect(ops).toHaveLength(12)
+    expect(ops).toHaveLength(13)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
   })
@@ -31,9 +31,24 @@ describe('契约 fixture', () => {
   it('fixture 能被完整应用到状态上而不丢内容', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
     const state = applyOps(emptyState(), ops)
-    // fixture 里有 7 条 append/finalize 产生的消息
-    expect(state.items.length).toBeGreaterThanOrEqual(6)
+    // fixture 里有 10 条 append/finalize 产生的消息（含工具调用与它的结果）
+    expect(state.items).toHaveLength(9)
     expect(state.live.assistant).toBeUndefined()
+  })
+
+  it('工具调用带着配对的 toolUseId 过来', () => {
+    // 结果要挂回这次调用，全靠这个 id。丢了这个字段界面上就配不上对
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const use = ops.find((o) => o.op === 'append' && o.item.kind === 'toolUse')
+    expect(use).toMatchObject({ item: { name: 'Read', toolUseId: 'toolu_1' } })
+  })
+
+  it('工具结果带着配对 id、正文与错误标记过来', () => {
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const result = ops.find((o) => o.op === 'append' && (o.item.kind as string) === 'toolResult')
+    expect(result).toMatchObject({
+      item: { toolUseId: 'toolu_1', text: '1\tpackage a\n2\t\n', isError: false },
+    })
   })
 })
 

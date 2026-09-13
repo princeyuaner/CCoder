@@ -197,6 +197,103 @@ class MessageRendererTest {
         )
     }
 
+    // ---- 工具调用与它的结果（设计稿 transcript-tools.html 方案乙）----
+    //
+    // 界面上要把结果挂回对应的那次调用，所以两侧都得有 id：
+    // 调用带 tool_use.id，结果带 tool_use_id，两边靠它配对。
+
+    @Test
+    fun `tool_use 带出它的 id`() {
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"assistant","message":{"content":[
+                  {"type":"tool_use","id":"toolu_1","name":"Edit","input":{"file_path":"/a.kt"}}]}}
+                """
+            )
+        )
+        assertEquals("toolu_1", (items[0] as RenderItem.ToolUse).id)
+    }
+
+    @Test
+    fun `工具结果渲染为 ToolResult 并带上调用 id`() {
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"user","message":{"content":[
+                  {"type":"tool_result","tool_use_id":"toolu_1","content":"LICENSE.md\nREADME.md"}]}}
+                """
+            )
+        )
+        assertEquals(1, items.size)
+        val result = items[0] as RenderItem.ToolResult
+        assertEquals("toolu_1", result.toolUseId)
+        assertEquals("LICENSE.md\nREADME.md", result.text)
+        assertEquals(false, result.isError)
+    }
+
+    @Test
+    fun `数组形式的工具结果把文本块拼起来`() {
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"user","message":{"content":[
+                  {"type":"tool_result","tool_use_id":"t1","content":[
+                     {"type":"text","text":"第一行"},
+                     {"type":"text","text":"第二行"}]}]}}
+                """
+            )
+        )
+        assertEquals("第一行\n第二行", (items[0] as RenderItem.ToolResult).text)
+    }
+
+    @Test
+    fun `失败的工具结果标上 is_error`() {
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"user","message":{"content":[
+                  {"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"boom"}]}}
+                """
+            )
+        )
+        assertEquals(true, (items[0] as RenderItem.ToolResult).isError)
+    }
+
+    @Test
+    fun `只有图片的结果给一句占位`() {
+        // 不能给空字符串：卡片会变成一块什么都没有的空白，
+        // 用户不知道是"没输出"还是"界面坏了"
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"user","message":{"content":[
+                  {"type":"tool_result","tool_use_id":"t1","content":[
+                     {"type":"image","source":{"data":"..."}}]}]}}
+                """
+            )
+        )
+        assertEquals("（非文本结果）", (items[0] as RenderItem.ToolResult).text)
+    }
+
+    @Test
+    fun `没有 tool_use_id 的结果丢弃`() {
+        // 挂不回任何一次调用，画出来只能是一条无主的输出
+        val items = MessageRenderer.render(
+            event("""{"type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}""")
+        )
+        assertEquals(0, items.size)
+    }
+
+    @Test
+    fun `普通提问的 user 事件不进消息流`() {
+        // live 路径下用户气泡由 sendCurrentInput 直接推。这里再产一次就是两条
+        val items = MessageRenderer.render(
+            event("""{"type":"user","message":{"content":"这是什么项目"}}""")
+        )
+        assertEquals(0, items.size)
+    }
+
     // ---- 回放路径的 user 消息（Task 5）----
 
     private fun prompt(json: String) = MessageRenderer.renderPrompt(JsonParser.parseString(json).asJsonObject)

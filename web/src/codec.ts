@@ -1,7 +1,8 @@
 import type { TranscriptItem, TranscriptOp, TranscriptState } from './types'
 
 const KNOWN_KINDS = new Set([
-  'user', 'assistant', 'thinking', 'toolUse', 'error', 'result', 'systemNote',
+  'user', 'assistant', 'thinking', 'toolUse', 'toolResult',
+  'error', 'result', 'systemNote',
 ])
 
 /**
@@ -68,7 +69,28 @@ function parseItem(raw: unknown): TranscriptItem | null {
 
     case 'toolUse':
       return typeof it.name === 'string' && typeof it.input === 'string'
-        ? { ...base, kind: 'toolUse', name: it.name, input: it.input }
+        ? {
+            ...base,
+            kind: 'toolUse',
+            name: it.name,
+            input: it.input,
+            // 缺这个字段不丢整条：调用本身要显示出来，只是等不到输出
+            // （老版本 Kotlin 不送它）
+            toolUseId: typeof it.toolUseId === 'string' ? it.toolUseId : '',
+          }
+        : null
+
+    case 'toolResult':
+      // 与调用相反：没有 toolUseId 的结果**只能丢掉** —— 它挂不回任何一张
+      // 卡片，画出来就是一段无主的输出
+      return typeof it.toolUseId === 'string' && it.toolUseId !== '' && typeof it.text === 'string'
+        ? {
+            ...base,
+            kind: 'toolResult',
+            toolUseId: it.toolUseId,
+            text: it.text,
+            isError: it.isError === true,
+          }
         : null
 
     case 'result': {

@@ -16,6 +16,14 @@ data class ThemeColors(
     val surface: Color,
     val codeBg: Color,
     val errorBg: Color,
+    /** diff 的新增行底色（工具卡片里的 Edit 预览）。 */
+    val diffAddBg: Color,
+    /** diff 的删除行底色。 */
+    val diffDelBg: Color,
+    /** 标题行上 `+1` 的颜色。 */
+    val diffAddFg: Color,
+    /** 标题行上 `−1`、以及"失败"标记的颜色。 */
+    val diffDelFg: Color,
     val fontUi: Font,
     val fontMono: Font,
 )
@@ -44,6 +52,10 @@ object ThemeInjector {
         append(" --surface: ${colors.surface.hex()};")
         append(" --code-bg: ${colors.codeBg.hex()};")
         append(" --error-bg: ${colors.errorBg.hex()};")
+        append(" --diff-add-bg: ${colors.diffAddBg.hex()};")
+        append(" --diff-del-bg: ${colors.diffDelBg.hex()};")
+        append(" --diff-add-fg: ${colors.diffAddFg.hex()};")
+        append(" --diff-del-fg: ${colors.diffDelFg.hex()};")
         append(" --font-ui: ${colors.fontUi.css()};")
         append(" --font-mono: ${colors.fontMono.css()};")
         append(" }")
@@ -97,6 +109,13 @@ object PlatformTheme {
             // 错误背景：以文本色为基准向橙红偏移，得到低饱和变体。
             // 不用纯红——纯红在浅色主题下刺眼，在深色主题下又太暗。
             errorBg = mix(text, Color(0xD8, 0x43, 0x15), 0.85),
+            // diff 的两套颜色同理由主题色混出来，不写死绿/红：
+            // 硬编码的那种在浅色主题下要么看不见、要么刺眼。底色从**面板**
+            // 出发（只要一点点偏色），文字从**文本色**出发（要能读）
+            diffAddBg = mix(bg, Color(0x4C, 0xAF, 0x50), 0.16),
+            diffDelBg = mix(bg, Color(0xE0, 0x54, 0x54), 0.16),
+            diffAddFg = mix(text, Color(0x4C, 0xAF, 0x50), 0.60),
+            diffDelFg = mix(text, Color(0xE0, 0x54, 0x54), 0.60),
             fontUi = UIUtil.getLabelFont(),
             fontMono = EditorColorsManager.getInstance().globalScheme
                 .getFont(EditorFontType.PLAIN),

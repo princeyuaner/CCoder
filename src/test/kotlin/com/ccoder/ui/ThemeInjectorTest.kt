@@ -17,6 +17,10 @@ class ThemeInjectorTest {
         surface = Color(0x2B2D30),
         codeBg = Color(0x191A1C),
         errorBg = Color(0x4A1F1F),
+        diffAddBg = Color(0x1E2F1F),
+        diffDelBg = Color(0x33222A),
+        diffAddFg = Color(0x5FAD65),
+        diffDelFg = Color(0xDB5C5C),
         fontUi = Font("JetBrains Sans", Font.PLAIN, 13),
         fontMono = Font("JetBrains Mono", Font.PLAIN, 13),
     )
@@ -30,10 +34,13 @@ class ThemeInjectorTest {
 
     @Test
     fun `所有约定的变量都存在`() {
+        // 这份清单就是前端 styles.css 依赖的契约：少一个，那边就退回落色
         val css = ThemeInjector.buildCss(sample())
         for (name in listOf(
             "--bg", "--text", "--text-dim", "--border", "--accent",
-            "--surface", "--code-bg", "--error-bg", "--font-ui", "--font-mono",
+            "--surface", "--code-bg", "--error-bg",
+            "--diff-add-bg", "--diff-del-bg", "--diff-add-fg", "--diff-del-fg",
+            "--font-ui", "--font-mono",
         )) {
             assertTrue(css.contains("$name:"), "缺少变量 $name")
         }

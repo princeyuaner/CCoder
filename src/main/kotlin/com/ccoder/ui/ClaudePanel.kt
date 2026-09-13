@@ -1093,7 +1093,16 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
             is RenderItem.ToolUse ->
                 TranscriptOp.Append(
-                    TranscriptItem.ToolUse(nextMessageId(), now(), item.name, item.input)
+                    TranscriptItem.ToolUse(nextMessageId(), now(), item.id, item.name, item.input)
+                )
+
+            // 结果单独成项，按 toolUseId 由界面挂回那张卡片 ——
+            // 操作序列因此保持"只追加"，不必去改一条已经推出去的项
+            is RenderItem.ToolResult ->
+                TranscriptOp.Append(
+                    TranscriptItem.ToolResult(
+                        nextMessageId(), now(), item.toolUseId, item.text, item.isError,
+                    )
                 )
 
             is RenderItem.ErrorItem ->

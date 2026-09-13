@@ -16,11 +16,33 @@ sealed interface TranscriptItem {
 
     data class Thinking(override val id: String, override val ts: Long, val text: String) : TranscriptItem
 
+    /**
+     * 一次工具调用。
+     *
+     * [toolUseId] 是 SDK 的 `tool_use.id`（**不是**这一项的 [id]，那个是渲染用的
+     * 消息号）。[ToolResult] 靠它与这次调用配对。
+     */
     data class ToolUse(
         override val id: String,
         override val ts: Long,
+        val toolUseId: String,
         val name: String,
         val input: String,
+    ) : TranscriptItem
+
+    /**
+     * 一次工具调用的输出。
+     *
+     * 与 [ToolUse] 是**两条独立的项**（在协议里它们本来就是两条消息），
+     * 挂回哪张卡片由界面按 [toolUseId] 配对 —— 这样操作序列保持只追加，
+     * 不需要"改一条已经推出去的项"这种操作。
+     */
+    data class ToolResult(
+        override val id: String,
+        override val ts: Long,
+        val toolUseId: String,
+        val text: String,
+        val isError: Boolean,
     ) : TranscriptItem
 
     data class Error(override val id: String, override val ts: Long, val text: String) : TranscriptItem
@@ -45,7 +67,7 @@ sealed interface TranscriptItem {
 sealed interface TranscriptOp {
     data class Append(val item: TranscriptItem) : TranscriptOp
 
-    /** [target] 当前只有 "assistant" 一个取值 —— 思考流的逐字渲染被刻意丢弃。 */
+    /** [target]：`assistant` 是正文气泡，`thinking` 是收着的「思考中」块。 */
     data class AppendDelta(val target: String, val text: String) : TranscriptOp
 
     data class FinalizeDelta(val target: String, val text: String) : TranscriptOp

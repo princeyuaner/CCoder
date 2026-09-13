@@ -63,7 +63,7 @@ class TranscriptOpCodecTest {
         // 含反斜杠与引号，模拟 toolUse 的 input 字段
         val originalInput = "{\"path\":\"C:\\\\a\"}"
         val batch = TranscriptOpCodec.encodeBatch(
-            listOf(TranscriptOp.Append(TranscriptItem.ToolUse("m0", 1L, "Read", originalInput))),
+            listOf(TranscriptOp.Append(TranscriptItem.ToolUse("m0", 1L, "toolu_1", "Read", originalInput))),
         )
         val call = TranscriptOpCodec.encodePushCall(batch)
 

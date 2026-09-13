@@ -1,5 +1,6 @@
 export type ItemKind =
-  | 'user' | 'assistant' | 'thinking' | 'toolUse' | 'error' | 'result' | 'systemNote'
+  | 'user' | 'assistant' | 'thinking' | 'toolUse' | 'toolResult'
+  | 'error' | 'result' | 'systemNote'
 
 interface Base {
   id: string
@@ -11,7 +12,30 @@ export interface AssistantItem extends Base { kind: 'assistant'; text: string }
 export interface ThinkingItem extends Base { kind: 'thinking'; text: string }
 export interface ErrorItem extends Base { kind: 'error'; text: string }
 export interface SystemNoteItem extends Base { kind: 'systemNote'; text: string }
-export interface ToolUseItem extends Base { kind: 'toolUse'; name: string; input: string }
+/**
+ * 一次工具调用。
+ *
+ * `toolUseId` 是 SDK 的 `tool_use.id`；结果项带着同一个 id 回来，
+ * 界面靠它把输出挂到这张卡片上。空串表示这次调用没有可配对的 id
+ * （老版本 Kotlin 不送这个字段），卡片照画，只是不会等到输出。
+ */
+export interface ToolUseItem extends Base {
+  kind: 'toolUse'
+  toolUseId: string
+  name: string
+  input: string
+}
+
+/**
+ * 一次工具调用的输出。它与调用是**两条独立的项** —— 协议里本来就是两条
+ * 消息，操作序列因此保持只追加。
+ */
+export interface ToolResultItem extends Base {
+  kind: 'toolResult'
+  toolUseId: string
+  text: string
+  isError: boolean
+}
 export interface ResultItem extends Base {
   kind: 'result'
   subtype: string
@@ -21,7 +45,7 @@ export interface ResultItem extends Base {
 
 export type TranscriptItem =
   | UserItem | AssistantItem | ThinkingItem
-  | ToolUseItem | ErrorItem | ResultItem | SystemNoteItem
+  | ToolUseItem | ToolResultItem | ErrorItem | ResultItem | SystemNoteItem
 
 export type TranscriptOp =
   | { op: 'reset' }
