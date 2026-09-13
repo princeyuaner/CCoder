@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
 
 interface Props {
-  title: string
+  /** 标题可以是节点：进行中的思考要在标题里放转圈和秒数。 */
+  title: ReactNode
   defaultOpen?: boolean
   dim?: boolean
   children: ReactNode

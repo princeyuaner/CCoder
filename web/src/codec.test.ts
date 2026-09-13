@@ -23,7 +23,7 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    expect(ops).toHaveLength(13)
+    expect(ops).toHaveLength(14)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
   })
@@ -31,9 +31,24 @@ describe('契约 fixture', () => {
   it('fixture 能被完整应用到状态上而不丢内容', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
     const state = applyOps(emptyState(), ops)
-    // fixture 里有 7 条 append/finalize 产生的消息
-    expect(state.items.length).toBeGreaterThanOrEqual(6)
+    // fixture 里有 10 条 append/finalize 产生的消息（含工具调用与它的结果）
+    expect(state.items).toHaveLength(10)
     expect(state.live.assistant).toBeUndefined()
+  })
+
+  it('工具调用带着配对的 toolUseId 过来', () => {
+    // 结果要挂回这次调用，全靠这个 id。丢了这个字段界面上就配不上对
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const use = ops.find((o) => o.op === 'append' && o.item.kind === 'toolUse')
+    expect(use).toMatchObject({ item: { name: 'Read', toolUseId: 'toolu_1' } })
+  })
+
+  it('工具结果带着配对 id、正文与错误标记过来', () => {
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const result = ops.find((o) => o.op === 'append' && (o.item.kind as string) === 'toolResult')
+    expect(result).toMatchObject({
+      item: { toolUseId: 'toolu_1', text: '1\tpackage a\n2\t\n', isError: false },
+    })
   })
 })
 
@@ -158,6 +173,38 @@ describe('parseOps 的容错', () => {
     expect(parseOps(null)).toEqual([])
     expect(parseOps({})).toEqual([])
     expect(parseOps('[]')).toEqual([])
+  })
+})
+
+// 思考块的逐字缓冲与"整块到达"是两条来源：整块到了，逐字的就该作废，
+// 否则同一段思考会在转写区里出现两遍。正文那边靠 finalizeDelta 收尾，
+// 思考这边没有 finalize 语义（完成时是 Append 一个 thinking 项），
+// 所以由这条规则收 —— 它同时也兜住回放路径：历史里反正也不会留下缓冲。
+describe('思考块收尾', () => {
+  it('append 一条 thinking 项会清掉进行中的思考缓冲', () => {
+    let s = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'thinking', text: '它' },
+      { op: 'appendDelta', target: 'thinking', text: '在想' },
+    ])
+    expect(s.live.thinking).toBe('它在想')
+
+    s = applyOps(s, [
+      { op: 'append', item: { kind: 'thinking', id: 't1', ts: 1, text: '它在想什么' } },
+    ])
+
+    expect(s.live.thinking).toBeUndefined()
+    expect(s.items).toHaveLength(1)
+  })
+
+  it('只清思考，不动进行中的正文气泡', () => {
+    let s = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'assistant', text: '正' },
+      { op: 'appendDelta', target: 'thinking', text: '思' },
+    ])
+    s = applyOps(s, [{ op: 'append', item: { kind: 'thinking', id: 't1', ts: 1, text: '思' } }])
+
+    expect(s.live.thinking).toBeUndefined()
+    expect(s.live.assistant).toBe('正')
   })
 })
 

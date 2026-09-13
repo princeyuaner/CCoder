@@ -72,7 +72,10 @@ describe('Transcript', () => {
     const user = userEvent.setup()
     render(
       <Transcript
-        state={state({ kind: 'toolUse', id: 'x', ts, name: 'Read', input: '{"file_path":"/a.txt"}' })}
+        state={state({
+          kind: 'toolUse', id: 'x', ts, toolUseId: 'toolu_1',
+          name: 'Read', input: '{"file_path":"/a.txt"}',
+        })}
       />,
     )
 
@@ -82,25 +85,57 @@ describe('Transcript', () => {
     expect(screen.getByText(/file_path/)).toBeInTheDocument()
   })
 
-  it('工具调用的参数被格式化缩进', async () => {
+  it('Bash 展开后给的是命令本身，而不是一坨 JSON', async () => {
+    // 这一条断言的是本次改动的核心：以前展开看到的是缩进过的参数 JSON，
+    // 用户得自己从里面读出"这次跑了什么命令"
     const user = userEvent.setup()
     render(
       <Transcript
-        state={state({ kind: 'toolUse', id: 'x', ts, name: 'Bash', input: '{"command":"ls"}' })}
+        state={state({
+          kind: 'toolUse', id: 'x', ts, toolUseId: 'toolu_1',
+          name: 'Bash', input: '{"command":"gradlew test"}',
+        })}
       />,
     )
-    await user.click(screen.getByText(/Bash/))
-    // 格式化成多行 JSON，而不是原样的紧凑字符串
-    expect(screen.getByText(/"command": "ls"/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { expanded: false }))
+    expect(screen.getByTestId('tool-command')).toHaveTextContent('gradlew test')
+    expect(screen.queryByText(/"command":/)).not.toBeInTheDocument()
   })
 
   it('工具调用的非法 JSON 参数按原文显示', async () => {
     const user = userEvent.setup()
     render(
-      <Transcript state={state({ kind: 'toolUse', id: 'x', ts, name: 'X', input: 'not json' })} />,
+      <Transcript
+        state={state({
+          kind: 'toolUse', id: 'x', ts, toolUseId: 'toolu_1', name: 'X', input: 'not json',
+        })}
+      />,
     )
-    await user.click(screen.getByText(/工具：X/))
+    await user.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getByText('not json')).toBeInTheDocument()
+  })
+
+  it('工具结果按 toolUseId 挂回对应的那张卡片', async () => {
+    // 两者在协议里是**两条独立的消息**（结果是后到的那条），
+    // 界面上要看不见这条缝：输出必须出现在它自己那张卡片里
+    const user = userEvent.setup()
+    render(
+      <Transcript
+        state={state(
+          { kind: 'toolUse', id: 'x1', ts, toolUseId: 'toolu_1', name: 'Bash', input: '{"command":"ls"}' },
+          { kind: 'toolUse', id: 'x2', ts, toolUseId: 'toolu_2', name: 'Bash', input: '{"command":"pwd"}' },
+          { kind: 'toolResult', id: 'r1', ts, toolUseId: 'toolu_2', text: '/home/cy', isError: false },
+        )}
+      />,
+    )
+
+    // 第一条（toolu_1）没有结果：展开后不能把别人的输出挂上来
+    await user.click(screen.getAllByRole('button', { expanded: false })[0])
+    expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
+
+    // 第一条已经展开，剩下的那个收起的就是第二条（toolu_2）—— 它的结果在这张卡上
+    await user.click(screen.getAllByRole('button', { expanded: false })[0])
+    expect(screen.getByTestId('tool-output')).toHaveTextContent('/home/cy')
   })
 
   it('进行中的气泡以流式形式渲染', () => {
@@ -168,6 +203,86 @@ function installScrollMetrics(
     },
   }
 }
+
+// 思考期间必须有活信号：实测 29% 的思考块跑过 5 秒，而那段时间屏幕是静止的。
+// 进行中的思考渲染成折叠块（转圈 + 秒数），整块到达后由 codec 清掉缓冲。
+describe('进行中的思考', () => {
+  const live = (thinking: string, assistant?: string) => {
+    const buffers: Record<string, string> = { thinking }
+    if (assistant !== undefined) buffers.assistant = assistant
+    return { items: [] as TranscriptItem[], live: buffers }
+  }
+
+  it('有思考缓冲时渲染进行中的思考块', () => {
+    render(<Transcript state={live('在想')} />)
+    expect(screen.getByTestId('live-thinking')).toBeInTheDocument()
+    expect(screen.getByText('思考中')).toBeInTheDocument()
+  })
+
+  it('没有思考缓冲就不渲染它', () => {
+    render(<Transcript state={live('', '正文')} />)
+    expect(screen.queryByTestId('live-thinking')).not.toBeInTheDocument()
+  })
+
+  it('思考进行中 + 正文已开始：两个都在，思考在上', () => {
+    render(<Transcript state={live('在想', '正文')} />)
+    const think = screen.getByTestId('live-thinking')
+    const text = screen.getByText('正文')
+    // compareDocumentPosition 的 FOLLOWING 位 = text 在 think 之后
+    expect(think.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('整块思考到达后，进行中的那块就没了', () => {
+    const { rerender } = render(<Transcript state={live('在想')} />)
+    expect(screen.getByTestId('live-thinking')).toBeInTheDocument()
+
+    rerender(
+      <Transcript
+        state={{ items: [{ kind: 'thinking', id: 't1', ts, text: '想完了' }], live: {} }}
+      />,
+    )
+    expect(screen.queryByTestId('live-thinking')).not.toBeInTheDocument()
+    expect(screen.getByText('思考过程')).toBeInTheDocument()
+  })
+})
+
+// 设计稿 docs/design/tool-progress.html：卡片的"进行中 / 完成 / 已中断"是前端推出来的 ——
+// 结果没到就是还在跑；回合已经结束了还没等到结果，就是被中断（否则它会永远转圈）。
+describe('工具卡片的状态收尾', () => {
+  const use = (id: string, toolUseId: string): TranscriptItem => ({
+    kind: 'toolUse', id, ts, toolUseId, name: 'Bash', input: '{"command":"ls"}',
+  })
+  const res = (id: string, toolUseId: string): TranscriptItem => ({
+    kind: 'toolResult', id, ts, toolUseId, text: 'out', isError: false,
+  })
+  const turnEnd: TranscriptItem = { kind: 'result', id: 'r', ts, subtype: 'success' }
+
+  it('结果没到、回合还没结束 → 进行中', () => {
+    render(<Transcript state={state(use('t1', 'toolu_1'))} />)
+    expect(screen.getByTestId('tool-running')).toBeInTheDocument()
+  })
+
+  it('回合都结束了还没等到结果 → 标为已中断', () => {
+    render(<Transcript state={state(use('t1', 'toolu_1'), turnEnd)} />)
+    expect(screen.getByTestId('tool-aborted')).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-running')).not.toBeInTheDocument()
+  })
+
+  it('配上了结果的卡片不受回合结束影响 → 完成', () => {
+    render(<Transcript state={state(use('t1', 'toolu_1'), res('r1', 'toolu_1'), turnEnd)} />)
+    expect(screen.getByTestId('tool-done')).toBeInTheDocument()
+  })
+
+  it('新回合里正在跑的工具，不会被上一回合的 result 误判成中断', () => {
+    render(
+      <Transcript
+        state={state(use('t1', 'toolu_1'), res('r1', 'toolu_1'), turnEnd, use('t2', 'toolu_2'))}
+      />,
+    )
+    expect(screen.getByTestId('tool-running')).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-aborted')).not.toBeInTheDocument()
+  })
+})
 
 // 设计文档 §4.5：v1 曾有 scrollToBottom，JCEF 重写时丢失 —— 这组用例把它钉住。
 describe('Transcript 滚动跟随', () => {

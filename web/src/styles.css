@@ -239,7 +239,300 @@ body {
   white-space: pre-wrap;
 }
 
-.tool-input {
+/* ---- 工具卡片（设计稿 transcript-tools.html 方案乙）----
+ *
+ * 折叠只有一层：卡片收着，点开后命令、diff、输出直接铺开。
+ * 标题行是一行定高，所以每个字都要能省略 —— 420px 里放不下第二条路径。
+ */
+
+.tool {
+  border: 1px solid var(--border, #393b40);
+  border-radius: 7px;
+  background: var(--surface, #2b2d30);
+  overflow: hidden;
+  /* 这一行不是可选的。
+   *
+   * .transcript 是**高度受限的 flex 列**，卡片是它的直接子项（没有 .entry 包裹）。
+   * 而 `overflow: hidden` 会把 flex 项的"自动最小尺寸"从内容高改成 **0**
+   * （CSS Flexbox §4.5），于是内容溢出时所有压缩量都堆到卡片身上：
+   * 卡片被压成只剩两条边框的 2px 细缝，而没设 overflow 的文字气泡纹丝不动。
+   *
+   * 症状极具迷惑性：DOM 里 86 张卡片全在、单测全绿（jsdom 不做布局），
+   * 屏幕上却"工具调用一个都不显示"。2026-09-13 用真实样式表 + 无头 Chromium
+   * 量到的数是 card_h=2.0 / entry_h=40.1。
+   *
+   * 同目录下 `.thinking-text`、`.system-note`、`.result-line` 也是直接子项，
+   * 它们没设 overflow 所以安全 —— 将来给它们加 overflow 时，这里要一起加。 */
+  flex-shrink: 0;
+}
+
+.tool--error {
+  border-color: var(--error-bg, #4a1f1f);
+}
+
+.tool__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim, #8c8c8c);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool__head:hover {
+  background: var(--bg, #1e1f22);
+}
+
+.tool__chevron {
+  display: inline-block;
+  flex: 0 0 auto;
+  font-size: 10px;
+  transition: transform 160ms ease;
+}
+
+.tool__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* 工具图标位：一个字母。真做起来这里会是图标 */
+.tool__badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #393b40);
+  background: var(--code-bg, #191a1c);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+}
+
+.tool__name {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+/* 唯一可伸缩的元素：命令、文件名的省略都在它身上 */
+.tool__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text, #dcdcdc);
+}
+
+.tool__delta {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 5px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+}
+
+.tool__add {
+  color: var(--diff-add-fg, #5fad65);
+}
+
+.tool__del {
+  color: var(--diff-del-fg, #db5c5c);
+}
+
+.tool__fail {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  color: var(--diff-del-fg, #db5c5c);
+  font-size: 10px;
+}
+
+/* ---- 状态位：进行中 / 完成 / 已中断（设计稿 tool-progress.html 方案丙）----
+ *
+ * 钉在卡片头最右，两种图形的尺寸都是 12px —— 状态切换时标题不能左右抖一下。
+ * 只有"进行中"那一格会多出秒数，宽度变化由可伸缩的 .tool__title 吸收。
+ *
+ * 绿色用的是 --diff-add-fg 而不是自造一个 --ok：Kotlin 注入的主题变量里只有
+ * 这一组绿，卡片上的 `+1` 用的也是它。
+ */
+.tool__status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 转圈。工具卡片的"进行中"与思考块的"思考中"共用 —— 两处要表达的是同一件事：
+   它还在动。inline-block 是为了让它也能用在非 flex 的标题里（折叠块的标题）。 */
+.spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border, #393b40);
+  border-top-color: var(--accent, #548af7);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tool__check {
+  width: 12px;
+  height: 12px;
+}
+
+.tool__check path {
+  fill: none;
+  stroke: var(--diff-add-fg, #5fad65);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tool__abort {
+  width: 12px;
+  height: 12px;
+  opacity: 0.55;
+}
+
+.tool__abort circle,
+.tool__abort line {
+  fill: none;
+  stroke: var(--text-dim, #8c8c8c);
+  stroke-width: 1.6;
+}
+
+.tool__time {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-dim, #8c8c8c);
+  /* 等宽数字：9s 跳到 10s 时不让标题抖一下 */
+  font-variant-numeric: tabular-nums;
+}
+
+/* 一个**一直在转**的圈和 160ms 的淡入不是一回事：前庭敏感的用户对这个
+   尤其难受。系统里开了"减少动态效果"就把它停下来（改成静止的灰环）。 */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+    border-top-color: var(--text-dim, #8c8c8c);
+  }
+}
+
+/* ---- 进行中的思考（见 ThinkingBlock.tsx）----
+ *
+ * 收着的「▸ ⟳ 思考中 12s」。默认不铺文字的理由和完成态一样：思考逐字刷屏，
+ * 决策价值低于正文；但"它在动"这件事必须让人看见 —— 实测 29% 的思考块
+ * 跑过 5 秒，而在这之前屏幕是静止的。
+ */
+.live-think__spin {
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.live-think__time {
+  margin-left: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 8px;
+  animation: fade-in 160ms ease-out;
+}
+
+.tool__cmd {
+  padding: 4px 7px;
+  background: var(--code-bg, #191a1c);
+  border-radius: 5px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.tool__prompt {
+  color: var(--text-dim, #8c8c8c);
+}
+
+/* diff 不换行：对齐一破就看不出改的是哪一段 */
+.tool__diff {
+  border: 1px solid var(--border, #393b40);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.tool__line {
+  display: flex;
+  gap: 5px;
+  padding: 0 8px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.tool__line--add {
+  background: var(--diff-add-bg, #1e2f1f);
+}
+
+.tool__line--del {
+  background: var(--diff-del-bg, #33222a);
+}
+
+.tool__sign {
+  flex: 0 0 auto;
+  color: var(--text-dim, #8c8c8c);
+}
+
+/* 输出换行显示：bash 的输出里长行很常见，横向滚动的话大部分内容都看不到 */
+.tool__out {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border, #393b40);
+  border-radius: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim, #8c8c8c);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.tool__more {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--accent, #4a88c7);
+  cursor: pointer;
+}
+
+.tool__params {
   margin: 0;
   padding: 8px;
   background: var(--code-bg, #191a1c);

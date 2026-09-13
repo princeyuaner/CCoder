@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "probe:layout": "node tools/layout-probe.mjs"
   },
   "dependencies": {
     "highlight.js": "11.10.0",

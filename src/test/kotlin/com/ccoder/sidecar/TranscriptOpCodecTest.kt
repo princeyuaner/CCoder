@@ -27,8 +27,16 @@ class TranscriptOpCodecTest {
         assertEquals("append", kinds[1])
         assertEquals("appendDelta", kinds[3])
         assertEquals("finalizeDelta", kinds[5])
-        assertEquals("clearDelta", kinds[8])
-        assertEquals(13, kinds.size)
+
+        // 7 是工具调用，8 是它的结果 —— **两条独立的 append**，
+        // 靠 toolUseId 配对（界面按它把输出挂回卡片）
+        fun itemKindAt(index: Int) =
+            array[index].asJsonObject.getAsJsonObject("item").get("kind").asString
+        assertEquals("toolUse", itemKindAt(7))
+        assertEquals("toolResult", itemKindAt(8))
+
+        assertEquals("clearDelta", kinds[9])
+        assertEquals(14, kinds.size)
     }
 
     /**
@@ -125,10 +133,13 @@ class TranscriptOpCodecTest {
     }
 
     @Test
-    fun `toolUse 编码 name 与 input`() {
+    fun `toolUse 编码 name、input 与配对的 toolUseId`() {
         val ops = listOf(
             TranscriptOp.Append(
-                TranscriptItem.ToolUse(id = "m", ts = 1L, name = "Read", input = """{"file_path":"/a.txt"}""")
+                TranscriptItem.ToolUse(
+                    id = "m", ts = 1L, toolUseId = "toolu_1",
+                    name = "Read", input = """{"file_path":"/a.txt"}""",
+                )
             )
         )
         val item = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops))
@@ -137,6 +148,26 @@ class TranscriptOpCodecTest {
         assertEquals("toolUse", item.get("kind").asString)
         assertEquals("Read", item.get("name").asString)
         assertEquals("""{"file_path":"/a.txt"}""", item.get("input").asString)
+        // 界面靠它把输出挂回这次调用
+        assertEquals("toolu_1", item.get("toolUseId").asString)
+    }
+
+    @Test
+    fun `toolResult 编码配对 id、正文与错误标记`() {
+        val ops = listOf(
+            TranscriptOp.Append(
+                TranscriptItem.ToolResult(
+                    id = "m", ts = 1L, toolUseId = "toolu_1", text = "boom", isError = true,
+                )
+            )
+        )
+        val item = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertEquals("toolResult", item.get("kind").asString)
+        assertEquals("toolu_1", item.get("toolUseId").asString)
+        assertEquals("boom", item.get("text").asString)
+        assertEquals(true, item.get("isError").asBoolean)
     }
 
     @Test

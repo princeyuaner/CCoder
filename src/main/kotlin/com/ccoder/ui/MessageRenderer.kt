@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.sidecar.SidecarMessage
 import com.ccoder.sidecar.TranscriptImage
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 
 /** 消息流中的一项。渲染层的输入，与 Swing 解耦以便测试。 */
@@ -25,7 +26,27 @@ sealed interface RenderItem {
     data class ThinkingDelta(val text: String) : RenderItem
 
     data class Thinking(val text: String) : RenderItem
-    data class ToolUse(val name: String, val input: String) : RenderItem
+
+    /**
+     * 一次工具调用。
+     *
+     * [id] 是 SDK 给的 `tool_use.id`，[ToolResult] 靠它与这次调用配对 ——
+     * 界面上"把输出挂回那张卡片"全指望它。
+     */
+    data class ToolUse(val name: String, val input: String, val id: String) : RenderItem
+
+    /**
+     * 一次工具调用的结果。
+     *
+     * 结果是**另一条消息**（长的像 user 消息），所以这里单列一项，
+     * 由界面按 [toolUseId] 挂回对应的 [ToolUse]。
+     */
+    data class ToolResult(
+        val toolUseId: String,
+        val text: String,
+        val isError: Boolean,
+    ) : RenderItem
+
     data class ErrorItem(val message: String) : RenderItem
     data class Result(val subtype: String, val costUsd: Double?, val durationMs: Long?) : RenderItem
     data class SystemNote(val text: String) : RenderItem
@@ -85,11 +106,65 @@ object MessageRenderer {
     private fun renderEvent(event: JsonObject): List<RenderItem> =
         when (event.str("type")) {
             "assistant" -> renderAssistant(event)
+            "user" -> renderToolResults(event)
             "result" -> renderResult(event)
             "system" -> renderSystem(event)
             "stream_event" -> renderStreamEvent(event)
             else -> emptyList()
         }
+
+    /**
+     * 工具结果 —— 它们长得像 user 消息，其实是工具的输出。
+     *
+     * 只产 [RenderItem.ToolResult]，**绝不产用户气泡**：live 路径下用户气泡是
+     * `sendCurrentInput()` 直接推的，这里再产一次就是一条消息画两遍。
+     * 回放路径的 [renderPrompt] 同样把这类消息挡在门外，两条路一致。
+     */
+    private fun renderToolResults(event: JsonObject): List<RenderItem> {
+        // 结果正文可能是数组（块）也可能是纯字符串（见 toolResultText），
+        // 这里只要数组那一种；字符串形状的 user 消息不是工具结果
+        val blocks = event.obj("message")?.arr("content") ?: return emptyList()
+
+        val out = mutableListOf<RenderItem>()
+        for (block in blocks) {
+            if (!block.isJsonObject) continue
+            val b = block.asJsonObject
+            if (b.str("type") != "tool_result") continue
+
+            // 没有 id 的结果挂不回任何一次调用，画出来是一条无主的输出
+            val toolUseId = b.str("tool_use_id")?.takeIf { it.isNotBlank() } ?: continue
+
+            out += RenderItem.ToolResult(
+                toolUseId = toolUseId,
+                text = toolResultText(b.get("content")),
+                isError = b.bool("is_error") ?: false,
+            )
+        }
+        return out
+    }
+
+    /**
+     * 结果正文。SDK 给两种形状：纯字符串，或文本块数组（还可能夹着图片）。
+     *
+     * 一个文本块都没有时给一句占位，而不是空串 —— 空串到了界面上就是一块
+     * 什么都没有的空白，用户分不清是"这次没有输出"还是"界面坏了"。
+     */
+    private fun toolResultText(content: JsonElement?): String {
+        if (content == null) return ""
+        if (content.isJsonPrimitive && content.asJsonPrimitive.isString) return content.asString
+
+        val blocks = content.takeIf { it.isJsonArray }?.asJsonArray
+            ?.filter { it.isJsonObject }?.map { it.asJsonObject } ?: return ""
+
+        val text = blocks.asSequence()
+            .filter { it.str("type") == "text" }
+            .mapNotNull { it.str("text") }
+            .joinToString("\n")
+        if (text.isNotEmpty()) return text
+
+        // 有块但没文本（图片等）：占位；一个块都没有：空串 —— 那是真的没输出
+        return if (blocks.isEmpty()) "" else "（非文本结果）"
+    }
 
     private fun renderAssistant(event: JsonObject): List<RenderItem> {
         val out = mutableListOf<RenderItem>()
@@ -118,6 +193,8 @@ object MessageRenderer {
                 "tool_use" -> out += RenderItem.ToolUse(
                     name = b.str("name") ?: "unknown",
                     input = b.get("input")?.toString() ?: "",
+                    // 缺 id 不丢弃这一项：调用本身该显示出来，只是结果挂不回来
+                    id = b.str("id") ?: "",
                 )
                 // 其他块类型（redacted_thinking、server_tool_use 等）忽略
             }
@@ -184,4 +261,7 @@ object MessageRenderer {
 
     private fun JsonObject.arr(key: String): JsonArray? =
         get(key)?.takeIf { it.isJsonArray }?.asJsonArray
+
+    private fun JsonObject.bool(key: String): Boolean? =
+        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean
 }

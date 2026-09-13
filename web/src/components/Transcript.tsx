@@ -1,12 +1,12 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
-import type { TranscriptItem, TranscriptState } from '../types'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
 import { AssistantBubble } from './AssistantBubble'
 import { ErrorBubble } from './ErrorBubble'
 import { Markdown } from './Markdown'
 import { ResultLine } from './ResultLine'
 import { StreamingCursor } from './StreamingCursor'
 import { SystemNote } from './SystemNote'
-import { ThinkingBlock } from './ThinkingBlock'
+import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { UserBubble } from './UserBubble'
 
@@ -21,7 +21,15 @@ function Timestamp({ ts }: { ts: number }) {
   )
 }
 
-function Item({ item }: { item: TranscriptItem }) {
+function Item({
+  item,
+  results,
+  ended,
+}: {
+  item: TranscriptItem
+  results: Map<string, ToolResultItem>
+  ended: Set<string>
+}) {
   switch (item.kind) {
     case 'user':
       // 用户输入不走 Markdown：用户敲的 * 不该被当成语法。
@@ -56,7 +64,18 @@ function Item({ item }: { item: TranscriptItem }) {
       return <ThinkingBlock text={item.text} />
 
     case 'toolUse':
-      return <ToolCallBlock name={item.name} input={item.input} />
+      return (
+        <ToolCallBlock
+          item={item}
+          result={results.get(item.toolUseId)}
+          turnEnded={ended.has(item.toolUseId)}
+        />
+      )
+
+    case 'toolResult':
+      // 结果不单独成项：它已经挂进对应的那张工具卡片里了（见 resultsByToolUseId）。
+      // 两处都画就等于同一条输出在转写区里出现两遍
+      return null
 
     case 'systemNote':
       return <SystemNote text={item.text} />
@@ -85,6 +104,40 @@ function isAtBottom(el: HTMLElement): boolean {
 
 export function Transcript({ state }: { state: TranscriptState }) {
   const liveText = state.live.assistant
+  // 进行中的思考。空串按"没有"处理：Kotlin 侧会把空增量过滤掉，这里的判断是兜底
+  const liveThinking = state.live.thinking !== '' ? state.live.thinking : undefined
+
+  // 工具结果与工具调用在协议里是**两条独立的消息**（结果是后到的那条），
+  // 这里按 toolUseId 配好再往下传 —— 配对只此一处，卡片自己不得到处找
+  const resultsByToolUseId = useMemo(() => {
+    const map = new Map<string, ToolResultItem>()
+    for (const item of state.items) {
+      if (item.kind === 'toolResult' && item.toolUseId !== '') {
+        map.set(item.toolUseId, item)
+      }
+    }
+    return map
+  }, [state.items])
+
+  // 哪些工具调用**再也等不到结果**了：在它之后已经出现过回合结束的 result 事件。
+  // 被拒绝、被中断、会话被杀掉的工具不会再有 toolResult —— 不收尾那张卡片就会
+  // 永远转圈，而且转得和"真的在跑"一模一样（设计稿 tool-progress.html 细节②）。
+  //
+  // 倒着扫：先用 turnEndSeen 记住"这条之后有没有回合结束"，再判断这条工具要不要
+  // 收尾。正着扫会漏掉一个关键区别 —— 新回合里正在跑的工具，前面也有旧回合的
+  // result，正着扫会把它误判成已中断。
+  const endedToolUseIds = useMemo(() => {
+    const ended = new Set<string>()
+    let turnEndSeen = false
+    for (let i = state.items.length - 1; i >= 0; i--) {
+      const it = state.items[i]
+      if (it.kind === 'result') turnEndSeen = true
+      else if (it.kind === 'toolUse' && turnEndSeen && !resultsByToolUseId.has(it.toolUseId)) {
+        ended.add(it.toolUseId)
+      }
+    }
+    return ended
+  }, [state.items, resultsByToolUseId])
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   // 跟随意图的同步读版本。scroll 事件处理器必须在同一次事件里读到最新值，
@@ -155,8 +208,10 @@ export function Transcript({ state }: { state: TranscriptState }) {
         onScroll={handleScroll}
       >
         {state.items.map((item) => (
-          <Item key={item.id} item={item} />
+          <Item key={item.id} item={item} results={resultsByToolUseId} ended={endedToolUseIds} />
         ))}
+        {/* 思考在正文之前 —— 与 SDK 给的块顺序一致 */}
+        {liveThinking !== undefined && <LiveThinkingBlock text={liveThinking} />}
         {liveText !== undefined && (
           <div className="entry">
             <AssistantBubble>
