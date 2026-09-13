@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.sidecar.SidecarMessage
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -354,5 +355,27 @@ class MessageRendererTest {
         assertNull(prompt("""{"type":"user"}"""))
         assertNull(prompt("""{"type":"user","message":"不是对象"}"""))
         assertNull(prompt("""{"type":"user","message":{"role":"user","content":42}}"""))
+    }
+
+    // ---- 命令回合的空输出 ----
+
+    @Test
+    fun `命令回合里的空输出不画气泡`() {
+        assertTrue(isEmptyCommandOutput(RenderItem.AssistantText("")))
+        assertTrue(isEmptyCommandOutput(RenderItem.AssistantText("   ")))
+        assertTrue(isEmptyCommandOutput(RenderItem.AssistantText("(no content)")))
+        assertTrue(isEmptyCommandOutput(RenderItem.AssistantText("  (no content)  ")))
+    }
+
+    @Test
+    fun `命令回合里的真输出照常画 —— cost 与 context 的报告就靠这条`() {
+        assertFalse(isEmptyCommandOutput(RenderItem.AssistantText("Total cost: $0.16")))
+    }
+
+    @Test
+    fun `只挡 assistant 文本，别的渲染项一律不碰`() {
+        assertFalse(isEmptyCommandOutput(RenderItem.Result("success", null, null)))
+        assertFalse(isEmptyCommandOutput(RenderItem.SystemNote("")))
+        assertFalse(isEmptyCommandOutput(RenderItem.UserText("")))
     }
 }

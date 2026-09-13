@@ -1134,9 +1134,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
                 is SidecarMessage.Event -> {
                     val items = MessageRenderer.render(msg)
-                    items.forEach { pushOp(toOp(it)) }
+                    // 命令回合里的空输出丢掉；其余一律照常（设计稿 §5.1）
+                    items.filterNot { lastSendWasCommand && isEmptyCommandOutput(it) }
+                        .forEach { pushOp(toOp(it)) }
                     // result 是回合结束的信号，此时按钮从"停止"变回"发送"
-                    if (items.any { it is RenderItem.Result }) setBusy(false)
+                    if (items.any { it is RenderItem.Result }) {
+                        setBusy(false)
+                        lastSendWasCommand = false
+                    }
 
                     // 用量只在 result 事件里给；取不到就保持原样
                     updateUsage(msg.event)

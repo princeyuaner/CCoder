@@ -42,6 +42,27 @@ sealed interface RenderItem {
 }
 
 /**
+ * 命令没有可见输出时 SDK 给的占位串（实测 `/clear` 就是这个）。
+ *
+ * 渲染成气泡会看着像 bug —— 一个写着 `(no content)` 的对话框，
+ * 用户没法判断是命令出问题了还是插件坏了。
+ */
+internal const val NO_CONTENT_PLACEHOLDER = "(no content)"
+
+/**
+ * 命令回合里该被丢掉的气泡。
+ *
+ * **只有命令回合才丢。** 模型自己回一句空话是另一回事，那是它的话；
+ * 而命令的空输出是 SDK 的占位，不是内容。
+ *
+ * 判据是"发出去的消息以 `/` 开头"，由调用方记住 —— 不能用
+ * `result.local_command`，实测那个字段恒为 null（设计稿 §2 事实 3）。
+ */
+internal fun isEmptyCommandOutput(item: RenderItem): Boolean =
+    item is RenderItem.AssistantText &&
+        (item.text.isBlank() || item.text.trim() == NO_CONTENT_PLACEHOLDER)
+
+/**
  * 把 sidecar 消息翻译为渲染项。
  *
  * 核心原则（spec §3.3）：**未知即忽略**。SDKMessage 是 40+ 成员的联合类型
