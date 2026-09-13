@@ -56,71 +56,45 @@ internal class RoundedLineBorder(
     override fun getBorderInsets(c: Component) = Insets(1, 1, 1, 1)
 }
 
-// ---- 上下文行 ----
-
-/**
- * 连接状态、用量与运行状态共用的那一行。
- *
- * 左边是**连接状态 + 用量**，右边是任务条 —— 三者都是"当前这一刻"的状态，
- * 挤在同一行谁也不多占一层，输入框的高度就不会被它们推来推去。
- *
- * 连接状态原先在顶部单独一行，那一行于是只为了它一个人撑着高度。
- * 挪下来之后顶部那行让给了会话标签。
- */
-internal fun buildContextRow(
-    status: JComponent,
-    usage: JComponent,
-    runStrip: JComponent,
-): JPanel = JPanel(BorderLayout()).apply {
-    isOpaque = false
-    border = JBUI.Borders.empty(0, 1, 3, 1)
-    add(
-        JPanel(FlowLayout(FlowLayout.LEFT, 10, 0)).apply {
-            isOpaque = false
-            add(status)
-            add(usage)
-        },
-        BorderLayout.WEST,
-    )
-    add(runStrip, BorderLayout.EAST)
-}
-
-/** 用量那一半。取不到用量时整条隐藏，所以它自己不负责可见性。 */
-internal fun buildUsageLabel(): JLabel = JBLabel().apply {
-    foreground = UIUtil.getInactiveTextColor()
-}
-
 // ---- 详情浮层的内容 ----
 
+/** 浮层内容的外框：竖向排列 + 一圈内边距。 */
+private fun detailBox() = JPanel().apply {
+    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+    isOpaque = false
+    border = JBUI.Borders.empty(10, 12, 11, 12)
+}
+
 /**
- * 点开条之后看到的东西。
+ * 任务清单那一段。点"子任务"卡弹它。
  *
- * 分两段而不是一段，因为"任务清单"和"运行中"在 SDK 里是**两套不同的来源**：
- * 前者是模型自己声明的计划（TodoWrite），后者是真正在跑的东西
- * （task 消息族）。混在一起会让人以为清单里每一项都有个进程在跑。
+ * 与运行段分成两个函数而不是合成一个，是因为两段在 SDK 里是**两套不同的
+ * 来源**：这里是模型自己声明的计划（TodoWrite），那里是真正在跑的东西
+ * （task 消息族）。拆卡之后点哪张只看哪段，才不会让人以为清单里每一项
+ * 都有个进程在跑。
  */
-internal fun buildRunDetail(tracker: RunStatusTracker): JComponent {
-    val box = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        isOpaque = false
-        border = JBUI.Borders.empty(10, 12, 11, 12)
-    }
+internal fun buildTodoDetail(todos: TaskList): JComponent {
+    val box = detailBox()
+    box.add(sectionHeader("任务清单", "${todos.completed}/${todos.total}"))
+    todos.items.forEach { box.add(todoRow(it)) }
+    return box
+}
 
-    tracker.todos?.let { todos ->
-        box.add(sectionHeader("任务清单", "${todos.completed}/${todos.total}"))
-        todos.items.forEach { box.add(todoRow(it)) }
-    }
-
-    if (tracker.running.isNotEmpty()) {
-        if (box.componentCount > 0) box.add(Box.createVerticalStrut(JBUI.scale(9)))
-        box.add(sectionHeader("运行中", tracker.running.size.toString()))
-        tracker.running.forEach { box.add(taskRow(it)) }
-    }
-
-    // 两段都空时给一句实话，而不是弹出一个空框
-    if (box.componentCount == 0) {
+/**
+ * 运行中那一段。点"子代理"卡弹它。
+ *
+ * 空着时给一句实话而不是一个空框 —— 卡上写着"空闲"时本不该弹得出来，
+ * 但真弹出来了就得说清楚。
+ */
+internal fun buildRunningDetail(running: List<RunningTask>): JComponent {
+    val box = detailBox()
+    if (running.isEmpty()) {
         box.add(JBLabel("当前没有任务").apply { foreground = UIUtil.getInactiveTextColor() })
+        return box
     }
+
+    box.add(sectionHeader("运行中", running.size.toString()))
+    running.forEach { box.add(taskRow(it)) }
     return box
 }
 

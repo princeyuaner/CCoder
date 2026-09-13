@@ -76,23 +76,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 连接状态。
+     * 连接状态的**文字源**。
      *
-     * 放在**上下文那一行**而不是顶部独占一行 —— 它是"当前这一刻"的状态，
-     * 和用量、任务条是一类东西；而且顶部那一行原先只为了它一个人撑高度。
+     * 留一个纯字符串而不是直接拿卡当状态：文字 → 色调是一次纯逻辑映射
+     * （[connectionTone]），能在无头单测里钉住；卡本身是 Swing。
      */
-    private val statusLabel = JLabel("未连接")
+    private var connectionText = "未连接"
 
     /**
-     * 上下文用量那一半。初始隐藏：还没收到过 result 时没有数据，
-     * 显示一个空占位不如不显示（不造零值）。
+     * 四张状态卡。**常驻** —— 没内容的格子收边，不隐藏。
+     *
+     * 卡一会儿出现一会儿消失，输入框就会在会话中途上下跳；稳定比安静重要。
      */
-    private val usageLabel = buildUsageLabel().apply { isVisible = false }
+    private val statusCards = StatusCardsRow(
+        onOpenTodos = { toggleDetail(wantsTodos = true) },
+        onOpenRunning = { toggleDetail(wantsTodos = false) },
+    )
 
-    /** 上下文**右边**那一条：任务与子代理。点开看详情。 */
-    private val runStripView = RunStripView { toggleRunDetail() }
-
-    private val contextRow = buildContextRow(statusLabel, usageLabel, runStripView)
+    /** 最近一次拿到的上下文用量。取不到时保持 null —— 不造零值。 */
+    private var lastUsage: ContextUsage? = null
 
     /**
      * 运行状态与任务清单。
@@ -178,6 +180,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 打开着的详情浮层。用它实现"再点一次收起"。 */
     private var runDetailPopup: JBPopup? = null
 
+    /**
+     * 挂着的那张详情卡是不是"子任务"卡。
+     *
+     * 两张卡共用一个浮层，关的时候得知道该把哪一张取消高亮。
+     */
+    private var todosOpen = false
+
     /** 回合进行中：已发出消息，但还没收到 result。 */
     private var busy = false
 
@@ -235,13 +244,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         refreshModeLabel()
         val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, sendButton)
 
-        val inputArea = buildComposerCard(contextRow, inputScroll, composerToolbar)
+        // 四张卡先灌一次初值，否则它们是一排没有内容的空框
+        refreshStatusCards()
+
+        val inputArea = buildComposerCard(inputScroll, composerToolbar)
+
+        // 权限卡与状态卡共用 NORTH：两块都在输入卡**外面**、它的上方。
+        // 顺序是权限卡在上（它更急）、状态卡紧贴输入框
+        val header = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            add(permissionSlot)
+            add(statusCards)
+        }
 
         // 不再单独画顶边线：输入区现在是一张圆角卡片，它自己的上沿
         // 就是与转写区之间的边界，再画一条会变成两道线
         val bottom = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(6, 8, 8, 8)
-            add(permissionSlot, BorderLayout.NORTH)
+            add(header, BorderLayout.NORTH)
             // 输入区放 CENTER 而不是 SOUTH：BorderLayout 只给 SOUTH 首选高度，
             // 那样把分隔条往上拖，多出来的高度会落到空着的 CENTER，输入区
             // 纹丝不动 —— 看起来像"拖了没用"。放 CENTER 才能真正吸收。
@@ -312,45 +333,72 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 刷新上下文用量。
+     * 记下最新的上下文用量。
      *
      * 没有用量数据时**保持原样**（可能是非 result 事件，也可能是 SDK 这次
      * 没带 modelUsage）—— 清空会把已有的读数抹掉。
      */
     private fun updateUsage(event: JsonObject) {
         val usage = contextUsageOf(event) ?: return
-        // 过渡写法：formatContextUsage 已拆成两个函数（卡片要分开取百分比
-        // 与绝对数）。这里先拼回原样保住编译，Task 5 把它整个换成卡片刷新
-        val percent = contextPercentOf(usage)
-        usageLabel.text = "上下文  ${contextRatioText(usage)}" +
-            if (percent != null) " · $percent%" else ""
-        usageLabel.isVisible = true
+        lastUsage = usage
+        refreshStatusCards()
     }
 
-    /** 刷新右边那条。没有任务时整条消失，不是显示空条。 */
-    private fun refreshRunStrip() {
-        runStripView.setStrip(runStripOf(runStatus))
+    /** 唯一的连接状态写入口。文字变了，卡上的点与色跟着变。 */
+    private fun setConnection(text: String) {
+        connectionText = text
+        refreshStatusCards()
     }
 
     /**
-     * 点条 → 弹详情；再点一次 → 收起。
+     * 按当前四份数据重画四张卡。
+     *
+     * 没内容的格子由 [StatusCardModel.quiet] 收边 —— 不是隐藏，四张卡始终在。
+     */
+    private fun refreshStatusCards() {
+        statusCards.connection.setModel(connectionCardOf(connectionText))
+        statusCards.context.setModel(contextCardOf(lastUsage))
+        statusCards.todos.setModel(todoCardOf(runStatus.todos))
+        statusCards.running.setModel(runningCardOf(runStatus.running))
+    }
+
+    /**
+     * 点卡 → 弹它那一段详情；再点一次 → 收起。
+     *
+     * 两张卡共用一个浮层字段：同一时刻只该有一个浮层挂着，而 [todosOpen]
+     * 记住是哪一个，好在关闭时把对应的卡取消高亮。
      *
      * 浮层不抢焦点（`setRequestFocus(false)`）：你正在输入框里打字，
      * 点一下看一眼进度不该把光标弄丢。
+     *
+     * @param wantsTodos 参数名刻意不叫 `todosOpen` —— 与字段同名会遮蔽它，
+     *   一旦漏写 `this.` 就是静默的错。
      */
-    private fun toggleRunDetail() {
-        runDetailPopup?.let { open ->
-            open.cancel()
-            return
-        }
+    private fun toggleDetail(wantsTodos: Boolean) {
+        val card = if (wantsTodos) statusCards.todos else statusCards.running
+        val wasOpen = todosOpen == wantsTodos && runDetailPopup != null
+
+        runDetailPopup?.cancel()
+        runDetailPopup = null
+        statusCards.todos.setOpen(false)
+        statusCards.running.setOpen(false)
+
+        if (wasOpen) return
+
+        todosOpen = wantsTodos
         runDetailPopup = showTogglePopup(
-            anchor = runStripView,
-            content = buildRunDetail(runStatus),
+            anchor = card,
+            content = if (wantsTodos) {
+                runStatus.todos?.let(::buildTodoDetail) ?: buildRunningDetail(emptyList())
+            } else {
+                buildRunningDetail(runStatus.running)
+            },
         ) {
             runDetailPopup = null
-            runStripView.setOpen(false)
+            statusCards.todos.setOpen(false)
+            statusCards.running.setOpen(false)
         }
-        runStripView.setOpen(true)
+        card.setOpen(true)
     }
 
     /**
@@ -620,7 +668,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 清空转写区。Reset 是既有操作，Kotlin 编码与 React 消费都已实现
         // 并有测试（codec.test.ts「reset 清空全部」）
         pushOp(TranscriptOp.Reset)
-        statusLabel.text = "正在载入历史…"
+        setConnection("正在载入历史…")
         // 回放期间不接受输入：否则历史与实时消息会交错（spec §10 的风险项）
         setBusy(true)
 
@@ -664,7 +712,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         resumeTargetId = null
         setBusy(false)
-        statusLabel.text = "已连接"
+        setConnection("已连接")
         pushOp(toOp(RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示")))
     }
 
@@ -677,7 +725,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun failReplay(reason: String) {
         resumeTargetId = null
         setBusy(false)
-        statusLabel.text = "恢复失败"
+        setConnection("恢复失败")
         currentSessionTitle = null
         refreshSessionLabel(enabled = true)
         pushOp(toOp(RenderItem.ErrorItem("恢复会话失败：$reason")))
@@ -761,7 +809,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // SDK 的电平信号"在启动时不发任何东西"，只会在下次成员变动时重发全量 ——
         // 所以消费者必须自己清空，否则上一轮的"2 个运行中"会一直挂在那儿
         runStatus.reset()
-        refreshRunStrip()
+        refreshStatusCards()
 
         // 标题由 [switchToSession] 在切之前就设好了（列表里现成的）；
         // 全新会话这里是 null，标签显示斜体的「新会话」
@@ -779,7 +827,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             fail("项目没有 basePath，无法确定工作目录。")
             return
         }
-        statusLabel.text = "正在启动…"
+        setConnection("正在启动…")
         refreshMainButton() // ready 仍为 false → 按钮显示"启动中…"并禁用
         LOG.info("CCoder 会话启动：cwd=$base")
 
@@ -826,7 +874,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private fun fail(text: String) {
         ApplicationManager.getApplication().invokeLater {
-            statusLabel.text = "启动失败"
+            setConnection("启动失败")
             pushOp(toOp(RenderItem.ErrorItem(text)))
             // 按"已断开"处理，让按钮变成"重启会话"：装好 node 之后用户不必
             // 重启 IDE，点一下就能重试。输入框保持可用，便于重试时带上消息
@@ -849,7 +897,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 浮层挂在旧会话的状态上，会话没了它就该消失
         runDetailPopup?.cancel()
         runDetailPopup = null
-        runStripView.setOpen(false)
+        statusCards.todos.setOpen(false)
+        statusCards.running.setOpen(false)
 
         // 模式列表同理：它选出来的模式要发给会话，会话没了它就没意义
         modePopup?.cancel()
@@ -886,7 +935,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             when (msg) {
                 is SidecarMessage.Ready -> {
                     ready = true
-                    statusLabel.text = "已连接"
+                    setConnection("已连接")
                     disconnected = false
                     refreshMainButton()
 
@@ -936,14 +985,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // task_progress 这类事件不会产出任何转写项，但它们正是
                     // "现在在跑什么"的全部信息来源
                     runStatus.consume(msg.event)
-                    refreshRunStrip()
+                    refreshStatusCards()
                 }
 
                 is SidecarMessage.Failure -> {
                     pushOp(toOp(RenderItem.ErrorItem(failureHint(msg.code, msg.message))))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
-                        statusLabel.text = "会话已断开"
+                        setConnection("会话已断开")
                         ready = false
                         disconnected = true
                         setBusy(false)
@@ -971,7 +1020,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 }
 
                 is SidecarMessage.Exit -> {
-                    statusLabel.text = "会话已结束"
+                    setConnection("会话已结束")
                     ready = false
                     setBusy(false)
                     refreshMainButton()

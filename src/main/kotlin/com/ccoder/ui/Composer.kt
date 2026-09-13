@@ -119,21 +119,22 @@ internal class ComposerCard : JPanel(BorderLayout()) {
 }
 
 /**
- * 卡片内部自上而下三段：
+ * 卡片内部自上而下两段：
  *
- *   NORTH  上下文行（用量在左，任务条在右；两者各自决定要不要出现）
  *   CENTER 输入框（撑满可用高度）
  *   SOUTH  控件工具栏（发送/停止在右，左侧留给模型切换等）
+ *
+ * NORTH 原本挂着"连接状态 + 上下文 + 任务条"那一行。那四样拆成独立卡片
+ * 挪到输入卡**外面**之后这一层就不需要了 —— 它们是独立的一排，不是
+ * 输入框的一部分。
  *
  * 工具栏放 SOUTH 而不是把按钮摆在输入框右边（原来那样）—— 右边放不下
  * 以后的模型切换、权限模式；摆下面则加控件只是往工具栏左侧添，不必再动结构。
  */
 internal fun buildComposerCard(
-    contextRow: JComponent,
     inputScroll: JComponent,
     toolbar: JComponent,
 ): ComposerCard = ComposerCard().apply {
-    add(contextRow, BorderLayout.NORTH)
     add(inputScroll, BorderLayout.CENTER)
     add(toolbar, BorderLayout.SOUTH)
 }

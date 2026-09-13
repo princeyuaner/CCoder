@@ -3,29 +3,30 @@ package com.ccoder.ui
 import com.ccoder.settings.PermissionModeSetting
 import com.intellij.ui.components.JBScrollPane
 import org.junit.jupiter.api.Test
-import javax.swing.JLabel
 import java.awt.BorderLayout
+import java.awt.Container
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 import javax.swing.SwingUtilities
 
 /**
- * 渲染探针：把输入区画成 PNG，好让人眼看一眼。
+ * 渲染探针：把输入区连同它上方的四张状态卡画成 PNG，好让人眼看一眼。
  *
- * 没有断言，也不该有 —— 单测能钉住"边框是圆角的""条没被压扁"，
- * 钉不住"整体看起来对不对"。它存在的理由是补上这一层：
+ * 没有断言，也不该有 —— 单测能钉住"收边的卡 alpha 是 0""四张等宽"，
+ * 钉不住"四张卡和输入框叠在一起整体好不好看"。而后者正是这次改版的
+ * **全部理由**，不该只靠信念。
  *
- * > 输入区曾经看起来完全正常，实际上右边的任务条塌成了一个空的小圆点。
- * > 单测全绿，因为所有测试都在看**属性**，没有一条在**看**它。
+ * 状态卡也不再是输入卡内部的一行：它们是独立的一排，挂在输入卡**外面**的
+ * 上方，所以这一张图里两样都得画出来才看得出关系。
  *
- * 产物在 `build/composer-probe.png`。改了输入区的观感就跑一下这个看一眼。
+ * 产物在 `build/composer-probe*.png`。改了输入区或状态卡的观感就跑一下看一眼。
  * 绕过权限那张单独出一张，因为警示色只有**看**才知道够不够显眼。
  */
 class ComposerRenderProbe {
 
     @Test
-    fun `把输入区画成图片`() = render("build/composer-probe.png", PermissionModeSetting.DEFAULT)
+    fun `把输入区与状态卡画成图片`() = render("build/composer-probe.png", PermissionModeSetting.DEFAULT)
 
     @Test
     fun `把绕过权限时的输入区画成图片`() =
@@ -33,15 +34,22 @@ class ComposerRenderProbe {
 
     private fun render(path: String, mode: PermissionModeSetting) {
         SwingUtilities.invokeAndWait {
-            val usage = buildUsageLabel().apply {
-                text = "上下文  12.3k / 200k · 6%"
-                isVisible = true
+            val cards = StatusCardsRow(onOpenTodos = {}, onOpenRunning = {}).apply {
+                connection.setModel(connectionCardOf("已连接"))
+                context.setModel(contextCardOf(ContextUsage(inputTokens = 12300, contextWindow = 200000)))
+                todos.setModel(
+                    todoCardOf(
+                        TaskList(
+                            listOf(
+                                TodoItem("定位调用点", TodoState.Completed),
+                                TodoItem("替换指纹函数", TodoState.InProgress),
+                                TodoItem("跑测试", TodoState.Pending),
+                            )
+                        )
+                    )
+                )
+                running.setModel(runningCardOf(listOf(stub("t1"), stub("t2"))))
             }
-            val strip = RunStripView {}.apply {
-                setStrip(RunStrip(todoProgress = "3/7", currentTask = "修复 extractor 指纹", runningCount = 2))
-            }
-            val status = JLabel("已连接")
-            val contextRow = buildContextRow(status, usage, strip)
 
             val input = ComposerTextArea(COMPOSER_MIN_ROWS, 40).apply {
                 lineWrap = true
@@ -61,18 +69,18 @@ class ComposerRenderProbe {
             }
             val toolbar = buildComposerToolbar(model, modeLabel, send)
 
-            val card = buildComposerCard(contextRow, inputScroll, toolbar)
+            val card = buildComposerCard(inputScroll, toolbar)
 
             val outer = javax.swing.JPanel(BorderLayout()).apply {
                 border = com.intellij.util.ui.JBUI.Borders.empty(6, 8, 8, 8)
                 background = com.intellij.util.ui.UIUtil.getPanelBackground()
+                add(cards, BorderLayout.NORTH)
                 add(card, BorderLayout.CENTER)
             }
 
             val w = 430
-            val h = 150
+            val h = 230
             outer.setSize(w, h)
-            outer.doLayout()
             layoutAll(outer)
 
             val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
@@ -83,10 +91,13 @@ class ComposerRenderProbe {
         }
     }
 
-    private fun layoutAll(c: java.awt.Container) {
+    private fun stub(id: String) =
+        RunningTask(id = id, kind = null, label = null, detail = null, tokens = 0, durationMs = 0)
+
+    private fun layoutAll(c: Container) {
         c.doLayout()
         for (child in c.components) {
-            if (child is java.awt.Container) layoutAll(child)
+            if (child is Container) layoutAll(child)
         }
     }
 }

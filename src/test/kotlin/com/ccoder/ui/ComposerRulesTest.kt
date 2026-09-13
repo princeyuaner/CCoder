@@ -4,6 +4,7 @@ import com.ccoder.settings.SendShortcut
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -75,30 +76,29 @@ class ComposerRulesTest {
     // ---- 布局 ----
 
     @Test
-    fun `上下文行在上、输入框居中、工具栏在下`() {
-        val contextRow = JPanel()
+    fun `输入框居中、工具栏在下，NORTH 空着`() {
         val scroll = JPanel()
         val toolbar = JPanel()
 
-        val card = buildComposerCard(contextRow, scroll, toolbar)
+        val card = buildComposerCard(scroll, toolbar)
 
         val layout = card.layout as BorderLayout
-        assertSame(
-            contextRow, layout.getLayoutComponent(BorderLayout.NORTH),
-            "上下文行必须挂在输入框上方",
-        )
         assertSame(scroll, layout.getLayoutComponent(BorderLayout.CENTER), "输入框应在中间区域")
         assertSame(
             toolbar, layout.getLayoutComponent(BorderLayout.SOUTH),
             "工具栏必须在下方；摆到 EAST 就退回成「按钮挤在输入框右边」，右侧放不下以后的控件",
         )
+        assertNull(
+            layout.getLayoutComponent(BorderLayout.NORTH),
+            "NORTH 该空着 —— 四张状态卡是独立的一排，在输入卡外面",
+        )
     }
 
     @Test
     fun `卡片自己画圆角描边，边框不在输入框上`() {
-        // 方案 A 的核心取舍：边框包住**整个输入区**（上下文行 + 输入框 + 工具栏），
+        // 方案 A 的核心取舍：边框包住**整个输入区**（输入框 + 工具栏），
         // 输入框自己是裸的。若边框回到输入框上，就退回成"一个直角矩形框住文字"
-        val card = buildComposerCard(JPanel(), JPanel(), JPanel())
+        val card = buildComposerCard(JPanel(), JPanel())
 
         val outer = card.border as CompoundBorder
         assertTrue(outer.outsideBorder is RoundedLineBorder, "卡片应有圆角描边")
@@ -106,7 +106,7 @@ class ComposerRulesTest {
 
     @Test
     fun `聚焦只换描边颜色，不加粗 —— 加粗会让正在输入的文字抖一下`() {
-        val card = buildComposerCard(JPanel(), JPanel(), JPanel())
+        val card = buildComposerCard(JPanel(), JPanel())
         val border = (card.border as CompoundBorder).outsideBorder as RoundedLineBorder
 
         val probe = JPanel()
