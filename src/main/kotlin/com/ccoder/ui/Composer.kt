@@ -163,3 +163,13 @@ internal const val EXPAND_CARET = " ▾"
 private val WARNING_COLOR: Color = JBColor(Color(0xD8, 0x43, 0x15), Color(0xFF, 0x8A, 0x65))
 
 internal fun warningColor(): Color = WARNING_COLOR
+
+/**
+ * 危险状态的色。状态卡的指示器与权限卡共用。
+ *
+ * 与 [SessionList] 里私有的 `DELETE_DANGER` 色值相同 —— 那处先留着不动，
+ * 动它要连带改会话列表和它的测试，与本次改动无关。
+ */
+internal fun dangerColor(): Color = DANGER_COLOR
+
+private val DANGER_COLOR: Color = JBColor(Color(0xC0, 0x39, 0x2B), Color(0xDB, 0x5C, 0x5C))
