@@ -23,7 +23,7 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    expect(ops).toHaveLength(12)
+    expect(ops).toHaveLength(13)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
   })
@@ -178,5 +178,53 @@ describe('parseItem 的可选字段', () => {
     expect(ops).toHaveLength(1)
     const item = ops[0] as { op: 'append'; item: { costUsd?: number } }
     expect(item.item.costUsd).toBeUndefined()
+  })
+})
+
+describe('用户消息里的图片', () => {
+  it('合法 images 解析进 item', () => {
+    const ops = parseOps([
+      {
+        op: 'append',
+        item: {
+          kind: 'user', id: 'u1', ts: 1, text: '看',
+          images: [{ mediaType: 'image/png', data: 'AAA' }],
+          omittedImages: 2,
+        },
+      },
+    ])
+    const item = (
+      ops[0] as {
+        op: 'append'
+        item: { images?: { mediaType: string; base64: string }[]; omittedImages?: number }
+      }
+    ).item
+    expect(item.images).toHaveLength(1)
+    // 断言整个对象而不只是长度：线上键名是 data、模型字段叫 base64（与 Kotlin
+    // 侧 TranscriptImage 同名）。只数张数的话，"把 data 原样塞进 item"也能绿，
+    // 而那种实现渲染出来是 data:image/png;base64,undefined
+    expect(item.images).toEqual([{ mediaType: 'image/png', base64: 'AAA' }])
+    expect(item.omittedImages).toBe(2)
+  })
+
+  it('坏掉的单项丢掉、整条消息保留', () => {
+    const ops = parseOps([
+      {
+        op: 'append',
+        item: {
+          kind: 'user', id: 'u1', ts: 1, text: '看',
+          images: [{ mediaType: 'image/png', data: 'AAA' }, { mediaType: 5 }, 'garbage'],
+        },
+      },
+    ])
+    const item = (ops[0] as { op: 'append'; item: { images?: unknown[] } }).item
+    expect(item.images).toHaveLength(1)
+    // 整条消息必须还在 —— 一条脏图不该让整句提问消失
+    expect(ops).toHaveLength(1)
+  })
+
+  it('没有 images 字段时是 undefined，不是空数组', () => {
+    const ops = parseOps([{ op: 'append', item: { kind: 'user', id: 'u1', ts: 1, text: '看' } }])
+    expect((ops[0] as { op: 'append'; item: { images?: unknown } }).item.images).toBeUndefined()
   })
 })

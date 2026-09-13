@@ -24,10 +24,11 @@ function Timestamp({ ts }: { ts: number }) {
 function Item({ item }: { item: TranscriptItem }) {
   switch (item.kind) {
     case 'user':
-      // 用户输入不走 Markdown：用户敲的 * 不该被当成语法
+      // 用户输入不走 Markdown：用户敲的 * 不该被当成语法。
+      // text 可能是空串（纯图消息），气泡自己决定画不画那个文字块
       return (
         <div className="entry">
-          <UserBubble text={item.text} />
+          <UserBubble text={item.text} images={item.images} omittedImages={item.omittedImages} />
           <Timestamp ts={item.ts} />
         </div>
       )

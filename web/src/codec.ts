@@ -57,7 +57,31 @@ function parseItem(raw: unknown): TranscriptItem | null {
   const base = { id: it.id, ts: it.ts }
 
   switch (it.kind) {
-    case 'user':
+    case 'user': {
+      if (typeof it.text !== 'string') return null
+      const item: TranscriptItem = { ...base, kind: 'user', text: it.text }
+      // 逐项校验、坏的丢单项不丢整条：客户端与服务端版本不一定同步，
+      // 一条脏图不该让整句提问消失
+      if (Array.isArray(it.images)) {
+        const images = it.images
+          .filter(
+            (v): v is { mediaType: string; data: string } =>
+              !!v && typeof v === 'object' &&
+              typeof (v as { mediaType?: unknown }).mediaType === 'string' &&
+              typeof (v as { data?: unknown }).data === 'string',
+          )
+          // 线上的键叫 data，模型字段叫 base64（与 Kotlin 侧 TranscriptImage 同名）——
+          // 原样留着 data，气泡拼出来的就是 data:image/png;base64,undefined
+          .map((v) => ({ mediaType: v.mediaType, base64: v.data }))
+        // 全坏等于没有：空数组是"有值但为空"，与契约的零值语义（缺失）不是一回事
+        if (images.length > 0) item.images = images
+      }
+      if (typeof it.omittedImages === 'number' && it.omittedImages > 0) {
+        item.omittedImages = it.omittedImages
+      }
+      return item
+    }
+
     case 'assistant':
     case 'thinking':
     case 'error':

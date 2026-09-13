@@ -270,3 +270,21 @@ describe('Transcript 滚动跟随', () => {
     expect(m.top()).toBe(1600)
   })
 })
+
+describe('用户消息里的图（接线）', () => {
+  it('图片与省略张数一路传到 UserBubble', () => {
+    // UserBubble 自己的测试钉渲染，这里钉的是 Transcript 别把新 props 漏掉：
+    // 漏掉的话 codec 解析对了、气泡也画得对，界面上却什么都没有
+    render(
+      <Transcript
+        state={state({
+          kind: 'user', id: 'u', ts, text: '看',
+          images: [{ mediaType: 'image/png', base64: 'AAA' }],
+          omittedImages: 2,
+        })}
+      />,
+    )
+    expect(screen.getByTestId('user-image-0')).toHaveAttribute('src', 'data:image/png;base64,AAA')
+    expect(screen.getByText('2 张图已省略')).toBeInTheDocument()
+  })
+})

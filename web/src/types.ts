@@ -6,7 +6,20 @@ interface Base {
   ts: number
 }
 
-export interface UserItem extends Base { kind: 'user'; text: string }
+/** 转写区里的一张图。与 Kotlin 侧 TranscriptImage 同形。 */
+export interface TranscriptImage {
+  mediaType: string
+  base64: string
+}
+
+export interface UserItem extends Base {
+  kind: 'user'
+  text: string
+  /** 用户提问时粘的图。没有图时是**缺失**而不是空数组（契约的零值语义）。 */
+  images?: TranscriptImage[]
+  /** 回放时因体积预算被省掉的张数。 */
+  omittedImages?: number
+}
 export interface AssistantItem extends Base { kind: 'assistant'; text: string }
 export interface ThinkingItem extends Base { kind: 'thinking'; text: string }
 export interface ErrorItem extends Base { kind: 'error'; text: string }

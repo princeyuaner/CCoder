@@ -159,6 +159,22 @@ body {
   white-space: pre-wrap;
 }
 
+/* 气泡里的图。限宽不限高：长截图会很高，但那是用户自己粘的，不该被裁掉 */
+.bubble__image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  margin: 2px 0;
+  object-fit: contain;
+}
+
+.bubble__omitted {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim, #8c8c8c);
+}
+
 .timestamp {
   font-size: 11px;
   color: var(--text-dim, #8c8c8c);
