@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 设置入口与多模型配置 · 设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量。
+   与 status-cards.html / composer-options.html / session-manage.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1460px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 68ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.lede code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+  transition: background .15s, color .15s;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.brief {
+  margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+  background: var(--page-card);
+}
+.brief.warn { border-left-color: var(--danger); }
+.brief h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief b { color: var(--page-fg); }
+.brief ul { margin: 6px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 4px; }
+
+/* 每个方案占一整行 —— 方案 A/C 的对话框要按真实尺寸画（860/820px），
+   塞进多列网格会被压扁，三个方案的差别就看不出去了。 */
+.grid { display:grid; grid-template-columns: 1fr; gap: 30px; margin-top: 34px; align-items:start; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 24px 24px 22px; }
+.row { display:flex; gap:26px; align-items:flex-start; flex-wrap:wrap; }
+.side { flex:1 1 460px; min-width:360px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 18px; }
+.thesis b { color: var(--page-fg); }
+.thesis code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; }
+
+/* ============================================================
+   模拟工具窗口。420px 是真实宽度 —— 好看没用，得在这一栏里活。
+   ============================================================ */
+.tw {
+  position: relative;
+  width: 420px; max-width: 100%; background: var(--panel);
+  border:1px solid var(--border); border-radius: 8px; overflow: hidden;
+  display:flex; flex-direction:column;
+}
+.tw-bar {
+  display:flex; align-items:center; gap:7px; padding: 6px 10px;
+  background: var(--surface); border-bottom:1px solid var(--border);
+  font-size: 11.5px; color: var(--dim);
+}
+.tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
+.tw-bar .sp { margin-left:auto; }
+
+/* 顶行：会话标签 + ＋ + 设置齿轮 */
+.status-row {
+  display:flex; align-items:center; gap:8px;
+  padding: 7px 10px; border-bottom:1px solid var(--border-soft);
+  font-size: 12px;
+}
+.sess { display:flex; align-items:center; gap:5px; min-width:0; padding: 2px 6px; border-radius: 5px; cursor:pointer; color: var(--text); font-size: 12px; }
+.sess .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sess .caret { color: var(--dim); font-size: 9px; flex:0 0 auto; }
+.ib { display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; flex:0 0 auto;
+      color: var(--dim); font-size:15px; line-height:1; cursor:pointer; border:1px solid transparent; }
+.ib.gear { margin-left:0; }
+.ib.new { margin-left:auto; }
+.ib.act { border-color: var(--accent); color: var(--accent); }
+
+/* 转写区 */
+.tr { padding: 12px 12px 8px; background: var(--editor); display:flex; flex-direction:column; gap:9px; min-height: 118px; }
+.bub { border-radius: 9px; padding: 7px 10px; font-size: 12px; line-height:1.5; }
+.bub.u { align-self:flex-end; background: var(--accent-soft); color: var(--text); max-width: 78%; }
+.bub.a { align-self:flex-start; background: var(--surface); border:1px solid var(--border); color: var(--text); max-width: 88%; }
+
+/* 底部：输入卡 */
+.bottom { border-top:1px solid var(--border-soft); padding: 8px; background: var(--panel); }
+.comp { border:1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px 11px; }
+.comp .ph { color: var(--dim); font-size: 12.5px; }
+.comp .bar { display:flex; align-items:center; gap:10px; margin-top: 9px; padding-top: 8px; border-top:1px solid var(--border-soft); }
+.comp .bar .m { font-size: 11px; color: var(--dim); }
+.comp .bar .r { margin-left:auto; width: 24px; height:24px; border-radius:6px; background: var(--accent); flex:0 0 auto; }
+
+/* 左下角那个标签 —— 带下拉箭头 */
+.lbl { display:inline-flex; align-items:center; gap:3px; cursor:pointer; font-size:11px; color: var(--dim); padding:1px 4px; border-radius:4px; }
+.lbl .ct { font-size:8px; opacity:.8; }
+.lbl.hot { color: var(--text); background: var(--hover); }
+
+/* ============================================================
+   对话框 / 内嵌层 —— 本稿新增的形态
+   ============================================================ */
+.dlg {
+  width: 100%; background: var(--panel); border:1px solid var(--border);
+  border-radius: 10px; overflow:hidden; display:flex; flex-direction:column;
+  box-shadow: 0 12px 40px rgba(0,0,0,.34);
+}
+[data-theme="light"] .dlg { box-shadow: 0 12px 40px rgba(0,0,0,.14); }
+.dlg-bar { display:flex; align-items:center; padding: 8px 12px; border-bottom:1px solid var(--border); background: var(--surface); font-size:12px; color: var(--text); }
+.dlg-bar .x { margin-left:auto; color: var(--dim); font-size:13px; cursor:pointer; }
+.dlg-body { display:flex; min-height: 300px; }
+.dlg-ft { display:flex; align-items:center; gap:8px; padding: 9px 12px; border-top:1px solid var(--border); background: var(--surface); }
+.dlg-ft .hint { color: var(--dim); font-size:11px; margin-right:auto; }
+
+/* 左侧竖排页签 */
+.tabs-v { width: 132px; flex:0 0 auto; background: var(--surface); border-right:1px solid var(--border); padding: 8px 6px; }
+.tabs-v .t { padding: 6px 9px; border-radius:5px; font-size:12px; color: var(--dim); cursor:pointer; margin-bottom:2px; }
+.tabs-v .t.on { background: var(--accent-soft); color: var(--text); }
+.tabs-v .t.q { opacity:.45; }
+
+/* 顶部横排页签 */
+.tabs-h { display:flex; align-items:center; gap:2px; padding: 0 8px; border-bottom:1px solid var(--border); background: var(--surface); }
+.tabs-h .t { padding: 8px 11px; font-size:12px; color: var(--dim); cursor:pointer; border-bottom:2px solid transparent; }
+.tabs-h .t.on { color: var(--text); border-bottom-color: var(--accent); }
+.tabs-h .t.q { opacity:.45; }
+.back { color: var(--dim); font-size:13px; cursor:pointer; padding: 0 6px 0 2px; }
+
+.pane { flex:1 1 auto; min-width:0; padding: 14px 16px; }
+.pane-hd h4 { margin:0 0 4px; font-size:13px; font-weight:600; color: var(--text); }
+.pane-hd p { margin:0 0 12px; font-size:11.5px; color: var(--dim); line-height:1.5; }
+.pane-hd .warnline { color: var(--warn); }
+
+/* 模型列表 */
+.mlist { border:1px solid var(--border); border-radius:8px; overflow:hidden; background: var(--surface); }
+.mrow { display:flex; align-items:center; gap:9px; padding: 8px 10px; border-bottom:1px solid var(--border-soft); cursor:pointer; }
+.mrow:last-child { border-bottom:0; }
+.mrow.on { background: var(--accent-soft); }
+.sw { width:12px; height:12px; border-radius:50%; border:1.5px solid var(--border); flex:0 0 auto; position:relative; }
+.mrow.on .sw { border-color: var(--accent); }
+.mrow.on .sw::after { content:""; position:absolute; inset:2px; border-radius:50%; background: var(--accent); }
+.mi { min-width:0; flex:1 1 auto; }
+.mi-nm { font-size:12px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mi-id { font-family: var(--mono); font-size:10.5px; color: var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mi-ep { font-size:10.5px; color: var(--dim); flex:0 0 auto; max-width: 120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mi-a { color: var(--dim); font-size:11px; flex:0 0 auto; cursor:pointer; }
+.mi-a:hover { color: var(--accent); }
+.badge { font-size:9.5px; font-family:var(--mono); letter-spacing:.06em; padding:1px 5px; border-radius:3px; background: var(--code); color: var(--dim); flex:0 0 auto; }
+.badge.k { background: var(--accent-soft); color: var(--accent); }
+
+.add { display:flex; align-items:center; gap:6px; margin-top:8px; padding: 7px 10px; border:1px dashed var(--border); border-radius:8px; font-size:11.5px; color: var(--dim); cursor:pointer; }
+.add:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 表单 */
+.field { margin-bottom: 10px; }
+.field label { display:block; font-size:11px; color: var(--dim); margin-bottom:4px; }
+.field .in {
+  display:flex; align-items:center; padding: 5px 8px; border:1px solid var(--border); border-radius:6px;
+  background: var(--editor); font-size:11.5px; color: var(--text); min-height: 27px;
+}
+.field .in.mono { font-family: var(--mono); font-size:11px; }
+.field .in.ph { color: var(--dim); }
+.field .in.focus { border-color: var(--accent); }
+.field .in .eye { margin-left:auto; color: var(--dim); font-size:12px; }
+.field .note { font-size:10.5px; color: var(--dim); margin-top:3px; }
+.grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+
+.btn { padding: 5px 14px; border-radius:6px; font-size:11.5px; cursor:pointer; border:1px solid var(--border); background: var(--surface); color: var(--text); }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--dim); }
+.btn.dg { color: var(--danger); }
+
+/* 纯工具窗口内的内嵌层 */
+.sheet { position:absolute; inset:0; background: var(--panel); display:flex; flex-direction:column; z-index:2; }
+
+/* ---- 共用：左下角切换弹层 ---- */
+.pop {
+  width: 300px; background: var(--panel); border:1px solid var(--border); border-radius:9px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.32); overflow:hidden; padding: 4px;
+}
+[data-theme="light"] .pop { box-shadow: 0 10px 30px rgba(0,0,0,.14); }
+.pop .it { display:flex; align-items:center; gap:8px; padding: 7px 9px; border-radius:6px; cursor:pointer; }
+.pop .it:hover { background: var(--hover); }
+.pop .it.on { background: var(--accent-soft); }
+.pop .ck { width:12px; flex:0 0 auto; color: var(--accent); font-size:11px; }
+.pop .it .mi-nm { font-size:12px; }
+.pop .it .sub { font-family:var(--mono); font-size:10px; color: var(--dim); }
+.pop .sep { height:1px; background: var(--border-soft); margin: 4px 2px; }
+.pop .foot { display:flex; align-items:center; gap:6px; padding: 7px 9px; font-size:11.5px; color: var(--dim); cursor:pointer; border-radius:6px; }
+.pop .foot:hover { background: var(--hover); color: var(--accent); }
+
+/* ---- 代价表 / 推荐 ---- */
+.cost { margin-top: 18px; padding-top: 15px; border-top:1px solid var(--page-line); display:grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size:12.5px; }
+.cost dt { color: var(--page-dim); font-family: var(--mono); font-size: 11px; letter-spacing:.06em; text-transform:uppercase; padding-top:2px; }
+.cost dd { margin:0; color: var(--text); }
+.cost dd.bad { color: var(--danger); }
+.cost dd.good { color: var(--ok); }
+
+.verdict { margin-top: 46px; padding: 26px 28px; border:1px solid var(--page-line); border-radius: 14px; background: var(--page-card); border-left: 3px solid var(--ok); }
+.verdict h2 { font-family: var(--serif); font-size: 25px; margin: 0 0 12px; }
+.verdict p { color: var(--page-dim); margin: 0 0 10px; max-width: 78ch; }
+.verdict b { color: var(--page-fg); }
+.verdict code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+
+table.cmp { width:100%; border-collapse: collapse; margin-top: 18px; font-size: 12.5px; }
+table.cmp th, table.cmp td { text-align:left; padding: 8px 10px; border-bottom:1px solid var(--page-line); }
+table.cmp th { color: var(--page-dim); font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:500; }
+table.cmp td:first-child { color: var(--text); }
+table.cmp td { color: var(--page-dim); }
+table.cmp td.y { color: var(--ok); }
+table.cmp td.n { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设置入口 · 模型配置</p>
+      <h1>多模型配置与切换</h1>
+      <p class="lede">
+        三条需求：右上角一个<b>设置齿轮</b>；点开是<b>带页签的设置</b>，其中一页管多个第三方模型；
+        输入框左下角的模型标签能<b>直接点开切换</b>。
+        下面是三种放法 —— 差别在设置<b>放在哪</b>，不在于好不好看。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <div class="brief warn">
+    <h3>两个硬约束，决定了图上为什么这么写</h3>
+    <p>
+      <b>① 模型是会话启动参数，不是运行时开关。</b>
+      它由 <code>ClaudeSettings.toStartParams</code> 打包进 <code>start</code> 消息，
+      sidecar 那边 <code>session.js:88</code> 塞进 SDK 的 <code>options.model</code>。
+      所以切模型 = 重开会话，<b>当前上下文不保留</b>。
+      三张图上都留了这句提示 —— 少了它，用户会以为切完还能接着聊。
+    </p>
+    <p>
+      <b>② 工具窗口只有 420px。</b>
+      这是真宽度（<code>.tw</code> 就是这个数）。一条 Base URL 平均 36 字符，
+      等宽字体下在 420px 里必然折行 —— 方案 B 把这个代价直接画出来了。
+    </p>
+  </div>
+
+  <div class="brief">
+    <h3>顺带一提：项目已经有一个原生设置页</h3>
+    <p>
+      <code>ClaudeSettingsPanel : Configurable</code>，注册在 <code>plugin.xml:15</code> 的
+      <code>&lt;projectConfigurable&gt;</code>，现有六项设置都在那儿。
+      方案 A/B 是另起一套自己的 UI，<b>方案 C 是复用它</b> —— 齿轮只当做个快捷入口。
+      这三条路的成本差着量级，选之前值得知道。
+    </p>
+  </div>
+
+  <div class="grid">
+
+    <!-- ================= 方案 A ================= -->
+    <div class="card">
+      <p class="tag">方案 A</p>
+      <h2>模态对话框 · 左页签三栏</h2>
+      <p class="thesis">
+        齿轮在右上角，点开一个 <b>860×540 的模态框</b>：左边竖排页签，中间模型列表，
+        右边选中项的编辑表单。<b>一屏之内既看得到全部模型，也改得动字段。</b>
+      </p>
+
+      <div class="row">
+      <!-- 工具窗口：齿轮的位置 -->
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span><span>CCoder</span><span class="sp"></span></div>
+        <div class="status-row">
+          <div class="sess"><span class="nm">重构 sidecar 启动流程</span><span class="caret">▾</span></div>
+          <div class="ib gear act" title="设置">⚙</div>
+          <div class="ib new">＋</div>
+        </div>
+        <div class="tr">
+          <div class="bub u">把这个改成读配置</div>
+          <div class="bub a">好，我看了 session.js 里 model 是启动参数…</div>
+        </div>
+        <div class="bottom">
+          <div class="comp">
+            <div class="ph">输入消息…</div>
+            <div class="bar">
+              <span class="lbl hot">DeepSeek <span class="ct">▾</span></span>
+              <span class="m">标准</span>
+              <span class="r"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 对话框本体 -->
+      <div class="dlg" style="width:860px;flex:0 0 auto">
+        <div class="dlg-bar"><span>设置</span><span class="x">✕</span></div>
+        <div class="dlg-body" style="height:386px">
+          <div class="tabs-v">
+            <div class="t on">模型</div>
+            <div class="t q">通用</div>
+            <div class="t q">权限</div>
+            <div class="t q">关于</div>
+          </div>
+          <div style="width:250px;flex:0 0 auto;border-right:1px solid var(--border);padding:14px 12px">
+            <div class="mlist">
+              <div class="mrow on">
+                <span class="sw"></span>
+                <div class="mi"><div class="mi-nm">DeepSeek</div><div class="mi-id">deepseek-flash[1m]</div></div>
+              </div>
+              <div class="mrow">
+                <span class="sw"></span>
+                <div class="mi"><div class="mi-nm">官方 Sonnet</div><div class="mi-id">claude-sonnet-5</div></div>
+              </div>
+              <div class="mrow">
+                <span class="sw"></span>
+                <div class="mi"><div class="mi-nm">中转 Opus</div><div class="mi-id">claude-opus-5</div></div>
+              </div>
+            </div>
+            <div class="add">＋ 添加模型</div>
+          </div>
+          <div class="pane">
+            <div class="pane-hd">
+              <h4>DeepSeek</h4>
+              <p class="warnline">切换模型会重开会话，当前上下文不保留</p>
+            </div>
+            <div class="field">
+              <label>名称</label>
+              <div class="in">DeepSeek</div>
+            </div>
+            <div class="field">
+              <label>Base URL</label>
+              <div class="in mono">https://api.deepseek.com/anthropic</div>
+            </div>
+            <div class="field">
+              <label>API Key</label>
+              <div class="in mono">sk-••••••••••••••••••••4f2a<span class="eye">👁</span></div>
+              <div class="note">存在 IDE 凭据库里，不写进 settings.json</div>
+            </div>
+            <div class="field">
+              <label>模型 ID</label>
+              <div class="in mono focus">deepseek-flash[1m]</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:14px">
+              <span class="btn dg ghost">删除</span>
+            </div>
+          </div>
+        </div>
+        <div class="dlg-ft">
+          <span class="hint">改动即时保存</span>
+          <span class="btn ghost">取消</span>
+          <span class="btn pri">确定</span>
+        </div>
+      </div>
+      </div>
+
+      <dl class="cost">
+        <dt>得到</dt>
+        <dd class="good">字段不折行，一屏看全三个模型 + 完整表单</dd>
+        <dt>代价</dt>
+        <dd class="bad">自己写对话框（DialogWrapper），脱离工具窗口</dd>
+        <dt>顺带</dt>
+        <dd>页签位置和 PyCharm 的 Settings 一致，用户不用学</dd>
+      </dl>
+    </div>
+
+    <!-- ================= 方案 B ================= -->
+    <div class="card">
+      <p class="tag">方案 B</p>
+      <h2>工具窗口内嵌 · 顶部横排页签</h2>
+      <p class="thesis">
+        齿轮点下去，<b>设置整层盖住这个 420px 的工具窗口</b>，左上角一个「←」退回。
+        页签横排在顶部。和权限选择器一脉相承 —— <b>始终没离开工具窗口</b>。
+      </p>
+
+      <div class="row">
+      <div class="tw" style="flex:0 0 auto">
+        <div class="tw-bar"><span class="ic"></span><span>CCoder</span><span class="sp"></span></div>
+        <div class="status-row">
+          <div class="sess"><span class="nm">重构 sidecar 启动流程</span><span class="caret">▾</span></div>
+          <div class="ib gear act">⚙</div>
+          <div class="ib new">＋</div>
+        </div>
+
+        <!-- 内嵌层 -->
+        <div class="sheet" style="position:relative;inset:auto">
+          <div class="tabs-h">
+            <span class="back">←</span>
+            <div class="t on">模型</div>
+            <div class="t q">通用</div>
+            <div class="t q">权限</div>
+          </div>
+          <div style="padding:12px 12px 10px;flex:1 1 auto">
+            <div class="mlist">
+              <div class="mrow on">
+                <span class="sw"></span>
+                <div class="mi">
+                  <div class="mi-nm">DeepSeek</div>
+                  <div class="mi-id">deepseek-flash[1m]</div>
+                </div>
+              </div>
+              <div class="mrow">
+                <span class="sw"></span>
+                <div class="mi">
+                  <div class="mi-nm">官方 Sonnet</div>
+                  <div class="mi-id">claude-sonnet-5</div>
+                </div>
+              </div>
+              <div class="mrow">
+                <span class="sw"></span>
+                <div class="mi">
+                  <div class="mi-nm">中转 Opus</div>
+                  <div class="mi-id">claude-opus-5</div>
+                </div>
+              </div>
+            </div>
+            <div class="add">＋ 添加模型</div>
+
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-soft)">
+              <div class="pane-hd">
+                <h4>DeepSeek</h4>
+                <p class="warnline">切换模型会重开会话，当前上下文不保留</p>
+              </div>
+              <div class="field">
+                <label>Base URL</label>
+                <div class="in mono" style="line-height:1.45">https://api.deepseek.com/<br>anthropic</div>
+              </div>
+              <div class="field">
+                <label>API Key</label>
+                <div class="in mono">sk-••••••••••••••4f2a<span class="eye">👁</span></div>
+              </div>
+              <div class="field" style="margin-bottom:0">
+                <label>模型 ID</label>
+                <div class="in mono focus">deepseek-flash[1m]</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="side">
+      <dl class="cost" style="margin-top:0;padding-top:0;border-top:0">
+        <dt>得到</dt>
+        <dd class="good">不离开工具窗口，切换完立刻能接着聊；不用新写对话框</dd>
+        <dt>代价</dt>
+        <dd class="bad">Base URL 折成两行（图上就是真实效果）；列表和表单得上下堆</dd>
+        <dt>顺带</dt>
+        <dd>和「点击权限标签弹列表」是同一套交互，用户已经会了</dd>
+        <dt>净宽</dt>
+        <dd>420 − 2(边框) − 24(内边距) ≈ 394px，够放 36 字符的域名；再长就折</dd>
+      </dl>
+      </div>
+      </div>
+    </div>
+
+    <!-- ================= 方案 C ================= -->
+    <div class="card">
+      <p class="tag">方案 C</p>
+      <h2>复用原生 Settings · 齿轮只做入口</h2>
+      <p class="thesis">
+        不新造 UI。<b>在已有的 <code>ClaudeSettingsPanel</code> 里加一节「模型」</b>，
+        齿轮点下去调 <code>showAndSelect</code> 直接跳到那一页。外观由 IntelliJ 平台决定。
+      </p>
+
+      <div class="row">
+      <!-- 原生 Settings 的样子 -->
+      <div class="dlg" style="width:820px;flex:0 0 auto">
+        <div class="dlg-bar"><span>Settings</span><span class="x">✕</span></div>
+        <div class="dlg-body" style="height:400px">
+          <div class="tabs-v" style="width:170px">
+            <div class="t">外观与行为</div>
+            <div class="t">编辑器</div>
+            <div class="t">构建、执行、部署</div>
+            <div class="t on">工具</div>
+            <div class="t" style="padding-left:20px;font-size:11.5px">CCoder</div>
+            <div class="t" style="padding-left:20px;font-size:11.5px;color:var(--dim)">终端</div>
+          </div>
+          <div class="pane" style="background:var(--editor)">
+            <div class="pane-hd">
+              <h4>CCoder · 模型</h4>
+              <p>第三方模型自带端点与密钥。切换模型会重开会话，当前上下文不保留</p>
+            </div>
+            <div style="display:flex;gap:10px">
+              <div class="mlist" style="width:200px">
+                <div class="mrow on">
+                  <span class="sw"></span>
+                  <div class="mi"><div class="mi-nm">DeepSeek</div></div>
+                </div>
+                <div class="mrow">
+                  <span class="sw"></span>
+                  <div class="mi"><div class="mi-nm">官方 Sonnet</div></div>
+                </div>
+                <div class="mrow">
+                  <span class="sw"></span>
+                  <div class="mi"><div class="mi-nm">中转 Opus</div></div>
+                </div>
+              </div>
+              <div style="flex:1 1 auto;min-width:0">
+                <div class="field">
+                  <label>名称</label>
+                  <div class="in">DeepSeek</div>
+                </div>
+                <div class="field">
+                  <label>Base URL</label>
+                  <div class="in mono">https://api.deepseek.com/anthropic</div>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label>API Key</label>
+                  <div class="in mono">sk-••••••••••4f2a</div>
+                </div>
+              </div>
+            </div>
+            <div class="add" style="margin-top:8px;width:200px">＋ 添加模型</div>
+          </div>
+        </div>
+        <div class="dlg-ft">
+          <span class="hint" style="margin-right:auto"></span>
+          <span class="btn pri">OK</span>
+          <span class="btn">Cancel</span>
+          <span class="btn">Apply</span>
+        </div>
+      </div>
+      <div class="side">
+      <dl class="cost" style="margin-top:0;padding-top:0;border-top:0">
+        <dt>得到</dt>
+        <dd class="good">最省 —— 没有新对话框、没有新视觉，平台负责主题与字体缩放</dd>
+        <dt>代价</dt>
+        <dd class="bad">拿不到"页签式设置"的外观，页签是平台给的，不是你要的那套</dd>
+        <dt>顺带</dt>
+        <dd>和现有六项设置同住一页，用户找起来只有一个地方</dd>
+        <dt>注意</dt>
+        <dd>它现在是 <b>projectConfigurable</b>（按项目存），而模型配置多半该是全局的</dd>
+      </dl>
+      </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 共用部分 ================= -->
+  <div class="card wide" style="margin-top:34px">
+    <p class="tag">共用 · 三张图都一样</p>
+    <h2>输入框左下角：点一下切换</h2>
+    <p class="thesis">
+      这个和上面选哪个方案<b>无关</b>。现在的模型标签是 <code>buildModelLabel()</code> —— 一个不可点的
+      纯文字；隔壁的<b>权限模式标签已经是可点的</b>（<code>ModeLabel</code>，带 ▾、点开弹列表、当前项打勾）。
+      模型照它做，手感才一致：<b>同一行里两个标签，不该一个能点一个不能</b>。
+    </p>
+
+    <div style="display:flex;gap:34px;flex-wrap:wrap;align-items:flex-start">
+      <!-- 触发前 -->
+      <div>
+        <p class="eyebrow" style="margin-bottom:8px">点击前</p>
+        <div class="tw" style="width:360px">
+          <div class="bottom" style="border-top:0">
+            <div class="comp">
+              <div class="ph">输入消息…</div>
+              <div class="bar">
+                <span class="lbl hot">DeepSeek <span class="ct">▾</span></span>
+                <span class="m">标准 <span class="ct">▾</span></span>
+                <span class="r"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="thesis" style="margin-top:10px;max-width:330px">
+          模型在左、权限模式在右，都带 ▾。悬停时给一层淡淡的底色 ——
+          <code>ModeLabel</code> 现在没有悬停反馈，两边一起补。
+        </p>
+      </div>
+
+      <!-- 弹层 -->
+      <div>
+        <p class="eyebrow" style="margin-bottom:8px">点开之后</p>
+        <div class="pop">
+          <div class="it on"><span class="ck">✓</span><div><div class="mi-nm">DeepSeek</div><div class="sub">deepseek-flash[1m]</div></div></div>
+          <div class="it"><span class="ck"></span><div><div class="mi-nm">官方 Sonnet</div><div class="sub">claude-sonnet-5</div></div></div>
+          <div class="it"><span class="ck"></span><div><div class="mi-nm">中转 Opus</div><div class="sub">claude-opus-5</div></div></div>
+          <div class="sep"></div>
+          <div class="foot">⚙ 管理模型…</div>
+        </div>
+        <p class="thesis" style="margin-top:10px;max-width:330px">
+          当前项打勾。最后一条「管理模型…」通向设置里那一页 —— 这个弹层只负责<b>切</b>，不负责<b>改</b>。
+        </p>
+      </div>
+
+      <!-- 会话进行中的警告 -->
+      <div>
+        <p class="eyebrow" style="margin-bottom:8px">会话进行中时点它</p>
+        <div class="pop" style="width:330px">
+          <div class="it"><span class="ck"></span><div><div class="mi-nm">官方 Sonnet</div><div class="sub">claude-sonnet-5</div></div></div>
+          <div class="sep"></div>
+          <div style="padding:9px 10px">
+            <div style="font-size:11.5px;color:var(--warn);line-height:1.5;margin-bottom:9px">
+              切换会重开会话，这段对话的上下文不保留。
+            </div>
+            <div style="display:flex;gap:7px">
+              <span class="btn pri" style="font-size:11px;padding:4px 11px">切换并重开</span>
+              <span class="btn ghost" style="font-size:11px;padding:4px 8px">取消</span>
+            </div>
+          </div>
+        </div>
+        <p class="thesis" style="margin-top:10px;max-width:330px">
+          这是<b>三张图上唯一多出来的一步</b>。上下文会丢这件事必须当面说清楚，
+          不能让用户点完才发现聊过的东西没了。
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 怎么选 ================= -->
+  <div class="verdict">
+    <h2>怎么选</h2>
+
+    <table class="cmp">
+      <tr>
+        <th>　</th><th>方案 A · 模态三栏</th><th>方案 B · 窗口内嵌</th><th>方案 C · 原生 Settings</th>
+      </tr>
+      <tr>
+        <td>字段能不能完整显示</td><td class="y">能，不折行</td><td class="n">URL 折两行</td><td class="y">能</td>
+      </tr>
+      <tr>
+        <td>离开工具窗口</td><td class="n">会</td><td class="y">不会</td><td class="n">会</td>
+      </tr>
+      <tr>
+        <td>页签外观能自己定</td><td class="y">能</td><td class="y">能</td><td class="n">平台说了算</td>
+      </tr>
+      <tr>
+        <td>要不要新写对话框架构</td><td class="n">要</td><td class="y">不要</td><td class="y">不要</td>
+      </tr>
+      <tr>
+        <td>和后加的页签（通用/权限…）合住</td><td class="y">天然合适</td><td>挤，420px 放不下第三排</td><td class="y">本来就是</td>
+      </tr>
+    </table>
+
+    <p style="margin-top:22px">
+      <b>我推荐方案 A。</b> 三条理由：你要的是「点开是一个个页签」—— 这是个会长大的容器，
+      以后还会加通用、权限、快捷键，而 <b>420px 塞不下第三次扩张</b>；
+      A 的字段不折行，Base URL 和 API Key 这两个最怕折行的东西正好是最长的；
+      页签在左侧和 PyCharm 自己的 Settings 一致，用户不用学新东西。
+    </p>
+    <p>
+      代价是得写一个 <code>DialogWrapper</code>。但方案 B 省下的那点功夫，
+      会以「每次加页签都要重新腾地方」的形式还回去。
+    </p>
+    <p>
+      <b>方案 C 值得单独考虑一次</b> —— 如果这套设置注定只有你自己用，不打算给别人装，
+      那复用它几乎零成本，只是拿不到你要的那个「页签式」外观。
+      这不是技术取舍，是你想让这个插件长成「PyCharm 的一部分」还是「自带一整套 UI」。
+    </p>
+    <p style="margin-bottom:0">
+      <b>有一件事无论选哪个都不会变：</b>左下角那个标签照 <code>ModeLabel</code> 做，
+      点开弹层、当前项打勾、底部一条「管理模型…」。这部分是共用的，可以先做，不依赖上面的选择。
+    </p>
+  </div>
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+</script>
+</body>
+</html>
