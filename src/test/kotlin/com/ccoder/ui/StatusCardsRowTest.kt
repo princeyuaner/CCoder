@@ -3,7 +3,10 @@ package com.ccoder.ui
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.awt.BorderLayout
 import java.awt.Container
+import javax.swing.JLabel
+import javax.swing.JPanel
 
 /** 四张卡怎么排。 */
 class StatusCardsRowTest {
@@ -88,6 +91,37 @@ class StatusCardsRowTest {
         val card = r.connection
 
         assertEquals(card.preferredSize.height, card.minimumSize.height, "卡会被压扁")
+    }
+
+    @Test
+    fun `八种连接文字都放得下，不会被截断`() {
+        // 每张卡在 404px 的一行里只有约 66px 可用（还要减掉状态点）。
+        // 放不下的字 JLabel 会自动打省略号 —— "正在载入…" 变成
+        // "正在载入…"，那是等装进 IDE 才看得见的错。
+        //
+        // 这条不写的话，改文案的人不会知道他把哪个字挤掉了
+        val r = configured()
+        r.setSize(404, 100)
+
+        listOf(
+            "未连接", "正在启动…", "已连接", "启动失败",
+            "会话已断开", "会话已结束", "正在载入…", "恢复失败",
+        ).forEach { text ->
+            r.connection.setModel(connectionCardOf(text))
+            layoutAll(r)
+
+            val value = valueLabelOf(r.connection)
+            assertTrue(
+                value.preferredSize.width <= value.width,
+                "「$text」放不下：需要 ${value.preferredSize.width}px，只有 ${value.width}px",
+            )
+        }
+    }
+
+    /** 值那个 JLabel —— 它在"点 + 值"那一行的 CENTER 里。 */
+    private fun valueLabelOf(card: StatusCardView): JLabel {
+        val valueRow = card.components.filterIsInstance<JPanel>().single()
+        return (valueRow.layout as BorderLayout).getLayoutComponent(BorderLayout.CENTER) as JLabel
     }
 
     /** 跟生产一样：四张卡都灌上模型。 */

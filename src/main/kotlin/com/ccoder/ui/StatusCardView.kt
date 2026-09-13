@@ -4,6 +4,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
@@ -13,6 +14,7 @@ import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -51,8 +53,18 @@ internal class StatusCardView(
 
     private val labelView = JBLabel()
     private val valueView = JBLabel()
+    private lateinit var valueFontSmall: java.awt.Font
+    private lateinit var valueFontBig: java.awt.Font
     private val subView = JBLabel()
     private val indicatorView = IndicatorView()
+    private val dotView = ToneDotView()
+
+    /** 值前面那个状态点（连接卡用）+ 值本身。 */
+    private val valueRow = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        add(dotView, BorderLayout.WEST)
+        add(valueView, BorderLayout.CENTER)
+    }
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -64,13 +76,20 @@ internal class StatusCardView(
 
         labelView.font = labelView.font.deriveFont(labelView.font.size2D - 2f)
         labelView.foreground = UIUtil.getInactiveTextColor()
-        valueView.font = valueView.font.deriveFont(valueView.font.size2D + 2f)
+        // 值的两种字号先算好存着：setModel 每次都要按 bigValue 二选一
+        valueFontSmall = valueView.font
+        valueFontBig = valueView.font.deriveFont(valueView.font.size2D + 2f)
+        valueView.font = valueFontBig
         subView.font = subView.font.deriveFont(subView.font.size2D - 2f)
         subView.foreground = UIUtil.getInactiveTextColor()
 
         add(labelView)
-        add(valueView)
+        add(valueRow)
         add(subView)
+        // 竖直弹簧：GridLayout 把每张卡拉到同一高度，弹簧让**指示器贴底**。
+        // 没有它的话上下文卡的条（第三行下面）会比子任务卡的分段（第二行下面）
+        // 低一截，四张卡的底边参差不齐
+        add(Box.createVerticalGlue())
         add(indicatorView)
 
         if (onOpen != null) {
@@ -98,11 +117,15 @@ internal class StatusCardView(
         model = next
         labelView.text = next.label
         valueView.text = next.value
+        valueView.font = if (next.bigValue) valueFontBig else valueFontSmall
         valueView.foreground =
             if (next.quiet) UIUtil.getInactiveTextColor() else UIUtil.getLabelForeground()
 
         subView.text = next.sub.orEmpty()
         subView.isVisible = !next.sub.isNullOrEmpty()
+
+        dotView.set(next.tone)
+        dotView.isVisible = next.leadingDot
 
         indicatorView.set(next.indicator, next.tone)
         indicatorView.isVisible = next.indicator != Indicator.None
@@ -138,6 +161,47 @@ internal class StatusCardView(
         model?.quiet == true -> Color(0, 0, 0, 0)
         open || hovered -> focusColor()
         else -> lineColor()
+    }
+}
+
+/**
+ * 值前面那个状态点。
+ *
+ * 颜色只由 [Tone] 决定。连"未连接"也给点（灰色），因为**没有点的那种状态
+ * 才是歧义** —— 用户看不出是"没连上"还是"这一格没数据"。
+ */
+internal class ToneDotView : JComponent() {
+
+    private var tone: Tone = Tone.Idle
+
+    init {
+        isOpaque = false
+        font = UIUtil.getLabelFont()
+    }
+
+    fun set(next: Tone) {
+        tone = next
+        repaint()
+    }
+
+    /** 当前该画的颜色。暴露出来是为了让"点跟着色调走"能被测试钉住。 */
+    fun color(): Color = toneColor(tone)
+
+    override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(11), JBUI.scale(6))
+
+    override fun getMaximumSize(): Dimension = preferredSize
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val size = JBUI.scale(6)
+            g2.color = toneColor(tone)
+            // 竖向居中于整行（这一行比点高得多，值标签撑起来的）
+            g2.fillOval(0, (height - size) / 2, size, size)
+        } finally {
+            g2.dispose()
+        }
     }
 }
 
@@ -237,14 +301,31 @@ internal class IndicatorView : JComponent() {
         Tone.Danger -> dangerColor()
         else -> null
     }
-
-    private fun trackColor(): Color = JBColor.namedColor(
-        "Component.borderColor",
-        JBColor(Color(0x33, 0x36, 0x3B), Color(0xE0, 0xE2, 0xE7)),
-    )
-
-    private fun okColor(): Color = JBColor.namedColor(
-        "Component.successColor",
-        JBColor(Color(0x3D, 0x8B, 0x43), Color(0x5F, 0xAD, 0x65)),
-    )
 }
+
+// ---- 色调 → 颜色 ----
+
+/**
+ * 色调 → 实际颜色。**状态点**用它。
+ *
+ * 指示器不走这里：指示器的规则是"只有警示色调才改色，其余一律强调色"
+ * （见 [Tone]），而状态点的四种色调各有各的颜色。
+ */
+internal fun toneColor(tone: Tone): Color = when (tone) {
+    Tone.Ok -> okColor()
+    Tone.Warn -> warningColor()
+    Tone.Danger -> dangerColor()
+    Tone.Idle -> UIUtil.getInactiveTextColor()
+}
+
+/** 成功色。平台不给就退回 New UI 的一对绿。 */
+internal fun okColor(): Color = JBColor.namedColor(
+    "Component.successColor",
+    JBColor(Color(0x3D, 0x8B, 0x43), Color(0x5F, 0xAD, 0x65)),
+)
+
+/** 指示条的底槽。 */
+private fun trackColor(): Color = JBColor.namedColor(
+    "Component.borderColor",
+    JBColor(Color(0x33, 0x36, 0x3B), Color(0xE0, 0xE2, 0xE7)),
+)

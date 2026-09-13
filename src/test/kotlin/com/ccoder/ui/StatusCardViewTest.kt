@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
+import com.intellij.util.ui.UIUtil
 import java.awt.event.MouseEvent
 import javax.swing.JLabel
 
@@ -184,6 +185,45 @@ class StatusCardViewTest {
         // IndicatorView 继承 JComponent 而不是 JPanel，那种写法是条假测试
         val indicator = card.components.filterIsInstance<IndicatorView>().single()
         assertFalse(indicator.isVisible, "没有指示器时不该占着一块地方")
+    }
+
+    @Test
+    fun `带状态点的卡把点画出来，不带的不画`() {
+        val card = StatusCardView()
+        card.setModel(StatusCardModel(label = "连接", value = "已连接", leadingDot = true))
+        assertTrue(dotOf(card).isVisible, "连接卡该有状态点")
+
+        card.setModel(busy)
+        assertFalse(dotOf(card).isVisible, "子任务卡不该有状态点")
+    }
+
+    @Test
+    fun `状态点的颜色跟着色调走`() {
+        // 点存在的**唯一**理由就是让 Tone 看得见。颜色不跟着变的话，
+        // "已连接"和"会话已断开"在界面上还是一模一样
+        val card = StatusCardView()
+        card.setModel(StatusCardModel(label = "连接", value = "已连接", tone = Tone.Ok, leadingDot = true))
+        val ok = dotOf(card).color()
+
+        card.setModel(
+            StatusCardModel(label = "连接", value = "会话已断开", tone = Tone.Danger, leadingDot = true)
+        )
+        val danger = dotOf(card).color()
+
+        assertNotEquals(ok, danger, "换了色调，点的颜色没变")
+        assertNotEquals(ok, UIUtil.getInactiveTextColor(), "Ok 不该是灰的")
+    }
+
+    /** 点嵌在"值那一行"里面，所以要递归找。 */
+    private fun dotOf(c: Container): ToneDotView {
+        c.components.filterIsInstance<ToneDotView>().firstOrNull()?.let { return it }
+        for (child in c.components) {
+            if (child is Container) {
+                val found = runCatching { dotOf(child) }.getOrNull()
+                if (found != null) return found
+            }
+        }
+        error("这棵树里没有状态点")
     }
 
     private fun indicatorCount(c: Container): Int {

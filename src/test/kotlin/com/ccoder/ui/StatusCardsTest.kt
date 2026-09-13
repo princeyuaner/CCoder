@@ -14,7 +14,7 @@ class StatusCardsTest {
     fun `连接状态八种文字各自的色调`() {
         assertEquals(Tone.Ok, connectionCardOf("已连接").tone)
         assertEquals(Tone.Warn, connectionCardOf("正在启动…").tone)
-        assertEquals(Tone.Warn, connectionCardOf("正在载入历史…").tone)
+        assertEquals(Tone.Warn, connectionCardOf("正在载入…").tone)
         assertEquals(Tone.Idle, connectionCardOf("未连接").tone)
         assertEquals(Tone.Idle, connectionCardOf("会话已结束").tone)
         assertEquals(Tone.Danger, connectionCardOf("启动失败").tone)
@@ -33,6 +33,23 @@ class StatusCardsTest {
         // "未连接"是一种真实状态，不是"没数据"。它该有边框
         assertFalse(connectionCardOf("未连接").quiet)
         assertFalse(connectionCardOf("已连接").quiet)
+    }
+
+    @Test
+    fun `连接卡带状态点 —— 否则四种色调没有任何东西在画它`() {
+        // connectionCardOf 的 indicator 是 None。不给点的话，[Tone] 就是
+        // 一个算了没人用的数，"已连接/会话已断开/启动失败"在界面上长得一样
+        assertTrue(connectionCardOf("已连接").leadingDot)
+        assertTrue(connectionCardOf("会话已断开").leadingDot)
+    }
+
+    @Test
+    fun `其余三张卡不带状态点`() {
+        // 它们的色调要么体现在指示器上（上下文/子任务），要么恒为 Idle（子代理），
+        // 再挂一个点就是多余的装饰
+        assertFalse(contextCardOf(null).leadingDot)
+        assertFalse(todoCardOf(null).leadingDot)
+        assertFalse(runningCardOf(emptyList()).leadingDot)
     }
 
     // ---- 上下文 ----

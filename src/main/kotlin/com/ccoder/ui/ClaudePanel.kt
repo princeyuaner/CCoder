@@ -668,7 +668,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 清空转写区。Reset 是既有操作，Kotlin 编码与 React 消费都已实现
         // 并有测试（codec.test.ts「reset 清空全部」）
         pushOp(TranscriptOp.Reset)
-        setConnection("正在载入历史…")
+        setConnection("正在载入…")
         // 回放期间不接受输入：否则历史与实时消息会交错（spec §10 的风险项）
         setBusy(true)
 

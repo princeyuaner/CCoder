@@ -45,6 +45,21 @@ internal data class StatusCardModel(
     val sub: String? = null,
     val indicator: Indicator = Indicator.None,
     val quiet: Boolean = false,
+    /**
+     * 值前面画一个状态点，颜色由 [tone] 决定。
+     *
+     * 连接卡用。**没有它 [Tone] 就是个算了没人用的数** —— 连接卡的指示器是
+     * `None`，不给点的话"已连接/已断开/启动失败"三种状态在界面上长得一模一样。
+     */
+    val leadingDot: Boolean = false,
+    /**
+     * 值用大一号的字。
+     *
+     * 数字（`6%`、`2/4`、`2`）大一号更好扫；而连接卡的值是**词**
+     * （"正在载入…"），大一号会宽到放不下 —— 420px 里每张卡只有
+     * 约 81px，还要减去状态点。
+     */
+    val bigValue: Boolean = true,
 )
 
 /** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
@@ -66,16 +81,23 @@ private fun quietCard(label: String) =
  */
 internal fun connectionTone(status: String): Tone = when (status) {
     "已连接" -> Tone.Ok
-    "正在启动…", "正在载入历史…" -> Tone.Warn
+    "正在启动…", "正在载入…" -> Tone.Warn
     "启动失败", "会话已断开", "恢复失败" -> Tone.Danger
     else -> Tone.Idle
 }
 
-/** 连接卡**永远不空闲** —— "未连接"是一种状态，不是"没数据"。 */
+/**
+ * 连接卡**永远不空闲** —— "未连接"是一种状态，不是"没数据"。
+ *
+ * 带一个前置状态点：[Tone] 得有东西去画它，否则三种状态长得一模一样。
+ */
 internal fun connectionCardOf(status: String) = StatusCardModel(
     label = "连接",
     value = status,
     tone = connectionTone(status),
+    leadingDot = true,
+    // 值是词不是数字，用普通字号 —— 大一号连"会话已断开"都放不下
+    bigValue = false,
 )
 
 // ---- 上下文 ----
