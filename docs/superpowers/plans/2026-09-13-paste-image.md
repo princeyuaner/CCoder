@@ -1462,7 +1462,9 @@ data class TranscriptImage(val mediaType: String, val base64: String)
   {"op":"append","item":{"kind":"user","id":"m0b","ts":1726050000500,"text":"","images":[{"mediaType":"image/jpeg","data":"/9j/4AAQ"}],"omittedImages":2}},
 ```
 
-两侧测试（`TranscriptOpCodecTest` 与 `web/src/codec.test.ts`）读的是同一个文件，改完两边都必须绿。
+两侧测试（`TranscriptOpCodecTest` 与 `web/src/codec.test.ts`）读的是同一个文件。改完
+**Kotlin 侧必须绿**，而 **web 侧此时应当变红** —— 它还没解析 `images`（那是 Task 8）。
+变红才是契约真的共用的证据；如果 web 侧没红，停下来查 fixture 是不是没被它读到。
 
 - [ ] **Step 5: 跑测试**
 
