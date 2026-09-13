@@ -176,6 +176,38 @@ describe('parseOps 的容错', () => {
   })
 })
 
+// 思考块的逐字缓冲与"整块到达"是两条来源：整块到了，逐字的就该作废，
+// 否则同一段思考会在转写区里出现两遍。正文那边靠 finalizeDelta 收尾，
+// 思考这边没有 finalize 语义（完成时是 Append 一个 thinking 项），
+// 所以由这条规则收 —— 它同时也兜住回放路径：历史里反正也不会留下缓冲。
+describe('思考块收尾', () => {
+  it('append 一条 thinking 项会清掉进行中的思考缓冲', () => {
+    let s = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'thinking', text: '它' },
+      { op: 'appendDelta', target: 'thinking', text: '在想' },
+    ])
+    expect(s.live.thinking).toBe('它在想')
+
+    s = applyOps(s, [
+      { op: 'append', item: { kind: 'thinking', id: 't1', ts: 1, text: '它在想什么' } },
+    ])
+
+    expect(s.live.thinking).toBeUndefined()
+    expect(s.items).toHaveLength(1)
+  })
+
+  it('只清思考，不动进行中的正文气泡', () => {
+    let s = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'assistant', text: '正' },
+      { op: 'appendDelta', target: 'thinking', text: '思' },
+    ])
+    s = applyOps(s, [{ op: 'append', item: { kind: 'thinking', id: 't1', ts: 1, text: '思' } }])
+
+    expect(s.live.thinking).toBeUndefined()
+    expect(s.live.assistant).toBe('正')
+  })
+})
+
 describe('parseItem 的可选字段', () => {
   it('result 保留合法的可选字段', () => {
     const ops = parseOps([

@@ -411,6 +411,24 @@ body {
   }
 }
 
+/* ---- 进行中的思考（见 ThinkingBlock.tsx）----
+ *
+ * 收着的「▸ ⟳ 思考中 12s」。默认不铺文字的理由和完成态一样：思考逐字刷屏，
+ * 决策价值低于正文；但"它在动"这件事必须让人看见 —— 实测 29% 的思考块
+ * 跑过 5 秒，而在这之前屏幕是静止的。
+ */
+.live-think__spin {
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.live-think__time {
+  margin-left: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .tool__body {
   display: flex;
   flex-direction: column;

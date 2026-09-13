@@ -153,6 +153,12 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
 
       case 'append':
         mutateItems().push(op.item)
+        // 整块思考到了，逐字缓冲就作废 —— 两条来源都留着，同一段思考会在转写区
+        // 里出现两遍。正文那边靠 finalizeDelta 收尾，思考这边完成时是一个普通的
+        // append（没有 finalize 语义），所以由这条规则收
+        if (op.item.kind === 'thinking' && live['thinking'] !== undefined) {
+          delete mutateLive()['thinking']
+        }
         break
 
       case 'appendDelta': {

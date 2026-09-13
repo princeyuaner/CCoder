@@ -204,6 +204,48 @@ function installScrollMetrics(
   }
 }
 
+// 思考期间必须有活信号：实测 29% 的思考块跑过 5 秒，而那段时间屏幕是静止的。
+// 进行中的思考渲染成折叠块（转圈 + 秒数），整块到达后由 codec 清掉缓冲。
+describe('进行中的思考', () => {
+  const live = (thinking: string, assistant?: string) => {
+    const buffers: Record<string, string> = { thinking }
+    if (assistant !== undefined) buffers.assistant = assistant
+    return { items: [] as TranscriptItem[], live: buffers }
+  }
+
+  it('有思考缓冲时渲染进行中的思考块', () => {
+    render(<Transcript state={live('在想')} />)
+    expect(screen.getByTestId('live-thinking')).toBeInTheDocument()
+    expect(screen.getByText('思考中')).toBeInTheDocument()
+  })
+
+  it('没有思考缓冲就不渲染它', () => {
+    render(<Transcript state={live('', '正文')} />)
+    expect(screen.queryByTestId('live-thinking')).not.toBeInTheDocument()
+  })
+
+  it('思考进行中 + 正文已开始：两个都在，思考在上', () => {
+    render(<Transcript state={live('在想', '正文')} />)
+    const think = screen.getByTestId('live-thinking')
+    const text = screen.getByText('正文')
+    // compareDocumentPosition 的 FOLLOWING 位 = text 在 think 之后
+    expect(think.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('整块思考到达后，进行中的那块就没了', () => {
+    const { rerender } = render(<Transcript state={live('在想')} />)
+    expect(screen.getByTestId('live-thinking')).toBeInTheDocument()
+
+    rerender(
+      <Transcript
+        state={{ items: [{ kind: 'thinking', id: 't1', ts, text: '想完了' }], live: {} }}
+      />,
+    )
+    expect(screen.queryByTestId('live-thinking')).not.toBeInTheDocument()
+    expect(screen.getByText('思考过程')).toBeInTheDocument()
+  })
+})
+
 // 设计稿 docs/design/tool-progress.html：卡片的"进行中 / 完成 / 已中断"是前端推出来的 ——
 // 结果没到就是还在跑；回合已经结束了还没等到结果，就是被中断（否则它会永远转圈）。
 describe('工具卡片的状态收尾', () => {

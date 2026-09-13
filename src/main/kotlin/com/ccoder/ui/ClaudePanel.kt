@@ -1084,9 +1084,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
             is RenderItem.AssistantDelta -> TranscriptOp.AppendDelta("assistant", item.text)
 
-            // 思考流的逐字渲染刻意丢弃（持续刷屏，决策价值远低于正文），
-            // 但必须显式清掉进行中的状态——见 TranscriptOp.FinalizeDelta 的注释。
-            is RenderItem.ThinkingDelta -> TranscriptOp.ClearDelta("thinking")
+            // 思考流照常推，但**界面默认收着**（逐字铺开会持续刷屏，决策价值低于
+            // 正文 —— 这一条没变）。它存在的意义是让人看见"它还在动"：实测 29%
+            // 的思考块跑过 5 秒（P90 10.5s，最长 31.5s），而在这之前屏幕上什么都
+            // 不动，用户的原话是"看起来感觉像卡死了"。
+            // 整块到达时（下面的 Thinking 分支）由界面自己清掉这个缓冲。
+            is RenderItem.ThinkingDelta -> TranscriptOp.AppendDelta("thinking", item.text)
 
             is RenderItem.Thinking ->
                 TranscriptOp.Append(TranscriptItem.Thinking(nextMessageId(), now(), item.text))

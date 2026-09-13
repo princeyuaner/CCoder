@@ -6,7 +6,7 @@ import { Markdown } from './Markdown'
 import { ResultLine } from './ResultLine'
 import { StreamingCursor } from './StreamingCursor'
 import { SystemNote } from './SystemNote'
-import { ThinkingBlock } from './ThinkingBlock'
+import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { UserBubble } from './UserBubble'
 
@@ -103,6 +103,8 @@ function isAtBottom(el: HTMLElement): boolean {
 
 export function Transcript({ state }: { state: TranscriptState }) {
   const liveText = state.live.assistant
+  // 进行中的思考。空串按"没有"处理：Kotlin 侧会把空增量过滤掉，这里的判断是兜底
+  const liveThinking = state.live.thinking !== '' ? state.live.thinking : undefined
 
   // 工具结果与工具调用在协议里是**两条独立的消息**（结果是后到的那条），
   // 这里按 toolUseId 配好再往下传 —— 配对只此一处，卡片自己不得到处找
@@ -207,6 +209,8 @@ export function Transcript({ state }: { state: TranscriptState }) {
         {state.items.map((item) => (
           <Item key={item.id} item={item} results={resultsByToolUseId} ended={endedToolUseIds} />
         ))}
+        {/* 思考在正文之前 —— 与 SDK 给的块顺序一致 */}
+        {liveThinking !== undefined && <LiveThinkingBlock text={liveThinking} />}
         {liveText !== undefined && (
           <div className="entry">
             <AssistantBubble>
