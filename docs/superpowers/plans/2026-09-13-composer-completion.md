@@ -54,7 +54,7 @@
 
 **背景（实测，设计稿 §2 事实 1 与 §4.1）：** `supportedCommands()` 与 `reloadSkills()` 都是 SDK `Query` 上的 control 请求，取不到时**返回空数组而不是抛** —— 命令补全挂着不该把聊天带崩。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `C:\Users\CY\Desktop\CCoder\sidecar\test\index.test.js` 末尾追加：
 
@@ -112,13 +112,13 @@ test('命令列表取不到时回空数组，不是错误', async () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test`
 
 Expected: 前两条失败在 `msg` 为 `undefined`（`listCommands` 还没分发）；第三条同理。若报 `UNKNOWN_METHOD` 那正是预期的失败形态。
 
-- [ ] **Step 3: session.js 暴露两个方法**
+- [x] **Step 3: session.js 暴露两个方法**
 
 在 `C:\Users\CY\Desktop\CCoder\sidecar\session.js` 的 `return { ... }` 里，`setPermissionMode` 之后插入：
 
@@ -152,7 +152,7 @@ Expected: 前两条失败在 `msg` 为 `undefined`（`listCommands` 还没分发
     },
 ```
 
-- [ ] **Step 4: index.js 加分发**
+- [x] **Step 4: index.js 加分发**
 
 在 `C:\Users\CY\Desktop\CCoder\sidecar\index.js` 的 `case 'setPermissionMode': { ... }` 之后、`case 'stop':` 之前插入：
 
@@ -176,13 +176,13 @@ Expected: 前两条失败在 `msg` 为 `undefined`（`listCommands` 还没分发
       }
 ```
 
-- [ ] **Step 5: 跑测试，确认通过**
+- [x] **Step 5: 跑测试，确认通过**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder/sidecar" && node --test`
 
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -206,7 +206,7 @@ git commit -m "feat(sidecar): listCommands 交出命令与技能列表"
   - `Protocol.encodeListCommands(id: String): String`
   - `Protocol.responseIdOf` 认识 `Commands`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\sidecar\ProtocolTest.kt` 末尾追加：
 
@@ -267,13 +267,13 @@ git commit -m "feat(sidecar): listCommands 交出命令与技能列表"
 
 （若该文件顶部没有 `assertNull` / `assertTrue` 的 import，按现有 import 段补齐。）
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.sidecar.ProtocolTest'`
 
 Expected: 编译失败 —— `SidecarMessage.Commands`、`CommandInfo`、`encodeListCommands` 都还不存在。
 
-- [ ] **Step 3: 加数据类**
+- [x] **Step 3: 加数据类**
 
 在 `Protocol.kt` 的 `SessionInfo` 之后、`StartParams` 之前插入：
 
@@ -309,7 +309,7 @@ data class CommandInfo(
     ) : SidecarMessage
 ```
 
-- [ ] **Step 4: 加解析与编码**
+- [x] **Step 4: 加解析与编码**
 
 在 `Protocol.parse` 的 `"sessionDeleted" -> { ... }` 之后插入：
 
@@ -364,13 +364,13 @@ data class CommandInfo(
         is SidecarMessage.Commands -> msg.requestId
 ```
 
-- [ ] **Step 5: 跑测试，确认通过**
+- [x] **Step 5: 跑测试，确认通过**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.sidecar.ProtocolTest'`
 
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -399,7 +399,7 @@ git commit -m "feat(protocol): listCommands 的请求与应答"
   - `fun completionKey(keyCode: Int): CompletionKey`
   - `fun applyCompletion(text: String, caret: Int, q: CompletionQuery, item: CompletionItem): Pair<String, Int>`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\CompletionTest.kt`：
 
@@ -566,13 +566,13 @@ class CompletionTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CompletionTest'`
 
 Expected: 编译失败 —— `CompletionItem` 等都不存在。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\Completion.kt`：
 
@@ -712,13 +712,13 @@ internal fun applyCompletion(
 }
 ```
 
-- [ ] **Step 4: 跑测试，确认通过**
+- [x] **Step 4: 跑测试，确认通过**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CompletionTest'`
 
 Expected: 全绿。若 `光标之后的文字原样保留` 那条挂了，检查 `applyCompletion` 用的是 `q.start` 而不是 `at` 当 head 的切点。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -743,7 +743,7 @@ git commit -m "feat(ui): 补全的纯逻辑 —— 触发、过滤、高亮、�
   - `fun oneLine(text: String, max: Int = 110): String`
   - `fun commandCandidates(commands: List<CommandInfo>, skills: List<CommandInfo>, sendable: Set<String>): List<CompletionItem>`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\CommandCandidatesTest.kt`：
 
@@ -854,13 +854,13 @@ class CommandCandidatesTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CommandCandidatesTest'`
 
 Expected: 编译失败 —— `commandCandidates` 等不存在。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\CommandCandidates.kt`：
 
@@ -937,13 +937,13 @@ internal fun oneLine(text: String, max: Int = 110): String {
 }
 ```
 
-- [ ] **Step 4: 跑测试，确认通过**
+- [x] **Step 4: 跑测试，确认通过**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CommandCandidatesTest'`
 
 Expected: 全绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -965,7 +965,7 @@ git commit -m "feat(ui): 三份命令来源拼成候选"
   - `fun collectProjectFiles(project: Project): List<String>`（依赖 Project，不起单测）
   - `fun fileCandidates(paths: List<String>, query: String, limit: Int = 50): List<CompletionItem>`（纯逻辑）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\FileCandidatesTest.kt`：
 
@@ -1033,13 +1033,13 @@ class FileCandidatesTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.FileCandidatesTest'`
 
 Expected: 编译失败 —— `fileCandidates` 不存在。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\FileCandidates.kt`：
 
@@ -1099,13 +1099,13 @@ internal fun fileCandidates(
 }
 ```
 
-- [ ] **Step 4: 跑测试，确认通过**
+- [x] **Step 4: 跑测试，确认通过**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.FileCandidatesTest'`
 
 Expected: 全绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -1130,7 +1130,7 @@ git commit -m "feat(ui): 文件候选 —— 走 ProjectFileIndex，空前缀不
   - `fun completionPopupY(caretTop: Int, caretBottom: Int, popupHeight: Int, screenTop: Int, screenBottom: Int, gap: Int): Int`
   - `class CompletionPopup { val isOpen: Boolean; fun show(anchor: JComponent, caret: Rectangle, items: List<CompletionItem>, selected: Int); fun hide() }`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\CompletionPopupTest.kt`：
 
@@ -1230,13 +1230,13 @@ class CompletionPopupTest {
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CompletionPopupTest'`
 
 Expected: 编译失败 —— `buildCompletionList` 等不存在。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\main\kotlin\com\ccoder\ui\CompletionPopup.kt`：
 
@@ -1406,13 +1406,13 @@ private fun selectionColor(): Color =
     UIUtil.getListSelectionBackground(true)
 ```
 
-- [ ] **Step 4: 跑测试，确认通过**
+- [x] **Step 4: 跑测试，确认通过**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CompletionPopupTest'`
 
 Expected: 全绿。`JBScrollPane` 若未被用到就删掉那条 import（`buildCompletionList` 里只用了 `JPanel`）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -1433,7 +1433,7 @@ git commit -m "feat(ui): 非聚焦的补全弹层与它的定位"
 
 **注意：** 这一任务不改任何现有函数体的既有逻辑，只在 `KeyListener` 的**开头**加一层短路、并新增几个私有方法。`isSendKey` 那一段一字不动。
 
-- [ ] **Step 1: 加状态字段**
+- [x] **Step 1: 加状态字段**
 
 在 `ClaudePanel.kt` 的 `private var pendingFirstMessage: String? = null`（约 220 行）之后插入：
 
@@ -1467,7 +1467,7 @@ git commit -m "feat(ui): 非聚焦的补全弹层与它的定位"
     private var lastSendWasCommand = false
 ```
 
-- [ ] **Step 2: 加监听与按键短路**
+- [x] **Step 2: 加监听与按键短路**
 
 把 `ClaudePanel.kt:223-236` 的 `init { input.addKeyListener(...) }` 整段替换为：
 
@@ -1510,7 +1510,7 @@ git commit -m "feat(ui): 非聚焦的补全弹层与它的定位"
         })
 ```
 
-- [ ] **Step 3: 加补全的私有方法**
+- [x] **Step 3: 加补全的私有方法**
 
 在 `sendCurrentInput()` 之前插入：
 
@@ -1612,7 +1612,7 @@ git commit -m "feat(ui): 非聚焦的补全弹层与它的定位"
     }
 ```
 
-- [ ] **Step 4: 接上会话就绪与 init**
+- [x] **Step 4: 接上会话就绪与 init**
 
 在 `onMessage` 的 `is SidecarMessage.Ready -> { ... }` 分支里，`refreshMainButton()` 之后插入：
 
@@ -1641,7 +1641,7 @@ git commit -m "feat(ui): 非聚焦的补全弹层与它的定位"
         sendableNames = emptySet()
 ```
 
-- [ ] **Step 5: 补 import**
+- [x] **Step 5: 补 import 与 `arr` 辅助**
 
 `ClaudePanel.kt` 顶部按现有分组补齐：
 
@@ -1652,13 +1652,26 @@ import java.awt.Rectangle
 import javax.swing.event.DocumentEvent
 ```
 
-- [ ] **Step 6: 编译并跑全量测试**
+`ClaudePanel` 里目前只有 `str`，`slash_commands` 是数组，要在 1455 行那个 `private fun JsonObject.str` 旁边补一个同款容错的 `arr`（拷 `Protocol.kt` 里那个 private 的实现，那边作用域是 `object Protocol`，用不到这里）：
+
+```kotlin
+    private fun JsonObject.arr(key: String): JsonArray? =
+        get(key)?.takeIf { it.isJsonArray }?.asJsonArray
+```
+
+并在 import 段加：
+
+```kotlin
+import com.google.gson.JsonArray
+```
+
+- [x] **Step 6: 编译并跑全量测试**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test`
 
 Expected: 全绿，**包括现有 composer 那几套一条没改**。若 `ComposerRulesTest` 有任何一条挂了，说明 Step 2 动了 `isSendKey` 那一段 —— 回退重做。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -1683,7 +1696,7 @@ git commit -m "feat(ui): 补连接进输入框 —— 打开、移动、采纳�
 
 **背景（实测，设计稿 §5.1）：** 命令输出走 assistant 文本块。`/cost`、`/context` 有内容要照常显示，但 `/clear` 的文本是字面量 `(no content)`、`/compact` 是空串 —— 渲染出来看着像 bug。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\MessageRendererTest.kt` 末尾追加：
 
@@ -1711,13 +1724,13 @@ git commit -m "feat(ui): 补连接进输入框 —— 打开、移动、采纳�
 
 （`assertEquals` / `assertFalse` / `assertTrue` 若未 import 按现有 import 段补齐；`RenderItem` 与该测试同包，不需要 import。）
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.MessageRendererTest'`
 
 Expected: 编译失败 —— `isEmptyCommandOutput` 不存在。
 
-- [ ] **Step 3: 加实现**
+- [x] **Step 3: 加实现**
 
 在 `MessageRenderer.kt` 的 `RenderItem` 定义之后插入：
 
@@ -1744,7 +1757,7 @@ internal fun isEmptyCommandOutput(item: RenderItem): Boolean =
         (item.text.isBlank() || item.text.trim() == NO_CONTENT_PLACEHOLDER)
 ```
 
-- [ ] **Step 4: 接进面板**
+- [x] **Step 4: 接进面板**
 
 在 `ClaudePanel.kt` 的 `sendCurrentInput()` 里，`client?.sendLine(...)` 之后插入：
 
@@ -1770,13 +1783,13 @@ internal fun isEmptyCommandOutput(item: RenderItem): Boolean =
                     }
 ```
 
-- [ ] **Step 5: 跑测试**
+- [x] **Step 5: 跑测试**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.MessageRendererTest' && ./gradlew test`
 
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -1799,7 +1812,7 @@ git commit -m "feat(ui): 命令回合不画空输出气泡"
 
 **背景（实测，设计稿 §5.2）：** `/clear` 之后 `system/init` 带的 `session_id` 会换，进程不动。而 init **每回合都发一次**（事实 6），所以不能靠"收到 init"判定。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\SessionSwitchStateTest.kt` 末尾追加：
 
@@ -1831,13 +1844,13 @@ git commit -m "feat(ui): 命令回合不画空输出气泡"
 
 （`assertFalse` / `assertTrue` 若未 import 按现有 import 段补齐。）
 
-- [ ] **Step 2: 跑测试，确认失败**
+- [x] **Step 2: 跑测试，确认失败**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.SessionSwitchStateTest'`
 
 Expected: 编译失败 —— `isSessionSwitch` 不存在。
 
-- [ ] **Step 3: 加纯函数**
+- [x] **Step 3: 加纯函数**
 
 在 `SessionSwitchState.kt` 的 `newSessionTooltip` 之后插入：
 
@@ -1858,7 +1871,7 @@ internal fun isSessionSwitch(current: String?, incoming: String?): Boolean =
     current != null && incoming != null && current != incoming
 ```
 
-- [ ] **Step 4: 接进面板**
+- [x] **Step 4: 接进面板**
 
 在 `ClaudePanel.kt` 的 init 分支里，把 `msg.event.str("session_id")?.let { currentSessionId = it }` 换成：
 
@@ -1881,13 +1894,13 @@ internal fun isSessionSwitch(current: String?, incoming: String?): Boolean =
                         }
 ```
 
-- [ ] **Step 5: 跑测试**
+- [x] **Step 5: 跑测试**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test`
 
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -1908,7 +1921,7 @@ git commit -m "feat(ui): /clear 换会话 —— 比对 id，清空转写区"
 
 **没有断言，也不该有** —— 单测能钉住"分组标题只出一条""长描述被截断"，钉不住"这一列读起来累不累"。而后者正是弹层形态的全部理由。
 
-- [ ] **Step 1: 写探针**
+- [x] **Step 1: 写探针**
 
 创建 `C:\Users\CY\Desktop\CCoder\src\test\kotlin\com\ccoder\ui\CompletionRenderProbe.kt`：
 
@@ -1995,7 +2008,7 @@ class CompletionRenderProbe {
 }
 ```
 
-- [ ] **Step 2: 跑探针并看图**
+- [x] **Step 2: 跑探针并看图**
 
 Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.CompletionRenderProbe'`
 
@@ -2007,7 +2020,7 @@ Run: `cd "C:/Users/CY/Desktop/CCoder" && ./gradlew test --tests 'com.ccoder.ui.C
 2. 分组标题（内置 / 技能）的分量是否够轻 —— 它不该跟候选抢注意力。
 3. 选中行（第二行）的底色深浅是否合适。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 cd "C:/Users/CY/Desktop/CCoder"
@@ -2045,3 +2058,50 @@ git commit -m "test(ui): 补全弹层的渲染探针"
 **自审修掉的一处实现错误：** 初稿里文件候选写成"给全部文件、再交给通用 `filterCandidates` 过滤"，那样 `Comp` 永远匹配不上 `src/main/kotlin/com/ccoder/ui/Composer.kt`（通用过滤是显示串整体前缀），而按文件名搜恰恰是文件补全最常用的那半。已改成两类触发各自过滤。
 
 **§9 待确认项的处理：** A 与 B 的名字配对规则在 Task 4 用归一化（小写 + 空白折连字符）实现并有测试；**真实数据能否全部配上要用 §10 的探针复核**（跑 `MSYS_NO_PATHCONV=1 node sidecar/tools/probe-slash.mjs`，把 `supportedCommands()` 与 init 的 `slash_commands` 并排打出来对）。配不上的按规则不显示，不是 bug。
+
+---
+
+## 执行结果（2026-09-13）
+
+十个任务全部完成。提交按序：
+
+```
+3f7efec feat(sidecar): listCommands 交出命令与技能列表
+0e81e47 feat(protocol): listCommands 的请求与应答
+812283d feat(ui): 补全的纯逻辑 —— 触发、过滤、高亮、插入
+88cf3e5 feat(ui): 三份命令来源拼成候选
+a77b408 feat(ui): 文件候选 —— 走 ProjectFileIndex，空前缀不弹
+d81ff38 feat(ui): 非聚焦的补全弹层与它的定位
+165e7ba feat(ui): 补连接进输入框 —— 打开、移动、采纳、关闭
+62f3e8e feat(ui): 命令回合不画空输出气泡
+21dde64 feat(ui): /clear 换会话 —— 比对 id，清空转写区
+6f8a63e test(ui): 补全弹层的渲染探针，顺带修掉被裁掉的末行
+36faf58 fix(ui): 命令名配对容忍插件命名空间
+97ec692 refactor(ui): 分组改走插件命名空间，标签「插件」/「其它」
+```
+
+**测试：** Gradle 506 条 + sidecar `node --test` 98 条，全绿。现有 composer 那 6 套 41 条**一条未改**。
+
+### 执行中改掉的计划错误（4 处）
+
+1. **Task 1 的一条测试放错了层。** "取不到回空数组"是 `session.js` 的行为，而假 session 把那一层整个绕过了 —— 测试必然失败。已挪到 `session.test.js`（它才是兜底那层），`index.test.js` 改成两条：透传、以及"没兜住时要出声"。
+2. **Task 2 没预料到穷尽 `when`。** 新增 `SidecarMessage` 变体直接把 `ClaudePanel` 编译顶掉。按既有那组"应答由待决表截走"的分支补上。
+3. **Task 3 的两条断言自相矛盾。** `assertNull(q("@Composer.kt"))` 与"打空格才收"的规则冲突；`光标之后的文字原样保留` 用例的 caret 给成了空格之后的位置。
+4. **Task 6 一条断言空转、一个期望值算错。** `高亮换的是另一个组件` 只比了两个实例不同，**根本没验高亮**；`下方放不下就往上翻` 期望 16，按公式应是 `864-4-80 = 780`。
+
+### 计划外新增（3 处）
+
+1. **`ClaudePanel` 补了 `JsonObject.arr` 辅助** —— 原来只有 `str`，而 `slash_commands` 是数组，不补编译不过。
+2. **弹层高度改取内容的真实首选高**（`column.preferredSize.height`）。原计划按行数估 `8 + 行数×20 + 18`，漏了分组标题与字体行高 —— **探针第一版图里最末一行 `brainstorming` 整个被裁掉了**，只有看图才发现。行数上限同时从绘制层挪到候选层（绘制层截断的话高亮能走到看不见的位置上）。
+3. **`UIUtil.getListSelectionBackground(true)` / `JBPopup.show(Point)` 都不存在**，改用 `JBColor.namedColor`（与 `lineColor`/`focusColor` 同一写法）与 `showInScreenCoordinates`（与既有浮层同一写法）。
+
+### 两个实测发现（设计稿 §4.1 已按此修订）
+
+1. **A 与 B 的名字差一层插件命名空间。** `brainstorming`（A）对应 `superpowers:brainstorming`（B）。只按归一化配 **45 条里只配上 27 条** —— superpowers 整个技能库一条都不显示，而那正是日常在用的那套。容忍 `:前缀` 之后 **45/45**。没被用上的只剩 5 条 `mcp__code-review-graph__*`（A 里本来就没有它们的显示信息）。
+2. **`reloadSkills()` 在 CLI 2.1.268 上不支持** —— `Unsupported control request subtype: reload_skills`。设计稿 §4.1 的 C 来源**不存在**。协议里也没有别的字段能区分 "CLI 内置命令" 与 "用户技能目录里的技能"（两边在 B 里都是裸名），所以分组改走命名空间，标签只能叫「**插件**」/「**其它**」—— 叫「内置」是撒谎。`skills` 仍留在协议里（那是 SDK 的真实应答，将来 CLI 支持了分组能更准）。
+
+### 教训
+
+- **§9 那条"待实现时确认"是这次最值钱的一步。** 两条发现全是它逼出来的：如果照计划直接按归一化实现，45 条会静默少 18 条，而且**界面上看不出任何异常** —— 只是"有些命令没出现"。凡是写明"要用真实数据复核"的条目，别跳。
+- **探针的图必须真看。** 末行被裁这件事，属性断言一条都没抓到（`preferredSize` 算出来是自洽的，只是比内容矮），看一眼图立刻看见。
+- **测试写在错误的层上，失败信息会指向错误的方向。** Task 1 那条挂了之后第一反应是"实现有问题"，实际是测试把一个不该由被测对象负责的行为当成了自己的断言。

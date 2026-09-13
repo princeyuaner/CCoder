@@ -76,6 +76,17 @@
 
 ### 4.1 `/` 命令
 
+> **⚠️ 实现后修订（2026-09-13）。** 本节有两处被实测推翻，实现按修订后的走。
+> 详见实现计划 `docs/superpowers/plans/2026-09-13-composer-completion.md` 的「执行结果」。
+>
+> 1. **C 来源不存在。** `reloadSkills()` 在 CLI 2.1.268 上报
+>    `Unsupported control request subtype: reload_skills`。分组改走**可发送名的插件命名空间**，
+>    标签「插件」/「其它」—— 协议里没有任何字段能区分 "CLI 内置命令" 与
+>    "用户技能目录里的技能"，两边在 B 里都是裸名，所以「内置」这个标签是错的。
+> 2. **A 与 B 的名字还差一层命名空间。** `brainstorming`（A）对应
+>    `superpowers:brainstorming`（B）。配对规则除归一化外还必须容忍 `:前缀`
+>    —— 否则 45 条只配上 27 条，superpowers 整个技能库静默消失。
+
 sidecar 新增 `listCommands` 方法，一次聚齐三样。**三份来源职责不同，缺一不可**：
 
 | 代号 | 来源 | 内容 | 职责 |
