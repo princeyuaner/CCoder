@@ -1909,20 +1909,7 @@ git commit -m "feat(image): 回放读回真图，并按体积预算限流
 **Interfaces:**
 - Consumes: Task 1–9 全部（尤其 Task 7 的 `RenderItem.UserText(text, images, omittedImages)` 与 Task 5 的 `Protocol.encodeSend(id, text, images)`）
 
-- [ ] **Step 1: `toOp` 的 UserText 分支带上图**
-
-live 侧这一处（回放侧在 Task 9 已经改过）：
-
-```kotlin
-            is RenderItem.UserText ->
-                TranscriptOp.Append(
-                    TranscriptItem.User(
-                        nextMessageId(), now(), item.text, item.images, item.omittedImages,
-                    )
-                )
-```
-
-- [ ] **Step 2: 发送路径**
+- [ ] **Step 1: 发送路径**
 
 `sendCurrentInput()`：
 
@@ -1953,7 +1940,7 @@ live 侧这一处（回放侧在 Task 9 已经改过）：
     }
 ```
 
-- [ ] **Step 3: 暂存结构改带图**
+- [ ] **Step 2: 暂存结构改带图**
 
 字段声明：`private var pendingFirstMessage: PendingSend? = null`，配：
 
@@ -1979,12 +1966,12 @@ Ready 分支里的补发：
                         }
 ```
 
-- [ ] **Step 4: 跑测试**
+- [ ] **Step 3: 跑测试**
 
 Run: `./gradlew test -x buildWebUi --console=plain`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add src/main/kotlin/com/ccoder/ui/ClaudePanel.kt
