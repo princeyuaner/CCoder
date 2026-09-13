@@ -205,7 +205,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         font = font.deriveFont(15f)
         foreground = UIUtil.getLabelForeground()
         toolTipText = "设置"
-        addActionListener { showModelProfilesDialog(project) }
+        addActionListener { openModelSettings() }
     }
 
     /** 最右的「＋」。会话标签在它左边（设计稿 §一 A）。 */
@@ -643,6 +643,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     // ---- 模型切换 ----
 
+    /**
+     * 打开设置对话框，**关掉之后把标签拉回真相**。
+     *
+     * 对话框是模态的（`DialogWrapper.show()` 关闭即返回），而它里面能删掉或改名
+     * 「使用中」那条 —— 真相在 [ModelProfiles] 里。不在这里补这一下的话，
+     * 标签会把一条已经删掉的配置一直显示到面板生命周期结束：用户看到的是
+     * "还在用它"，实际下次开会话会退回旧字段。控件撒谎比它不好用严重
+     * （[currentMode] 那条同理）。
+     */
+    private fun openModelSettings() {
+        showModelProfilesDialog(project)
+        refreshModelLabel()
+    }
+
     /** 点模型标签 → 弹切换列表；再点一次 → 收起。 */
     private fun toggleModelChooser() {
         modelPopup?.let { open ->
@@ -654,7 +668,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             profiles = profiles.profiles(),
             currentId = profiles.selectedId(),
             onPick = { pick -> switchModel(pick) },
-            onManage = { showModelProfilesDialog(project) },
+            onManage = {
+                // 与 [switchModel] 同一条规矩：先收起浮层，别让它挂在模态对话框后面
+                modelPopup?.cancel()
+                modelPopup = null
+                openModelSettings()
+            },
         ), centerOverPanel = true) { modelPopup = null }
     }
 
