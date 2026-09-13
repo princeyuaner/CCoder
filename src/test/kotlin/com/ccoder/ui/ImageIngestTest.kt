@@ -48,4 +48,15 @@ class ImageIngestTest {
         assertEquals("a.png", out[0].name)
         assertTrue(out[0].bytes.contentEquals(byteArrayOf(1, 2, 3)))
     }
+
+    @Test
+    fun `0 字节的文件被跳过 —— 空图会让 API 拒掉整条消息`(@TempDir dir: Path) {
+        val empty = dir.resolve("empty.png").toFile().apply { writeBytes(byteArrayOf()) }
+        val ok = dir.resolve("ok.png").toFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }
+
+        val out = readImageFiles(listOf(empty, ok))
+
+        assertEquals(1, out.size)
+        assertEquals("ok.png", out[0].name)
+    }
 }

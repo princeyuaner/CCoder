@@ -1,3 +1,16 @@
+/**
+ * 采集层：三入口（剪贴板、拖入的文件、粘贴的文件）的原始字节。
+ *
+ * 本层只做两件事：认出图、把字节拿出来。**判不出来的静默跳过，绝不抛错** ——
+ * 用户拖一把文件进来时，其中一个读不出来不该让整批失败。
+ *
+ * 两条边界在这里划死：
+ * - **0 字节不算采到**。空字节最后会变成 `ImageAttachment(mediaType, "")`，
+ *   一个空 `data` 的图片块会让 API 拒掉**整条消息** —— 那正是本层最该避免的事。
+ * - **大小不在这里判**。5MB 上限交给 `acceptImages` 去拒并给出"单张超过 5MB"的提示；
+ *   若在这里静默丢掉，那条提示就再也不会出现（spec §8：拒绝必须可见）。
+ *   代价是超限文件仍会被读进内存，这个峰已记进 ledger 交给最终审查。
+ */
 package com.ccoder.ui
 
 import com.intellij.openapi.ide.CopyPasteManager
@@ -33,13 +46,17 @@ internal fun readClipboardImages(): List<RawImage> {
     val contents = runCatching { CopyPasteManager.getInstance().getContents<Any>(DataFlavor.imageFlavor) }
         .getOrNull() ?: return emptyList()
     val image = contents as? Image ?: return emptyList()
-    val bytes = image.toPngBytes() ?: return emptyList()
+    // 空字节不算采到：一个 0 字节的图会让整条消息被 API 拒掉（见文件头）
+    val bytes = image.toPngBytes()?.takeIf { it.isNotEmpty() } ?: return emptyList()
     return listOf(RawImage(bytes, "clipboard.png"))
 }
 
-/** 从文件读。非图片、读不出来、目录都跳过 —— 拖了一堆东西进来时不该整批失败。 */
+/** 从文件读。非图片、空文件、读不出来、目录都跳过 —— 拖了一堆东西进来时不该整批失败。 */
 internal fun readImageFiles(files: List<File>): List<RawImage> = files.mapNotNull { f ->
     if (!f.isFile || !isImageFile(f.name)) return@mapNotNull null
+    // 只跳 0 字节。**大小不在这里判**：那会让 5MB 以上被静默丢掉，
+    // 而 acceptImages 的"单张超过 5MB"提示正是要让它可见（spec §8）
+    if (f.length() == 0L) return@mapNotNull null
     runCatching { RawImage(f.readBytes(), f.name) }.getOrNull()
 }
 
