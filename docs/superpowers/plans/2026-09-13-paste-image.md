@@ -1210,11 +1210,12 @@ git commit -m "feat(image): 协议与 sidecar 传图
 
 **Files:**
 - Modify: `src/main/kotlin/com/ccoder/ui/ClaudePanel.kt`
-- Test: `src/test/kotlin/com/ccoder/ui/ComposerRulesTest.kt`
+- Modify: `src/main/kotlin/com/ccoder/ui/ComposerToolbar.kt`（**Task 4 的审查发现**：回形针的 onClick 现在是空实现，而 `buildComposerToolbar(model, mode, send)` 没有收回调的口子 —— 这个文件原先漏在清单外，于是"回形针点了没反应"永远补不上。把 `onAttach` 一路传进去）
+- Test: `src/test/kotlin/com/ccoder/ui/ComposerRulesTest.kt`、`src/test/kotlin/com/ccoder/ui/ComposerToolbarTest.kt`
 
 **Interfaces:**
 - Consumes: Task 1–5 全部
-- Produces: `ClaudePanel.addImages(read: () -> List<RawImage>)`
+- Produces: `ClaudePanel.addImages(read: () -> List<RawImage>)`；`buildComposerToolbar(model, mode, send, onAttach)`
 
 **发送那一段刻意不放在这个任务里**：它要用到 Task 7 才加上的 `RenderItem.UserText(images)`，
 按文件里的顺序执行会编译不过。整条发送路径在 Task 10。
@@ -1281,6 +1282,25 @@ internal fun hasSendableContent(text: String, imageCount: Int): Boolean =
 其中 `attachList` 是 `private var attachList: List<ImageAttachment> = emptyList()`，与 `attachments`（组件）并存——**组件不持有真相**，发送后两边一起清。
 
 - [ ] **Step 3: 按钮与文件选择器接线**
+
+`ClaudePanel` 里那个 `buildComposerToolbar(...)` 调用点补上第四个实参 `onAttach = { onAttachClicked() }`。
+
+先把回形针的口子打通（Task 4 留的空实现）：`buildComposerToolbar` 从三参变四参，
+`onAttach` 一路传给 `buildAttachButton`：
+
+```kotlin
+internal fun buildComposerToolbar(
+    model: JComponent,
+    mode: JComponent,
+    send: JComponent,
+    onAttach: () -> Unit,
+): JPanel = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    border = JBUI.Borders.empty(JBUI.scale(6), JBUI.scale(8), 0, JBUI.scale(8))
+    add(buildStatusRow(buildAttachButton(onAttach), model, mode), BorderLayout.WEST)
+    add(send, BorderLayout.EAST)
+}
+```
 
 在 `init` 里把附件条、粘贴、拖拽、按钮都连上：
 

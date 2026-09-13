@@ -87,7 +87,10 @@ internal fun normalizeImage(raw: ByteArray, hintMediaType: String): ImageAttachm
 
 ### 4.1 附件条
 
-卡片布局从 `CENTER=输入框` 改成 `CENTER=纵向{附件条, 输入框}`（`buildComposerCard` 加一个参数）。
+卡片布局从 `CENTER=输入框` 改成 `NORTH=附件条 + CENTER=输入框`（`buildComposerCard` 加一个参数）。
+**为什么是 NORTH 而不是把 CENTER 换成纵向盒**：`BorderLayout` 对不可见的子组件**不分配任何空间**
+（`ComposerAttachments` 无图时 `isVisible = false`），所以无图时 NORTH 贡献 0 高度 —— 与套一层纵向盒
+行为一致，但少一层嵌套。这条由 `ComposerRulesTest` 的最小高度断言看守（Task 4 已实现）。
 
 ```
 ┌─────────────────────────────────────────┐
