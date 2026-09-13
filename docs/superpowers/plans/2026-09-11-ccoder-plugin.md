@@ -114,7 +114,7 @@ CCoder/
   "type": "module",
   "engines": { "node": ">=18.0.0" },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.268"
