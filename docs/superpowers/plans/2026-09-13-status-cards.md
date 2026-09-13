@@ -1736,3 +1736,54 @@ cd "C:/Users/CY/Desktop/CCoder" && git add -A && git commit -m "test(ui): 状态
 5. **Task 2 的 `border` 两次赋值**改成一次构造，顺带消掉 Step 4 的退路说明。
 
 **未处理的一处重复（记下，不在本次范围）：** `SessionList.kt` 里有个私有的 `DELETE_DANGER`，色值与新增的 `dangerColor()` 完全相同。本次不合并 —— 那要动会话列表和它的测试，与本次改动无关。将来谁碰 `SessionList` 顺手换掉即可。
+
+---
+
+## 执行记录（2026-09-13）
+
+**七个任务全部完成。** Kotlin 426 条（执行前 409）、sidecar 89 条，全绿。
+包：`build/distributions/CCoder-0.2.4.zip`（7,745,492 字节，08:11）。
+已验证 jar 里有 `StatusCardsKt` / `StatusCardView` / `StatusCardsRow` / `RunDetailKt`，
+且 **`RunStrip` 零残留**。
+
+### 计划本身的三处缺陷（执行时才暴露）
+
+1. **Task 1 会打断构建。** 删掉 `formatContextUsage` 立刻让 `ClaudePanel.kt:322`
+   编译不过。补了一个最小过渡写法保住常绿 —— 计划里没写这一步。
+2. **Task 4 和 Task 5 必须合并。** 删掉 `buildContextRow` / `buildUsageLabel`
+   就直接打断了 `ClaudePanel`，而计划把接线放在下一个任务。所以 4/5/6 是一次提交。
+3. **`EXPAND_CARET` 差点被误删**（自查时抓到，见前文）。
+
+### 渲染出来才发现的三处错（单测全绿时它们都在）
+
+1. **连接状态的颜色完全看不见。** `connectionCardOf` 的 `indicator` 是 `None`，
+   于是 `Tone` 是一个算了没人用的数 —— "已连接/会话已断开/启动失败"三种状态
+   在界面上长得一模一样。加前置状态点（`leadingDot`）。
+2. **连接卡的值套错了模子。** "大字号"是给数字的（`6%`/`2/4`/`2`），而它的值
+   是词 —— "会话已断开"被 JLabel 自动截成"会话已…"。降回普通字号（`bigValue`）。
+3. **指示器跟内容走，四张卡底边参差不齐。** 上下文卡的条在第三行下面，
+   子任务卡的分段在第二行下面。加竖直弹簧（`Box.createVerticalGlue`）让它们贴底。
+
+### 两处实测数值（计划里是估的）
+
+- **状态行最小高度 67px**，计划估的"约 58px"少算 9px。其中上下文卡 67px、
+  其余三张 49px —— 差在上下文卡多一行副值。转写区相应少这么多高。
+- **连接卡的值可用宽度只有 66px。** 实测"正在载入历史…"需要 81px，差整整
+  一个字。八条连接文字里只有它放不下，文案缩成"正在载入…"，并补了一条
+  逐条量宽度的测试（`八种连接文字都放得下，不会被截断`）钉住。
+
+### 顺带修掉的两个真问题
+
+- **卡片能被压扁。** `JLabel` 没有布局管理器，`getMinimumSize()` 落到
+  `Component.size()` 也就是 0，整行最小高度只剩边框那 2px。分隔条设了
+  `honorComponentsMinimumSize`，用户就能把状态行拖成一条缝。覆写
+  `getMinimumSize` 成首选高度。
+- **一处变量遮蔽。** 探针的参数 `connection: String?` 盖住了
+  `StatusCardsRow.connection` 属性（Kotlin 里外层局部变量优先于隐式接收者的
+  成员）。`toggleDetail` 的参数命名也因此改成了 `wantsTodos`。
+
+### 仍未做的
+
+**手工冒烟**（见文末"收尾"一节）—— 装包后人眼确认：真实 420px 里没有文字
+被裁、空闲两张确实"收边"、点卡弹浮层、转写区少的高度能不能接受、
+上下文涨到 70% 转琥珀、断开时转红。
