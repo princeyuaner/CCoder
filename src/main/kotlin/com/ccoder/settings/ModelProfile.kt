@@ -7,13 +7,16 @@ import java.util.UUID
  *
  * 猜错就是 401，而 401 看起来和"密钥填错了"一模一样 —— 用户会去反复检查密钥。
  * 所以存成显式字段：推断只用于新建时给个默认值（见 [defaultAuthKind]）。
+ *
+ * [label] 是给下拉框看的。**不覆写 `toString()`** —— 那会把日志和调试输出里的
+ * `API_KEY` 也一起改成"API Key"，出问题时反而少了线索。
  */
-enum class AuthKind {
+enum class AuthKind(val label: String) {
     /** `x-api-key`。官方 Anthropic 用。 */
-    API_KEY,
+    API_KEY("API Key"),
 
     /** `Authorization: Bearer`。多数第三方网关用。 */
-    AUTH_TOKEN,
+    AUTH_TOKEN("Bearer"),
 }
 
 /**

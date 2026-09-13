@@ -1,10 +1,12 @@
 package com.ccoder.settings
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.JBColor
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextArea
@@ -22,6 +24,9 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
+
+/** `JBPasswordField` 打码时用的字符。显式写出来，是因为那只眼睛要拿它做比对。 */
+private const val ECHO_MASKED = '•'
 
 /** 打开设置对话框，停在「模型」页。 */
 fun showModelProfilesDialog(project: Project) {
@@ -64,6 +69,25 @@ internal class ModelProfilesDialog(
         add(tabsColumn(), BorderLayout.WEST)
         add(listColumn(), BorderLayout.CENTER)
         add(formColumn(), BorderLayout.EAST)
+    }
+
+    /**
+     * 底部左侧多一句「改动即时保存」（设计稿的 footer 就有）。
+     *
+     * **不是为了好看**：右边那对按钮里的「取消」在这页上**不回滚任何东西**，
+     * 不写清楚，用户会拿它当撤销用 —— 点完发现改过的还在，才知道被骗了。
+     * 所以这句必须贴着那两个按钮，放进表单里就没这个作用了。
+     */
+    override fun createSouthPanel(): JComponent {
+        val base = super.createSouthPanel()
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(
+                JBLabel("改动即时保存").apply { foreground = UIUtil.getInactiveTextColor() },
+                BorderLayout.WEST,
+            )
+            add(base, BorderLayout.CENTER)
+        }
     }
 
     /**
@@ -148,7 +172,9 @@ internal class ModelProfilesDialog(
         border = JBUI.Borders.empty(8, 10)
         addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                editing = ModelProfile()
+                // 默认认证方式走 defaultAuthKind()，别在这里写死 API_KEY ——
+                // "空端点=官方=API_KEY，非空=网关=Bearer"这条规则只该有一个出处
+                editing = ModelProfile(authKind = defaultAuthKind("").name)
                 refresh()
             }
         })
@@ -165,30 +191,53 @@ internal class ModelProfilesDialog(
         rebuildForm()
     }
 
-    /** 中栏内容：一条配置一行，正在编辑的那条高亮。 */
+    /**
+     * 中栏内容：一条配置一行。
+     *
+     * 行上有**两个互不相干**的信号，别把它们并成一个：
+     *   - 背景高亮 = **我正在编辑哪条**（点出来的，只在本次会话里有意义）
+     *   - 右侧「使用中」= **哪条在生效**（`ModelProfiles.selectedId()`，是落盘的配置）
+     * 它们回答的是两个问题（"我在改谁"和"谁在跑"），合成一个就会出现"点开看看
+     * 就把在用的模型换掉了"这种事。
+     */
     private fun rebuildList() {
         listSlot.removeAll()
+        val inUse = profiles.selectedId()
         profiles.profiles().forEach { p ->
-            listSlot.add(JBLabel(p.displayName()).apply {
-                isOpaque = true
-                border = JBUI.Borders.empty(6, 9)
-                foreground = UIUtil.getLabelForeground()
-                background = if (p.id == editing?.id) {
-                    UIUtil.getListSelectionBackground(true)
-                } else {
-                    UIUtil.getPanelBackground()
-                }
-                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                addMouseListener(object : MouseAdapter() {
-                    override fun mouseClicked(e: MouseEvent) {
-                        editing = p
-                        refresh()
-                    }
-                })
-            })
+            listSlot.add(listRow(p, isEditing = p.id == editing?.id, inUse = p.id == inUse))
         }
         listSlot.revalidate()
         listSlot.repaint()
+    }
+
+    private fun listRow(p: ModelProfile, isEditing: Boolean, inUse: Boolean): JComponent {
+        val row = JPanel(BorderLayout()).apply {
+            isOpaque = true
+            background = if (isEditing) UIUtil.getListSelectionBackground(true) else UIUtil.getPanelBackground()
+            border = JBUI.Borders.empty(6, 9)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            add(
+                JBLabel(p.displayName()).apply { foreground = UIUtil.getLabelForeground() },
+                BorderLayout.CENTER,
+            )
+            // 放右边而不是名字前面：文字长短不一，前置标记会让名字各起一行
+            if (inUse) {
+                add(
+                    JBLabel("使用中").apply { foreground = UIUtil.getInactiveTextColor() },
+                    BorderLayout.EAST,
+                )
+            }
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    editing = p
+                    refresh()
+                }
+            })
+        }
+        // 必须**加完子件之后**再量：不设这一条背景就只裹住文字那一段（实测 134px
+        // 而不是整行 240px）—— BoxLayout 只把子件排到它的首选宽度，除非 max 允许它长
+        row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
+        return row
     }
 
     /**
@@ -217,6 +266,9 @@ internal class ModelProfilesDialog(
         val url = JBTextField(p.baseUrl)
         val modelId = JBTextField(p.modelId)
         val authKind = ComboBox(AuthKind.entries.toTypedArray()).apply {
+            // 显示 label 而不是枚举名：用户不该看到 AUTH_TOKEN 这种给代码看的词。
+            // 只在**这里**翻译，不去覆写 toString()（那会连日志里的名字一起改掉）
+            renderer = SimpleListCellRenderer.create("") { it.label }
             selectedItem = p.authKindEnum()
         }
         // 密钥不从 ModelProfile 取 —— 它住在 PasswordSafe 里。
@@ -232,7 +284,17 @@ internal class ModelProfilesDialog(
             )
             editing = next
             profiles.upsert(next)
-            profiles.setSecret(next.id, secret.text)
+            // **只在密钥真的变了时才写**。四个字段共用这一个 save()，无条件写的话
+            // 在「名称」里打 40 个字就是 40 次 PasswordSafe 落盘，而密钥一个字没动 ——
+            // 那正是 ModelProfiles 注释里写的"别在 UI 线程上同步碰凭据库"。
+            // 比较走 secretCache（内存），不会读盘。
+            //
+            // 读 password 而不是 text：JPasswordField.getText() 已被弃用（它把口令
+            // 变成一个长命 String），CharArray 转一下就完事
+            val typed = String(secret.password)
+            if (typed.trim() != profiles.secretOf(next.id)) {
+                profiles.setSecret(next.id, typed)
+            }
             rebuildList()   // 改名要立刻反映到列表
         }
 
@@ -246,7 +308,7 @@ internal class ModelProfilesDialog(
         formSlot.add(field("名称", name))
         formSlot.add(field("Base URL", url))
         formSlot.add(field("认证方式", authKind))
-        formSlot.add(field("API Key", secret))
+        formSlot.add(field("API Key", secretField(secret)))
         formSlot.add(field("模型 ID", modelId))
 
         // 删除放**底部左**，与"关闭"分开 —— 它和"保存这次编辑"不是一类动作
@@ -266,6 +328,35 @@ internal class ModelProfilesDialog(
 
         formSlot.revalidate()
         formSlot.repaint()
+    }
+
+    /**
+     * 密钥框 + 那只眼睛。
+     *
+     * 默认打码（spec §7），但得留一个"看一眼"的出口：第三方网关的密钥多半是从
+     * 别处复制来的，粘完想核对一下很正常。切换只动 `echoChar`，**不重建组件** ——
+     * 重建会顺手把光标位置和选区丢掉。
+     */
+    private fun secretField(secret: JBPasswordField): JComponent {
+        val eye = JBLabel(AllIcons.General.InspectionsEye).apply {
+            toolTipText = "显示/隐藏密钥"
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            border = JBUI.Borders.emptyLeft(6)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    // echoChar = 0 就是明文，这是 JPasswordField 的约定
+                    secret.echoChar = if (secret.echoChar == ECHO_MASKED) 0.toChar() else ECHO_MASKED
+                }
+            })
+        }
+        val row = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(secret, BorderLayout.CENTER)
+            add(eye, BorderLayout.EAST)
+        }
+        // 外面套了一层，宽度就不再由输入框自己撑开 —— 不设这条这个框会比别家窄一截
+        row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
+        return row
     }
 
     /**
