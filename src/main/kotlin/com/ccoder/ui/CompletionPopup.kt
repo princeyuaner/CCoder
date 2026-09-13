@@ -22,11 +22,17 @@ internal const val COMPLETION_MAX_ROWS = 8
 /** 弹层宽度（未缩放 px）。 */
 internal const val COMPLETION_WIDTH = 320
 
-/** 一行的行高（未缩放 px）。 */
+/** 一行的行高（未缩放 px）。只用于压住 BoxLayout 的最大高度。 */
 private const val ROW_HEIGHT = 20
 
-/** 分组标题那一条的高度（未缩放 px）。 */
-private const val GROUP_HEIGHT = 18
+/**
+ * 只留前几项。
+ *
+ * 上限必须落在**候选**这一层而不是绘制层：绘制层截断的话，高亮索引还能
+ * 走到看不见的位置上（按 ↓ 按到第 10 项，屏幕上没有任何一格亮着）。
+ */
+internal fun visibleCandidates(items: List<CompletionItem>): List<CompletionItem> =
+    items.take(COMPLETION_MAX_ROWS)
 
 /**
  * 一行显示什么。测试与探针共用 —— 免得两边各拼一遍然后漂移。
@@ -60,7 +66,6 @@ internal fun buildCompletionList(items: List<CompletionItem>, selected: Int): JC
         column.add(row(item, index == selected))
     }
 
-    val visible = minOf(items.size, COMPLETION_MAX_ROWS)
     return JPanel(BorderLayout()).apply {
         isOpaque = false
         // **显式**不可聚焦。不写这一句的话 `Container.isFocusable()` 会把子树
@@ -68,11 +73,10 @@ internal fun buildCompletionList(items: List<CompletionItem>, selected: Int): JC
         // 本组件自己说了算：弹层出现时用户还在打字，焦点被带走一个字都进不去
         isFocusable = false
         add(column, BorderLayout.CENTER)
-        preferredSize = Dimension(
-            JBUI.scale(COMPLETION_WIDTH),
-            JBUI.scale(8) + visible * JBUI.scale(ROW_HEIGHT) +
-                if (lastGroup != null) JBUI.scale(GROUP_HEIGHT) else 0,
-        )
+        // 宽度定死，**高度取内容的真实首选高**。自己按行数估会漏掉分组标题
+        // 和字体的实际行高，末一行被容器裁掉 —— 探针图里踩到过（第二版图里
+        // 最末那行 `brainstorming` 整个不见了）
+        preferredSize = Dimension(JBUI.scale(COMPLETION_WIDTH), column.preferredSize.height)
     }
 }
 

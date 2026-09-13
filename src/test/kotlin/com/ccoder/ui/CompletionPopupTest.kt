@@ -56,6 +56,28 @@ class CompletionPopupTest {
     }
 
     @Test
+    fun `候选上限落在候选层，不是绘制层`() {
+        val many = (1..20).map { CompletionItem("c$it", "c$it") }
+
+        assertEquals(COMPLETION_MAX_ROWS, visibleCandidates(many).size)
+        assertEquals("c1", visibleCandidates(many).first().display)
+        assertEquals(3, visibleCandidates(many.take(3)).size, "不足上限时原样返回")
+    }
+
+    @Test
+    fun `弹层高度取内容的真实首选高，末一行不会被裁掉`() {
+        val many = (1..3).map { CompletionItem("c$it", "c$it", group = GROUP_BUILTIN) }
+        val list = buildCompletionList(many, selected = 0)
+        val column = (list as java.awt.Container).components.single()
+
+        assertEquals(
+            column.preferredSize.height,
+            list.preferredSize.height,
+            "自己按行数估高度会漏掉分组标题与字体行高，末一行就没了",
+        )
+    }
+
+    @Test
     fun `长描述不会把弹层撑宽 —— 截断是造候选那层的职责`() {
         val long = CompletionItem("x", "x", "字".repeat(500))
         val list = buildCompletionList(listOf(long), selected = 0)

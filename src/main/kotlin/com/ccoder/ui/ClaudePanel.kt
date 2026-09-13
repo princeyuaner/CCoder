@@ -1520,12 +1520,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val q = completionQuery(input.text, input.caretPosition)
         if (q == null) return closeCompletion()
 
-        val filtered = when (q.trigger) {
-            Trigger.Command ->
-                filterCandidates(commandCandidates(commandList, skillList, sendableNames), q.query)
+        val filtered = visibleCandidates(
+            when (q.trigger) {
+                Trigger.Command ->
+                    filterCandidates(commandCandidates(commandList, skillList, sendableNames), q.query)
 
-            Trigger.File -> fileCandidates(allProjectFiles(), q.query)
-        }
+                Trigger.File -> fileCandidates(allProjectFiles(), q.query)
+            }
+        )
         if (filtered.isEmpty()) return closeCompletion()
 
         completionQuery = q
