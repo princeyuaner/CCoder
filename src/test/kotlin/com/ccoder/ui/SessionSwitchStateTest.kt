@@ -183,4 +183,33 @@ class SessionSwitchStateTest {
         assertEquals("首问", sessionLabelTitle(info(summary = "  ", firstPrompt = "首问")))
         assertNull(sessionLabelTitle(info(summary = "", firstPrompt = null)))
     }
+
+    // ---- /clear 换会话 ----
+
+    @Test
+    fun `id 变了就是换了会话`() {
+        assertTrue(isSessionSwitch("aaa", "bbb"))
+    }
+
+    @Test
+    fun `id 没变不是换会话 —— init 每个回合都发一次`() {
+        assertFalse(
+            isSessionSwitch("aaa", "aaa"),
+            "每回合都判一次换会话的话，转写区会被清空无数次",
+        )
+    }
+
+    @Test
+    fun `第一次拿到 id 不算换会话`() {
+        assertFalse(
+            isSessionSwitch(null, "aaa"),
+            "全新会话的第一个 init 就是这种情况：该做的是填上 id，不是清空转写区",
+        )
+    }
+
+    @Test
+    fun `任一边缺了就当作没换`() {
+        assertFalse(isSessionSwitch("aaa", null))
+        assertFalse(isSessionSwitch(null, null))
+    }
 }

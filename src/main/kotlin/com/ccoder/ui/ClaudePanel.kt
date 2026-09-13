@@ -1165,7 +1165,22 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         // （设计稿 A，也是 Task 11 冒烟 6 的验收条件）。
                         // 把 id 前 8 位写上去的话，用户看到的是一串对不上号的 UUID ——
                         // 列表里显示的是标题，不是 id。
-                        msg.event.str("session_id")?.let { currentSessionId = it }
+                        msg.event.str("session_id")?.let { sid ->
+                            if (isSessionSwitch(currentSessionId, sid)) {
+                                // /clear：CLI 换了会话，进程不动（设计稿 §5.2）。
+                                // 清空转写区而不是插一条分隔线 —— 留着一段
+                                // 已经不在上下文里的历史，正是 §7.5 反对的
+                                // 那种"看着还在、其实没了"
+                                pushOp(TranscriptOp.Reset)
+                                currentSessionTitle = null
+                                refreshSessionLabel(enabled = true)
+                                refreshSessionList()
+                                pushOp(toOp(RenderItem.SystemNote("上下文已清空，这是一条新会话")))
+                            }
+                            // 当前会话指针以 init 里的 id 为准，**不以会话列表为准**
+                            // —— 刚 /clear 出来的新会话还没落盘，列表未必列得到它
+                            currentSessionId = sid
+                        }
                     }
                     // 任务与子代理的状态要走**每一个**事件，不只是 result ——
                     // task_progress 这类事件不会产出任何转写项，但它们正是

@@ -136,6 +136,21 @@ internal fun newSessionTooltip(block: SwitchBlock): String =
     switchBlockNotice(block) ?: "新建会话"
 
 /**
+ * `init` 带进来的 session id 是否意味着**换了会话**（`/clear` 走这条路）。
+ *
+ * 两条都必须判：
+ *  - **不能靠"收到 init"** —— 实测 init 每个回合都发一次（设计稿 §2 事实 6），
+ *    那样每回合都会清一次转写区。
+ *  - **`current` 为 null 时不算** —— 全新会话的第一个 init 就是这种情况。
+ *    那时该做的是"填上 id"，不是"清空转写区"：用户刚看到「会话已就绪」，
+ *    紧接着转写区被清空会像是崩了。
+ *
+ * 真正的切换信号是同一个进程里 id **变了**（实测 `/clear`，设计稿 §10.4）。
+ */
+internal fun isSessionSwitch(current: String?, incoming: String?): Boolean =
+    current != null && incoming != null && current != incoming
+
+/**
  * 删除的确认语。
  *
  * 删当前会话时**不写"要不要删"，写"删了会怎样"** —— 用户已经知道自己点了
