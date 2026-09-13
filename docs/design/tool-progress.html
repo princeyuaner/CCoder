@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 工具卡片 · 进行中 / 完成 状态指示</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm New UI 的真实主题变量，与
+   transcript-tools / status-cards / session-switch 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --diff-add:#1e2f1f; --diff-del:#33222a;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --diff-add:#e7f6e8; --diff-del:#fdeaea;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1340px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 66ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 7px 13px; border:0; background:none; color: var(--page-dim); cursor:pointer;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--page-fg); }
+
+.section-title { font-family: var(--serif); font-size: 27px; font-weight: 600; margin: 52px 0 0; letter-spacing:-.005em; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 22px 20px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; margin:0; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.card > p.note { color: var(--page-dim); margin: 0 0 16px; font-size: 13.5px; max-width: 62ch; }
+.cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; margin-top: 22px; }
+
+/* ---- 事实表 ---- */
+.facts { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap:14px; margin-top:20px; }
+.fact { border:1px solid var(--page-line); border-radius:11px; padding:14px 16px; background:var(--page-card); }
+.fact .n { font-family:var(--mono); font-size:11px; color:var(--accent); letter-spacing:.1em; }
+.fact h3 { margin:6px 0 6px; font-size:15px; font-weight:600; }
+.fact p { margin:0; color:var(--page-dim); font-size:13px; }
+.fact code { font-family:var(--mono); font-size:12px; background:var(--code); padding:1px 5px; border-radius:4px; color:var(--page-fg); }
+
+/* ---- 面板（模拟真实的 420px 转写区）---- */
+.panel {
+  width: 420px; max-width:100%; background: var(--editor);
+  border:1px solid var(--border); border-radius: 9px; padding: 8px;
+  display:flex; flex-direction:column; gap:8px;
+}
+.panel-label { font-family:var(--mono); font-size:10.5px; color:var(--page-dim); letter-spacing:.1em; text-transform:uppercase; margin:0 0 8px; }
+
+/* 产品里的卡片：类名与 web/src/styles.css 的 .tool* 一致 */
+.tool { border:1px solid var(--border); border-radius:7px; background:var(--panel); overflow:hidden; flex-shrink:0; }
+.tool--error { border-color: var(--danger); }
+.tool__head {
+  display:flex; align-items:center; gap:6px; width:100%; padding:5px 8px;
+  background:none; border:none; font:inherit; font-size:12px;
+  color: var(--dim); cursor:pointer; text-align:left;
+}
+.tool__chevron { display:inline-block; flex:0 0 auto; font-size:10px; }
+.tool__badge {
+  flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
+  width:15px; height:15px; border-radius:4px; border:1px solid var(--border);
+  background: var(--code); font-family:var(--mono); font-size:9px;
+}
+.tool__name { flex:0 0 auto; font-family:var(--mono); font-size:11px; }
+.tool__title { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--mono); font-size:11px; color:var(--text); }
+.tool__delta { flex:0 0 auto; display:flex; gap:5px; font-family:var(--mono); font-size:10px; }
+.tool__add { color: var(--ok); }
+.tool__del { color: var(--danger); }
+.tool__fail { flex:0 0 auto; padding:0 5px; border:1px solid currentColor; border-radius:4px;
+  color:var(--danger); font-size:10px; }
+
+/* ---- 候选的三种状态位 ---- */
+/* 甲：转圈 / 绿勾 */
+.p-spin {
+  flex:0 0 auto; width:11px; height:11px; border-radius:50%;
+  border:1.5px solid var(--border); border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.p-check { flex:0 0 auto; width:12px; height:12px; }
+.p-check path { fill:none; stroke: var(--ok); stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+.p-stop { flex:0 0 auto; width:12px; height:12px; opacity:.55; }
+.p-stop circle { fill:none; stroke: var(--dim); stroke-width:1.6; }
+.p-stop line { stroke: var(--dim); stroke-width:1.6; }
+
+/* 乙：底沿条纹 / 静止色条 */
+.tool__barwrap { height:2px; background: var(--border-soft); position:relative; overflow:hidden; }
+.tool__barwrap .sweep {
+  position:absolute; top:0; bottom:0; width:38%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: sweep 1.15s ease-in-out infinite;
+}
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(365%); } }
+.bar-ok { height:2px; background: var(--ok); }
+.bar-fail { height:2px; background: var(--danger); }
+
+/* 丙：转圈 + 已耗时 / 绿勾 + 总耗时 */
+.tool__time { flex:0 0 auto; font-family:var(--mono); font-size:10px; color:var(--dim); }
+.tool__time--done { color: var(--dim); opacity:.8; }
+
+/* ---- 状态图例 ---- */
+.states { display:flex; flex-direction:column; gap:14px; }
+.state-row { display:flex; align-items:center; gap:12px; }
+.state-row .cap { font-family:var(--mono); font-size:11px; color:var(--page-dim); width:74px; flex:0 0 auto; }
+.state-row .demo { flex:1 1 auto; min-width:0; }
+
+/* ---- 细节表 ---- */
+table { border-collapse: collapse; width:100%; margin-top:16px; font-size:13.5px; }
+th, td { text-align:left; padding:11px 13px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+th { font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--page-dim); font-weight:500; }
+td code { font-family:var(--mono); font-size:12px; background:var(--code); padding:1px 5px; border-radius:4px; }
+.yes { color: var(--ok); font-weight:600; }
+.no { color: var(--danger); font-weight:600; }
+
+/* ---- 结论 ---- */
+.verdict { margin-top:56px; border:1px solid var(--accent); border-radius:14px; padding:24px 26px; background:var(--page-card); }
+.verdict h2 { font-family:var(--serif); font-size:26px; margin:0 0 12px; }
+.verdict p { margin:0 0 12px; color:var(--page-dim); max-width:76ch; }
+.verdict p b { color: var(--page-fg); }
+.ask { margin-top:18px; display:flex; flex-direction:column; gap:9px; }
+.ask div { display:flex; gap:11px; align-items:baseline; }
+.ask .n { font-family:var(--mono); font-size:11px; color:var(--accent); }
+.ask b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 转写区 · 设计稿</p>
+      <h1>工具卡片：进行中 · 完成 · 失败</h1>
+      <p class="lede">
+        读写文件、跑指令这些工具，在<b>还没跑完</b>的时候给个"在动"的信号，跑完了给个确认。
+        下面是三套画法 —— 以及三条<b>决定了它们差在哪</b>的事实。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">light</button>
+    </div>
+  </div>
+
+  <!-- ============ 事实 ============ -->
+  <h2 class="section-title">先说三条事实 —— 它们决定了三套画法差在哪</h2>
+  <div class="facts">
+    <div class="fact">
+      <p class="n">01</p>
+      <h3>「真进度条」做不到</h3>
+      <p>
+        工具不报进度。SDK 流里那个 <code>input_json_delta</code> 是模型在<b>生成参数</b>，
+        不是工具在执行 —— 拿它当进度条等于撒谎。
+        所以能画的只有两种：<b>不确定态</b>（转圈 / 流动条纹），或者<b>已耗时</b>。
+      </p>
+    </div>
+    <div class="fact">
+      <p class="n">02</p>
+      <h3>「进行中」不用动协议</h3>
+      <p>
+        <code>toolUse</code> 到了、配对的 <code>toolResult</code> 没到 —— 就是进行中。
+        卡片组件本来就收着 <code>result?</code>，<b>undefined 即未完成</b>。纯前端推导，零改动。
+      </p>
+    </div>
+    <div class="fact">
+      <p class="n">03</p>
+      <h3>但「进行中」可能永不结束</h3>
+      <p>
+        被拒绝、被中断、会话被杀掉的工具<b>不会</b>再收到 result。
+        不收尾就是永远转圈 —— 得有一条确定性的收尾规则（见下方细节 ②）。
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ 三套画法 ============ -->
+  <h2 class="section-title">一、三套画法</h2>
+  <div class="cards">
+
+    <!-- 甲 -->
+    <div class="card">
+      <p class="tag">方案 甲</p>
+      <h2>转圈 + 绿勾</h2>
+      <p class="note">最贴近你原话的一套：跑的时候转圈，跑完打勾。状态位在最右，固定 12px，切换不挤动标题。</p>
+      <p class="panel-label">转写区</p>
+      <div class="panel">
+        <div class="tool">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">npm run build</span>
+            <span class="p-spin"></span>
+          </button>
+        </div>
+        <div class="tool">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">R</span>
+            <span class="tool__name">Read</span>
+            <span class="tool__title">web/src/components/ToolCallBlock.tsx</span>
+            <span class="p-check"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span>
+          </button>
+        </div>
+        <div class="tool tool--error">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">gradlew test</span>
+            <span class="tool__fail">失败</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 乙 -->
+    <div class="card">
+      <p class="tag">方案 乙</p>
+      <h2>底沿流动条纹</h2>
+      <p class="note">把"进度条"画在卡片底沿，不占横向空间；完成时整条变绿。420px 里最省地方的一套。</p>
+      <p class="panel-label">转写区</p>
+      <div class="panel">
+        <div class="tool">
+          <div class="tool__head" style="cursor:default">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">npm run build</span>
+          </div>
+          <div class="tool__barwrap"><div class="sweep"></div></div>
+        </div>
+        <div class="tool">
+          <div class="tool__head" style="cursor:default">
+            <span class="tool__chevron">▸</span><span class="tool__badge">R</span>
+            <span class="tool__name">Read</span>
+            <span class="tool__title">web/src/components/ToolCallBlock.tsx</span>
+          </div>
+          <div class="bar-ok"></div>
+        </div>
+        <div class="tool tool--error">
+          <div class="tool__head" style="cursor:default">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">gradlew test</span>
+            <span class="tool__fail">失败</span>
+          </div>
+          <div class="bar-fail"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 丙 -->
+    <div class="card">
+      <p class="tag">方案 丙</p>
+      <h2>转圈 + 已耗时</h2>
+      <p class="note">
+        在甲的基础上多一个秒数。<b>这是唯一能回答"它是不是卡住了"的画法</b> ——
+        一个读文件转 30 秒，光看圈是看不出来的。
+      </p>
+      <p class="panel-label">转写区</p>
+      <div class="panel">
+        <div class="tool">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">npm run build</span>
+            <span class="p-spin"></span><span class="tool__time">12s</span>
+          </button>
+        </div>
+        <div class="tool">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">R</span>
+            <span class="tool__name">Read</span>
+            <span class="tool__title">web/src/components/ToolCallBlock.tsx</span>
+            <span class="p-check"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span>
+            <span class="tool__time tool__time--done">0.3s</span>
+          </button>
+        </div>
+        <div class="tool tool--error">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">gradlew test</span>
+            <span class="tool__fail">失败</span>
+            <span class="tool__time tool__time--done">48s</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 四态对照 ============ -->
+  <h2 class="section-title">二、四种状态并排看（以甲为例）</h2>
+  <p class="lede" style="margin-top:10px;max-width:70ch;">
+    第四种状态是必须有的一条 —— 否则被中断的工具会永远转圈。它不分方案，选哪套都得画。
+  </p>
+  <div class="card" style="margin-top:20px;">
+    <div class="states">
+      <div class="state-row">
+        <span class="cap">进行中</span>
+        <span class="demo"><div class="tool"><button class="tool__head">
+          <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+          <span class="tool__name">Bash</span><span class="tool__title">npm run build</span>
+          <span class="p-spin"></span>
+        </button></div></span>
+      </div>
+      <div class="state-row">
+        <span class="cap">完成</span>
+        <span class="demo"><div class="tool"><button class="tool__head">
+          <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+          <span class="tool__name">Bash</span><span class="tool__title">npm run build</span>
+          <span class="p-check"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span>
+        </button></div></span>
+      </div>
+      <div class="state-row">
+        <span class="cap">失败</span>
+        <span class="demo"><div class="tool tool--error"><button class="tool__head">
+          <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+          <span class="tool__name">Bash</span><span class="tool__title">gradlew test</span>
+          <span class="tool__fail">失败</span>
+        </button></div></span>
+      </div>
+      <div class="state-row">
+        <span class="cap">已中断</span>
+        <span class="demo"><div class="tool"><button class="tool__head">
+          <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+          <span class="tool__name">Bash</span><span class="tool__title">npm run build</span>
+          <span class="p-stop"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><line x1="4.4" y1="4.4" x2="11.6" y2="11.6"/></svg></span>
+        </button></div></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 细节 ============ -->
+  <h2 class="section-title">三、四个躲不开的细节（不分方案）</h2>
+  <table>
+    <thead><tr><th style="width:23%">细节</th><th style="width:39%">我的答案</th><th>反例（为什么不能那样）</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>状态位要占住位置</b></td>
+        <td>右侧固定 12px，<span class="yes">任何状态下都占位</span>。完成态只是换个图形，宽度不变。</td>
+        <td>不占位的话，卡片从"转圈"变"打勾"的瞬间整行文字会<b>左右抖一下</b> —— 一次会话里几十次。</td>
+      </tr>
+      <tr>
+        <td><b>永不结束的收尾</b></td>
+        <td>收到回合结束的 <code>result</code> 事件时，把<b>还没配上结果</b>的卡片一次性标成"已中断"。确定性、可单测。</td>
+        <td>不处理 → 永远转圈；用超时（比如 60s）→ 一个真跑了 90 秒的构建会被<b>误判成中断</b>。</td>
+      </tr>
+      <tr>
+        <td><b>回放历史全是一片勾</b></td>
+        <td>完成态做得<b>低调</b>：勾用低饱和绿、不描边、不加底色。回放 78 条时是一片安静的 ✔，不吵。</td>
+        <td>给完成态加底色或动画 → 打开历史会话像一棵圣诞树。</td>
+      </tr>
+      <tr>
+        <td><b>等你操作时也在转</b></td>
+        <td>接受。权限询问、<code>AskUserQuestion</code> 期间卡片本来就该是"没结束"，旁边另有卡片在问。</td>
+        <td>想区分"在跑"和"等你"要动协议（SDK 不告诉你工具卡在哪一步），那是另一个工程。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="section-title">四、要改哪些文件</h2>
+  <table>
+    <thead><tr><th>方案</th><th>Kotlin（插件）</th><th>协议 / 共享契约</th><th>React（界面）</th></tr></thead>
+    <tbody>
+      <tr><td><b>甲</b></td><td class="no">不动</td><td class="no">不动</td><td><code>ToolCallBlock.tsx</code>、<code>styles.css</code>、<code>Transcript.tsx</code>（传"回合是否结束"）</td></tr>
+      <tr><td><b>乙</b></td><td class="no">不动</td><td class="no">不动</td><td>同上（状态位换成底沿条）</td></tr>
+      <tr><td><b>丙</b></td><td class="no">不动</td><td class="no">不动</td><td>同上 + 卡片内一个 1 秒定时器（只跑在"进行中"的那张上）</td></tr>
+    </tbody>
+  </table>
+  <p class="lede" style="margin-top:12px;max-width:74ch;">
+    三套都<b>不改 Kotlin、不改协议</b> —— 状态是前端从已有的两条消息推出来的。
+    <code>Transcript.tsx</code> 那处改动是把"回合是否已结束"传给卡片，用来做中断收尾。
+  </p>
+
+  <!-- ============ 建议 ============ -->
+  <div class="verdict">
+    <h2>我建议丙</h2>
+    <p>
+      你要的其实是两件事：<b>"它还在动"</b> 和 <b>"它跑完了"</b>。甲的勾回答了第二件，
+      但转圈只回答了"没结束"—— <b>一个卡死的圈和一个正在跑的圈长得一模一样</b>。
+      丙多出来的那个秒数，正是把这两者分开的唯一信息，而它几乎不花钱（卡片里一个定时器，不动协议）。
+    </p>
+    <p>
+      乙 我不推荐：底沿那条在 29px 高的卡片上太细，而且"完成 = 变绿"不如一个勾<b>一眼确认</b>；
+      它唯一的优势是省横向空间，但 420px 里挤掉的是标题的省略号空间，不划算。
+    </p>
+    <p>
+      <b>丙的一个已知代价</b>：回放历史时<b>算不出真实耗时</b>（回放路径的两条消息 <code>ts</code> 都是回放那一刻）。
+      所以历史里只显示勾、不显示秒数 —— 这反而正好，历史里你也不关心当年那条命令跑了多久。
+    </p>
+    <div class="ask">
+      <div><span class="n">01</span><span>选哪套 —— <b>甲 / 乙 / 丙</b>？（我押丙）</span></div>
+      <div><span class="n">02</span><span>完成态的勾要不要配一句文字（<b>完成</b>）还是只有图形？（我押只有图形）</span></div>
+      <div><span class="n">03</span><span>"进行中"的卡片要不要<b>自动展开</b>，露出命令 / 参数？（我押不展开 —— 那是另一件事，今天不做）</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+</script>
+</body>
+</html>
