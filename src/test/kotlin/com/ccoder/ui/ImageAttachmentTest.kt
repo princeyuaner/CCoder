@@ -55,10 +55,55 @@ class ImageAttachmentTest {
     }
 
     @Test
-    fun `带 alpha 的 PNG 不许降成 JPEG`() {
-        // 透明区在 JPEG 里会变成黑块 —— 截图带透明圆角时特别明显
-        val a = normalizeImage(png(2400, 2400, alpha = true), "image/png")
+    fun `带 alpha 的 PNG 不许降成 JPEG，且 alpha 必须活下来`() {
+        // 用噪声而不是单色：单色 PNG 太小，根本走不到降质那条路，
+        // 那样这条测试删掉守卫也照样绿 —— 等于没测
+        val img = BufferedImage(MAX_EDGE, MAX_EDGE, BufferedImage.TYPE_INT_ARGB)
+        val rnd = java.util.Random(11)
+        for (y in 0 until img.height) {
+            for (x in 0 until img.width) img.setRGB(x, y, rnd.nextInt())
+        }
+        // 挖一块透明区，模拟截图里的透明圆角
+        for (y in 0 until 200) {
+            for (x in 0 until 200) img.setRGB(x, y, 0x00000000)
+        }
+        val out = ByteArrayOutputStream()
+        ImageIO.write(img, "png", out)
+
+        val a = normalizeImage(out.toByteArray(), "image/png")
+
         assertEquals("image/png", a.mediaType)
+        val result = decode(a)
+        assertEquals(0, result.getRGB(10, 10) ushr 24, "透明区被填实了 —— 大概率是转成了 JPEG")
+    }
+
+    @Test
+    fun `已被压过的大图也必须缩到 1568 —— 不许因重编码变大而回退成原尺寸`() {
+        // 2400×1800 存成低质量 JPEG：字节很小，于是"缩完再按 q0.85 重编码"
+        // 一定比原图大。这正是回退分支最容易走到的形状。
+        // 实测同一构造：原图 279KB，缩到 1568 再按 q0.85 编出来 792KB（大一倍多），
+        // base64 才 106 万字符、远没到上限 —— 所以不看"有没有缩过"的老代码
+        // 必然在这里回退成 2400×1800
+        val img = BufferedImage(2400, 1800, BufferedImage.TYPE_INT_RGB)
+        val rnd = java.util.Random(7)
+        for (y in 0 until img.height) {
+            for (x in 0 until img.width) img.setRGB(x, y, rnd.nextInt(0xFFFFFF))
+        }
+        val out = ByteArrayOutputStream()
+        val writer = ImageIO.getImageWritersByFormatName("jpeg").next()
+        val param = writer.defaultWriteParam.apply {
+            compressionMode = javax.imageio.ImageWriteParam.MODE_EXPLICIT
+            compressionQuality = 0.05f
+        }
+        ImageIO.createImageOutputStream(out).use {
+            writer.output = it
+            writer.write(null, javax.imageio.IIOImage(img, null, null), param)
+        }
+
+        val a = normalizeImage(out.toByteArray(), "image/jpeg")
+        val result = decode(a)
+
+        assertEquals(MAX_EDGE, maxOf(result.width, result.height))
     }
 
     @Test

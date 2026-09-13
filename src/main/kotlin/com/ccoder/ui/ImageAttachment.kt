@@ -53,8 +53,9 @@ internal fun mediaTypeOf(name: String): String = when (name.substringAfterLast('
  * 归一化。
  *
  * 三步：缩放（长边 > [MAX_EDGE]）→ 编码（源 JPEG 出 JPEG，其余出 PNG）→ 超限逐档降质。
- * 重编码比原图还大、**又没超限**时才回退原图 —— 那说明重编码得不偿失。
- * 超限时不能回退：那恰恰是最该降质的时刻。解不开的字节（webp 等）原样放行 ——
+ * 重编码比原图还大、**又没超限、又没缩过**时才回退原图 —— 那说明重编码得不偿失。
+ * 缩过的不退：§8 的长边上限省的是 token，比多出来的几个字节值钱。
+ * 超限的也不退：那恰恰是最该降质的时刻。解不开的字节（webp 等）原样放行 ——
  * 宁可让 Claude 自己认，也不要在这里把图丢掉。
  */
 internal fun normalizeImage(raw: ByteArray, hintMediaType: String): ImageAttachment {
@@ -65,16 +66,18 @@ internal fun normalizeImage(raw: ByteArray, hintMediaType: String): ImageAttachm
     val hasAlpha = scaled.colorModel.hasAlpha()
     val sourceIsJpeg = hintMediaType == "image/jpeg" && !hasAlpha
 
-    // 先按源的格式编。编不出来，或者编出来比原图还大、**又没超限**，都回退原图 ——
-    // 后者说明重编码得不偿失。注意这里不能无条件回退：超限恰恰是最该降质的时刻
+    // 编不出来，或者编出来比原图还大、又没超限、又没缩过，才回退原图。
+    // "缩过"这一条必需：已被压得很狠的大图重编码后反而更大（实测 279KB → 792KB），
+    // 少了它就会静默返回一张没缩过的原图，把 §8 的长边上限绕过去
     var best = encode(scaled, jpeg = sourceIsJpeg)
         ?: return ImageAttachment(hintMediaType, raw.b64())
-    if (best.bytes.size >= raw.size && best.bytes.b64Length <= MAX_BASE64_CHARS) {
+    if (scaled === decoded && best.bytes.size >= raw.size && best.bytes.b64Length <= MAX_BASE64_CHARS) {
         return ImageAttachment(hintMediaType, raw.b64())
     }
 
-    // 超限就逐档降质。**没有 alpha 时允许转 JPEG** —— PNG 没有"降质"这个旋钮，
-    // 转格式是它唯一的路。有 alpha 的不能转：透明区会变成黑块
+    // 超限就逐档降质。没有 alpha 时允许转 JPEG —— PNG 没有"降质"这个旋钮，转格式是它唯一的路。
+    // 有 alpha 的不能转：透明区会变成黑块（实测 JPEG writer 也拒收 ARGB，
+    // 所以这道守卫省下的是白费的一次尝试，兜底还有那条抛错）
     if (!hasAlpha) {
         for (quality in FALLBACK_QUALITIES) {
             if (best.bytes.b64Length <= MAX_BASE64_CHARS) break
