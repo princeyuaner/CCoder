@@ -68,7 +68,7 @@ describe('Transcript', () => {
     expect(screen.queryByText('让我想想')).not.toBeInTheDocument()
   })
 
-  it('工具调用默认展开，点一下才收起', async () => {
+  it('工具调用默认折叠，展开显示参数', async () => {
     const user = userEvent.setup()
     render(
       <Transcript
@@ -80,13 +80,15 @@ describe('Transcript', () => {
     )
 
     expect(screen.getByText(/Read/)).toBeInTheDocument()
-    expect(screen.getByText(/file_path/)).toBeInTheDocument()
-    await user.click(screen.getByText(/Read/))
     expect(screen.queryByText(/file_path/)).not.toBeInTheDocument()
+    await user.click(screen.getByText(/Read/))
+    expect(screen.getByText(/file_path/)).toBeInTheDocument()
   })
 
-  it('Bash 给的是命令本身，而不是一坨 JSON', () => {
-    // 以前展开看到的是缩进过的参数 JSON，用户得自己从里面读出"这次跑了什么命令"
+  it('Bash 展开后给的是命令本身，而不是一坨 JSON', async () => {
+    // 这一条断言的是本次改动的核心：以前展开看到的是缩进过的参数 JSON，
+    // 用户得自己从里面读出"这次跑了什么命令"
+    const user = userEvent.setup()
     render(
       <Transcript
         state={state({
@@ -95,11 +97,13 @@ describe('Transcript', () => {
         })}
       />,
     )
+    await user.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getByTestId('tool-command')).toHaveTextContent('gradlew test')
     expect(screen.queryByText(/"command":/)).not.toBeInTheDocument()
   })
 
-  it('工具调用的非法 JSON 参数按原文显示', () => {
+  it('工具调用的非法 JSON 参数按原文显示', async () => {
+    const user = userEvent.setup()
     render(
       <Transcript
         state={state({
@@ -107,14 +111,14 @@ describe('Transcript', () => {
         })}
       />,
     )
+    await user.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getByText('not json')).toBeInTheDocument()
   })
 
-  it('工具结果按 toolUseId 挂回对应的那张卡片', () => {
-    // 两者在协议里是**两条独立的消息**（结果是后到的那条），界面上要看不见这条缝。
-    // 两条连着的调用会被并成一组（设计稿 tool-grouping.html 方案甲），
-    // 而组与卡都默认展开 —— 于是"整段里只有一处输出、且是 toolu_2 那条"
-    // 本身就是配对正确的证据：挂错卡片会变成两处或挂在第一条上
+  it('工具结果按 toolUseId 挂回对应的那张卡片', async () => {
+    // 两者在协议里是**两条独立的消息**（结果是后到的那条），
+    // 界面上要看不见这条缝：输出必须出现在它自己那张卡片里
+    const user = userEvent.setup()
     render(
       <Transcript
         state={state(
@@ -125,9 +129,13 @@ describe('Transcript', () => {
       />,
     )
 
-    const outs = screen.getAllByTestId('tool-output')
-    expect(outs).toHaveLength(1)
-    expect(outs[0]).toHaveTextContent('/home/cy')
+    // 第一条（toolu_1）没有结果：展开后不能把别人的输出挂上来
+    await user.click(screen.getAllByRole('button', { expanded: false })[0])
+    expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
+
+    // 第一条已经展开，剩下的那个收起的就是第二条（toolu_2）—— 它的结果在这张卡上
+    await user.click(screen.getAllByRole('button', { expanded: false })[0])
+    expect(screen.getByTestId('tool-output')).toHaveTextContent('/home/cy')
   })
 
   it('进行中的气泡以流式形式渲染', () => {

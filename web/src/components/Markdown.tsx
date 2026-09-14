@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { memo, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { marked, type Tokens } from 'marked'
 import { CodeBlock } from './CodeBlock'
 import { openLink } from '../bridge'
@@ -11,16 +11,45 @@ import { openLink } from '../bridge'
  * React 元素 —— React 的文本插值天然转义，只有代码高亮那一处是受控的
  * dangerouslySetInnerHTML。
  */
-export function Markdown({ text }: { text: string }) {
+/**
+ * **必须 memo**：正文在流的那些帧里，历史消息的 text 一个字都没变，
+ * 而重新渲染意味着整段的 marked 分词与整棵元素树重建（2026-09-14 实测
+ * 每帧 48ms 就是这么攒出来的）。text 没变就一个字节都不用重算。
+ */
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const tokens = useMemo(() => marked.lexer(text), [text])
+
+  /**
+   * 块级元素缓存 —— 流式输出时"只重建尾巴"。
+   *
+   * 一份 1.5 万字的正文分出来 841 个块，逐帧全部重建元素并逐节点协调要 22ms
+   * （2026-09-14 实测；同一段文本分词只花 3ms，所以贵的是建树不是分词）。
+   * 而流式时**前面那些块一个字都没变** —— 它们没有理由每 16ms 重建一次。
+   *
+   * 复用的是**元素对象本身**：React 在协调时如果发现新旧元素是同一个引用，
+   * 会直接跳过整棵子树（这不是取巧，是官方认可的 children 优化路径）。
+   * 内容没变就必然命中，于是每帧只剩最后一个块在建。
+   *
+   * 键要带上块的原文 `raw`：同一个位置换了内容（改稿、重放、下一条消息复用
+   * 这个组件实例）必须重建，只按下标匹配会拿旧元素糊在新内容上。
+   */
+  const cache = useRef(new Map<number, { sig: string; el: ReactNode }>())
+
   return (
     <>
-      {tokens.map((t, i) => (
-        <BlockToken key={i} token={t as Tokens.Generic} />
-      ))}
+      {tokens.map((t, i) => {
+        const token = t as Tokens.Generic
+        const sig = `${token.type}:${token.raw ?? ''}`
+        const hit = cache.current.get(i)
+        if (hit !== undefined && hit.sig === sig) return hit.el
+
+        const el = <BlockToken key={i} token={token} />
+        cache.current.set(i, { sig, el })
+        return el
+      })}
     </>
   )
-}
+})
 
 /** 只有 http/https 才当作可打开的链接，其余一律当纯文本。 */
 function safeUrl(href: string | null | undefined): string | null {
@@ -77,9 +106,54 @@ function BlockToken({ token }: { token: Tokens.Generic }): ReactNode {
       return (
         <Tag>
           {(token.items ?? []).map((item: Tokens.ListItem, i: number) => (
-            <li key={i}>{renderInline(item.tokens ?? [])}</li>
+            <li key={i}>
+              {/* 任务列表的勾选框。marked 把 `[x] ` 从文本里**摘掉了**，只看
+                  item.task / item.checked —— 不画的话"已完成 / 未完成"这个信息
+                  就整个消失了，界面上看着与普通列表一模一样 */}
+              {item.task ? (
+                <input
+                  className="md-task"
+                  type="checkbox"
+                  checked={item.checked === true}
+                  readOnly
+                />
+              ) : null}
+              {renderBlocks(item.tokens ?? [])}
+            </li>
           ))}
         </Tag>
+      )
+    }
+
+    case 'table': {
+      const t = token as Tokens.Table
+      // 外面这层是为了**横向滚动**：窄栏里列一多必然超宽，让它自己滚，
+      // 而不是把气泡撑破（撑破的代价是整个转写区出横向滚动条）
+      return (
+        <div className="md-table">
+          <table>
+            <thead>
+              <tr>
+                {t.header.map((cell, i) => (
+                  <th key={i} style={alignStyle(t.align?.[i])}>
+                    {renderInline(cell.tokens ?? [])}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {t.rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td key={c} style={alignStyle(t.align?.[c])}>
+                      {renderInline(cell.tokens ?? [])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )
     }
 
@@ -107,6 +181,39 @@ function BlockToken({ token }: { token: Tokens.Generic }): ReactNode {
 
 function renderInline(tokens: Tokens.Generic[]): ReactNode[] {
   return tokens.map((t, i) => <InlineToken key={i} token={t} />)
+}
+
+/**
+ * 列表项里的内容。
+ *
+ * **不能对 item.tokens 一律用 renderInline**：嵌套列表与松散列表里的段落都是
+ * **块级** token，而 renderInline 落到 default 分支会把 `token.raw` 原样吐出来
+ * —— 界面上就是连着短横线的一行纯文本（`  - 嵌套一层`），2026-09-14 用真实
+ * 产物截图确认过。所以按类型分流：块级交给 BlockToken，行内的
+ * （text / strong / codespan / link …）仍走 renderInline。
+ */
+const BLOCK_TOKENS = new Set(['paragraph', 'list', 'code', 'blockquote', 'heading', 'hr', 'table'])
+
+function renderBlocks(tokens: Tokens.Generic[]): ReactNode[] {
+  return tokens.map((t, i) => {
+    // 项里的**第二段**：marked 不给它 paragraph，而是 `text` / `space` / `text`
+    // 三连（实测）。space 若按块级处理会被丢掉，两段就粘成"一第二段" ——
+    // 把它的原文放回 DOM，靠 `.bubble__text` 的 pre-wrap 还原成空行
+    if (t.type === 'space') return <span key={i}>{t.raw}</span>
+    return BLOCK_TOKENS.has(t.type) ? (
+      <BlockToken key={i} token={t} />
+    ) : (
+      <InlineToken key={i} token={t} />
+    )
+  })
+}
+
+/**
+ * 表格列的对齐。marked 给的是 `'left' | 'right' | 'center' | null`，
+ * null（没写对齐行）交给 CSS 的默认值，不生成内联样式。
+ */
+function alignStyle(align: Tokens.Table['align'][number] | undefined): CSSProperties | undefined {
+  return align ? { textAlign: align } : undefined
 }
 
 function InlineToken({ token }: { token: Tokens.Generic }): ReactNode {

@@ -1,6 +1,5 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
-import { groupRows } from '../grouping'
 import { AssistantBubble } from './AssistantBubble'
 import { ErrorBubble } from './ErrorBubble'
 import { Markdown } from './Markdown'
@@ -9,7 +8,6 @@ import { StreamingCursor } from './StreamingCursor'
 import { SystemNote } from './SystemNote'
 import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
-import { ToolRunCard } from './ToolRunCard'
 import { UserBubble } from './UserBubble'
 
 function Timestamp({ ts }: { ts: number }) {
@@ -23,14 +21,24 @@ function Timestamp({ ts }: { ts: number }) {
   )
 }
 
-function Item({
+/**
+ * 一项转写内容。**必须 memo** —— 流式输出期间每一帧都会重渲染整段，不 memo 的话
+ * 每来一个字，历史里每一条消息都要重新渲染一遍（2026-09-14 实测每帧 48ms）。
+ *
+ * 所以 props 也得是"引用稳定"的：结果与收尾状态**精确到这一条**地传进来，
+ * 而不是把整张 map 传下来 —— 传 map 的话，任何一条工具结果到达都会让所有
+ * 项拿到新引用，memo 当场失效，等于没做。
+ */
+const Item = memo(function Item({
   item,
-  results,
-  ended,
+  result,
+  turnEnded = false,
 }: {
   item: TranscriptItem
-  results: Map<string, ToolResultItem>
-  ended: Set<string>
+  /** 只有 toolUse 项有：按 toolUseId 配好的结果。 */
+  result?: ToolResultItem
+  /** 只有 toolUse 项有：回合已结束仍没等到结果。 */
+  turnEnded?: boolean
 }) {
   switch (item.kind) {
     case 'user':
@@ -65,13 +73,7 @@ function Item({
       return <ThinkingBlock text={item.text} />
 
     case 'toolUse':
-      return (
-        <ToolCallBlock
-          item={item}
-          result={results.get(item.toolUseId)}
-          turnEnded={ended.has(item.toolUseId)}
-        />
-      )
+      return <ToolCallBlock item={item} result={result} turnEnded={turnEnded} />
 
     case 'toolResult':
       // 结果不单独成项：它已经挂进对应的那张工具卡片里了（见 resultsByToolUseId）。
@@ -91,7 +93,7 @@ function Item({
       // 这里兜住直接构造 state 的情况。
       return null
   }
-}
+})
 
 /**
  * 距底阈值（px）。不判精确等于 0：浏览器缩放与亚像素布局下"恰好为 0"不可靠，
@@ -139,10 +141,6 @@ export function Transcript({ state }: { state: TranscriptState }) {
     }
     return ended
   }, [state.items, resultsByToolUseId])
-
-  // 连着的工具调用并成一组再画（设计稿 tool-grouping.html 方案甲）。
-  // 分组是纯函数、只认 items 的顺序，所以流式过程中每来一条重算一次也不贵
-  const rows = useMemo(() => groupRows(state.items), [state.items])
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   // 跟随意图的同步读版本。scroll 事件处理器必须在同一次事件里读到最新值，
@@ -212,24 +210,18 @@ export function Transcript({ state }: { state: TranscriptState }) {
         ref={scrollerRef}
         onScroll={handleScroll}
       >
-        {rows.map((row) =>
-          row.kind === 'run' ? (
-            // key 取组里第一次调用的 id：组的身份就是"这一串"，它只会被追加
-            <ToolRunCard
-              key={row.uses[0].id}
-              uses={row.uses}
-              results={resultsByToolUseId}
-              ended={endedToolUseIds}
-            />
-          ) : (
-            <Item
-              key={row.item.id}
-              item={row.item}
-              results={resultsByToolUseId}
-              ended={endedToolUseIds}
-            />
-          ),
-        )}
+        {/* 一次调用一张卡 —— 「归堆」已按用户要求撤销（2026-09-14）：
+            并成一组之后，每次调用各自的描述与对应文件就看不见了 */}
+        {state.items.map((item) => (
+          <Item
+            key={item.id}
+            item={item}
+            // 精确到这一条地取（不是把 map 传下去）：memo 靠 props 引用相等
+            // 才跳得过重渲染，传 map 等于每来一条结果就让所有项一起失效
+            result={item.kind === 'toolUse' ? resultsByToolUseId.get(item.toolUseId) : undefined}
+            turnEnded={item.kind === 'toolUse' && endedToolUseIds.has(item.toolUseId)}
+          />
+        ))}
         {/* 思考在正文之前 —— 与 SDK 给的块顺序一致 */}
         {liveThinking !== undefined && <LiveThinkingBlock text={liveThinking} />}
         {liveText !== undefined && (

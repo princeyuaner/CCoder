@@ -122,6 +122,10 @@ body {
 .entry {
   display: flex;
   flex-direction: column;
+  /* 只给 layout：正文气泡在长，历史气泡的布局没必要跟着重算。
+   * 这里不给 paint —— 它与卡片不同，本来就没有 overflow: hidden，
+   * 加上去会把气泡边上探出来的东西（比如焦点环）裁掉。 */
+  contain: layout;
 }
 
 .entry .timestamp {
@@ -135,14 +139,29 @@ body {
 .bubble {
   border-radius: 12px;
   padding: 10px 14px;
-  max-width: 92%;
   overflow-wrap: anywhere;
 }
 
+/* 用户消息仍是右对齐的窄气泡：**宽度就是"谁在说话"的分栏手段** */
 .bubble--user {
   background: var(--accent, #2f65ca);
   color: #fff;
   max-width: 85%;
+}
+
+/* Claude 侧的文字（正文、报错）**铺满整行**。
+ *
+ * 这里原来是设计稿 §4.2 的 92%（聊天气泡规格）。实测下来的问题是：92% 只作用在
+ * 气泡上，而工具卡片、思考块、系统提示这些 `.transcript` 的**直接子项**都是满宽的
+ * —— 两种排版并排出现，读起来就是"正文没对齐"（2026-09-14 用户报「文本输出不是
+ * 整个聊天框的宽度，工具调用是正常的」，无头 Chromium 实测空档 = 8% 行宽：
+ * 420px 宽下 38.1px，700px 宽下 52.8px，且随宽度按比例涨）。
+ *
+ * 铺满之后左右分栏反而更清楚：两个方向各靠各的东西区分 —— 助手侧靠满宽，
+ * 用户侧靠右对齐 + 85%。用户气泡那条**不要**跟着一起放开。 */
+.bubble--assistant,
+.bubble--error {
+  max-width: 100%;
 }
 
 .bubble--assistant {
@@ -227,6 +246,16 @@ body {
   border-radius: 7px;
   background: var(--surface, #2b2d30);
   overflow: hidden;
+  /* 布局与绘制包含：卡片的里外互不影响。这不是"顺手优化"——
+   *
+   * 流式输出时正文每 16ms 长一个字，浏览器必须重新布局/重绘，而卡片是
+   * .transcript 的直接子项、排在同一棵布局树里。没有这一行时，正文那一次
+   * 重排会把上面几十张展开的卡片一起卷进去（2026-09-14 用户报"输出窗口卡"）。
+   *
+   * paint 部分**不改变任何渲染结果**：本元素本来就有 overflow: hidden，
+   * 该裁的早就裁了（唯一的 absolute 元素 .jump-to-bottom 在 .transcript 之外）。
+   * 不能写 contain: size —— 那会让卡片高度塌成 0。 */
+  contain: layout paint;
   /* 这一行不是可选的。
    *
    * .transcript 是**高度受限的 flex 列**，卡片是它的直接子项（没有 .entry 包裹）。
@@ -564,139 +593,6 @@ body {
   white-space: pre;
 }
 
-/* ---- 工具组卡（设计稿 tool-grouping.html 方案甲「归堆」）----
- *
- * 连续两次以上的工具调用并成一张：卡面一句摘要 + 涉及的文件，
- * 点开后里面还是上面那些卡片（.tool），只是缩进一级。
- */
-
-.run {
-  border: 1px solid var(--border, #393b40);
-  border-radius: 7px;
-  background: var(--surface, #2b2d30);
-  overflow: hidden;
-  /* 同 .tool 那一行，一字不差地同样重要：本元素也是高度受限 flex 列的
-   * **直接子项**，而 overflow: hidden 会把 flex 项的自动最小尺寸从内容高改成 0
-   * （CSS Flexbox §4.5）。不写这一行，内容一溢出它就会被压成一条细缝 ——
-   * DOM 全对、单测全绿、屏幕上看不见（2026-09-13 那次事故的原样重演）。 */
-  flex-shrink: 0;
-}
-
-.run--error {
-  border-color: var(--error-bg, #4a1f1f);
-}
-
-.run__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 8px;
-  background: none;
-  border: none;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-dim, #8c8c8c);
-  cursor: pointer;
-  text-align: left;
-}
-
-.run__head:hover {
-  background: var(--bg, #1e1f22);
-}
-
-.run__title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--text, #dcdcdc);
-}
-
-.run__count {
-  font-family: var(--font-mono, monospace);
-}
-
-.run__status {
-  margin-left: auto;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.run__step {
-  font-family: var(--font-mono, monospace);
-  font-size: 10px;
-  color: var(--text-dim, #8c8c8c);
-}
-
-/* 涉及的文件。卡面一行放不下就靠「+N」收尾，不换行 */
-.run__files {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px 6px;
-  overflow: hidden;
-}
-
-.run__files-lbl {
-  flex: 0 0 auto;
-  font-family: var(--font-mono, monospace);
-  font-size: 9.5px;
-  color: var(--text-dim, #8c8c8c);
-}
-
-.run__file {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border: 1px solid var(--border-soft, #303236);
-  border-radius: 4px;
-  background: var(--code-bg, #191a1c);
-  font-family: var(--font-mono, monospace);
-  font-size: 10px;
-  color: var(--text, #dcdcdc);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.run__file:hover {
-  color: var(--accent, #2f65ca);
-  border-color: var(--accent, #2f65ca);
-}
-
-.run__file-delta {
-  display: inline-flex;
-  gap: 4px;
-  font-size: 9.5px;
-}
-
-.run__files-rest {
-  flex: 0 0 auto;
-  font-family: var(--font-mono, monospace);
-  font-size: 9.5px;
-  color: var(--text-dim, #8c8c8c);
-}
-
-.run__body {
-  border-top: 1px solid var(--border-soft, #303236);
-  padding: 7px 8px 8px;
-}
-
-/* 组内的卡片往右缩一级：一眼看出它们属于上面那条摘要 */
-.run__ind {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding-left: 7px;
-  border-left: 2px solid var(--border-soft, #303236);
-}
-
 /* ---- 其他 ---- */
 
 .system-note,
@@ -860,6 +756,45 @@ body {
 
 .bubble__text li {
   margin: 2px 0;
+}
+
+/* 嵌套列表：外层已经给了 6px 的上下边距，里层再要一份就成了 12px 的空洞 ——
+   在 400px 的窄栏里，列表看着像断成了两截 */
+.bubble__text li > ul,
+.bubble__text li > ol {
+  margin: 2px 0 0;
+}
+
+/* 任务列表的勾选框。marked 把 `[x] ` 从文本里摘掉了（只剩 item.checked），
+   不画这个框的话"已完成 / 未完成"整个看不见 */
+.md-task {
+  margin: 0 6px 0 0;
+  vertical-align: -1px;
+}
+
+/* 表格。外面那层负责横向滚动 —— 窄栏里列一多必然超宽，
+   撑破气泡的代价是整个转写区出横向滚动条 */
+.md-table {
+  margin: 8px 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.bubble__text table {
+  border-collapse: collapse;
+}
+
+.bubble__text th,
+.bubble__text td {
+  border: 1px solid var(--border, #393b40);
+  padding: 3px 8px;
+  /* 没写对齐行的表格默认左对齐；写了的话由行内样式覆盖 */
+  text-align: left;
+}
+
+.bubble__text th {
+  background: var(--code-bg, #191a1c);
+  font-weight: 600;
 }
 
 .bubble__text blockquote {

@@ -20,6 +20,11 @@
  * `width: 100%` 会让它比卡片宽出两个内边距，右侧的状态位直接被裁掉 ——
  * 也是同一类"DOM 全对、屏幕上不对"的问题。
  *
+ * 2026-09-14 再追加一条：正文气泡是不是铺满了整行（`bubbleW` vs `rowW`）。
+ * 92% 的 max-width 光看 CSS 不觉得窄，但它只作用在气泡上，而工具卡片是
+ * `.transcript` 的直接子项、天然满宽 —— 并排出现就成了"正文没对齐"。
+ * 这一条同时守着反面：用户气泡**不该**铺满（宽度是"谁在说话"的分栏手段）。
+ *
  * 用法：
  *   npm run probe:layout
  *   CCoder_CHROMIUM="C:\path\to\msedge.exe" npm run probe:layout
@@ -64,8 +69,8 @@ function findChromium() {
  * 必须留着 —— 内容不溢出时 flex 压缩根本不触发，只用小场景是量不出问题的。
  */
 const SCENARIOS = [
-  { name: 'overflow', note: '内容严重溢出（38 文字 + 86 卡片 + 2 组）', entries: 38, tools: 86, thinking: 6, notes: 3, groups: 2 },
-  { name: 'fits', note: '内容不溢出（2 文字 + 2 卡片 + 2 组）', entries: 2, tools: 2, thinking: 1, notes: 1, groups: 2 },
+  { name: 'overflow', note: '内容严重溢出（38 文字 + 86 卡片）', entries: 38, tools: 86, thinking: 6, notes: 3 },
+  { name: 'fits', note: '内容不溢出（2 文字 + 2 卡片）', entries: 2, tools: 2, thinking: 1, notes: 1 },
 ]
 
 /** 卡片高度下限。卡片头是 5px 内边距 + 一行 12px 文字 + 2px 边框 ≈ 29px。 */
@@ -85,14 +90,28 @@ function buildPage(scenario) {
 <script>
   const t = document.getElementById('t')
   const S = ${JSON.stringify(scenario)}
-  // DOM 结构照抄 Transcript.tsx：
-  // 文字项有 .entry 包裹，thinking / toolUse / systemNote 都**没有**
+  // DOM 结构照抄 Transcript.tsx：文字项有 .entry 包裹（真气泡还多一层 .row，
+  // 见 AssistantBubble.tsx），thinking / toolUse / systemNote 都**没有**
+  //
+  // 第一条正文必须是**长文本**：短气泡本来就贴着内容（实测 69px），量它
+  // 证明不了"铺满"这件事 —— 宽度上限只有文本长到能把行撑满时才看得出来
+  const LONG = '这一段是长正文，用来把行撑满，好量气泡到底占多宽。'.repeat(24)
   for (let i = 0; i < S.entries; i++) {
     const d = document.createElement('div')
     d.className = 'entry'
-    d.innerHTML = '<div class="bubble">文字气泡 ' + i + '</div>'
+    d.innerHTML = '<div class="row row--assistant">' +
+      '<div class="bubble bubble--assistant"><div class="bubble__text">' +
+      (i === 0 ? LONG : '文字气泡 ' + i) +
+      '</div></div></div>'
     t.appendChild(d)
   }
+  // 一条**长**用户消息：它该仍然是窄气泡（85%）—— 助手侧铺满不等于全铺满，
+  // 宽度是"谁在说话"的分栏手段
+  const u = document.createElement('div')
+  u.className = 'entry'
+  u.innerHTML = '<div class="row row--user">' +
+    '<div class="bubble bubble--user"><div class="bubble__text">' + LONG + '</div></div></div>'
+  t.appendChild(u)
   for (let i = 0; i < S.thinking; i++) {
     const d = document.createElement('div')
     d.className = 'thinking-text'
@@ -134,8 +153,8 @@ function buildPage(scenario) {
           i + '</span>') +
       STATUS[i % STATUS.length] +
       '</div>' +
-      // 卡片**默认展开**，所以真实高度里含这两块 —— 探针画的时候也得带上，
-      // 否则量出来的是一排只有卡头的卡片（2026-09-14 之前它们确实是收着的）
+      // 卡片默认收着，但**展开态**才是高度最大的那种 —— 溢出场景要的就是最坏
+      // 情况，所以这里画的是展开体（只画卡头的话量不出压缩问题）
       '<div class="tool__body">' +
       '<div class="tool__cmd"><span class="tool__prompt">$ </span>node --test test/x.test.js</div>' +
       // 这里是**外层模板字符串**里，\\n 才是生成页面里的换行转义
@@ -144,41 +163,6 @@ function buildPage(scenario) {
     t.appendChild(d)
   }
   t.scrollTop = t.scrollHeight   // 真实页面也会自动滚到底
-
-  // 工具组卡（方案甲）：组头 + 涉及文件 + 展开后的缩进体。
-  // 它和 .tool 一样是 .transcript 的**直接子项** —— 当年被压成 2px 的就是这类元素，
-  // 所以每一组都必须在这里出现，光有卡片量不出这个坑
-  for (let i = 0; i < S.groups; i++) {
-    const d = document.createElement('div')
-    d.className = 'run'
-    d.innerHTML = '<button type="button" class="run__head" aria-expanded="true">' +
-      '<span class="tool__chevron is-open">▸</span>' +
-      '<span class="run__title"><span class="run__count">6</span> 次工具调用 · 读 2 · 改 2 · 跑 2</span>' +
-      '<span class="run__status">' +
-      '<svg class="tool__check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span>' +
-      '</button>' +
-      '<div class="run__files"><span class="run__files-lbl">涉及</span>' +
-      '<button type="button" class="run__file">tools.ts' +
-      '<span class="run__file-delta"><span class="tool__add">+18</span>' +
-      '<span class="tool__del">−3</span></span></button>' +
-      '<button type="button" class="run__file">ToolCallBlock.test.tsx</button>' +
-      '<span class="run__files-rest">+1</span></div>' +
-      '<div class="run__body"><div class="run__ind">' +
-      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
-      '<span class="tool__chevron is-open">▸</span><span class="tool__badge">E</span>' +
-      '<span class="tool__name">Edit</span>' +
-      '<button type="button" class="tool__title tool__file">tools.ts</button>' +
-      '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
-      '<path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span></div></div>' +
-      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
-      '<span class="tool__chevron is-open">▸</span><span class="tool__badge">B</span>' +
-      '<span class="tool__name">Bash</span>' +
-      '<span class="tool__title">跑 tools 单测</span>' +
-      '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
-      '<path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span></div></div>' +
-      '</div></div>'
-    t.appendChild(d)
-  }
 
   const h = (sel) => {
     const el = document.querySelector(sel)
@@ -189,15 +173,21 @@ function buildPage(scenario) {
   // （div 的 content-box 撞上 width:100% 正是这个症状），右侧内边距会被
   // 卡片的 overflow:hidden 裁掉，状态位跟着看不见。
   //
-  // :scope > 不是可选的：组卡里面还嵌着 .tool（缩进一级），不加限定
-  // 会量到组内那张卡的头，量出来是个负几十的数（2026-09-14 实际踩到）。
+  // :scope > 量的是卡片的**直接**子元素 —— 卡片头正好占满卡片的内容宽
   const overflowOf = (parent, sel) => {
     const hd = parent?.querySelector(':scope > ' + sel)
     if (!hd) return -1
     return Math.round((hd.getBoundingClientRect().width - parent.clientWidth) * 10) / 10
   }
   const headOverflow = overflowOf(t.querySelector('.tool'), '.tool__head')
-  const runHeadOverflow = overflowOf(t.querySelector('.run'), '.run__head')
+  // 正文气泡 vs 它那一行的行宽。长文本下两者必须相等 —— 差多少就是右边空了多少
+  const widthOf = (sel) => {
+    const el = t.querySelector(sel)
+    return el ? Math.round(el.getBoundingClientRect().width * 10) / 10 : -1
+  }
+  const rowW = widthOf('.row')
+  const bubbleW = widthOf('.bubble')
+  const userW = widthOf('.bubble--user')
   // 两种标题的**计算样式**必须一致：可点的那半是个 <button>，而按钮不继承
   // 字体与颜色 —— 少写一条就会在同一个卡面上出现"另一种字体、更暗一档"
   // 的文件名，缩略图里根本看不出来
@@ -207,6 +197,17 @@ function buildPage(scenario) {
     const cs = getComputedStyle(el)
     return cs.fontFamily + ' | ' + cs.fontSize + ' | ' + cs.color
   }
+  // 量之前先把动画走完：.tool__body 的 fade-in 从 translateY(4px) 起步，
+  // 建完 DOM 就量等于在第 0 帧量它，那 4px 会被记成"卡片内容被裁剪"的假阳性
+  // （2026-09-14 实测 client=128 / scroll=132）。无限动画（转圈、光标闪烁）
+  // finish() 会抛 —— 它们只转不占高，跳过即可
+  for (const a of document.getAnimations()) {
+    try {
+      a.finish()
+    } catch {
+      /* 无限动画不能 finish，与布局无关 */
+    }
+  }
   document.getElementById('measure').textContent = 'MEASURE ' + JSON.stringify({
     tool: h('.tool'),
     head: h('.tool__head'),
@@ -214,10 +215,11 @@ function buildPage(scenario) {
     thinking: h('.thinking-text'),
     note: h('.system-note'),
     status: h('.tool__status'),
-    run: h('.run'),
     clipped: card.scrollHeight > card.clientHeight + 1,
     headOverflow: headOverflow,
-    runHeadOverflow: runHeadOverflow,
+    bubbleW: bubbleW,
+    rowW: rowW,
+    userW: userW,
     titleStyle: styleOf('.tool__title:not(.tool__file)'),
     fileStyle: styleOf('.tool__file'),
     // 能不能点不该靠悬停才发现 —— 静止态就得有下划线
@@ -282,16 +284,25 @@ for (const scenario of SCENARIOS) {
   const problems = []
   if (m.tool < MIN_CARD_H) problems.push(`.tool 高度 ${m.tool} < ${MIN_CARD_H}`)
   if (m.head < MIN_HEAD_H) problems.push(`.tool__head 高度 ${m.head} < ${MIN_HEAD_H}`)
-  if (m.run < MIN_CARD_H) {
-    problems.push(`.run 高度 ${m.run} < ${MIN_CARD_H}（组卡被压扁 —— flex-shrink: 0 还在吗？）`)
-  }
   if (m.entry < MIN_CARD_H) problems.push(`.entry 高度 ${m.entry} < ${MIN_CARD_H}`)
   if (m.clipped) problems.push('卡片内容被裁剪（scrollHeight > clientHeight）')
   if (m.headOverflow > 1) {
     problems.push(`.tool__head 比卡片宽 ${m.headOverflow}px（div 化以后漏了 box-sizing: border-box?）`)
   }
-  if (m.runHeadOverflow > 1) {
-    problems.push(`.run__head 比组卡宽 ${m.runHeadOverflow}px（漏了 box-sizing: border-box?）`)
+  // 长正文必须铺满整行：差多少，右边就空多少（92% 那阵子是 8% 行宽）
+  if (Math.abs(m.bubbleW - m.rowW) > 1) {
+    problems.push(
+      `正文气泡宽 ${m.bubbleW} ≠ 行宽 ${m.rowW}（右边空了 ` +
+      `${Math.round((m.rowW - m.bubbleW) * 10) / 10}px）—— 又给它设回 max-width 了吗？` +
+      '助手侧的文字要与工具卡片一样铺满整行',
+    )
+  }
+  // 反面：用户气泡不该跟着铺满，铺满了"谁在说话"就没有分栏手段了
+  if (m.userW > m.rowW - 1) {
+    problems.push(
+      `用户气泡宽 ${m.userW} 已经顶满行宽 ${m.rowW} —— ` +
+      '助手侧铺满不等于全铺满，用户气泡的 85% 要留着',
+    )
   }
   if (m.fileDecoration !== 'underline') {
     problems.push(
@@ -311,8 +322,9 @@ for (const scenario of SCENARIOS) {
   console.log(`[${status}] ${scenario.name} — ${scenario.note}`)
   console.log(
     `         tool=${m.tool} head=${m.head} entry=${m.entry} thinking=${m.thinking}` +
-    ` note=${m.note} status=${m.status} run=${m.run} clipped=${m.clipped}` +
+    ` note=${m.note} status=${m.status} clipped=${m.clipped}` +
     ` headOverflow=${m.headOverflow}` +
+    ` bubbleW=${m.bubbleW}/${m.rowW} userW=${m.userW}` +
     ` scrollH=${m.scrollH} clientH=${m.clientH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)

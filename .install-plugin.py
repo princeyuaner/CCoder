@@ -60,7 +60,7 @@ print()
 print('校验装上去的那份（%s）:' % os.path.basename(jar_path))
 print('   plugin.xml 里的版本 :', re.search(r'<version>([^<]+)</version>', xml).group(1))
 for marker in ('tool__head', 'tool__status', 'flex-shrink:0', 'live-think__spin',
-               'tool__file', 'tool-file', 'run__head', 'run__file'):
+               'tool__file', 'tool-file'):
     print('  ', marker, '出现次数 :', html.count(marker))
 
 # 前端标记只看得到 web 侧。Swing 侧的改动（状态卡、打开文件）落在 jar 里的类上，

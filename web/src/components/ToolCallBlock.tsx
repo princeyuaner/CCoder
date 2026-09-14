@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
@@ -8,8 +8,9 @@ import { toolCommand, toolDelta, toolDiff, toolFile, toolParams, toolTitle } fro
 /**
  * 一次工具调用。设计稿见 docs/design/transcript-tools.html 方案乙。
  *
- * 折叠只有**一层**：展开后命令、diff、输出直接铺开，不再有第二层。
- * 默认就是展开的（2026-09-14 按用户要求改的）—— 点了收起才收起来。
+ * 折叠只有**一层**：卡片收着，点开后命令、diff、输出直接铺开。
+ * 默认收着 —— 2026-09-14 一度改为默认展开，当天又按用户要求收回：
+ * 「显示描述和操作的对应文件即可」。失败那张仍会自动弹开。
  *
  * 卡面只留一行：Bash 给摘要（Claude 的 description），文件类工具给文件名 ——
  * 名字**可点**，点了在编辑器里打开；真正的命令原文、diff、输出都在展开体里。
@@ -36,7 +37,20 @@ function outputLines(text: string): string[] {
   return lines
 }
 
-export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
+/**
+ * **必须 memo**：流式输出期间每一帧都会重渲染整段转写，不 memo 的话每来一个字，
+ * 屏幕上每一张卡片都要重跑一遍下面的派生计算并重建整棵 JSX —— 2026-09-14 实测
+ * 160 项时每帧 48ms（约 20fps 封顶，且还没算浏览器布局），这就是"输出窗口卡"。
+ *
+ * memo 生效的前提是 props 引用稳定：`item` 是 state 里的对象（不重建）、
+ * `result` 由 Transcript 精确到这一条取出来（不是整张 map，否则别人收到结果也会
+ * 让这里失效）、`turnEnded` 是布尔值。
+ */
+export const ToolCallBlock = memo(function ToolCallBlock({
+  item,
+  result,
+  turnEnded = false,
+}: Props) {
   // 结果必须与这次调用配上号才用（见文件头）
   const matched = result && result.toolUseId === item.toolUseId ? result : undefined
 
@@ -46,10 +60,9 @@ export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
   // 只有"进行中"才走表：完成态的耗时在回放里算不准（见 elapsed.ts）
   const elapsed = useElapsed(state === 'running')
 
-  // **默认展开**（2026-09-14 按用户要求改的，原来收着）：要能边跑边看输出、
-  // 不用先点一下。输出仍然 14 行封顶、超出的折在按钮后 —— 铺满一屏的那道
-  // 防线还在，见 OUTPUT_HEAD_LINES
-  const [open, setOpen] = useState(true)
+  // 失败的自动展开：失败正是要立刻看到的东西，让人点开去找等于没显示。
+  // 其余默认收着（2026-09-14 按用户要求从"默认展开"改回）
+  const [open, setOpen] = useState(matched?.isError === true)
   const [showAll, setShowAll] = useState(false)
 
   // live 路径下结果比调用晚到。失败的结果到点时把卡片弹开 ——
@@ -58,21 +71,35 @@ export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
     if (matched?.isError) setOpen(true)
   }, [matched?.isError])
 
-  const title = toolTitle(item.name, item.input)
-  const delta = toolDelta(item.name, item.input)
-  const diff = toolDiff(item.name, item.input)
+  // 从 item.input 派生的一切：只随参数变。六个函数各自 JSON.parse 一遍参数，
+  // Write/Edit 还要按行切出 diff —— 卡片因任何原因重渲染（结果到达、收起展开）
+  // 都重算一遍是纯浪费
+  const { title, delta, diff, file, command } = useMemo(
+    () => ({
+      title: toolTitle(item.name, item.input),
+      delta: toolDelta(item.name, item.input),
+      diff: toolDiff(item.name, item.input),
+      // 这次调用指向的文件。有它，卡面那个文件名就是可点的
+      file: toolFile(item.name, item.input),
+      // Bash 的完整命令 —— 卡面只做摘要，详情要的是"真正跑了什么"
+      command: toolCommand(item.name, item.input),
+    }),
+    [item.name, item.input],
+  )
 
-  // 这次调用指向的文件。有它，卡面那个文件名就是可点的
-  const file = toolFile(item.name, item.input)
+  // 认不出的工具既没有命令也没有 diff，才轮到"参数原文"这条兜底
+  const needsParams = command === '' && diff === null && matched === undefined
+  // **惰性**：参数原文是缩进过的整份 JSON —— Write 的参数里装的就是整个文件内容，
+  // 无条件算一遍等于每次渲染都把整份文件美化成一大段字符串，然后几乎总是丢掉
+  const params = useMemo(
+    () => (needsParams ? toolParams(item.input) : null),
+    [needsParams, item.input],
+  )
 
-  const all = matched ? outputLines(matched.text) : []
+  // 输出切行同理：整段输出按行切开只该在结果变化时做一次
+  const all = useMemo(() => (matched ? outputLines(matched.text) : []), [matched])
   const shown = showAll ? all : all.slice(0, OUTPUT_HEAD_LINES)
   const hidden = all.length - shown.length
-
-  // Bash 的完整命令 —— 卡面只做摘要，详情要的是"真正跑了什么"。
-  // 认不出的工具没有命令也没有 diff，退回参数原文
-  const command = toolCommand(item.name, item.input)
-  const params = toolParams(item.input)
 
   const toggle = () => setOpen((v) => !v)
 
@@ -208,5 +235,5 @@ export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
       )}
     </div>
   )
-}
+})
 

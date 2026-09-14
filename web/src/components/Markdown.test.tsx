@@ -61,6 +61,62 @@ describe('Markdown', () => {
     expect(screen.getByText('一').tagName).toBe('LI')
   })
 
+  // ---- 表格 / 嵌套列表 / 任务列表 ----
+  //
+  // 这三类 token 原先都没有分支：嵌套列表落到 renderInline 的 default，
+  // 表格落到 BlockToken 的 default —— 两个 default 都是"把 `token.raw` 原样
+  // 吐出来"，于是界面上出现的是**原始 Markdown 文本**（`| 场景 | 改前 |` 与
+  // `  - 嵌套一层`；2026-09-14 用真实产物截图确认）。任务列表则是另一回事：
+  // marked 把 `[x] ` 从文本里摘掉了，不画勾选框的话状态整个消失。
+
+  it('渲染表格：表头进 thead、数据行进 tbody，竖线不再原样显示', () => {
+    const { container } = render(
+      <Markdown text={'| 场景 | 改前 |\n| --- | --- |\n| 冷启动 | 320ms |'} />,
+    )
+    expect(container.querySelectorAll('thead th')).toHaveLength(2)
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(screen.getByText('冷启动').tagName).toBe('TD')
+    expect(screen.getByText('320ms').tagName).toBe('TD')
+    expect(screen.queryByText(/\|/)).not.toBeInTheDocument()
+  })
+
+  it('表格列的对齐按对齐行生效', () => {
+    render(<Markdown text={'| 左 | 右 |\n| :--- | ---: |\n| a | b |'} />)
+    expect(screen.getByText('左')).toHaveStyle({ textAlign: 'left' })
+    expect(screen.getByText('b')).toHaveStyle({ textAlign: 'right' })
+  })
+
+  it('表格里的行内代码与粗体照常渲染', () => {
+    render(<Markdown text={'| 字段 | 说明 |\n| --- | --- |\n| `foo` | **必填** |'} />)
+    expect(screen.getByText('foo').tagName).toBe('CODE')
+    expect(screen.getByText('必填').tagName).toBe('STRONG')
+  })
+
+  it('列表项里的嵌套列表按列表渲染，不吐原始短横线', () => {
+    const { container } = render(<Markdown text={'- 第一层\n  - 第二层'} />)
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+    expect(container.querySelector('li li')).toBeInTheDocument()
+    expect(screen.queryByText(/^\s*-\s/)).not.toBeInTheDocument()
+  })
+
+  it('列表项里的第二段不会与第一段粘成一行', () => {
+    // marked 对项内第二段给的是 `text` / `space` / `text` 三连（不是 paragraph），
+    // 中间那个 space 若按块级处理会被丢掉 → 界面上读成"一第二段"
+    const { container } = render(<Markdown text={'- 一\n\n  第二段'} />)
+    const li = container.querySelector('li')!
+    expect(li.textContent).toContain('第二段')
+    expect(li.textContent).not.toBe('一第二段')
+  })
+
+  it('任务列表画勾选框，勾选状态跟着 [x] 走', () => {
+    render(<Markdown text={'- [x] 完成\n- [ ] 未完成'} />)
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0].checked).toBe(true)
+    expect(boxes[1].checked).toBe(false)
+    expect(screen.queryByText(/\[x\]|\[ \]/)).not.toBeInTheDocument()
+  })
+
   it('渲染粗体与斜体', () => {
     render(<Markdown text="**粗** 与 *斜*" />)
     expect(screen.getByText('粗').tagName).toBe('STRONG')

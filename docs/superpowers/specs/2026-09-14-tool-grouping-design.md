@@ -103,3 +103,13 @@ effect）。
 - 不做组内卡片的新样式（方案乙的紧凑行）：`diff`/输出会因此多一层点击，
   与刚定下的「点开就该看到详情」冲突
 - 不改协议：分组所需的 `toolUse` / `toolResult` / `ts` 全在既有 items 里
+
+---
+
+## 附：撤销（2026-09-14 当天）
+
+**方案甲「归堆」已撤掉** —— 同一天用户看过后要求「显示描述和操作的对应文件即可」，
+而**并成一组之后，每次调用各自的描述与对应文件就看不见了**（`Transcript.tsx` 的原话），
+于是连着的调用回到一条一条：`ToolRunCard` / `grouping.ts` 已删，工具卡回到**默认收着**。
+本文件保留作决策存档，**不再描述现状**；现状见
+`docs/design/transcript-tools.html` 与 `web/src/components/ToolCallBlock.tsx`。
