@@ -29,6 +29,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopup
@@ -1718,7 +1719,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 Trigger.Command ->
                     filterCandidates(commandCandidates(commandList, sendableNames), q.query)
 
-                Trigger.File -> fileCandidates(allProjectFiles(), q.query)
+                // 索引期间不查文件候选：[collectProjectFiles] 走 ProjectFileIndex，
+                // dumb 态下那套 API 会抛 IndexNotReadyException。命令那条不碰索引，
+                // 照常给。面板本身是 DumbAware（见 ClaudeToolWindowFactory），
+                // 所以这里必须自己挡 —— 平台不会再替我们兜底了
+                Trigger.File ->
+                    if (DumbService.getInstance(project).isDumb) emptyList()
+                    else fileCandidates(allProjectFiles(), q.query)
             }
         )
         if (filtered.isEmpty()) return closeCompletion()
