@@ -43,7 +43,28 @@ class TranscriptPump(
 
     fun enqueue(op: TranscriptOp) {
         if (disposed) return
-        synchronized(lock) { buffer.add(op) }
+        synchronized(lock) {
+            // 同 target 的连续增量**就地合并**成一条。
+            //
+            // 逐 token 流式下，一拍里躺着几十条 AppendDelta，而它们在 applyOps
+            // 里本来就是顺序做字符串拼接 —— 先拼好再发，语义完全等价（并发交错
+            // 时也一样：applyOps 认的就是到达顺序），但 op 数与 JSON 体积降一个
+            // 数量级，前端也从几十次拼接变成一次。
+            //
+            // 合并规则只有"看 buffer 末尾"这一条，且天然安全：中间夹了任何别的
+            // op，末尾就不再是同类增量，合并自动断开。这挡住的是真正会出错的两处
+            // —— ClearDelta / FinalizeDelta 会清空 live 缓冲，跨过它们把两侧文本
+            // 拼一起就是无中生有（见 TranscriptPumpTest 的三条边界用例）。
+            val last = buffer.lastOrNull()
+            if (op is TranscriptOp.AppendDelta &&
+                last is TranscriptOp.AppendDelta &&
+                last.target == op.target
+            ) {
+                buffer[buffer.size - 1] = last.copy(text = last.text + op.text)
+                return
+            }
+            buffer.add(op)
+        }
     }
 
     /** 立即推送。测试与"关掉节流"场景用。 */

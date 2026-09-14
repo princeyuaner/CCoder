@@ -314,6 +314,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private val snippetRefs = SnippetRefs()
 
+    /** 用量请求的闸：一次只允许一个在途（见 [UsageRequestGate]）。 */
+    private val usageGate = UsageRequestGate()
+
     /** 当前挂着的权限框。终止路径要把它关掉（那时不能回决定）。 */
     private var permissionDialog: PermissionDialog? = null
 
@@ -561,10 +564,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private fun requestContextUsage() {
         val c = client ?: return
+        // 已经有在途的就不发第二条（见 UsageRequestGate 里那次事故）
+        if (!usageGate.acquire()) return
         val reqId = nextId()
         c.request(reqId, Protocol.encodeContextUsage(reqId)) { outcome ->
             // 回调在读取线程上，碰 Swing 必须回到 EDT
             ApplicationManager.getApplication().invokeLater {
+                // 放闸放在 when **之前**：成功、失败、超时三条路都要放，
+                // 漏一条就再也问不到用量了
+                usageGate.release()
                 when (outcome) {
                     is RequestOutcome.Answered -> {
                         val report = outcome.message as? SidecarMessage.ContextUsageReport
@@ -1763,13 +1771,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     if (items.any { it is RenderItem.Result }) {
                         setBusy(false)
                         lastSendWasCommand = false
-                    }
 
-                    // 用量只在 result 事件里给；取不到就保持原样
-                    // 一轮跑完，用量变了。重新问一次而不是自己从事件里解析：
-                    // result 的 usage 只有主循环最后一次调用的三个 input 字段，
-                    // 而 modelUsage 是跨回合累计的总额 —— 两个都不是"现在有多满"
-                    requestContextUsage()
+                        // 用量只在 result 事件里给；取不到就保持原样。
+                        // 一轮跑完，用量变了。重新问一次而不是自己从事件里解析：
+                        // result 的 usage 只有主循环最后一次调用的三个 input 字段，
+                        // 而 modelUsage 是跨回合累计的总额 —— 两个都不是"现在有多满"
+                        //
+                        // **必须在 result 分支里面。** 它曾经在分支外面，于是
+                        // **每一条事件**都问一次（逐 token 的 stream_event 也算）：
+                        // 实测一轮 5861 条事件就是 5861 条 getContextUsage，而控制
+                        // 请求和事件流共用同一根管道 —— 事件流被自己的控制请求挤住，
+                        // 屏幕上的表现是「思考走到一半突然停住，过一会儿一大段
+                        // 一起冒出来」。2026-09-14 的日志里躺着 4685 条超时。
+                        requestContextUsage()
+                    }
                     // init 事件里那个 model **不再写进标签**：标签现在由
                     // refreshModelLabel 填，写的是用户选中的那条配置（spec §8）。
                     // 直接写 .text 会连它的展开箭头一起抹掉，也会与弹层里
