@@ -99,18 +99,28 @@ export function createSession({
   // "接着写"这一种语义（spec §1.2），所以这里不带 forkSession。
   if (resumeSessionId) options.resume = resumeSessionId;
 
-  // SDK 要求 bypassPermissions 必须配这个字段（sdk.d.ts:1853-1856），
-  // 缺了它这个模式静默失效：设置里选得中，实际什么都不绕。
+  // 一律带上这个开关 —— 它是**资格**，不是绕过本身。
   //
-  // 只在真要以绕过模式起会话时才开。它是 SDK 那道"绕过必须有意为之"的
-  // 闸，图省事常开等于把闸拆了 —— 别处误设 bypassPermissions 时就没人拦。
+  // - SDK 把它翻成 CLI 的 `--allow-dangerously-skip-permissions`
+  //   （sdk.mjs：`if (b) W.push("--allow-dangerously-skip-permissions")`）；
+  // - CLI 用它算资格位（2026-09-14 读 claude.exe 2.1.268 内嵌 JS 核实）：
+  //   `isBypassPermissionsModeAvailable = (mode === "bypassPermissions"
+  //     || allowDangerouslySkipPermissions) && !被设置禁用 && !restricted`；
+  //   **起始模式仍由上面的 permissionMode 决定**，带资格不会让会话以绕过启动；
+  // - 会话中途切到绕过（setPermissionMode → 控制请求 set_permission_mode）
+  //   在 CLI 侧就是拿这个资格位放行的，不带它必失败：
+  //   "Cannot set permission mode to bypassPermissions because the session
+  //    was not launched with --dangerously-skip-permissions"。
   //
-  // 注意：热切到 bypass 走的是 setPermissionMode，不走这里。那条路
-  // 需不需要启动就带这个开关，静态看不出来（校验在 CLI 二进制里，
-  // SDK 的 JS 只是透传），所以那边靠回执把失败暴露出来而非猜。
-  if (permissionMode === 'bypassPermissions') {
-    options.allowDangerouslySkipPermissions = true;
-  }
+  // 界面那份模式列表是"5 个全列、点了直接生效"（见 ComposerMode），所以
+  // 热切必须真能切过去 —— 只在以绕过启动时才开，等于让下拉里那一项对别的
+  // 会话永远是死路。真要以绕过**启动**仍由设置里那个"我明白风险"把关
+  // （见 ClaudeSettings.effectivePermissionMode），CLI 侧的禁用配置
+  // （permissions.disableBypassPermissionsMode / restricted）也照旧生效；
+  // sdk.d.ts:1853-1856 要求的"用 bypassPermissions 必须设它"一并满足。
+  //
+  // 实测：tools/probe-bypass-switch.mjs —— 不带它上面那条报错，带上切换成功。
+  options.allowDangerouslySkipPermissions = true;
 
   let query = null;
   try {

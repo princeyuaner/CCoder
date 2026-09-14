@@ -403,25 +403,27 @@ test('可选参数仅在提供时传给 SDK', () => {
   assert.deepEqual(q2.calls.options.additionalDirectories, ['/other']);
 });
 
-test('以 bypassPermissions 启动时补上 allowDangerouslySkipPermissions', () => {
-  // SDK 对这个字段的用词是"必须"（sdk.d.ts:1853-1856）：
-  // "Must be set to true when using permissionMode: 'bypassPermissions'"。
-  // 不传的话这个模式根本生效不了 —— 设置里选得中，实际什么都不绕。
-  const q = fakeQuery();
-  createSession({ cwd: '/tmp', permissionMode: 'bypassPermissions', queryFn: q.fn });
-  assert.equal(q.calls.options.allowDangerouslySkipPermissions, true);
-});
-
-test('非 bypass 模式不带这个开关', () => {
-  // 它是 SDK 那道"绕过必须有意为之"的闸。图省事常开等于把闸拆了 ——
-  // 真有别处误设 bypassPermissions 时，就没有任何东西拦得住了
-  const q = fakeQuery();
-  createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
-  assert.ok(!('allowDangerouslySkipPermissions' in q.calls.options));
-
-  const q2 = fakeQuery();
-  createSession({ cwd: '/tmp', permissionMode: 'plan', queryFn: q2.fn });
-  assert.ok(!('allowDangerouslySkipPermissions' in q2.calls.options));
+test('一律带上 allowDangerouslySkipPermissions —— 热切绕过靠这个资格位放行', () => {
+  // 它是**资格**不是绕过：起始模式仍由 permissionMode 决定，带了它也不会
+  // 让会话以绕过启动。CLI 侧的算法（claude.exe 2.1.268 内嵌 JS）：
+  //   isBypassPermissionsModeAvailable = (mode === "bypassPermissions"
+  //     || allowDangerouslySkipPermissions) && !被设置禁用 && !restricted
+  // 少了它，会话中途切到绕过必失败（探针 probe-bypass-switch.mjs 实测）：
+  //   "Cannot set permission mode to bypassPermissions because the session
+  //    was not launched with --dangerously-skip-permissions"
+  //
+  // 遍历全部模式：界面那份列表是"5 个全列、点了生效"，任何一个会话
+  // 都可能被切到绕过，所以资格位一个都不能漏
+  for (const mode of ['default', 'plan', 'acceptEdits', 'dontAsk', 'bypassPermissions']) {
+    const q = fakeQuery();
+    createSession({ cwd: '/tmp', permissionMode: mode, queryFn: q.fn });
+    assert.equal(
+      q.calls.options.allowDangerouslySkipPermissions,
+      true,
+      `${mode} 会话没带资格位，热切到绕过会失败`,
+    );
+    assert.equal(q.calls.options.permissionMode, mode, '资格位不能把起始模式带偏');
+  }
 });
 
 test('默认 queryFn 不能声明为 async', async () => {

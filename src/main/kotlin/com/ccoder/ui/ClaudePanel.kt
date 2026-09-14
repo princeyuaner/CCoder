@@ -1960,12 +1960,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 "若配置无误，可能是宿主环境变量污染——CCoder 已剥离 " +
                 "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 等 10 个变量（设计文档 §3.2）。"
 
-        // 没有把原因说死：绕过模式究竟能不能热切，取决于 CLI 是否要求
-        // 启动时就带那个开关，这一条没验证过（见 session.js 的说明）
+        // 资格位现在启动时一律带上（见 session.js），所以"这条会话不是以绕过
+        // 启动的"已经不是失败原因。剩下的是 CLI 侧真把它关了 ——
+        // settings.json 的 permissions.disableBypassPermissionsMode，或受限配置
         "SET_MODE_FAILED" ->
-            "$message\n\n权限模式没有切换。若目标是「绕过权限」，可能是该会话不是" +
-                "以它启动的 —— SDK 要求绕过在启动时就声明（sdk.d.ts:1853-1856）。" +
-                "可在设置里把权限模式改过去，然后重启会话。"
+            "$message\n\n权限模式没有切换，本会话仍按原来的模式跑。" +
+                "若要切到「绕过权限」而被拒：CCoder 启动时已带好可切换的资格，" +
+                "被拒说明它被设置或策略禁用了 —— 查 ~/.claude/settings.json 的 " +
+                "permissions.disableBypassPermissionsMode，以及是否有托管配置。"
 
         // 切档失败的常见原因是 CLI 太老 —— applyFlagSettings 是较新的控制请求，
         // 老版本上根本没有。不把原因说死：也可能是会话没建起来
