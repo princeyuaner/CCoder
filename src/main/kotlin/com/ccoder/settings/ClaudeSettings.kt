@@ -135,7 +135,6 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         var model: String = "",
         var extraDirs: MutableList<String> = mutableListOf(),
         var envOverrides: MutableMap<String, String> = mutableMapOf(),
-        var pendingReminderSeconds: Int = 30,
         var sendShortcut: String = SendShortcut.DEFAULT.name,
         var effort: String = EffortSetting.DEFAULT.name,
     )
@@ -157,10 +156,6 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
     var envOverrides: MutableMap<String, String>
         get() = myState.envOverrides
         set(value) { myState.envOverrides = value }
-
-    var pendingReminderSeconds: Int
-        get() = myState.pendingReminderSeconds
-        set(value) { myState.pendingReminderSeconds = value }
 
     var permissionMode: PermissionModeSetting
         get() = PermissionModeSetting.entries.firstOrNull { it.name == myState.permissionMode }
@@ -189,7 +184,6 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             model = state.model,
             extraDirs = state.extraDirs.toMutableList(),
             envOverrides = state.envOverrides.toMutableMap(),
-            pendingReminderSeconds = state.pendingReminderSeconds,
             sendShortcut = state.sendShortcut,
             effort = state.effort,
         )

@@ -25,11 +25,9 @@ import com.ccoder.settings.displayName
 import com.ccoder.settings.showModelProfilesDialog
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.intellij.notification.NotificationAction
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
@@ -70,26 +68,17 @@ import javax.swing.text.DefaultCaret
  * 布局（设计文档 §2.1）：
  *   头部状态栏
  *   消息流（JCEF）          ← 唯一的 Web 区域
- *   权限卡片槽位（原生）
  *   输入区（原生）
  *
- * 输入区与权限卡片刻意留在原生：前者是中文输入法考虑，
- * 后者是安全考虑——审批 UI 不该依赖 Web 视图的可用性。
+ * 输入区刻意留在原生：中文输入法考虑。
+ *
+ * 权限与提问从 2026-09-14 起是**模态框**（[PermissionDialog] / [AskSequence]），
+ * 不再占布局里的位置 —— 工具窗口没开着的时候它们照样弹得出来，这正是改形态的理由。
+ * 留在原生的理由没变：审批 UI 是安全关键路径，不该依赖 Web 视图的可用性。
  */
 class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), SidecarListener, Disposable {
 
     private val transcriptView = ClaudeTranscriptView(project)
-
-    /**
-     * 权限卡片的固定槽位。
-     *
-     * 卡片不能再嵌进消息流——那是浏览器组件了。放在这里反而更符合
-     * spec §6.3 的"固定可见、不被滚走"：它永远在转写区与输入区之间。
-     */
-    private val permissionSlot = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        isOpaque = false
-    }
 
     /**
      * 连接状态的**文字源**。
@@ -309,11 +298,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private var sessionEpoch = 0
 
-    /** 并发权限询问的串行化队列（spec §6.4）。 */
-    private val permissionQueue = PermissionQueue { perm, queued -> appendPermissionCard(perm, queued) }
+    /**
+     * 并发权限询问的串行化队列（spec §6.4）。
+     *
+     * 一次只弹一个框：队列的串行语义一行没改（见 [PermissionQueue]），
+     * 变的只是被激活那一项的去处 —— 从"插一张卡片"变成"弹一个模态框"。
+     */
+    private val permissionQueue = PermissionQueue { perm, queued -> openPermissionDialog(perm, queued) }
 
-    /** requestId → 卡片容器，用于决定后把卡片换成一行结论。 */
-    private val pendingCards = mutableMapOf<String, JComponent>()
+    /** 当前挂着的权限框。终止路径要把它关掉（那时不能回决定）。 */
+    private var permissionDialog: PermissionDialog? = null
+
+    /** 当前挂着的那串提问框。一次 `AskUserQuestion` 可能有好几道题。 */
+    private var askSequence: AskSequence? = null
 
     /** 懒启动（spec §7.2）：第一次发消息才起 sidecar。 */
     private var pendingFirstMessage: String? = null
@@ -427,7 +424,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-            add(permissionSlot)
             add(statusCards)
             // 卡片与输入框之间留一口气。紧贴着看时，四张卡像是输入框的一部分
             // （而且状态卡是"常驻控件"，不是输入区里的一行）
@@ -522,7 +518,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         when (mainButtonState(ready, busy, disconnected).action) {
             // 只中断当前回合：会话与上下文都保留，可以接着聊。
             // 用 "stop" 会销毁整个会话（见 mainButtonState 的说明）
-            MainAction.Interrupt -> client?.sendLine(Protocol.encodeSimple(nextId(), "interrupt"))
+            MainAction.Interrupt -> {
+                // sidecar 收到 interrupt 会把挂起的 canUseTool 全部 deny 掉
+                // （session.js 的 denyAllPending），界面上那些框也得跟着消失 ——
+                // 否则屏幕上留着一个"点了也没人收"的模态框
+                permissionQueue.cancelAll()
+                closeDecisionDialogs()
+                updateStatusBar()
+                client?.sendLine(Protocol.encodeSimple(nextId(), "interrupt"))
+            }
 
             MainAction.Restart -> restartSession()
 
@@ -1608,6 +1612,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         client = null
         starting = false
 
+        // 挂着的权限框必须一起收掉：Claude 已经没了，那个框点下去也没有收件人了
+        // （模态框还留在屏幕上是最糟的一种"看起来还能操作"）。
+        // 协议侧本来就由 sidecar 的 denyAllPending 负责 —— 它死了，那条路也断了，
+        // 所以这里只需要把界面收拾干净。
+        permissionQueue.cancelAll()
+        closeDecisionDialogs()
+        updateStatusBar()
+
         val detail = sidecarExitReport(exit)
 
         if (!ready) {
@@ -1660,11 +1672,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 写进设置里去 —— 那会让一次针对旧会话的切换改掉新会话的模型
         pendingModelPick = null
 
-        // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
+        // spec §6.2 规则① 的终止路径：先作废本地待决项，并把挂着的框关掉。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
         // denyAllPending —— 两者都必须发生，缺任一侧都会留下挂起的工具调用。
+        //
+        // 关框走 closeSilently：这些请求马上就不存在了，回一条决定等于朝新会话
+        // 发一条张冠李戴的拒绝（`client` 在这里之后就被置空了）。
         permissionQueue.cancelAll()
-        pendingCards.clear()
+        closeDecisionDialogs()
         updateStatusBar()
 
         client?.sendLine(Protocol.encodeSimple(nextId(), "stop"))
@@ -2010,30 +2025,35 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             return
         }
         permissionQueue.enqueue(perm)
-        if (!isShowing) notifyPendingPermission(perm)
     }
 
     /**
-     * 该用哪张卡片。
+     * 该弹哪个框（spec §6.1 的第 4 步）。
      *
-     * `AskUserQuestion` 走 [AskQuestionCard] —— 它的语义是**选哪一个**，
-     * 而通用卡片的「拒绝 / 允许」根本表达不了，用户只能看着原始 JSON 发愣。
+     * `AskUserQuestion` 走 [AskSequence] —— 它的语义是**选哪一个**，通用框的
+     * 「拒绝 / 允许」根本表达不了，用户只能看着原始 JSON 发愣；多道题时一题一个框。
      *
-     * 解析不出来就**退回**通用卡片。显示一张渲染不全的提问卡片比显示原始
-     * JSON 更糟：用户会以为那就是全部的问题，然后把一个不完整的答案送回去。
+     * 解析不出来就**退回**通用框。渲染一张解析不全的提问框比显示原始 JSON 更糟：
+     * 用户会以为那就是全部的问题，然后把一个不完整的答案送回去。
+     *
+     * 两条路最后都汇进同一个 [decide] —— 发送路径只有一处。
      */
-    private fun buildPermissionCard(
-        perm: SidecarMessage.Permission,
-        queuedCount: Int,
-    ): JComponent {
+    private fun openPermissionDialog(perm: SidecarMessage.Permission, queuedCount: Int) {
         val request = if (perm.toolName == ASK_TOOL_NAME) askRequestOf(perm.input) else null
 
         if (request == null) {
-            return PermissionCard(perm, queuedCount) { decision -> decide(perm, decision) }
+            val dialog = PermissionDialog(project, perm, queuedCount) { decision ->
+                decide(perm, decision)
+            }
+            permissionDialog = dialog
+            // 关掉之后队列可能已经又激活了一条，那时这个 dialog 已经不是"当前"了
+            showModal { if (permissionDialog === dialog) dialog.show() }
+            return
         }
 
-        return AskQuestionCard(
-            request,
+        val sequence = AskSequence(
+            project = project,
+            request = request,
             onSubmit = { picked ->
                 decide(
                     perm,
@@ -2048,13 +2068,39 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     note = "已作答：${picked.values.flatten().joinToString("、")}",
                 )
             },
-            onDeny = {
-                decide(
-                    perm,
-                    PermissionDecision(allow = false, updatedPermissions = null, message = "用户拒绝"),
-                )
-            },
+            onDeny = { decide(perm, deniedByUser()) },
         )
+        askSequence = sequence
+        showModal { if (askSequence === sequence) sequence.start() }
+    }
+
+    /**
+     * 弹一个模态框 —— **让出一拍**再弹。
+     *
+     * 这个调用可能来自上一个框的按钮处理里（决定回完，队列立刻激活下一条）。
+     * 那时上一个框刚 `close()`，但它的模态循环还没退出，紧接着 `show()` 会叠出
+     * 一个嵌套模态框 —— 焦点与层级都不可靠。`ModalityState.NON_MODAL` 说的正是
+     * "等模态框都没了再说"：正常情况下就是下一拍，而用户在别处开着一个模态窗时
+     * 就等它关掉（那种时候弹出来也点不动，等是对的）。
+     *
+     * 用的是 `nonModal()` 而不是 `NON_MODAL` —— 后者在这版平台里已废弃，语义相同。
+     */
+    private fun showModal(open: () -> Unit) {
+        ApplicationManager.getApplication().invokeLater(open, ModalityState.nonModal())
+    }
+
+    /**
+     * 关掉挂着的权限框与提问框，**不回决定**。
+     *
+     * 终止路径共用（会话停止 / sidecar 退出 / 中断回合）：这些路上协议侧由
+     * sidecar 的 `denyAllPending` 负责 resolve，界面上把这些框关掉就够 ——
+     * 再回一条决定等于朝已经不存在的请求说话。
+     */
+    private fun closeDecisionDialogs() {
+        permissionDialog?.closeSilently()
+        permissionDialog = null
+        askSequence?.closeSilently()
+        askSequence = null
     }
 
     private fun decide(
@@ -2065,7 +2111,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         if (decision.stopAsking) {
             // 开关先拨上，再回决定 —— 决定回完这条就结束了，中间的窗口越短越好。
             //
-            // 已知的缺口：**已经排在队列里**的那几条仍会逐个弹卡片。
+            // 已知的缺口：**已经排在队列里**的那几条仍会逐个弹框。
             // PermissionQueue 只发 activate 回调，不经过 showPermissionCard，
             // 所以这里够不着它们。数量有限（同一条 assistant 消息里的并行
             // 工具调用），点完就到底，没有单独修。
@@ -2088,10 +2134,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 把决定送上线路，并收拾界面上的痕迹。
+     * 把决定送上线路，并同步状态栏。
      *
-     * 自动放行那条路也走它 —— 两处各写一份发送逻辑，迟早有一处漏掉
-     * 清卡片或清状态栏。
+     * 自动放行那条路也走它 —— 两处各写一份发送逻辑，迟早有一处漏掉同步状态栏。
+     *
+     * 界面上的收尾（关框）由调用方负责：框是**决定的一方**，它在回决定之前
+     * 已经把自己关掉了（见 `PermissionDialog.decide`）。这里再去关一次会把
+     * "谁负责关框"变成两处，而两处迟早不一致。
      */
     private fun sendDecision(perm: SidecarMessage.Permission, decision: PermissionDecision) {
         client?.sendLine(
@@ -2102,31 +2151,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             )
         )
         permissionQueue.resolve(perm.requestId, decision)
-
-        // 卡片换成一行结论，不再占据视线
-        pendingCards.remove(perm.requestId)?.let { wrapper ->
-            permissionSlot.remove(wrapper)
-            permissionSlot.revalidate()
-            permissionSlot.repaint()
-        }
         updateStatusBar()
-    }
-
-    private fun appendPermissionCard(perm: SidecarMessage.Permission, queuedCount: Int) {
-        val card = buildPermissionCard(perm, queuedCount)
-
-        val wrapper = JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(card, BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-        pendingCards[perm.requestId] = wrapper
-
-        // 槽位固定可见，不受转写区滚动影响（spec §6.3）
-        permissionSlot.add(wrapper)
-        permissionSlot.revalidate()
-        updateStatusBar()
-        startReminderTimer(perm)
     }
 
     /**
@@ -2140,37 +2165,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))
     }
 
-    /** 卡片插入时若工具窗口不可见，发粘性通知（spec §6.3）。 */
-    private fun notifyPendingPermission(perm: SidecarMessage.Permission) {
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup(NOTIFICATION_GROUP)
-            .createNotification(
-                "Claude 需要授权",
-                PermissionOptions.primaryText(perm),
-                NotificationType.WARNING,
-            )
-            .addAction(
-                NotificationAction.createSimple("前往处理") {
-                    ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show()
-                }
-            )
-            .notify(project)
-    }
-
-    /**
-     * 待决超过阈值升级为提醒（spec §6.3）。
-     * 只提醒，**不**升级为模态对话框 —— 用户已选择非模态形态。
-     */
-    private fun startReminderTimer(perm: SidecarMessage.Permission) {
-        val delaySeconds = ClaudeSettings.getInstance(project).pendingReminderSeconds
-        if (delaySeconds <= 0) return
-        javax.swing.Timer(delaySeconds * 1000) {
-            if (permissionQueue.activeRequestId == perm.requestId) notifyPendingPermission(perm)
-        }.apply {
-            isRepeats = false
-            start()
-        }
-    }
+    // 说明：spec §6.3 原本那两条补偿（粘性通知、待决超时提醒）随"非模态卡片"
+    // 一起退休了（2026-09-14 改成模态框）。留着状态栏计数就够：框会自己弹出来，
+    // 而"弹出来还被忽略"这件事在模态形态下不存在。
 
     // ---- 输入 ----
 
@@ -2332,7 +2329,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun nextMessageId(): String = "m${messageCounter++}"
 
     private companion object {
-        const val NOTIFICATION_GROUP = "CCoder Permissions"
         const val TOOL_WINDOW_ID = "CCoder"
 
         /** 一屏够看了。不做翻页 —— 实测本机 19 条会话。 */

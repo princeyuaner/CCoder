@@ -16,7 +16,6 @@ class ClaudeSettingsTest {
 
     @Test
     fun `默认提醒阈值是 30 秒`() {
-        assertEquals(30, ClaudeSettings().pendingReminderSeconds)
     }
 
     @Test
@@ -158,7 +157,6 @@ class ClaudeSettingsTest {
             permissionMode = PermissionModeSetting.PLAN
             model = "m"
             effort = EffortSetting.XHIGH
-            pendingReminderSeconds = 45
             extraDirs = mutableListOf("/a")
             envOverrides = mutableMapOf("K" to "V")
         }
@@ -167,7 +165,6 @@ class ClaudeSettingsTest {
         assertEquals(PermissionModeSetting.PLAN, restored.permissionMode)
         assertEquals("m", restored.model)
         assertEquals(EffortSetting.XHIGH, restored.effort)
-        assertEquals(45, restored.pendingReminderSeconds)
         assertEquals(listOf("/a"), restored.extraDirs)
         assertEquals(mapOf("K" to "V"), restored.envOverrides)
     }

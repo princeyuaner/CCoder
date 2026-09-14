@@ -23,24 +23,18 @@
             icon="AllIcons.Toolwindows.ToolWindowMessages"
             factoryClass="com.ccoder.ClaudeToolWindowFactory"/>
 
-        <!-- spec §6.3 的不可忽略性补偿：待决权限在状态栏常驻显示 -->
+        <!-- 待决权限在状态栏常驻显示。
+             2026-09-14 改成模态框之后，§6.3 原本那两条补偿（粘性通知、
+             待决超时提醒）连同 "CCoder Permissions" 通知组一起删掉了：
+             框会自己弹到眼前，"被忽略"这件事在模态形态下不存在。
+             这个状态栏计数留着 —— IDE 不在前台时它仍是唯一线索。 -->
         <statusBarWidgetFactory
             id="CCoderPendingPermissions"
             implementation="com.ccoder.ui.PendingPermissionStatusBarFactory"/>
 
-        <!-- 卡片插入时若工具窗口不可见，用粘性通知提醒。
-             displayType 的合法值只有 BALLOON / STICKY_BALLOON /
-             TOOL_WINDOW / NONE —— 写 STICKY 不是合法常量，
-             平台会解析为 null 并拒绝注册整个组。 -->
-        <notificationGroup
-            id="CCoder Permissions"
-            displayType="STICKY_BALLOON"
-            isLogByDefault="false"/>
-
         <!-- 转写区里点文件名却打不开时的提示（见 OpenFileTarget）。
              这里是**非粘性**的：那只是"这一次没打开"，不是需要用户处理的
-             待办 —— 留一张撕不掉的气球就成了打扰（上面那组的粘性是为
-             待决权限准备的，语义不同，不能混用）。 -->
+             待办 —— 留一张撕不掉的气球就成了打扰。 -->
         <notificationGroup
             id="CCoder"
             displayType="BALLOON"

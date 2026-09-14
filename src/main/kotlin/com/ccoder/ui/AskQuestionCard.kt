@@ -26,38 +26,52 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
- * Claude 提问的卡片（方案 A · 堆叠块）。
+ * Claude 提问的卡片（方案 A · 堆叠块）—— 一次只画**一道**题。
+ *
+ * ## 为什么变成"一题一张卡"
+ *
+ * 一次 `AskUserQuestion` 可以带 1–4 道题。原来它们全堆在同一张卡片里（那时
+ * 这张卡在一次交互里只出现一次），用户看不见"还有几道、答到哪"。改成弹窗之后
+ * 由 [AskSequence] 一题弹一个框，所以这张卡只需要画当前那道题，进度交给顶栏那行。
+ *
+ * 推进的判断（第几题、能不能往下走、回退时答案还在不在）全在 [AskFlow] 里，
+ * 与 Swing 无关、可单独测；这张卡只负责把它画出来。
  *
  * ## 为什么不是 [PermissionCard]
  *
  * 那个卡片给的是「拒绝 / 允许」，而 `AskUserQuestion` 的语义是**选哪一个** ——
  * 两个按钮根本表达不了。所以它不是换个皮，是另一条路：这里每个选项都是
- * 真的能点的按钮，点完 [onSubmit] 把 [Picked] 送出去。
+ * 真的能点的按钮。
  *
  * ## 选项为什么全都摊开
  *
  * 说明文字始终可见。选 A 而不是 C（芯片）的理由就在这儿：选项之间的差别
- * 往往就写在那行小字里，收起来等于没写。代价是 4 道题时卡片会很高 ——
+ * 往往就写在那行小字里，收起来等于没写。代价是题多时卡片会很高 ——
  * 那时用户往下滚，总比看不见差别强。
  *
  * ## 提交门控
  *
- * 没答完不给提交。少答一题就提交，等于替用户答了，而那个答案会被当成
- * "用户的选择"喂回模型。
+ * 「下一题 / 提交」（同一颗按钮，两副文案）可不可点只由 [AskFlow.canAdvance] 决定：
+ * 当前题答了没。少答一题就提交，等于替用户答了，而那个答案会被当成
+ * "用户的选择"喂回模型 —— 所以门控之外，监听器里还留了第二道闸。
  */
 internal class AskQuestionCard(
-    request: AskRequest,
+    internal val flow: AskFlow,
     private val onSubmit: (Picked) -> Unit,
+    private val onAdvance: () -> Unit,
+    private val onBack: () -> Unit,
     private val onDeny: () -> Unit,
 ) : JPanel(BorderLayout()) {
 
-    /** 与 Swing 无关的作答状态。测试直接驱动它，再看界面跟没跟上。 */
-    internal val state = AskState(request)
+    /** 「下一题」或者「提交」，看这是不是最后一题。 */
+    internal val submitButton = JButton(if (flow.isLast) SUBMIT_LABEL else NEXT_LABEL)
 
-    internal val submitButton = JButton("提交")
-    internal val denyButton = JButton("拒绝")
+    internal val denyButton = JButton(DENY_LABEL)
 
-    /** 「其它…」的输入框外壳，按题目文本索引。输入框本身在 client property 上。 */
+    /** 只有第二题起才有它 —— 第一题上没有"上一题"可回。 */
+    internal val backButton = JButton(BACK_LABEL)
+
+    /** 「其它…」的输入框外壳。输入框本身在 client property 上。 */
     private val customWrappers = mutableMapOf<String, JComponent>()
 
     init {
@@ -71,15 +85,18 @@ internal class AskQuestionCard(
         val body = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-            state.states.forEachIndexed { i, qs ->
-                add(buildQuestion(i, qs))
+
+            // 一题的问卷不写"第 1 / 1 题" —— 那是噪音
+            if (flow.count > 1) {
+                add(progressRow())
+                add(vStrut(7))
             }
+            add(buildQuestion(flow.current))
             add(vStrut(9))
             add(buildActions())
         }
 
         add(body, BorderLayout.CENTER)
-        maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
 
         refreshSubmit()
 
@@ -89,24 +106,31 @@ internal class AskQuestionCard(
     }
 
     /**
-     * 选项变了就调它 —— 提交键可不可点**只**由这里决定。
+     * 「下一题 / 提交」可不可点**只**由这里决定。
      *
      * 抽成方法而不是散在监听器里：测试要能在改完状态后走**同一条**
      * 真实路径，而不是自己重新实现一遍"什么时候该可点"。
      */
     internal fun refreshSubmit() {
-        submitButton.isEnabled = state.complete
-        submitButton.toolTipText = if (state.complete) null else "还有没答的题"
+        submitButton.isEnabled = flow.canAdvance
+        submitButton.toolTipText = if (flow.canAdvance) null else "还有没答的题"
     }
 
     // ---- 组装 ----
 
-    private fun buildQuestion(index: Int, qs: QuestionState): JComponent {
+    /** 进度行：`第 2 / 3 题`。只有多题时才画（见 [init]）。 */
+    private fun progressRow(): JComponent = JBLabel(
+        "第 ${flow.index + 1} / ${flow.count} 题"
+    ).apply {
+        font = UIUtil.getLabelFont().deriveFont(UIUtil.getLabelFont().size2D - 2f)
+        foreground = UIUtil.getInactiveTextColor()
+    }.leftAligned()
+
+    private fun buildQuestion(qs: QuestionState): JComponent {
         val base = UIUtil.getLabelFont()
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-            border = if (index == 0) JBUI.Borders.empty() else JBUI.Borders.emptyTop(12)
         }.leftAligned()
 
         if (qs.question.header.isNotBlank()) {
@@ -136,6 +160,11 @@ internal class AskQuestionCard(
         val wrapper = buildCustomField(qs)
         customWrappers[qs.question.question] = wrapper
         header.add(wrapper)
+
+        // 重开一题时要恢复现场：选项的勾由 buildOptionRow 的 sync() 自己读状态，
+        // 但输入框不会 —— 它建出来永远是隐藏的空框。今天卡片是一次性的，
+        // 所以这条路径以前不存在；现在「上一题」会重画，就得补这一下。
+        syncCustomField(qs)
 
         return header
     }
@@ -267,6 +296,10 @@ internal class AskQuestionCard(
     /** 「其它…」的输入框外壳，按题目文本取。测试用它断言显隐。 */
     internal fun customWrapperFor(question: String): JComponent? = customWrappers[question]
 
+    /** 「其它…」输入框里的文字。重开一题时靠它断言现场真的恢复了。 */
+    internal fun customTextFor(question: String): String? =
+        (customWrappers[question]?.getClientProperty(FIELD_KEY) as? JBTextField)?.text
+
     /** 「其它…」选中/取消时切换输入框的可见性。 */
     internal fun syncCustomField(qs: QuestionState) {
         val wrapper = customWrappers[qs.question.question] ?: return
@@ -280,6 +313,33 @@ internal class AskQuestionCard(
                 it.requestFocusInWindow()
             }
         }
+        resyncWindowSize()
+    }
+
+    /**
+     * 卡片长高（或缩矮）之后，把窗口也调一次大小。
+     *
+     * 对话框是在弹出来那一刻 `pack()` 过的，尺寸就此定住 —— 里面冒出一个输入框，
+     * 窗口不会自己变大，多出来的那截会被压在窗沿下面（探针里第一版就是这样：
+     * 一路长到把底部那颗按钮挤没了）。探测窗口用的就是这套布局。
+     *
+     * 没上屏时（测试、探针）`getWindowAncestor` 是 null，这里什么都不做 ——
+     * 那边是自己手动跑布局的，不需要窗口。
+     */
+    private fun resyncWindowSize() {
+        val window = SwingUtilities.getWindowAncestor(this) as? java.awt.Dialog ?: return
+        window.pack()
+    }
+
+    /**
+     * 宽度写死、**高度随内容** —— 同 [PermissionCard.getPreferredSize]。
+     *
+     * 高度这条在**这张**卡片上是必须的：选中「其它…」会长出一个输入框，
+     * 冻住高度等于把它压在窗沿下面。
+     */
+    override fun getPreferredSize(): Dimension {
+        val natural = super.getPreferredSize()
+        return Dimension(CARD_WIDTH, natural.height)
     }
 
     private fun buildActions(): JComponent = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
@@ -287,8 +347,18 @@ internal class AskQuestionCard(
 
         // 不设 mnemonic —— 助记符就是键盘捷径，而这是不可逆动作（同 PermissionCard 规则②）
         denyButton.addActionListener { onDeny() }
-        submitButton.addActionListener { onSubmit(state.picked()) }
 
+        submitButton.addActionListener {
+            // 第二道闸：按钮灰着时点不动，但"少答一题就提交"的代价是替用户答了，
+            // 所以这条判断不能只写在界面上
+            if (!flow.canAdvance) return@addActionListener
+            if (flow.submitCurrent()) onSubmit(flow.picked()) else onAdvance()
+        }
+
+        if (flow.index > 0) {
+            backButton.addActionListener { if (flow.back()) onBack() }
+            add(backButton)
+        }
         add(denyButton)
         add(submitButton)
     }.leftAligned()
@@ -301,6 +371,18 @@ internal class AskQuestionCard(
         const val FIELD_KEY = "ccoder.ask.customField"
     }
 }
+
+/** 「下一题」：还有题没问。 */
+internal const val NEXT_LABEL = "下一题"
+
+/** 「提交」：最后一题答完才出现。 */
+internal const val SUBMIT_LABEL = "提交"
+
+/** 「拒绝」：整条提问都拒掉（不是"跳过这题"）。 */
+internal const val DENY_LABEL = "拒绝"
+
+/** 「← 上一题」：回看/改答案。 */
+internal const val BACK_LABEL = "← 上一题"
 
 /**
  * 塞进竖直 `BoxLayout` 之前先左对齐。

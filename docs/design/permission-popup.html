@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 权限与提问 · 弹出窗口 · 四个方案</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量，
+   留意态（暖色）沿用 PermissionCard 的 ACCENT / CARD_BG。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343;
+  --attn:#ffb74d; --attn-bg:#3e2c1c; --attn-soft:#4a3524;
+  --scrim:rgba(8,8,10,.74);
+  --shadow:0 18px 46px rgba(0,0,0,.58);
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a;
+  --attn:#ffa000; --attn-bg:#fff8e1; --attn-soft:#fff0cd;
+  --scrim:rgba(52,54,58,.32);
+  --shadow:0 18px 40px rgba(0,0,0,.20);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1460px; margin: 0 auto; padding: 56px 32px 130px; }
+
+/* ---- 页头 ---- */
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 76ch; margin: 0; font-size: 14.5px; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+
+.picked-note { margin: 0 0 12px; font-size: 12.5px; color: var(--page-dim); border-left: 3px solid var(--ok); padding: 4px 0 4px 10px; background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.picked-note b { color: var(--page-fg); }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+  transition: background .15s, color .15s;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+/* ---- 前提说明 ---- */
+.brief {
+  margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+  background: var(--page-card);
+}
+.brief h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 9px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief b { color: var(--page-fg); font-weight: 600; }
+.brief code, .foot code, .notes code, .stage-note code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief ul { margin: 6px 0 9px; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 3px; }
+
+/* ---- 方案网格 ---- */
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(432px, 1fr)); gap: 34px; margin-top: 44px; align-items:start; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 24px 24px 22px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 24px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13.5px; margin: 0 0 18px; min-height: 66px; }
+
+/* 利弊表 —— 每条都写"得到什么 / 付什么"，不写空话 */
+.pro { margin: 16px 0 0; padding: 0; list-style: none; font-size: 12.5px; }
+.pro li { position: relative; padding-left: 20px; margin-bottom: 6px; color: var(--page-dim); }
+.pro li::before { position:absolute; left:0; top:0; font-family: var(--mono); font-size: 11px; }
+.pro li.good::before { content: "＋"; color: var(--ok); }
+.pro li.bad::before  { content: "－"; color: var(--warn); }
+.pro li.imp::before  { content: "▸"; color: var(--accent); }
+.pro b { color: var(--page-fg); font-weight: 600; }
+
+/* ============================================================
+   IDE 模拟窗 —— 所有方案都装在这一层里比
+   ============================================================ */
+.ide {
+  position: relative; height: 312px; overflow: hidden;
+  background: var(--editor); border:1px solid var(--border); border-radius: 9px;
+}
+.ide-top { display:flex; align-items:center; gap:10px; height:30px; padding:0 11px; background: var(--panel); border-bottom:1px solid var(--border); }
+.dots { display:flex; gap:5px; }
+.dots i { display:block; width:9px; height:9px; border-radius:50%; background: var(--border); }
+.ide-title { font-family: var(--mono); font-size:10.5px; color: var(--dim); letter-spacing:.05em; }
+.ide-main { display:flex; height: calc(100% - 50px); }
+.editor {
+  flex:1; min-width:0; padding: 12px 14px; overflow:hidden;
+  font-family: var(--mono); font-size:10.5px; line-height:1.95; color: var(--dim);
+  white-space: nowrap;
+}
+.editor .k { color:#c77dbb; } .editor .fn { color:#56a8f5; } .editor .s { color:#6aab73; }
+.editor .c { color:#6f737c; font-style: italic; }
+[data-theme="light"] .editor .k { color:#9b4d95; } [data-theme="light"] .editor .fn { color:#2f6fd0; }
+[data-theme="light"] .editor .s { color:#2e7d43; } [data-theme="light"] .editor .c { color:#8a8f99; }
+.tool { width: 152px; flex:none; border-left:1px solid var(--border); background: var(--panel); padding: 9px 10px; }
+.tool-tab { font-family: var(--mono); font-size:10px; letter-spacing:.1em; color: var(--dim); text-transform: uppercase; margin-bottom:9px; }
+.bar { height:7px; border-radius:4px; background: var(--border-soft); margin-bottom:7px; }
+.bar.w60 { width:60%; } .bar.w80 { width:80%; } .bar.w45 { width:45%; }
+.composer { height:34px; border:1px solid var(--border); border-radius:8px; background: var(--surface); margin-top:12px; }
+.status { display:flex; align-items:center; gap:14px; height:20px; padding:0 10px; background: var(--panel); border-top:1px solid var(--border); font-family: var(--mono); font-size:9.5px; color: var(--dim); }
+.st-w { color: var(--attn); }
+.st-r { margin-left:auto; }
+
+/* ============================================================
+   弹窗 —— 形态本身才是这张页面的主角
+   ============================================================ */
+.pop {
+  position:absolute; z-index:4; width: 322px;
+  background: var(--panel); border:1px solid var(--attn); border-radius: 10px;
+  box-shadow: var(--shadow); overflow:hidden;
+}
+.pop-head { display:flex; align-items:center; gap:8px; padding: 8px 11px; background: var(--attn-bg); border-bottom:1px solid color-mix(in srgb, var(--attn) 34%, transparent); }
+.pop-head .ttl { font-size: 12px; font-weight:600; color: var(--text); }
+.badge { font-family: var(--mono); font-size:9.5px; color: var(--dim); border:1px solid var(--border); border-radius: 20px; padding: 1px 7px; background: var(--panel); }
+.x { margin-left:auto; color: var(--dim); font-size:12px; cursor:pointer; line-height:1; }
+.pop-body { padding: 11px 12px 12px; }
+.lead { margin: 0 0 3px; font-size: 13px; color: var(--text); }
+.sub { margin: 0 0 8px; font-size: 11.5px; color: var(--dim); }
+.path { margin: 0 0 8px; font-family: var(--mono); font-size: 10.5px; color: var(--warn); word-break: break-all; }
+.raw {
+  background: var(--code); border:1px solid var(--border-soft); border-radius: 6px;
+  padding: 7px 9px; font-family: var(--mono); font-size: 10.5px; line-height:1.7; color: var(--dim);
+  max-height: 62px; overflow:hidden; white-space: pre-wrap; word-break: break-all;
+}
+.pop-foot { display:flex; align-items:center; gap:6px; padding: 9px 11px; border-top:1px solid var(--border-soft); background: var(--surface); }
+.spacer { margin-left:auto; }
+.btn {
+  font-family: var(--ui); font-size: 12px; padding: 4px 13px; border-radius: 5px;
+  border:1px solid var(--border); background: var(--surface); color: var(--text); cursor:pointer; white-space:nowrap;
+}
+.btn.go { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--dim); padding-left: 2px; padding-right: 6px; font-size: 11.5px; }
+/* 焦点环 —— 规矩②的可见证据：焦点一开始就在"拒绝"上 */
+.btn.focus { box-shadow: 0 0 0 2px var(--accent-soft); border-color: var(--accent); }
+
+.pop.pos-br { right: 12px; bottom: 30px; }
+.pop.pos-center { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 336px; z-index: 6; }
+.pop.pos-bubble { right: 10px; bottom: 30px; width: 300px; }
+/* 模态那一层：背景整体压暗并失焦，"IDE 归弹窗了"才看得出来 */
+.scrim { position:absolute; inset:0; background: var(--scrim); backdrop-filter: blur(2px); z-index:5; }
+.caret { position:absolute; bottom:-6px; right: 34px; width:11px; height:11px; background: var(--panel);
+  border-right:1px solid var(--attn); border-bottom:1px solid var(--attn); transform: rotate(45deg); }
+
+/* 队列窗（方案 C）：窗内翻页 */
+.qnav { display:flex; align-items:center; gap:9px; padding: 7px 11px; border-bottom:1px solid var(--border-soft); background: var(--surface); }
+.nav { font-size: 13px; color: var(--dim); cursor:pointer; line-height:1; }
+.nav.on { color: var(--text); }
+.dots3 { display:flex; gap:4px; }
+.dots3 i { display:block; width:16px; height:3px; border-radius:2px; background: var(--border); }
+.dots3 i.on { background: var(--attn); }
+.navhint { margin-left:auto; font-family: var(--mono); font-size:9.5px; color: var(--dim); letter-spacing:.06em; }
+
+/* 提问弹窗：选项行 */
+.opt {
+  display:flex; gap:8px; align-items:flex-start; border:1px solid var(--border); border-radius: 7px;
+  background: var(--surface); padding: 7px 9px; margin-bottom: 5px;
+}
+.opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.mk { flex:none; width: 11px; font-size: 11px; color: var(--accent); line-height:1.35; }
+/* label 与说明各占一行 —— 说明收起来等于没写，它是选 A 不选 C 的全部理由 */
+.opt .lb { display:block; font-size: 12px; color: var(--text); line-height:1.35; }
+.opt.on .lb { color: var(--accent); }
+.opt .dc { display:block; font-size: 10.5px; color: var(--dim); margin-top:2px; line-height:1.4; }
+.qtext { margin: 0 0 9px; font-size: 13px; font-weight:600; color: var(--text); line-height:1.45; }
+.qfoot { display:flex; align-items:center; gap:6px; margin-top: 9px; }
+.steps { display:flex; align-items:center; gap:8px; margin-bottom: 9px; }
+.steps .dots3 i { width: 22px; }
+.steps .lbl { font-family: var(--mono); font-size: 9.5px; letter-spacing:.08em; color: var(--dim); text-transform: uppercase; }
+.chip { font-family: var(--mono); font-size: 9.5px; letter-spacing:.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.tfield { border:1px solid var(--accent); border-radius: 6px; background: var(--surface); height: 27px; margin-top: 7px; display:flex; align-items:center; padding: 0 8px; font-size:11.5px; color: var(--dim); }
+
+/* 预览：选项自带的"几个网页"，横向比方案 */
+.split { display:grid; grid-template-columns: 186px minmax(0,1fr); gap: 11px; }
+.pvwrap .pvcap { font-family: var(--mono); font-size:9.5px; letter-spacing:.08em; color: var(--dim); text-transform:uppercase; margin-bottom:5px; }
+.pv { border:1px solid var(--border); border-radius: 7px; overflow:hidden; background: var(--surface); }
+.pv-bar { display:flex; align-items:center; gap:3px; height:17px; padding:0 6px; background: var(--panel); border-bottom:1px solid var(--border-soft); }
+.pv-bar i { display:block; width:5px; height:5px; border-radius:50%; background: var(--border); }
+.pv-bar span { margin-left:6px; font-family: var(--mono); font-size:8.5px; color: var(--dim); }
+.pv-body { padding: 8px 9px 10px; }
+.pv-h { height:6px; width:56%; border-radius:3px; background: var(--accent); opacity:.75; margin-bottom:8px; }
+.pv-two { display:grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pv-tile { border:1px solid var(--border-soft); border-radius:5px; padding: 7px 6px; background: var(--panel); }
+.pv-l { height:5px; border-radius:3px; background: var(--border); margin-bottom:5px; }
+.pv-l.w70{ width:70%; } .pv-l.w50{ width:50%; } .pv-l.w85{ width:85%; }
+.pv-l.acc { background: var(--accent); opacity:.6; }
+
+/* ============================================================
+   提问的多题流程 / 对比表 / 收尾
+   ============================================================ */
+.section-title { font-family: var(--serif); font-size: 27px; font-weight:600; margin: 74px 0 6px; }
+.section-sub { color: var(--page-dim); font-size: 13.5px; margin: 0 0 26px; max-width: 88ch; }
+.stage-row { display:grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 26px; align-items: start; margin-bottom: 30px; }
+.stage-card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 20px; }
+.stage-name { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; color: var(--accent); text-transform: uppercase; margin-bottom: 4px; }
+.stage-h { font-size: 15px; font-weight:600; margin: 0 0 14px; }
+.stage-note { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 18px 20px; }
+.stage-note h4 { margin: 0 0 9px; font-size: 13px; font-weight:600; }
+.stage-note ul { margin: 0; padding-left: 18px; color: var(--page-dim); font-size: 12.5px; }
+.stage-note li { margin-bottom: 7px; }
+.stage-note b { color: var(--page-fg); }
+
+.cmp { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12.5px; background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; overflow:hidden; }
+.cmp th, .cmp td { text-align:left; padding: 11px 13px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+.cmp thead th { font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase; color: var(--dim); background: var(--page-bg); }
+.cmp tbody th { font-weight:600; color: var(--text); width: 168px; }
+.cmp tbody tr:last-child th, .cmp tbody tr:last-child td { border-bottom: 0; }
+.cmp td { color: var(--page-dim); }
+.cmp td b { color: var(--page-fg); font-weight:600; }
+
+.foot { margin-top: 62px; display:grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 26px; }
+.foot .block { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 20px 22px; }
+.foot h3 { margin: 0 0 12px; font-size: 14px; font-weight:600; }
+.foot ol, .foot ul { margin: 0; padding-left: 18px; color: var(--page-dim); font-size: 12.5px; }
+.foot li { margin-bottom: 8px; }
+.foot b { color: var(--page-fg); }
+
+@media (max-width: 1040px) {
+  .stage-row { grid-template-columns: minmax(0,1fr); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · PyCharm 插件 · 交互形态</p>
+      <p class="picked-note">已选定：<b>方案 B · 居中模态框</b>（2026-09-14）。多题提问连着弹独立模态框；选项自带的 <code>preview</code> 这轮不做。落地记录见 spec §6.3 / §6.4。</p>
+      <h1>权限与提问：改成弹出窗口</h1>
+      <p class="lede">
+        现在两者都是插在工具窗口底部固定槽位里的卡片（spec §6.3）。要改成弹窗，形态有四种走法。
+        本页把四种都画出来，连同"提问有多题时一题一弹"的样子，供选定后落 spec 与实现。
+      </p>
+    </div>
+    <div class="toggle">
+      <button data-set="dark" aria-pressed="true">Dark</button>
+      <button data-set="light" aria-pressed="false">Light</button>
+    </div>
+  </header>
+
+  <section class="brief">
+    <h3>前提：改的是形态，不是规矩</h3>
+    <p>
+      <b>为什么改。</b>卡片住在工具窗口里，窗口没开着就看不见（今天靠粘性通知兜）；卡片位置在消息流下方，
+      长对话里会被滚走。弹窗把"有人在等你"直接放到屏幕前面，与工具窗口开着与否无关。
+    </p>
+    <p>
+      <b>三条硬规则一条都不放松</b>（spec §6.2，来自 SDK 明文）：
+      ①永远要 resolve —— 关窗即拒绝，<b>不是</b>"稍后再问"；
+      ②不能被误触批准 —— 焦点落在「拒绝」上，批准不绑任何键盘快捷键，回车不算批准；
+      ③「本会话不再询问」只在 SDK 允许时<b>渲染</b>（不是渲染后禁用）。
+    </p>
+    <p>
+      <b>一条要重新拍的旧决定。</b>spec §6.3 原文写着"明确不做：升级为模态对话框"。
+      方案 B 就是模态 —— 选它就得改那句话，选 A / C / D 则那句话继续成立。
+    </p>
+    <p>
+      <b>不设超时</b>（§6.6）：宁可让 Claude 等，也不给一个无来由的拒绝。所以"怎么让人一定看得见"是这页的全部重点。
+    </p>
+  </section>
+
+  <!-- ================= 四个方案 ================= -->
+  <section class="grid">
+
+    <!-- ---------- 方案 A ---------- -->
+    <article class="card">
+      <p class="tag">方案 A</p>
+      <h2>右下角悬浮窗</h2>
+      <p class="thesis">
+        把槽位里那张卡片原样搬进一个非模态小窗，一次一张，弹在 IDE 右下角。
+        卡片的身体（主文案 / 路径 / 原始输入 / 三个按钮）一行都不用改。
+      </p>
+
+      <div class="ide">
+        <div class="ide-top">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="ide-title">CCoder — PyCharm</span>
+        </div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 你正在改的东西，弹窗不打断它</span></div>
+            <div><span class="k">fun</span> <span class="fn">drain</span>(queue: PermissionQueue) {</div>
+            <div>&nbsp;&nbsp;<span class="k">val</span> next = queue.<span class="fn">activateNextIfIdle</span>()</div>
+            <div>&nbsp;&nbsp;next?.<span class="fn">let</span> { <span class="fn">render</span>(it) }</div>
+            <div>}</div>
+            <div>&nbsp;</div>
+            <div><span class="c">// 焦点不会被抢走：</span></div>
+            <div><span class="c">// 你打到一半的字仍落在这里</span></div>
+          </div>
+          <div class="tool">
+            <div class="tool-tab">CCoder</div>
+            <div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="bar w45"></div>
+            <div class="composer"></div>
+          </div>
+        </div>
+        <div class="status"><span class="st-w">Claude 待确认：3</span><span class="st-r">4 spaces · UTF-8 · LF</span></div>
+
+        <div class="pop pos-br">
+          <div class="pop-head">
+            <span class="ttl">Claude 请求确认</span>
+            <span class="badge">还有 2 个</span>
+            <span class="x">✕</span>
+          </div>
+          <div class="pop-body">
+            <p class="lead">想运行命令：<b>npm test</b></p>
+            <p class="sub">在项目根目录跑单元测试</p>
+            <p class="path">触发路径：C:\Users\CY\Desktop\CCoder\sidecar</p>
+            <div class="raw">{ "command": "npm test", "description": "跑单元测试" }</div>
+          </div>
+          <div class="pop-foot">
+            <button class="btn ghost">本会话不再询问</button>
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">允许</button>
+          </div>
+        </div>
+      </div>
+
+      <ul class="pro">
+        <li class="good"><b>不打断。</b>窗口<code>不抢键盘焦点</code>（否则你正在打的字会落进对话框），要动手时才点进去。</li>
+        <li class="good"><b>改动最小。</b><code>PermissionQueue</code> 的串行语义原样可用，卡片是弹窗里的内容面板，样式不重写。</li>
+        <li class="imp"><b>实现：</b>新文件 <code>PermissionPopup.kt</code>；<code>JDialog(owner = IDE 主窗, isModal = false)</code> + <code>setAutoRequestFocus(false)</code> + <code>alwaysOnTop</code>。✕ = 拒绝（规则①）。</li>
+        <li class="bad"><b>代价：</b>IDE 在后台时会被别的应用盖住 —— 状态栏计数与粘性通知仍得留着当兜底。</li>
+        <li class="bad"><b>代价：</b>"右下角"是多显示器下的哪一块屏要定死：跟随 IDE 主窗口所在屏。</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 方案 B ---------- -->
+    <article class="card">
+      <p class="tag">方案 B</p>
+      <h2>居中模态框</h2>
+      <p class="thesis">
+        唯一能保证"绝不被漏看"的形态：IDE 变暗、键盘被锁，答完才继续。
+        代价是打断 —— 而且 spec §6.3 白纸黑字写着"明确不做模态"。
+      </p>
+
+      <div class="ide">
+        <div class="ide-top">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="ide-title">CCoder — PyCharm</span>
+        </div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 这些代码在模态框关掉之前</span></div>
+            <div><span class="c">// 既不能改、也不能跑：IDE 归弹窗了</span></div>
+            <div><span class="k">fun</span> <span class="fn">drain</span>(queue: PermissionQueue) {</div>
+            <div>&nbsp;&nbsp;<span class="k">val</span> next = queue.<span class="fn">activateNextIfIdle</span>()</div>
+            <div>}</div>
+            <div>&nbsp;</div>
+            <div><span class="c">// 调试会话开着的时候弹它，最难受</span></div>
+          </div>
+          <div class="tool">
+            <div class="tool-tab">CCoder</div>
+            <div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="bar w45"></div>
+            <div class="composer"></div>
+          </div>
+        </div>
+        <div class="status"><span class="st-w">Claude 待确认：3</span><span class="st-r">4 spaces · UTF-8 · LF</span></div>
+
+        <div class="scrim"></div>
+        <div class="pop pos-center">
+          <div class="pop-head">
+            <span class="ttl">Claude 请求确认</span>
+            <span class="badge">第 1 个，共 3 个</span>
+          </div>
+          <div class="pop-body">
+            <p class="lead">想运行命令：<b>npm test</b></p>
+            <p class="sub">在项目根目录跑单元测试</p>
+            <p class="path">触发路径：C:\Users\CY\Desktop\CCoder\sidecar</p>
+            <div class="raw">{ "command": "npm test", "description": "跑单元测试" }</div>
+          </div>
+          <div class="pop-foot">
+            <button class="btn ghost">本会话不再询问</button>
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">允许</button>
+          </div>
+        </div>
+      </div>
+
+      <ul class="pro">
+        <li class="good"><b>漏不了。</b>不存在"Claude 在等你而你没看见"这种状态，§6.3 的一整套补偿（状态栏、提醒、粘性通知）都可以退休。</li>
+        <li class="bad"><b>打断一切。</b>跑着构建、调试、光标停在断点上时弹它，是最难受的一刻。</li>
+        <li class="bad"><b>并行工具调用会连弹。</b>一条 assistant 消息里 5 个 tool_use = 5 个模态框接踵而至，正好是 §6.4 说的"弹窗风暴"。</li>
+        <li class="bad"><b>要改 spec。</b>§6.3 末句"明确不做：升级为模态对话框"必须删掉重写。</li>
+        <li class="imp"><b>实现：</b><code>DialogWrapper(project, canBeParent = false)</code>，<code>isModal = true</code>。这里没有"不抢焦点"的选项 —— 模态的定义就是抢。</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 方案 C ---------- -->
+    <article class="card">
+      <p class="tag">方案 C</p>
+      <h2>队列窗 · 窗内翻页</h2>
+      <p class="thesis">
+        一个非模态小窗常驻，把整个队列摊在里面用「‹ 1 / 3 ›」翻。
+        并行工具调用（一条消息里好几个 Bash）时最省事：不必等前面那张答完才能看后面。
+      </p>
+
+      <div class="ide">
+        <div class="ide-top">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="ide-title">CCoder — PyCharm</span>
+        </div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 三个请求一起到：</span></div>
+            <div><span class="c">// 先翻一遍再决定，顺序由你</span></div>
+            <div><span class="k">val</span> pending = queue.<span class="fn">items</span>()</div>
+            <div>pending.<span class="fn">forEachIndexed</span> { i, p -&gt;</div>
+            <div>&nbsp;&nbsp;<span class="fn">show</span>(i + <span class="s">1</span>, p)</div>
+            <div>}</div>
+          </div>
+          <div class="tool">
+            <div class="tool-tab">CCoder</div>
+            <div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="bar w45"></div>
+            <div class="composer"></div>
+          </div>
+        </div>
+        <div class="status"><span class="st-w">Claude 待确认：3</span><span class="st-r">4 spaces · UTF-8 · LF</span></div>
+
+        <div class="pop pos-br" style="width:330px">
+          <div class="pop-head">
+            <span class="ttl">待确认 3 个</span>
+            <span class="x">✕</span>
+          </div>
+          <div class="qnav">
+            <span class="nav">‹</span>
+            <span class="dots3"><i class="on"></i><i></i><i></i></span>
+            <span class="nav on">›</span>
+            <span class="navhint">第 1 / 3 个</span>
+          </div>
+          <div class="pop-body">
+            <p class="lead">想运行命令：<b>npm test</b></p>
+            <p class="sub">在项目根目录跑单元测试</p>
+            <p class="path">触发路径：C:\Users\CY\Desktop\CCoder\sidecar</p>
+            <div class="raw">{ "command": "npm test", "description": "跑单元测试" }</div>
+          </div>
+          <div class="pop-foot">
+            <button class="btn ghost">本会话不再询问</button>
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">允许</button>
+          </div>
+        </div>
+      </div>
+
+      <ul class="pro">
+        <li class="good"><b>待办总量与内容一眼可见。</b>不用在"答完这张才轮到下一张"里排队。</li>
+        <li class="good"><b>可任意顺序处理。</b>几个请求是彼此独立的，先放行哪个不该由到达顺序决定。</li>
+        <li class="imp"><b>实现：</b><code>PermissionQueue</code> 要长出"查看项"概念（今天只暴露 <code>activeRequestId</code>），并支持按下标取项。</li>
+        <li class="bad"><b>代价：</b>窗口比单张卡大一圈，常驻占地方。</li>
+        <li class="bad"><b>要定的细节：</b>✕ 的语义 —— 关掉是拒绝<b>当前这一个</b>还是<b>全部</b>？规则①只要求"不能挂着不 resolve"，两种都合规，但得选一种。</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 方案 D ---------- -->
+    <article class="card">
+      <p class="tag">方案 D</p>
+      <h2>贴边摘要气泡</h2>
+      <p class="thesis">
+        最轻的一档：只在工具窗口下缘挂一条摘要（「需要授权：Bash · npm test」），
+        点「详情」才展开成完整窗。
+      </p>
+
+      <div class="ide">
+        <div class="ide-top">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="ide-title">CCoder — PyCharm</span>
+        </div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 一行摘要，最不挡视线</span></div>
+            <div><span class="c">// 也最容易被无视</span></div>
+            <div><span class="k">if</span> (risk == LOW) <span class="fn">bubble</span>(p)</div>
+            <div><span class="k">else</span> <span class="fn">window</span>(p)</div>
+          </div>
+          <div class="tool">
+            <div class="tool-tab">CCoder</div>
+            <div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="bar w45"></div>
+            <div class="composer"></div>
+          </div>
+        </div>
+        <div class="status"><span class="st-w">Claude 待确认：3</span><span class="st-r">4 spaces · UTF-8 · LF</span></div>
+
+        <div class="pop pos-bubble">
+          <div class="pop-body" style="padding:10px 11px">
+            <p class="lead" style="font-size:12.5px"><b>需要授权：</b>Bash · npm test</p>
+            <p class="sub" style="margin-bottom:0">还有 2 个在排队</p>
+          </div>
+          <div class="pop-foot" style="padding:7px 10px">
+            <button class="btn ghost">详情…</button>
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">允许</button>
+          </div>
+          <span class="caret"></span>
+        </div>
+      </div>
+
+      <ul class="pro">
+        <li class="good"><b>最不挡视线。</b>适合"看一眼就过"的只读类请求（Read / Grep / Glob）。</li>
+        <li class="good"><b>可分级。</b>低风险走气泡、写入类（Bash / Write / Edit）走窗口 —— 风险分级比形态本身更值钱。</li>
+        <li class="bad"><b>与 §6.3 的目标最远。</b>气泡天生是"可以被忽略"的形态，等于把"不可忽略性"重新交还给状态栏。</li>
+        <li class="bad"><b>键盘规则要重想。</b><code>JBPopup</code> 默认不抢焦点，规则②的"焦点落在拒绝上"只能靠"点进气泡才聚焦"落实 —— 这条得写清楚，否则就是空话。</li>
+        <li class="imp"><b>实现：</b><code>JBPopupFactory.createComponentPopupBuilder(...)</code> 锚在工具窗口下缘；展开走同一个内容面板。</li>
+      </ul>
+    </article>
+  </section>
+
+  <!-- ================= 提问：一题一弹 ================= -->
+  <h2 class="section-title">提问弹窗：多题就一题一弹</h2>
+  <p class="section-sub">
+    <code>AskUserQuestion</code> 可以一次带好几道题（SDK 的 <code>questions[]</code>）。现在的
+    <code>AskQuestionCard</code> 把几道题堆在同一张卡片里（"方案 A · 堆叠块"）；改成弹窗之后，
+    <b>一道题一个弹窗，答完接着弹下一道</b>。下面三张是同一个弹窗的三个时刻 —— 形态沿用上面选定的方案，只是内容换页。
+  </p>
+
+  <div class="stage-row">
+    <div class="stage-card">
+      <p class="stage-name">第 1 题 / 共 3 题</p>
+      <h3 class="stage-h">单选：选项各自带说明，差别就写在那行小字里</h3>
+      <div class="ide" style="height:424px">
+        <div class="ide-top"><span class="dots"><i></i><i></i><i></i></span><span class="ide-title">CCoder — PyCharm</span></div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 题一：单选</span></div>
+            <div><span class="c">// 点整行都能选，不只有文字那块</span></div>
+          </div>
+          <div class="tool"><div class="tool-tab">CCoder</div><div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="composer"></div></div>
+        </div>
+        <div class="status"><span class="st-w">Claude 在等你回答</span><span class="st-r">第 1 / 3 题</span></div>
+
+        <div class="pop pos-br" style="width:346px; bottom:30px">
+          <div class="pop-head">
+            <span class="ttl">Claude 在问你</span>
+            <span class="badge">第 1 / 3 题</span>
+            <span class="x">✕</span>
+          </div>
+          <div class="pop-body">
+            <div class="steps">
+              <span class="chip">形态</span>
+              <span class="dots3"><i class="on"></i><i></i><i></i></span>
+            </div>
+            <p class="qtext">权限弹窗走哪种形态？</p>
+            <div class="opt on"><span class="mk">✓</span><span><span class="lb">非模态悬浮窗</span><span class="dc">不抢焦点，不打断，漏看靠状态栏兜</span></span></div>
+            <div class="opt"><span class="mk"></span><span><span class="lb">模态对话框</span><span class="dc">绝不会漏，但会打断手上的一切</span></span></div>
+            <div class="opt"><span class="mk"></span><span><span class="lb">队列窗</span><span class="dc">并行请求时一屏翻完</span></span></div>
+            <div class="opt"><span class="mk"></span><span><span class="lb">其它…</span><span class="dc">以上都不是，我自己说</span></span></div>
+          </div>
+          <div class="pop-foot">
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">下一题 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="stage-note">
+      <h4>这一屏在说什么</h4>
+      <ul>
+        <li><b>进度。</b>标题栏与状态栏都说"第 1 / 3 题"，答到哪、还剩多少是显式的 —— 今天堆在一张卡里，用户看不见"还有几道"。</li>
+        <li><b>「其它…」由界面补上。</b>SDK 明说这项不该出现在入参里（<code>sdk-tools.d.ts:1070</code>），所以它是宿主加的第四行，选中后才长出输入框。</li>
+        <li><b>「下一题」不是「提交」。</b>最后一题才提交 —— 答案得一次交齐（见右栏）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage-card">
+      <p class="stage-name">第 2 题 / 共 3 题</p>
+      <h3 class="stage-h">选项自带网页预览时：左边选，右边看</h3>
+      <div class="ide" style="height:340px">
+        <div class="ide-top"><span class="dots"><i></i><i></i><i></i></span><span class="ide-title">CCoder — PyCharm</span></div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 题二：带 preview</span></div>
+            <div><span class="c">// "出几个网页给我选" 就是这个场景</span></div>
+          </div>
+          <div class="tool"><div class="tool-tab">CCoder</div><div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="composer"></div></div>
+        </div>
+        <div class="status"><span class="st-w">Claude 在等你回答</span><span class="st-r">第 2 / 3 题</span></div>
+
+        <div class="pop pos-br" style="width:472px; bottom:30px">
+          <div class="pop-head">
+            <span class="ttl">Claude 在问你</span>
+            <span class="badge">第 2 / 3 题</span>
+            <span class="x">✕</span>
+          </div>
+          <div class="pop-body">
+            <div class="steps">
+              <span class="chip">视觉稿</span>
+              <span class="dots3"><i></i><i class="on"></i><i></i></span>
+            </div>
+            <div class="split">
+              <div>
+                <p class="qtext" style="font-size:12.5px">走哪个视觉稿？</p>
+                <div class="opt on"><span class="mk">✓</span><span><span class="lb">方案一 · 暖色</span></span></div>
+                <div class="opt"><span class="mk"></span><span><span class="lb">方案二 · 冷色</span></span></div>
+                <div class="opt"><span class="mk"></span><span><span class="lb">其它…</span></span></div>
+              </div>
+              <div class="pvwrap">
+                <p class="pvcap">预览 · 方案一</p>
+                <div class="pv">
+                  <div class="pv-bar"><i></i><i></i><i></i><span>mockup-a.html</span></div>
+                  <div class="pv-body">
+                    <div class="pv-h"></div>
+                    <div class="pv-two">
+                      <div class="pv-tile"><div class="pv-l acc w70"></div><div class="pv-l"></div><div class="pv-l w85"></div></div>
+                      <div class="pv-tile"><div class="pv-l acc w50"></div><div class="pv-l"></div><div class="pv-l w70"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pop-foot">
+            <button class="btn" style="font-size:11.5px">← 上一题</button>
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">下一题 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="stage-note">
+      <h4>答案怎么攒、怎么交</h4>
+      <ul>
+        <li><b>攒着，一次交齐。</b>协议只认一次 <code>updatedInput</code>（<code>answers</code> 是整份入参的副本），所以第 1、2 题的答案留在 <code>AskState</code> 里，<b>最后一题提交时一起回传</b>。</li>
+        <li><b>回看可以，反悔也行。</b>「← 上一题」重开上一题弹窗，答案还在，改完再往下。</li>
+        <li><b>中途「拒绝」= 整条拒绝。</b>已答的作废 —— 半个答案喂回模型比拒绝更糟。</li>
+        <li><b><code>preview</code> 今天没渲染。</b><code>AskOption.preview</code> 解析了却没用（<code>AskQuestion.kt</code>）。弹窗比卡片宽，正好放得下这个并排视图 —— 要不要一起做，你定。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage-card">
+      <p class="stage-name">第 3 题 / 共 3 题</p>
+      <h3 class="stage-h">多选：全部答完才解锁提交</h3>
+      <div class="ide" style="height:424px">
+        <div class="ide-top"><span class="dots"><i></i><i></i><i></i></span><span class="ide-title">CCoder — PyCharm</span></div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 题三：multiSelect</span></div>
+            <div><span class="c">// 最后一题，按钮变「提交」</span></div>
+          </div>
+          <div class="tool"><div class="tool-tab">CCoder</div><div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="composer"></div></div>
+        </div>
+        <div class="status"><span class="st-w">Claude 在等你回答</span><span class="st-r">第 3 / 3 题</span></div>
+
+        <div class="pop pos-br" style="width:346px; bottom:30px">
+          <div class="pop-head">
+            <span class="ttl">Claude 在问你</span>
+            <span class="badge">第 3 / 3 题</span>
+            <span class="x">✕</span>
+          </div>
+          <div class="pop-body">
+            <div class="steps">
+              <span class="chip">范围</span>
+              <span class="dots3"><i></i><i></i><i class="on"></i></span>
+            </div>
+            <p class="qtext">这几项一起做吗？（可多选）</p>
+            <div class="opt on"><span class="mk">✓</span><span><span class="lb">preview 预览区</span><span class="dc">选项自带网页/代码时并排看</span></span></div>
+            <div class="opt on"><span class="mk">✓</span><span><span class="lb">上一题回看</span><span class="dc">答错能退回去改</span></span></div>
+            <div class="opt"><span class="mk"></span><span><span class="lb">窗口位置记忆</span><span class="dc">记住上次拖动到哪儿</span></span></div>
+            <div class="opt"><span class="mk"></span><span><span class="lb">其它…</span><span class="dc">以上都不是，我自己说</span></span></div>
+          </div>
+          <div class="pop-foot">
+            <button class="btn" style="font-size:11.5px">← 上一题</button>
+            <span class="spacer"></span>
+            <button class="btn focus">拒绝</button>
+            <button class="btn go">提交</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="stage-note">
+      <h4>门控与收尾</h4>
+      <ul>
+        <li><b>没答完不给提交。</b>少答一题就提交，等于替用户答了 —— 而那个答案会被当成"用户的选择"喂回模型。</li>
+        <li><b>提交后：</b>弹窗换成消息流里一行"已作答：…"（今天的 <code>note</code> 行为不变），窗口关闭。</li>
+        <li><b>窗口关掉 / 按 Esc = 拒绝</b>整条提问，不是"下次再问"（规则①）。</li>
+        <li><b>「本会话不再询问」不出现在提问弹窗上</b> —— 提问不是授权请求，自动"允许"等于把问题吞掉（<code>PermissionOptions.autoAllowApplies</code>）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 对比表 ================= -->
+  <h2 class="section-title">四个方案摆在一条线上比</h2>
+  <p class="section-sub">权重最高的一列是"会不会漏看" —— 因为 Claude 等起来没有超时（§6.6），漏看一次就是无限等待。</p>
+
+  <table class="cmp">
+    <thead>
+      <tr>
+        <th>维度</th>
+        <th>A · 悬浮窗</th>
+        <th>B · 模态框</th>
+        <th>C · 队列窗</th>
+        <th>D · 气泡</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>漏看风险</th>
+        <td>中 —— 靠状态栏 + 粘性通知兜</td>
+        <td><b>无</b></td>
+        <td>中 —— 同 A</td>
+        <td>高 —— 与 §6.3 的目标相抵</td>
+      </tr>
+      <tr>
+        <th>打断程度</th>
+        <td>低</td>
+        <td><b>高</b>（IDE 全锁）</td>
+        <td>低</td>
+        <td>最低</td>
+      </tr>
+      <tr>
+        <th>键盘（规则②）</th>
+        <td>不抢焦点；点进来时焦点在「拒绝」</td>
+        <td>天然抢焦点；焦点在「拒绝」</td>
+        <td>同 A</td>
+        <td>要额外约定才成立</td>
+      </tr>
+      <tr>
+        <th>并行请求</th>
+        <td>一次一张，其余排队</td>
+        <td>连着弹，一个接一个</td>
+        <td><b>一屏翻页</b></td>
+        <td>只显示最新一条 + 计数</td>
+      </tr>
+      <tr>
+        <th>多题提问</th>
+        <td>一题一弹</td>
+        <td>一题一弹（＝连着弹三个模态框）</td>
+        <td>一题一弹</td>
+        <td>一题一弹（每弹都要点开）</td>
+      </tr>
+      <tr>
+        <th>代码改动</th>
+        <td>小 —— 卡片当内容面板复用</td>
+        <td>小</td>
+        <td>中 —— 队列要支持按下标取项</td>
+        <td>中 —— 气泡与键盘规则要额外设计</td>
+      </tr>
+      <tr>
+        <th>spec 要改的地方</th>
+        <td>§6.3 删"固定槽位/卡片"，§6.4 改成"一次一个窗口"</td>
+        <td>另加 §6.3 末句"明确不做模态"要删</td>
+        <td>同 A，外加队列语义</td>
+        <td>同 A，外加分级策略</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ================= 收尾 ================= -->
+  <div class="foot">
+    <div class="block">
+      <h3>定下来之后要动的代码</h3>
+      <ol>
+        <li><code>ClaudePanel.showPermissionCard</code> → 开弹窗；<code>permissionSlot</code> / <code>pendingCards</code> 两个字段与插卡逻辑一起删。</li>
+        <li>新文件 <code>PermissionPopup.kt</code>（权限）与 <code>AskPopup.kt</code>（提问）；<code>PermissionCard</code> / <code>AskQuestionCard</code> 留作弹窗的内容面板，样式基本不动。</li>
+        <li><code>AskQuestionCard</code> 要能"只渲染第 i 题" —— 今天它一次把 <code>questions</code> 全摊开。</li>
+        <li><code>PermissionQueue</code> 视方案而定：A/B/D 原样，C 要多一个"查看项"。</li>
+        <li><code>PendingPermissionStatusBar</code> 与 <code>PendingPermissionCount</code> 保留 —— 弹窗被盖住时它们是兜底。</li>
+        <li>测试：<code>PermissionCardTest</code> / <code>AskQuestionCardTest</code> 是组件级的，继续有效；新增弹窗层用例（开→关＝拒绝、一题一弹的推进、最后一题才提交）。</li>
+      </ol>
+    </div>
+    <div class="block">
+      <h3>要你拍板的四件事</h3>
+      <ol>
+        <li><b>形态选哪个</b>（A / B / C / D）。我的倾向是 <b>A</b>：它是你这次要求的直译，改动最小，且没有一条规矩要放松；C 是"并行请求多"时的加强版。</li>
+        <li><b>多题提问的"弹"法：</b>同一个窗口换内容（不闪、不跳），还是关掉一个再弹下一个（"弹出"感更明确）？</li>
+        <li><b>选项自带的 <code>preview</code> 要不要一起渲染</b>（第 2 题那张图的右半边）。今天解析了没画。</li>
+        <li><b>若选 B，</b>spec §6.3 末句"明确不做：升级为模态对话框"要改 —— 那是你上一轮定的，得你点头才能翻。</li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.querySelectorAll('.toggle button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.documentElement.dataset.theme = btn.dataset.set;
+    document.querySelectorAll('.toggle button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+  });
+});
+</script>
+</body>
+</html>

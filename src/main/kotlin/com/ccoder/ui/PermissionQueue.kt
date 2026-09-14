@@ -31,6 +31,19 @@ data class PermissionDecision(
  */
 internal const val AUTO_ALLOW_LABEL = "本会话不再询问"
 
+/** 用户没答应的那条消息。会原样喂回模型，所以有且只有一处拼写。 */
+internal const val DENY_MESSAGE = "用户拒绝"
+
+/**
+ * 「用户拒绝」的决定。
+ *
+ * 三处要造它：卡片上的拒绝按钮、对话框的**关窗与 Esc**（规则①：关掉即拒绝）、
+ * 提问弹窗的拒绝。各拼一份的话 `message` 迟早有一处漏掉 —— 而那句话决定了
+ * 模型看到的是"用户拒绝了"还是"一个没有理由的失败"。
+ */
+internal fun deniedByUser(): PermissionDecision =
+    PermissionDecision(allow = false, updatedPermissions = null, message = DENY_MESSAGE)
+
 /**
  * 权限询问的串行化队列。
  *

@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.google.gson.JsonParser
+import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Test
@@ -19,7 +20,8 @@ import javax.swing.SwingUtilities
  * 没有断言，也不该有 —— 单测能钉住"没答完不能提交""送出去的是选中的那个"，
  * 钉不住"它看起来像不像一张能答的卡片"。
  *
- * 产物：`build/ask-card.png`（未作答）、`build/ask-card-picked.png`（已作答）。
+ * 产物：`build/ask-card.png`（第 1 题，未作答）、`build/ask-card-picked.png`
+ * （第 2 题，答完并开着「其它…」的输入框 —— 顺带把「← 上一题」和进度行画进去）。
  */
 class AskQuestionRenderProbe {
 
@@ -41,21 +43,38 @@ class AskQuestionRenderProbe {
     )!!
 
     @Test
-    fun `把提问卡片画成图片`() = render("build/ask-card.png", picked = false)
+    fun `把第一题画成图片`() = render("build/ask-card.png", index = 0, picked = false)
 
     @Test
-    fun `把已作答的提问卡片画成图片`() = render("build/ask-card-picked.png", picked = true)
+    fun `把第二题作答中的样子画成图片`() = render("build/ask-card-picked.png", index = 1, picked = true)
 
-    private fun render(path: String, picked: Boolean) {
+    /** 推到第 index 题：前面每题随便答一个，只是为了走得过去。 */
+    private fun flowAt(index: Int): AskFlow {
+        val flow = AskFlow(request)
+        while (flow.index < index) {
+            flow.current.toggle(flow.question.options.first().label)
+            flow.submitCurrent()
+        }
+        return flow
+    }
+
+    private fun render(path: String, index: Int, picked: Boolean) {
         SwingUtilities.invokeAndWait {
-            val card = AskQuestionCard(request, onSubmit = {}, onDeny = {})
+            val flow = flowAt(index)
+            val card = AskQuestionCard(
+                flow,
+                onSubmit = {},
+                onAdvance = {},
+                onBack = {},
+                onDeny = {},
+            )
             val outer = javax.swing.JPanel(BorderLayout()).apply {
                 border = JBUI.Borders.empty(10)
                 background = UIUtil.getPanelBackground()
                 add(card, BorderLayout.CENTER)
             }
 
-            val w = 430
+            val w = 450
 
             // **先布局，再点。** 真实路径就是这样：卡片先上屏，用户才点得着。
             // 反过来（先点后布局）"其它…"的输入框会在布局跑完之后才变可见，
@@ -65,12 +84,13 @@ class AskQuestionRenderProbe {
 
             if (picked) {
                 // 必须走**点击**：选中态（勾、边框、输入框显隐）全是在点击处理里
-                // 刷的，直接改 state 画出来还是没选的样子，这张图就白渲染了
-                clickOption(card, "审查当前 diff")
-                clickOption(card, "只影响本次会话")
+                // 刷的，直接改状态画出来还是没选的样子，这张图就白渲染了
                 clickOption(card, "写回设置")
-                clickOption(card, OTHER_LABEL, occurrence = 1)
-                card.state.states[1].custom = "另外再说一点"
+                clickOption(card, OTHER_LABEL)
+                // 走输入框本身：真实路径里那段字是在这个框里打的。直接改 state
+                // 的话画出来是个空框（第一版就是这样，图和实际对不上）
+                flow.current.custom = "另外再说一点"
+                textFieldsIn(card).firstOrNull()?.text = "另外再说一点"
                 card.refreshSubmit()
             }
 
@@ -89,6 +109,19 @@ class AskQuestionRenderProbe {
         }
     }
 
+    /** 「其它…」那个输入框 —— 卡片树里唯一的文本输入控件。 */
+    private fun textFieldsIn(root: Container): List<JBTextField> {
+        val out = mutableListOf<JBTextField>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JBTextField) out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return out
+    }
+
     private fun labelsIn(root: Container): List<JLabel> {
         val out = mutableListOf<JLabel>()
         fun walk(c: Container) {
@@ -101,15 +134,10 @@ class AskQuestionRenderProbe {
         return out
     }
 
-    /**
-     * 按包含找标签再合成一次点击 —— 和真实路径同一条。
-     *
-     * `occurrence` 用来区分两道题里同名的选项（比如两题都有「其它…」）。
-     */
-    private fun clickOption(card: AskQuestionCard, text: String, occurrence: Int = 0) {
-        val matches = labelsIn(card).filter { it.text.contains(text) }
-        val target = matches.getOrNull(occurrence)
-            ?: error("找不到第 ${occurrence + 1} 个「$text」，共 ${matches.size} 个")
+    /** 按包含找标签再合成一次点击 —— 和真实路径同一条。 */
+    private fun clickOption(card: AskQuestionCard, text: String) {
+        val target = labelsIn(card).firstOrNull { it.text.contains(text) }
+            ?: error("找不到「$text」，树里有：${labelsIn(card).map { it.text }}")
         target.dispatchEvent(
             MouseEvent(
                 target, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),

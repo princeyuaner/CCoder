@@ -41,11 +41,10 @@ class PermissionCard(
     private val onDecide: (PermissionDecision) -> Unit,
 ) : JPanel(BorderLayout()) {
 
-    private val denyButton = JButton("拒绝").apply {
+    /** 对话框拿它当首选焦点组件（规则②）。 */
+    internal val denyButton = JButton("拒绝").apply {
         // 不设 mnemonic：助记符等于键盘捷径，违反规则②
-        addActionListener {
-            onDecide(PermissionDecision(allow = false, updatedPermissions = null, message = "用户拒绝"))
-        }
+        addActionListener { onDecide(deniedByUser()) }
     }
 
     private val allowButton = JButton(
@@ -153,11 +152,28 @@ class PermissionCard(
         }
 
         add(center, BorderLayout.CENTER)
-        maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+
+        // 自然宽度见 getPreferredSize —— 卡片在窗口里得有一份"够读"的宽度，
+        // 而里面那个换行的 JSON 文本区只会报出"最窄也能活"的 152px。
 
         // 规则②：焦点默认落在"拒绝"。延迟到布局完成后再请求，
         // 否则卡片还未加入组件树，requestFocusInWindow 会静默失败。
+        //
+        // 进对话框之后这一句是多余的（对话框有自己的 getPreferredFocusedComponent），
+        // 但留着：卡片还能被单独渲染与测试，那时它是唯一的焦点来源。
         SwingUtilities.invokeLater { denyButton.requestFocusInWindow() }
+    }
+
+    /**
+     * 宽度写死、**高度随内容**。
+     *
+     * 不写成 `preferredSize = Dimension(...)` 那样的一次性赋值：那会把高度也冻在
+     * 构造那一刻。权限卡片的内容确实是静态的，但提问卡片会长高（选中「其它…」
+     * 冒出一个输入框），而两张卡片共用同一套写法 —— 冻过一次就会有人照着抄。
+     */
+    override fun getPreferredSize(): Dimension {
+        val natural = super.getPreferredSize()
+        return Dimension(CARD_WIDTH, natural.height)
     }
 
     private companion object {
