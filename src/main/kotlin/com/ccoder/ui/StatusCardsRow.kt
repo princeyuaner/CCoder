@@ -27,14 +27,15 @@ private const val CARD_GAP = 5
  * 尾随 lambda 会静默绑到最后一个参数上，这个坑本项目里踩过两次。
  */
 internal class StatusCardsRow(
+    onOpenContext: () -> Unit,
     onOpenTodos: () -> Unit,
     onOpenRunning: () -> Unit,
 ) : JPanel(GridLayout(1, 4, JBUI.scale(CARD_GAP), 0)) {
 
-    internal val connection = StatusCardView()
-    internal val context = StatusCardView()
-    internal val todos = StatusCardView(onOpen = onOpenTodos)
-    internal val running = StatusCardView(onOpen = onOpenRunning)
+    internal val connection = StatusCardView(icon = CardIcon.Link)
+    internal val context = StatusCardView(icon = CardIcon.Context, onOpen = onOpenContext)
+    internal val todos = StatusCardView(icon = CardIcon.Tasks, onOpen = onOpenTodos)
+    internal val running = StatusCardView(icon = CardIcon.Agents, onOpen = onOpenRunning)
 
     init {
         isOpaque = false

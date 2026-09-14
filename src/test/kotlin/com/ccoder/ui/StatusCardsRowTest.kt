@@ -13,7 +13,7 @@ class StatusCardsRowTest {
 
     private val quietTodos = StatusCardModel(label = "子任务", value = CARD_IDLE_TEXT, quiet = true)
 
-    private fun row() = StatusCardsRow(onOpenTodos = {}, onOpenRunning = {})
+    private fun row() = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
 
     private fun layoutAll(c: Container) {
         c.doLayout()
@@ -35,13 +35,13 @@ class StatusCardsRowTest {
     }
 
     @Test
-    fun `只有子任务与子代理可点`() {
+    fun `三张卡可点，连接卡不可点`() {
         val r = row()
 
+        assertTrue(r.context.mouseListeners.isNotEmpty(), "上下文卡该可点（点开看用量明细）")
         assertTrue(r.todos.mouseListeners.isNotEmpty(), "子任务卡该可点")
         assertTrue(r.running.mouseListeners.isNotEmpty(), "子代理卡该可点")
         assertTrue(r.connection.mouseListeners.isEmpty(), "连接卡没有更多可看的，不该可点")
-        assertTrue(r.context.mouseListeners.isEmpty(), "上下文卡没有更多可看的，不该可点")
     }
 
     @Test
@@ -118,10 +118,79 @@ class StatusCardsRowTest {
         }
     }
 
-    /** 值那个 JLabel —— 它在"点 + 值"那一行的 CENTER 里。 */
+    /**
+     * 值那个 JLabel —— 它在 [valueRow] 里（BorderLayout 的 CENTER）。
+     *
+     * 按**布局**找而不是按"第几个 JLabel"找：字面的第一/第二个 JLabel 会随
+     * 标签行的结构调整而变化，这个不会。
+     */
     private fun valueLabelOf(card: StatusCardView): JLabel {
-        val valueRow = card.components.filterIsInstance<JPanel>().single()
+        val valueRow = card.components
+            .filterIsInstance<JPanel>()
+            .first { it.layout is BorderLayout }
         return (valueRow.layout as BorderLayout).getLayoutComponent(BorderLayout.CENTER) as JLabel
+    }
+
+    @Test
+    fun `比例条铺满整行、点阵在两排里都居中`() {
+        // 实测踩过一次：把指示器直接放进 BoxLayout 时，比例条拿到的是"又短又偏"
+        // 的宽度（83px 的行里只占 42px，还贴在右边），点阵则贴在左边。
+        // 两样在真机上都是"这没居中"的观感 —— 所以这里量的是**位置**，不是属性
+        val r = configured().apply { setSize(420, 100) }
+        r.context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
+        r.todos.setModel(
+            todoCardOf(
+                TaskList(
+                    listOf(
+                        TodoItem("甲", TodoState.Completed),
+                        TodoItem("乙", TodoState.InProgress),
+                    )
+                )
+            )
+        )
+        layoutAll(r)
+
+        val meter = indicatorOf(r.context)
+        val inner = r.context.width - r.context.insets.left - r.context.insets.right
+        assertEquals(inner, meter.width, "比例条没有铺满整行")
+        assertEquals(0, meter.x, "比例条该从整行最左边开始")
+
+        // 点阵的居中在**绘制里**（那一行是铺满的，组件自身的 x/width 永远是
+        // 0/整行宽，量不出来）—— 它的算术由 pipsStartX 的用例守着
+        assertEquals(meter.width, indicatorOf(r.todos).width, "两种指示器都该铺满那一行")
+    }
+
+    private fun indicatorOf(card: StatusCardView): IndicatorView {
+        fun walk(c: Container): IndicatorView? {
+            c.components.filterIsInstance<IndicatorView>().firstOrNull()?.let { return it }
+            for (child in c.components) {
+                if (child is Container) walk(child)?.let { return it }
+            }
+            return null
+        }
+        return walk(card) ?: error("这棵树里没有指示器")
+    }
+
+    @Test
+    fun `四张卡各带各的图标`() {
+        // 图标是"这一格是什么"，由行来分配 —— 换了模型不该换图标
+        val r = row()
+
+        assertEquals(CardIcon.Link, iconOf(r.connection).icon)
+        assertEquals(CardIcon.Context, iconOf(r.context).icon)
+        assertEquals(CardIcon.Tasks, iconOf(r.todos).icon)
+        assertEquals(CardIcon.Agents, iconOf(r.running).icon)
+    }
+
+    private fun iconOf(c: Container): CardIconView {
+        c.components.filterIsInstance<CardIconView>().firstOrNull()?.let { return it }
+        for (child in c.components) {
+            if (child is Container) {
+                val found = runCatching { iconOf(child) }.getOrNull()
+                if (found != null) return found
+            }
+        }
+        error("这棵树里没有图标")
     }
 
     /** 跟生产一样：四张卡都灌上模型。 */

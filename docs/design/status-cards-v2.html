@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 状态卡 v2 · 设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用。产品配色与 420px 宽度沿用同系列设计稿。
+   本页讨论的是**顶部那排状态卡**：太矮不了、没居中、没有图标。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --code:#2b2d30; --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --code:#f2f3f5; --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page-bg); color: var(--page-fg); font-family: var(--ui); font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1560px; margin: 0 auto; padding: 56px 32px 130px; }
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 70ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.brief { margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line); border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; background: var(--page-card); }
+.brief h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief b { color: var(--page-fg); }
+.brief ul { margin: 8px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 5px; }
+.brief .num { font-family: var(--mono); color: var(--text); }
+
+.grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px; margin-top: 34px; align-items:start; }
+@media (max-width: 1280px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 22px 20px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 14px; }
+.thesis b { color: var(--page-fg); }
+.chip { display:inline-flex; align-items:center; gap:6px; padding: 4px 9px; border-radius: 999px; border:1px solid var(--border); background: var(--surface); font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-bottom: 14px; }
+.chip .dot { width:6px; height:6px; border-radius:50%; background: var(--ok); }
+.chip.mid .dot { background: var(--warn); }
+.chip.big .dot { background: var(--danger); }
+.notes { margin: 14px 0 0; padding-left: 18px; color: var(--page-dim); font-size: 12.5px; }
+.notes li { margin-bottom: 5px; }
+.notes b { color: var(--page-fg); }
+.h { font-family: var(--mono); font-size: 10px; letter-spacing:.14em; text-transform:uppercase; color: var(--page-dim); margin: 18px 0 6px; }
+
+/* ---- 模拟工具窗口（420px）---- */
+.tw { position: relative; width: 420px; max-width: 100%; background: var(--panel); border:1px solid var(--border); border-radius: 8px; overflow: hidden; display:flex; flex-direction:column; }
+.tw-bar { display:flex; align-items:center; gap:7px; padding: 6px 10px; background: var(--surface); border-bottom:1px solid var(--border); font-size: 11.5px; color: var(--dim); }
+.tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
+.tw-bar .sp { margin-left:auto; }
+.status-row { display:flex; align-items:center; gap:8px; padding: 7px 10px; border-bottom:1px solid var(--border-soft); font-size: 12px; }
+.sess { display:flex; align-items:center; gap:5px; min-width:0; padding: 2px 6px; border-radius: 5px; color: var(--text); font-size: 12px; }
+.sess .caret { color: var(--dim); font-size: 9px; }
+.ib { display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; color: var(--dim); font-size:15px; margin-left:auto; }
+.tr { padding: 10px 12px 14px; background: var(--editor); display:flex; flex-direction:column; gap:8px; }
+.bub { border-radius: 9px; padding: 6px 9px; font-size: 12px; line-height:1.5; }
+.bub.a { align-self:flex-start; background: var(--surface); border:1px solid var(--border); color: var(--text); max-width: 92%; }
+
+/* ---- 现状：四张高卡（照 build/status-cards-probe.png 复刻）---- */
+.now { display:grid; grid-template-columns: repeat(4, 1fr); gap:5px; }
+.now .c { border:1px solid var(--border); border-radius:6px; padding: 6px 9px 7px; background: var(--panel); display:flex; flex-direction:column; gap:2px; min-height:78px; }
+.now .lbl { font-size: 11px; color: var(--dim); }
+.now .val { font-size: 15px; color: var(--text); }
+.now .val.sm { font-size: 12px; }
+.now .sub { font-size: 10px; color: var(--dim); text-align:right; }
+.now .gap { flex:1 1 auto; }
+.now .bar { height:3px; border-radius:2px; background: var(--border); overflow:hidden; }
+.now .bar i { display:block; height:100%; width:6%; background: var(--accent); }
+.now .seg { display:flex; gap:2px; }
+.now .seg i { flex:1 1 0; height:4px; border-radius:1px; background: var(--ok); }
+.now .seg i.b { background: var(--accent); }
+.now .seg i.d { background: var(--border); }
+.now .dots { display:flex; gap:3px; }
+.now .dots i { width:5px; height:5px; border-radius:50%; background: var(--accent); }
+
+/* ============================================================
+   下面才是本页要讨论的东西。三种做法，都：矮、居中、带图标。
+   图标画成 14px 的 SVG（稿子里近似；落地用哪些见文末"图标从哪来"）
+   ============================================================ */
+.ico { width:14px; height:14px; flex:0 0 auto; color: var(--dim); }
+.ico.acc { color: var(--accent); }
+.ico.ok { color: var(--ok); }
+.ico.warn { color: var(--warn); }
+
+/* ---- 甲：两行居中 ---- */
+.a-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:5px; }
+.sc-a { position:relative; border:1px solid var(--border); border-radius:6px; background: var(--panel); padding: 5px 6px 7px; display:flex; flex-direction:column; align-items:center; gap:1px; justify-content:center; min-height:40px; }
+.sc-a__top { display:flex; align-items:center; gap:4px; }
+.sc-a__lbl { font-size: 10.5px; color: var(--dim); }
+.sc-a__val { font-size: 13px; color: var(--text); line-height:1.25; }
+.sc-a__val.quiet { color: var(--dim); }
+/* 上下文：细进度条贴卡片底边，不占一行高度 */
+.sc-a__gauge { position:absolute; left:1px; right:1px; bottom:1px; height:2px; border-radius:0 0 5px 5px; background: var(--border); overflow:hidden; }
+.sc-a__gauge i { display:block; height:100%; width:6%; background: var(--accent); }
+/* 子任务：一行迷你点，替代原来那根分段条 */
+.sc-a__pips { display:flex; gap:3px; margin-top:1px; }
+.sc-a__pips i { width:4px; height:4px; border-radius:50%; background: var(--border); }
+.sc-a__pips i.on { background: var(--ok); }
+.sc-a__pips i.run { background: var(--accent); }
+
+/* ---- 乙：一行药丸 ---- */
+.b-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:5px; }
+.sc-b { display:flex; align-items:center; justify-content:center; gap:5px; padding: 5px 6px; border:1px solid var(--border); border-radius: 999px; background: var(--panel); min-width:0; }
+.sc-b__v { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.sc-b__l { font-size: 10.5px; color: var(--dim); }
+.sc-b__ring { width:13px; height:13px; flex:0 0 auto; }
+
+/* ---- 丙：一条分段状态条 ---- */
+.sc-c { display:grid; grid-template-columns: repeat(4, 1fr); border:1px solid var(--border); border-radius:7px; background: var(--panel); overflow:hidden; }
+.sc-c__seg { display:flex; align-items:center; justify-content:center; gap:5px; padding: 6px 4px; min-width:0; }
+.sc-c__seg + .sc-c__seg { border-left:1px solid var(--border-soft); }
+.sc-c__l { font-size: 10.5px; color: var(--dim); }
+.sc-c__v { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.sc-c__gauge { position:absolute; }
+
+/* 尺寸标注 */
+.dim { font-family: var(--mono); font-size: 10px; color: var(--page-dim); margin-top: 8px; }
+.dim b { color: var(--ok); }
+
+/* ---- 细节对比 ---- */
+.pair { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-top: 26px; }
+.mini { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.mini .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); margin-bottom: 10px; }
+.mini .ex { background: var(--editor); border:1px solid var(--border); border-radius: 7px; padding: 10px; }
+.mini p { color: var(--page-dim); font-size: 12.5px; margin: 10px 0 0; }
+.mini p b { color: var(--page-fg); }
+table.cmp { width:100%; border-collapse: collapse; margin-top: 18px; font-size: 12.5px; }
+table.cmp th, table.cmp td { text-align:left; padding: 9px 10px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+table.cmp th { color: var(--page-dim); font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:500; }
+table.cmp td { color: var(--page-dim); }
+table.cmp td:first-child { color: var(--text); white-space:nowrap; }
+table.cmp .yes { color: var(--ok); } table.cmp .no { color: var(--danger); }
+table.cmp code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+.verdict { margin-top: 46px; padding: 26px 28px; border:1px solid var(--page-line); border-radius: 14px; background: var(--page-card); border-left: 3px solid var(--ok); }
+.verdict h2 { font-family: var(--serif); font-size: 25px; margin: 0 0 12px; }
+.verdict p { color: var(--page-dim); margin: 0 0 10px; max-width: 82ch; }
+.verdict b { color: var(--page-fg); }
+.verdict code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.ask { margin-top: 16px; display:grid; gap: 10px; }
+.askrow { display:flex; gap:10px; align-items:flex-start; padding: 11px 13px; border:1px solid var(--page-line); border-radius: 9px; background: var(--page-bg); }
+.askrow .k { font-family: var(--mono); font-size: 11px; color: var(--accent); flex:0 0 auto; padding-top:2px; }
+.askrow .q { color: var(--page-dim); font-size: 13px; }
+.askrow .q b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 顶部状态卡 · 2026-09-14 · v2</p>
+      <h1>四个格子，矮下来、居中、配上图标</h1>
+      <p class="lede">
+        你原话是「连接、上下文、子任务、子代理这个卡片的 UI 很难看，太高了，而且没居中，
+        最好能加点图标啥的」。这一页是同一排状态在三种做法下的样子 ——
+        都只动这个组件（<b>StatusCardView</b>），转写区和协议一行不改。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button type="button" data-theme-set="dark" aria-pressed="true">暗</button>
+      <button type="button" data-theme-set="light" aria-pressed="false">亮</button>
+    </div>
+  </header>
+
+  <!-- ===================== 前提 ===================== -->
+  <section class="brief">
+    <h3>现状：<span class="num">≈80px</span> 高，四层内容，全部靠左</h3>
+    <div class="now" style="width:396px">
+      <div class="c"><span class="lbl">连接</span><span class="val sm">● 已连接</span><span class="gap"></span></div>
+      <div class="c"><span class="lbl">上下文</span><span class="val">6%</span><span class="sub">12.3k / 200k</span><div class="bar"><i></i></div></div>
+      <div class="c"><span class="lbl">子任务</span><span class="val">2/4</span><div class="seg"><i></i><i></i><i class="b"></i><i class="d"></i></div></div>
+      <div class="c"><span class="lbl">子代理</span><span class="val">2</span><div class="dots"><i></i><i></i></div></div>
+    </div>
+    <p style="margin-top:12px">问题不是"信息多余"，是**四层叠在一起**：标签一行、值一行、副行一行、指示器一行 —— 而每一层都只占半行高，四张卡被最高的那张顶到 80px。再加上：</p>
+    <ul>
+      <li>内容**全部靠左**（副行还靠右），四张卡里三种对齐方式</li>
+      <li>值有 11px / 12px / 15px 三种字号，扫一眼分不出哪个是重点</li>
+      <li>没有图标：四张卡只能靠文字辨认，"2" 到底是子代理还是什么，得读标签</li>
+    </ul>
+    <p style="margin-top:10px"><b>三条都不动的</b>：四张卡始终在（没内容时收边，不隐藏）、子任务/子代理可点开详情、卡片等宽。</p>
+  </section>
+
+  <!-- ===================== 三个方案 ===================== -->
+  <div class="grid">
+
+    <!-- ---------- 甲 ---------- -->
+    <article class="card" id="jia">
+      <p class="tag">方案 甲</p>
+      <h2>两行居中</h2>
+      <p class="thesis">
+        图标 + 标签一行，值一行，**整体居中**。副信息（12.3k / 200k、分段明细）
+        从卡面撤掉，进 tooltip 与点开的详情 —— 卡面只留"一眼要看的那个数"。
+      </p>
+      <span class="chip"><i class="dot"></i>≈42px（现在 80）</span>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+        <div class="status-row"><span class="sess">把连着的工具调用并成一张卡 <span class="caret">▾</span></span><span class="ib">＋</span></div>
+        <div class="tr">
+          <div class="a-row">
+            <div class="sc-a">
+              <span class="sc-a__top">
+                <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+                <span class="sc-a__lbl">连接</span>
+              </span>
+              <span class="sc-a__val">已连接</span>
+            </div>
+            <div class="sc-a">
+              <span class="sc-a__top">
+                <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc-a__lbl">上下文</span>
+              </span>
+              <span class="sc-a__val">6%</span>
+              <div class="sc-a__gauge"><i></i></div>
+            </div>
+            <div class="sc-a">
+              <span class="sc-a__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="sc-a__lbl">子任务</span>
+              </span>
+              <span class="sc-a__val">2/4</span>
+              <div class="sc-a__pips"><i class="on"></i><i class="on"></i><i class="run"></i><i></i></div>
+            </div>
+            <div class="sc-a">
+              <span class="sc-a__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+                <span class="sc-a__lbl">子代理</span>
+              </span>
+              <span class="sc-a__val">2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="dim">卡片高 <b>≈42px</b>（图标行 16 + 值行 17 + 内边距 9）</p>
+
+      <ul class="notes">
+        <li><b>居中是真居中</b>：图标 + 标签一行居中、值一行居中，四张卡里不再有三种对齐</li>
+        <li><b>副行去哪了</b>：<code>12.3k / 200k</code> 进 tooltip 与点开的详情；卡面上留的是
+          <b>一个数字 + 一条贴底的 2px 比例条</b>。子任务的分段条缩成四个小点</li>
+        <li><b>没内容时</b>（未连接 / 上下文 0）：值换成灰字「未连接」「—」，图标跟着变灰 —— 卡始终在</li>
+        <li><b>点击</b>：子任务 / 子代理照旧点开详情，连接 / 上下文不可点（不给悬停反馈，同现在的规矩）</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 乙 ---------- -->
+    <article class="card" id="yi">
+      <p class="tag">方案 乙</p>
+      <h2>一行药丸</h2>
+      <p class="thesis">
+        四颗独立的圆角药丸，一行，<b>图标 + 值</b>，标签撤进 tooltip。
+        最矮的一版 —— 顶部这排几乎不占地方，代价是最不"自解释"。
+      </p>
+      <span class="chip mid"><i class="dot"></i>≈28px（最矮）</span>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+        <div class="status-row"><span class="sess">把连着的工具调用并成一张卡 <span class="caret">▾</span></span><span class="ib">＋</span></div>
+        <div class="tr">
+          <div class="b-row">
+            <div class="sc-b" title="连接 · 已连接">
+              <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8"/></svg>
+              <span class="sc-b__v">已连接</span>
+            </div>
+            <div class="sc-b" title="上下文 · 12.3k / 200k">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+              <span class="sc-b__v">6%</span>
+            </div>
+            <div class="sc-b" title="子任务 · 2/4 完成">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="sc-b__v">2/4</span>
+            </div>
+            <div class="sc-b" title="子代理 · 2 个在跑">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/></svg>
+              <span class="sc-b__v">2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="dim">卡片高 <b>≈28px</b>（一行 + 上下内边距各 5）</p>
+
+      <ul class="notes">
+        <li><b>顶部几乎不占地方</b>：比甲再省 14px，比现在省 52px</li>
+        <li><b>代价是"标签没了"</b>：<code>2/4</code> 与 <code>2</code> 靠图标分辨，
+          图标认不出就只剩 tooltip —— 第一次用的人得学一遍</li>
+        <li>四颗<b>仍然等宽</b>（与现在一致）：内容居中，所以"2"那颗两边留白也不显得空</li>
+        <li>那个四分之一饼是<b>符号</b>不是刻度：6% 的真实比例由数字给（真按比例画，6% 在 13px 的环上只有 2px 弧，看不见 —— 拿它当数据显示是骗人的）</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 丙 ---------- -->
+    <article class="card" id="bing">
+      <p class="tag">方案 丙</p>
+      <h2>一条分段状态条</h2>
+      <p class="thesis">
+        不再是四张卡，而是<b>一条</b>被竖线分成四格的条：图标 + 标签 + 值挤在一行里，
+        像 IDE 底部那条状态栏。没有间隙、没有四个圆角，视觉上最安静。
+      </p>
+      <span class="chip"><i class="dot"></i>≈30px · 一个组件</span>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+        <div class="status-row"><span class="sess">把连着的工具调用并成一张卡 <span class="caret">▾</span></span><span class="ib">＋</span></div>
+        <div class="tr">
+          <div class="sc-c">
+            <div class="sc-c__seg">
+              <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8"/></svg>
+              <span class="sc-c__l">连接</span><span class="sc-c__v">已连接</span>
+            </div>
+            <div class="sc-c__seg">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+              <span class="sc-c__l">上下文</span><span class="sc-c__v">6%</span>
+            </div>
+            <div class="sc-c__seg">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="sc-c__l">子任务</span><span class="sc-c__v">2/4</span>
+            </div>
+            <div class="sc-c__seg">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/></svg>
+              <span class="sc-c__l">子代理</span><span class="sc-c__v">2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="dim">条高 <b>≈30px</b>（一行 + 上下内边距各 6）</p>
+
+      <ul class="notes">
+        <li><b>最"安静"</b>：一条边、四格、没有四组边框和四个圆角打架</li>
+        <li><b>代价一</b>：四格宽度相等而内容长短差很多 ——
+          「已连接」那格挤，`6%` 那格空。甲的两行布局正是为此</li>
+        <li><b>代价二</b>：它在视觉上像"一条控件"而不是"四张卡"，
+          子任务 / 子代理那两格的可点性要靠悬停高亮才看得出来</li>
+        <li>真实比例只有数字（饼是符号）：也可以在这条**下边缘**通长画一条按比例的进度 ——
+          但那会让"整条"看起来像一根进度条，想试的话我画一版</li>
+      </ul>
+    </article>
+
+  </div>
+
+  <!-- ===================== 细节 ===================== -->
+  <h2 style="font-family:var(--serif);font-size:25px;margin:52px 0 0">四条细节：三个方案都得给答案</h2>
+  <div class="pair">
+
+    <div class="mini">
+      <div class="lbl">① 图标从哪来</div>
+      <div class="ex" style="display:flex; gap:14px; align-items:center">
+        <span style="display:flex;gap:6px;align-items:center"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="mono" style="font-family:var(--mono);font-size:11px">平台图标</span></span>
+        <span style="display:flex;gap:6px;align-items:center"><svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg><span style="font-family:var(--mono);font-size:11px">自绘</span></span>
+      </div>
+      <p><b>四个都自绘</b>（Java2D，同现有的 <code>IndicatorView</code>），<b>改过一次主意</b>：
+        落地时发现平台图标（<code>AllIcons.Toolwindows.Task</code>、<code>AllIcons.General.Groups</code>，
+        都已核对存在）是**固定颜色**的，而icon 必须跟着色调变 —— 连接卡的
+        "已连接 / 正在载入 / 启动失败"就靠这一处区分。混着用会在同一行里露出
+        "系统色图标 + 主题色图标"两种画风，所以四个统一自绘。<br>
+        图标固定 <code>14×14</code>，按 16×16 的方格画再整体缩放，颜色走
+        <code>toneColor</code>（绿 / 琥珀 / 红 / 灰），深浅色主题自动跟。</p>
+    </div>
+
+    <div class="mini">
+      <div class="lbl">② 副信息去哪了</div>
+      <div class="ex">
+        <div class="a-row" style="grid-template-columns: 1fr 1fr">
+          <div class="sc-a"><span class="sc-a__top"><svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg><span class="sc-a__lbl">上下文</span></span><span class="sc-a__val">6%</span></div>
+          <div class="sc-a" style="border-color:var(--border-soft)">
+            <span class="sc-a__lbl">点开</span>
+            <span class="sc-a__val" style="font-size:11.5px;color:var(--dim)">12.3k / 200k</span>
+            <span class="sc-a__val" style="font-size:11px;color:var(--dim)">窗口 200k · 已用 6%</span>
+          </div>
+        </div>
+      </div>
+      <p><code>12.3k / 200k</code> 从卡面撤下来，放进 <b>tooltip</b> 与<b>点开的详情</b>（子任务/子代理本来就有详情浮层）。
+        卡面只留"一眼要看的那个数"—— 这也是它能从 80px 降到 42px 的原因。</p>
+    </div>
+
+    <div class="mini">
+      <div class="lbl">③ 没内容时（四张卡始终在）</div>
+      <div class="ex">
+        <div class="a-row">
+          <div class="sc-a"><span class="sc-a__top"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-opacity=".5"><circle cx="8" cy="8" r="5.6"/></svg><span class="sc-a__lbl">连接</span></span><span class="sc-a__val quiet">未连接</span></div>
+          <div class="sc-a"><span class="sc-a__top"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-opacity=".5"><circle cx="8" cy="8" r="5.4"/></svg><span class="sc-a__lbl">上下文</span></span><span class="sc-a__val quiet">—</span></div>
+          <div class="sc-a"><span class="sc-a__top"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-opacity=".5"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/></svg><span class="sc-a__lbl">子任务</span></span><span class="sc-a__val quiet">无</span></div>
+          <div class="sc-a"><span class="sc-a__top"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-opacity=".5"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/></svg><span class="sc-a__lbl">子代理</span></span><span class="sc-a__val quiet">无</span></div>
+        </div>
+      </div>
+      <p>这是现在的规矩（<code>StatusCardModel.quiet</code>：没内容就把值收成灰字，卡不消失）——
+        三种做法都保留。<b>顺带建议</b>：不用的时候整排可以压到 50% 不透明度，
+        状态一来就亮起来，顶部会更安静。</p>
+    </div>
+
+    <div class="mini">
+      <div class="lbl">④ 值长什么样（字号统一）</div>
+      <div class="ex" style="display:flex;gap:10px;align-items:baseline">
+        <span style="font-size:13px;color:var(--text)">已连接</span>
+        <span style="font-size:13px;color:var(--text);font-variant-numeric:tabular-nums">6%</span>
+        <span style="font-size:13px;color:var(--text);font-variant-numeric:tabular-nums">2/4</span>
+        <span style="font-size:13px;color:var(--text);font-variant-numeric:tabular-nums">2</span>
+      </div>
+      <p>现在卡里有 11px / 12px / 15px 三种字号（<code>bigValue</code> 那套）。三个方案都收敛成
+        <b>值统一 13px、标签统一 10.5px</b>，数字用等宽数字（tabular-nums）—— 数值变化时不会左右跳。</p>
+    </div>
+
+  </div>
+
+  <!-- ===================== 代价表 ===================== -->
+  <table class="cmp">
+    <thead><tr><th>比什么</th><th>甲 · 两行居中</th><th>乙 · 一行药丸</th><th>丙 · 分段状态条</th></tr></thead>
+    <tbody>
+      <tr><td>高度</td><td class="yes">≈42px（省 47%）</td><td class="yes">≈28px（省 65%）</td><td class="yes">≈30px（省 62%）</td></tr>
+      <tr><td>居中</td><td class="yes">两行都居中</td><td class="yes">一行居中</td><td class="yes">每格居中</td></tr>
+      <tr><td>一眼看出哪格是什么</td><td class="yes">图标 + 标签</td><td class="no">只有图标（标签进 tooltip）</td><td class="yes">图标 + 标签</td></tr>
+      <tr><td>副信息（12.3k / 200k）</td><td>tooltip + 详情</td><td class="no">只 tooltip</td><td>tooltip + 详情</td></tr>
+      <tr><td>四格等宽</td><td class="yes">是</td><td class="no">按内容宽</td><td class="yes">是</td></tr>
+      <tr><td>可点性（子任务 / 子代理）</td><td class="yes">卡片有边框，悬停高亮</td><td>药丸悬停高亮</td><td class="no">得靠悬停才看得出来</td></tr>
+      <tr><td>改多少代码</td><td class="yes">只改 StatusCardView 的排布 + 两个图标</td><td>同上，另加"内容宽度"分配</td><td>同上，另加一条条壳</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===================== 推荐 ===================== -->
+  <section class="verdict">
+    <h2>我推荐甲</h2>
+    <p>
+      它把"太高"这件事的**根**解决了：四层内容不是多余，是<b>排得散</b>。
+      两行一收，标签与值各自居中，80px 直接变 42px；副行搬进 tooltip 与详情浮层，
+      信息一点没丢。<b>图标 + 标签同框</b>也让四张卡第一次能靠形状被认出来。
+    </p>
+    <p>
+      乙最矮、也最漂亮，但它把"标签"整个撤了 —— 你在用第 20 次的时候不觉得，
+      第 1 次看见 <code>2/4</code> 和 <code>2</code> 并排会愣一下。它更适合你已经熟了这个插件之后。
+      丙更像 IDE 的状态栏，安静，代价是那四格的可点性会被弱化。
+    </p>
+    <p>顺带一提：<b>三个方案都把"值"统一成 13px</b>，现在 11/12/15 三种字号那套（<code>bigValue</code>）可以退休了。</p>
+    <div class="ask">
+      <div class="askrow"><span class="k">01</span><span class="q">选哪个：<b>甲</b> / <b>乙</b> / <b>丙</b>；或者「甲的布局 + 丙的条壳」这类混搭，说一声我照着画</span></div>
+      <div class="askrow"><span class="k">02</span><span class="q">副行（<code>12.3k / 200k</code>）接受搬进 tooltip + 详情吗？不接受的话高度得留到 ≈60px</span></div>
+      <div class="askrow"><span class="k">03</span><span class="q">空着的时候整排要不要降低不透明度（我建议要，状态一来就亮）</span></div>
+      <div class="askrow"><span class="k">04</span><span class="q">图标：子任务 / 子代理用平台图标、连接 / 上下文自绘 —— 这个分工同意吗？</span></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+document.querySelectorAll('[data-theme-set]').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.themeSet
+    document.querySelectorAll('[data-theme-set]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+  })
+})
+</script>
+</body>
+</html>

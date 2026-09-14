@@ -39,6 +39,64 @@ class RunDetailTest {
         return out
     }
 
+    // ---- 上下文段（点"上下文"卡弹的那一段）----
+
+    @Test
+    fun `上下文段给百分比与三个绝对数`() {
+        val texts = labelsIn(
+            buildContextDetail(ContextUsage(usedTokens = 12300, windowTokens = 200000))
+        )
+
+        assertTrue("6%" in texts, "少了百分比：$texts")
+        assertTrue("12.3k tokens" in texts, "少了已用：$texts")
+        // 分母才是"还能聊多久"的关键，也正是卡面放不下的那个数 ——
+        // 它被从卡面让到 tooltip 之后，这里得有个正经位置
+        assertTrue("200k tokens" in texts, "少了窗口：$texts")
+        assertTrue("187.7k tokens" in texts, "少了剩余：$texts")
+    }
+
+    @Test
+    fun `窗口未知时不编造分母`() {
+        val texts = labelsIn(buildContextDetail(ContextUsage(usedTokens = 500, windowTokens = 0)))
+
+        assertTrue("500 tokens" in texts, "少了已用：$texts")
+        assertTrue(
+            texts.none { it.startsWith("200k") || it.contains("/") },
+            "窗口未知时不该出现分母：$texts",
+        )
+        assertTrue(
+            texts.any { it.contains("还没拿到窗口大小") },
+            "该说清楚为什么只有一半信息：$texts",
+        )
+    }
+
+    @Test
+    fun `一次都没测到时给 0 与一句实话，不是空框`() {
+        // 与卡面显示 0 是同一条规矩：没测过 ≠ 空闲
+        val texts = labelsIn(buildContextDetail(null))
+
+        assertTrue("0 tokens" in texts, "少了已用：$texts")
+        assertTrue(texts.any { it.contains("还没拿到窗口大小") }, "该说清楚：$texts")
+    }
+
+    @Test
+    fun `快写满时给一句提醒`() {
+        val texts = labelsIn(
+            buildContextDetail(ContextUsage(usedTokens = 190000, windowTokens = 200000))
+        )
+
+        assertTrue(texts.any { it.contains("九成") }, "写满九成该提醒：$texts")
+    }
+
+    @Test
+    fun `还宽裕时不吓人`() {
+        val texts = labelsIn(
+            buildContextDetail(ContextUsage(usedTokens = 1000, windowTokens = 200000))
+        )
+
+        assertTrue(texts.any { it.contains("宽裕") }, "正常时该是一句平常话：$texts")
+    }
+
     // ---- 清单段 ----
 
     @Test

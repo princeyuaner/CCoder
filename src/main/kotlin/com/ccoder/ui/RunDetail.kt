@@ -88,6 +88,58 @@ internal fun buildTodoDetail(todos: TaskList): JComponent {
 }
 
 /**
+ * 上下文那一段。点"上下文"卡弹它。
+ *
+ * 卡面只有一个百分比 —— 这里补上**绝对数**：分母（窗口多大）才是"还能聊多久"
+ * 的关键，而它恰恰是卡面放不下的那个数（改版时它被让到 tooltip 里，这里给它
+ * 一个正经位置）。
+ *
+ * 没有测量值时不装作有：照实说"还没拿到窗口大小"，与卡面显示 0 是同一条规矩。
+ */
+internal fun buildContextDetail(usage: ContextUsage?): JComponent {
+    val box = detailBox()
+    val u = usage ?: ContextUsage(usedTokens = 0, windowTokens = 0)
+    val percent = contextPercentOf(u)
+    box.add(sectionHeader("上下文", percent?.let { "$it%" } ?: formatTokenCount(u.usedTokens)))
+
+    box.add(detailRow("已用", "${formatTokenCount(u.usedTokens)} tokens"))
+    if (u.windowTokens <= 0) {
+        box.add(hint("还没拿到窗口大小 —— 这一轮的用量还没测到（不是空闲）"))
+        return box
+    }
+
+    box.add(detailRow("窗口", "${formatTokenCount(u.windowTokens)} tokens"))
+    val left = (u.windowTokens - u.usedTokens).coerceAtLeast(0)
+    box.add(detailRow("剩余", "${formatTokenCount(left)} tokens"))
+    box.add(
+        hint(
+            when {
+                percent == null -> "还没拿到窗口大小"
+                percent >= 90 -> "已经写满九成 —— 再聊几轮就会开始丢早先的内容"
+                percent >= 70 -> "过七成了，长会话要留意"
+                else -> "还宽裕"
+            }
+        )
+    )
+    return box
+}
+
+/** 一行"标题 —— 值"。与 [taskRow] 同一套观感，但只读、不可点。 */
+private fun detailRow(label: String, value: String): JComponent = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    border = JBUI.Borders.emptyBottom(3)
+    add(JBLabel(label).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.WEST)
+    add(JBLabel(value), BorderLayout.EAST)
+}
+
+/** 一句话的说明，压在最后。 */
+private fun hint(text: String): JComponent = JBLabel(text).apply {
+    foreground = UIUtil.getInactiveTextColor()
+    font = font.deriveFont(font.size2D - 1f)
+    border = JBUI.Borders.emptyTop(6)
+}
+
+/**
  * 运行中那一段。点"子代理"卡弹它。
  *
  * 空着时给一句实话而不是一个空框 —— 卡上写着"空闲"时本不该弹得出来，

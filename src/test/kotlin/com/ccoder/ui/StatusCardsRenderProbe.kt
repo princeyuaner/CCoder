@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Test
@@ -51,20 +52,36 @@ class StatusCardsRenderProbe {
         render("build/status-cards-probe-nousage.png", busy = true, noUsage = true)
 
     /**
+     * **正在干活时那一版**：连接卡改说"在干什么"。
+     *
+     * 用户要的就是这一句（「我希望能实时显示当前在做什么」）。它和八种连接文字
+     * 挤的是同一格，所以必须单独看一眼宽度够不够。
+     */
+    @Test
+    fun `把正在运行指令时的四张卡画成图片`() =
+        render("build/status-cards-probe-activity.png", busy = true, activity = ACTIVITY_RUNNING)
+
+    /**
      * @param busy true = 四样都有内容；false = 后两张收边。
      *   空闲那张同时把上下文推到 92%，顺手验证警示色。
      * @param noUsage true = 上下文没有测量值（`contextCardOf(null)`）。
+     * @param activity 非空 = 连接卡显示"正在做什么"（[activityCardOf]）。
      */
     private fun render(
         path: String,
         busy: Boolean,
         connectionText: String? = null,
         noUsage: Boolean = false,
+        activity: String? = null,
     ) {
         SwingUtilities.invokeAndWait {
-            val cards = StatusCardsRow(onOpenTodos = {}, onOpenRunning = {}).apply {
+            val cards = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(
-                    connectionCardOf(connectionText ?: if (busy) "已连接" else "会话已断开")
+                    if (activity != null) {
+                        activityCardOf(activity)
+                    } else {
+                        connectionCardOf(connectionText ?: if (busy) "已连接" else "会话已断开")
+                    }
                 )
                 context.setModel(
                     when {
@@ -96,7 +113,13 @@ class StatusCardsRenderProbe {
 
             val outer = JPanel(BorderLayout()).apply {
                 isOpaque = true
-                background = UIUtil.getPanelBackground()
+                // **照实画在暗底上**：真实 IDE 里这排卡坐在转写区那一层的底色上，
+                // 不是面板灰。画在面板灰上的话，"卡片跟背景糊成一片"在图上根本
+                // 看不出来 —— 2026-09-14 用户报的就是这个（卡是黑的、和背景一样）。
+                // 编辑器底色拿不到时退回面板色，至少不崩
+                background = runCatching {
+                    EditorColorsManager.getInstance().globalScheme.defaultBackground
+                }.getOrDefault(UIUtil.getPanelBackground())
                 border = JBUI.Borders.empty(8)
                 add(cards, BorderLayout.NORTH)
             }

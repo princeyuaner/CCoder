@@ -56,6 +56,7 @@ import java.awt.event.HierarchyListener
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.nio.file.Path
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -99,13 +100,21 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var connectionText = "未连接"
 
     /**
+     * 连接卡上那行字：**空闲时是连接状态，忙时是"现在在做什么"**。
+     *
+     * 映射规则在 [activityChangeOf]（纯函数，能单测）。null = 没有正在跑的动作。
+     */
+    private var activity: String? = null
+
+    /**
      * 四张状态卡。**常驻** —— 没内容的格子收边，不隐藏。
      *
      * 卡一会儿出现一会儿消失，输入框就会在会话中途上下跳；稳定比安静重要。
      */
     private val statusCards = StatusCardsRow(
-        onOpenTodos = { toggleDetail(wantsTodos = true) },
-        onOpenRunning = { toggleDetail(wantsTodos = false) },
+        onOpenContext = { toggleDetail(DetailCard.Context) },
+        onOpenTodos = { toggleDetail(DetailCard.Todos) },
+        onOpenRunning = { toggleDetail(DetailCard.Running) },
     )
 
     /** 最近一次拿到的上下文用量。取不到时保持 null —— 不造零值。 */
@@ -274,11 +283,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var runDetailPopup: JBPopup? = null
 
     /**
-     * 挂着的那张详情卡是不是"子任务"卡。
+     * 挂着的那张详情卡。
      *
-     * 两张卡共用一个浮层，关的时候得知道该把哪一张取消高亮。
+     * 三张卡（子任务 / 子代理 / 上下文）共用一个浮层 —— 同一时刻只该有一个挂着，
+     * 而这张记着是谁，好在关闭时把对应那张取消高亮。
      */
-    private var todosOpen = false
+    private var openDetail: DetailCard? = null
+
+    /** 哪张卡的详情浮层。连接卡没有详情，所以不在其中。 */
+    private enum class DetailCard { Context, Todos, Running }
 
     /** 回合进行中：已发出消息，但还没收到 result。 */
     private var busy = false
@@ -416,6 +429,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             isOpaque = false
             add(permissionSlot)
             add(statusCards)
+            // 卡片与输入框之间留一口气。紧贴着看时，四张卡像是输入框的一部分
+            // （而且状态卡是"常驻控件"，不是输入区里的一行）
+            add(Box.createVerticalStrut(JBUI.scale(7)))
         }
 
         // 不再单独画顶边线：输入区现在是一张圆角卡片，它自己的上沿
@@ -557,12 +573,28 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
+     * 当前动作的唯一写入口。
+     *
+     * **值没变就直接返回**：流式期间这条会被每个 token 调一次，而"思考中"
+     * 要连着几十上百次增量保持不变 —— 不挡一下就是每个 token 重画一次四张卡。
+     */
+    private fun setActivity(text: String?) {
+        if (activity == text) return
+        activity = text
+        refreshStatusCards()
+    }
+
+    /**
      * 按当前四份数据重画四张卡。
      *
      * 没内容的格子由 [StatusCardModel.quiet] 收边 —— 不是隐藏，四张卡始终在。
      */
     private fun refreshStatusCards() {
-        statusCards.connection.setModel(connectionCardOf(connectionText))
+        // 忙时这张卡改说"在干什么"：转写区是滚动区，长任务跑起来最新的那条
+        // 早就滚上去了，抬头一眼能看见的只有这里
+        statusCards.connection.setModel(
+            activity?.let(::activityCardOf) ?: connectionCardOf(connectionText)
+        )
         statusCards.context.setModel(contextCardOf(lastUsage))
         statusCards.todos.setModel(todoCardOf(runStatus.todos))
         statusCards.running.setModel(runningCardOf(runStatus.running))
@@ -590,14 +622,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * @param wantsTodos 参数名刻意不叫 `todosOpen` —— 与字段同名会遮蔽它，
      *   一旦漏写 `this.` 就是静默的错。
      */
-    private fun toggleDetail(wantsTodos: Boolean) {
-        val card: StatusCardView = if (wantsTodos) statusCards.todos else statusCards.running
-        val wasOpen = todosOpen == wantsTodos && runDetailPopup != null
+    private fun toggleDetail(card: DetailCard) {
+        val view = viewOf(card)
+        val wasOpen = openDetail == card && runDetailPopup != null
 
-        runDetailPopup?.cancel()
-        runDetailPopup = null
-        statusCards.todos.setOpen(false)
-        statusCards.running.setOpen(false)
+        closeDetail()
 
         if (wasOpen) {
             // 还能顺手取消一次正在路上的"打开"
@@ -605,20 +634,41 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             return
         }
 
-        todosOpen = wantsTodos
-        if (wantsTodos) {
-            showDetailPopup(
-                card,
+        openDetail = card
+        when (card) {
+            // 上下文那段是纯本地的（用量就在手上），不用问 sidecar
+            DetailCard.Context -> showDetailPopup(view, buildContextDetail(lastUsage))
+
+            DetailCard.Todos -> showDetailPopup(
+                view,
                 runStatus.todos?.let(::buildTodoDetail)
                     ?: buildRunningDetail(emptyList(), emptyList()) {},
             )
-            return
+
+            // 子代理那一段要问一次 sidecar —— 它的记录在磁盘上，不在事件流里。
+            // **先请求、收到才弹**（同会话列表）：不先弹一个"载入中"，
+            // 免得还要处理"弹出后再换内容"那套尺寸重算
+            DetailCard.Running -> {
+                subagentsLoading = true
+                requestSubagents(view)
+            }
         }
-        // 子代理那一段要问一次 sidecar —— 它的记录在磁盘上，不在事件流里。
-        // **先请求、收到才弹**（同会话列表）：不先弹一个"载入中"，
-        // 免得还要处理"弹出后再换内容"那套尺寸重算
-        subagentsLoading = true
-        requestSubagents(card)
+    }
+
+    private fun viewOf(card: DetailCard): StatusCardView = when (card) {
+        DetailCard.Context -> statusCards.context
+        DetailCard.Todos -> statusCards.todos
+        DetailCard.Running -> statusCards.running
+    }
+
+    /** 收起详情浮层：三张卡的高亮一起取消。 */
+    private fun closeDetail() {
+        runDetailPopup?.cancel()
+        runDetailPopup = null
+        openDetail = null
+        statusCards.context.setOpen(false)
+        statusCards.todos.setOpen(false)
+        statusCards.running.setOpen(false)
     }
 
     /**
@@ -693,9 +743,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 先取消旧的：它的 onClosed 会把字段置空，所以必须排在赋值之前
         runDetailPopup?.cancel()
         runDetailPopup = showTogglePopup(anchor = card, content = content) {
-            runDetailPopup = null
-            statusCards.todos.setOpen(false)
-            statusCards.running.setOpen(false)
+            // 点浮层外面关掉时也要把高亮与"开着谁"一起清掉 ——
+            // 少了这一句，那张卡会一直亮着，再点它反而变成"收起"
+            closeDetail()
         }
         card.setOpen(true)
     }
@@ -1591,10 +1641,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         closeCompletion()
 
         // 浮层挂在旧会话的状态上，会话没了它就该消失
-        runDetailPopup?.cancel()
-        runDetailPopup = null
-        statusCards.todos.setOpen(false)
-        statusCards.running.setOpen(false)
+        closeDetail()
 
         // 模式列表同理：它选出来的模式要发给会话，会话没了它就没意义
         modePopup?.cancel()
@@ -1674,6 +1721,17 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // 命令回合里的空输出丢掉；其余一律照常（设计稿 §5.1）
                     items.filterNot { lastSendWasCommand && isEmptyCommandOutput(it) }
                         .forEach { pushOp(toOp(it)) }
+
+                    // 连接卡上那行字跟着这批渲染项走（见 Activity.kt）。
+                    // **只走实时路径**：回放旧会话时最后一条可能是被中断的
+                    // 工具调用，照着它显示"运行指令"会是一句假话
+                    items.forEach { item ->
+                        when (val change = activityChangeOf(item)) {
+                            is ActivityChange.Now -> setActivity(change.text)
+                            ActivityChange.Idle -> setActivity(null)
+                            ActivityChange.Keep -> Unit
+                        }
+                    }
                     // result 是回合结束的信号，此时按钮从"停止"变回"发送"
                     if (items.any { it is RenderItem.Result }) {
                         setBusy(false)
@@ -1743,7 +1801,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     }
                 }
 
-                is SidecarMessage.Permission -> showPermissionCard(msg)
+                is SidecarMessage.Permission -> {
+                    // 这一拍最该说清楚的就是"为什么不动了"：在等你点授权
+                    setActivity(ACTIVITY_PERMISSION)
+                    showPermissionCard(msg)
+                }
 
                 // 切换**生效了**才更新标签。认不出的模式名什么都不改 ——
                 // 显示一个我们自己都不认识的模式，不如保持原样
@@ -2243,6 +2305,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         lastSendWasCommand = text.startsWith("/")
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
+        // 第一口 token 可能要等几秒，这期间卡上写"已连接"是句假话
+        setActivity(ACTIVITY_WAITING)
     }
 
     /**

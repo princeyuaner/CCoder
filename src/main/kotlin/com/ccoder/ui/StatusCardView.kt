@@ -4,26 +4,48 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.geom.Arc2D
+import java.awt.geom.Ellipse2D
+import java.awt.geom.Line2D
+import java.awt.geom.Path2D
+import java.awt.geom.RoundRectangle2D
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.SwingConstants
 
 /** 描边圆角半径。 */
 private const val CARD_ARC = 9
 
 /**
- * 一张状态卡。
+ * 卡片左上角那个图标。四张卡各一个。
+ *
+ * **自绘，不用平台图标**（[CardIconView] 里有详细理由）。
+ */
+internal enum class CardIcon { Link, Context, Tasks, Agents }
+
+/**
+ * 一张状态卡（设计稿 docs/design/status-cards-v2.html 方案甲）。
+ *
+ * ## 两行居中
+ *
+ * 图标 + 标签一行、值一行，两行都水平居中。改版前是四层（标签 / 值 / 副值 /
+ * 指示器）各自靠左或靠右，四张卡里三种对齐、三种字号，整排 80px 高。
+ * 副值（`12.3k / 200k`）让出去挂 tooltip，卡面才收得下来。
  *
  * ## 收边为什么用"透明描边"而不是"不设 border"
  *
@@ -33,17 +55,16 @@ private const val CARD_ARC = 9
  *
  * ## 为什么用 JPanel 而不是像旧的胶囊那样自画
  *
- * 旧的 `RunStripView` 自画是因为它的文字要按可用宽度截断。卡里放的是
- * `3/7`、`2` 这种定宽短值，不需要截断，用 JLabel 反而能免费拿到平台的
- * 字体、高 DPI 与主题色。
+ * 卡里放的是 `3/7`、`2` 这种定宽短值，不需要按宽度截断，用 JLabel 反而能
+ * 免费拿到平台的字体、高 DPI 与主题色。
  *
- * 描边复用 [RoundedLineBorder]：它本来就收一个 `colorProvider` 函数，
- * 换色只需 repaint，不必重建 border。
- *
+ * @param icon 左上角画哪个图标。四张卡固定，所以由**构造参数**而不是模型决定：
+ *   模型是"这一刻的数据"，图标是"这一格是什么"，两者寿命不同。
  * @param onOpen null 表示这张卡不可点（连接卡、上下文卡）。**不给空 lambda** ——
  *   那会画出悬停反馈却点不动，是在骗人。
  */
 internal class StatusCardView(
+    private val icon: CardIcon = CardIcon.Link,
     private val onOpen: (() -> Unit)? = null,
 ) : JPanel() {
 
@@ -53,17 +74,45 @@ internal class StatusCardView(
 
     private val labelView = JBLabel()
     private val valueView = JBLabel()
-    private lateinit var valueFontSmall: java.awt.Font
-    private lateinit var valueFontBig: java.awt.Font
-    private val subView = JBLabel()
+    private val iconView = CardIconView(icon)
     private val indicatorView = IndicatorView()
-    private val dotView = ToneDotView()
 
-    /** 值前面那个状态点（连接卡用）+ 值本身。 */
+    /**
+     * 指示器那一行：**用 BorderLayout 让它铺满整行**。
+     *
+     * 直接把指示器放进 BoxLayout 是不行的 —— 比例条会拿到一个又短又偏的宽度
+     * （实测 83px 的行里它只占 42px，还贴在最右边）。BoxLayout 只把**面板**拉满，
+     * 与值那一行是同一个坑。
+     */
+    private val indicatorRow = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        add(indicatorView, BorderLayout.CENTER)
+    }
+
+    /**
+     * 值那一行。
+     *
+     * 用 [BorderLayout] 把标签**拉满一行**，文字靠 [SwingConstants.CENTER] 居中。
+     * 直接把标签放进 BoxLayout 是不行的：实测（ScratchMeasureTest）标签拿到的
+     * 宽度既不是卡片宽度、也不会随文字变化 —— 5 个汉字会被省略号截掉。
+     * BoxLayout 只把**面板**拉满，标签不在其列。
+     */
     private val valueRow = JPanel(BorderLayout()).apply {
         isOpaque = false
-        add(dotView, BorderLayout.WEST)
         add(valueView, BorderLayout.CENTER)
+    }
+
+    /**
+     * 图标 + 标签那一行。整行居中：方案甲要的就是"四张卡里不再有三种对齐"。
+     *
+     * 用 [FlowLayout] 而不是 BoxLayout X：FlowLayout 天生按内容居中，
+     * 而 BoxLayout 在容器比内容宽时会把富余空间**分给子件**（标签会被撑开、
+     * 图标被挤到左边）。hgap = 图标与标签之间的距离，vgap = 0。
+     */
+    private val topRow = JPanel(FlowLayout(FlowLayout.CENTER, JBUI.scale(4), 0)).apply {
+        isOpaque = false
+        add(iconView)
+        add(labelView)
     }
 
     init {
@@ -71,26 +120,23 @@ internal class StatusCardView(
         isOpaque = false
         border = BorderFactory.createCompoundBorder(
             RoundedLineBorder(colorProvider = ::strokeColor, arc = JBUI.scale(CARD_ARC)),
-            JBUI.Borders.empty(6, 9, 7, 9),
+            JBUI.Borders.empty(5, 8, 6, 8),
         )
 
         labelView.font = labelView.font.deriveFont(labelView.font.size2D - 2f)
         labelView.foreground = UIUtil.getInactiveTextColor()
-        // 值的两种字号先算好存着：setModel 每次都要按 bigValue 二选一
-        valueFontSmall = valueView.font
-        valueFontBig = valueView.font.deriveFont(valueView.font.size2D + 2f)
-        valueView.font = valueFontBig
-        subView.font = subView.font.deriveFont(subView.font.size2D - 2f)
-        subView.foreground = UIUtil.getInactiveTextColor()
+        // 值统一大一号。改版前是 11/12/15 三种字号按 bigValue 二选一，
+        // 扫一眼分不出哪个是重点 —— 现在四张卡一个字号
+        valueView.font = valueView.font.deriveFont(valueView.font.size2D + 1f)
+        // 值在它自己那一行里居中；那一行由 [valueRow] 负责拉满卡片宽度
+        valueView.horizontalAlignment = SwingConstants.CENTER
 
-        add(labelView)
+        add(topRow)
         add(valueRow)
-        add(subView)
         // 竖直弹簧：GridLayout 把每张卡拉到同一高度，弹簧让**指示器贴底**。
-        // 没有它的话上下文卡的条（第三行下面）会比子任务卡的分段（第二行下面）
-        // 低一截，四张卡的底边参差不齐
+        // 没有它的话上下文卡的条会比子任务卡的点阵低一截，四张卡底边参差
         add(Box.createVerticalGlue())
-        add(indicatorView)
+        add(indicatorRow)
 
         if (onOpen != null) {
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -112,20 +158,59 @@ internal class StatusCardView(
         }
     }
 
+    /**
+     * 画卡片的底。
+     *
+     * **自己画一层，不让父容器透出来。** 顶部这排坐在哪块容器上、那块容器是什么
+     * 底色，是别的代码说了算 —— 实测在真实 IDE 里那块底是暗的，透出来之后四张卡
+     * 跟背景糊成一片，设计稿里那种"灰卡片"就没了（探针里看不出来：它恰好把
+     * 面板色当背景）。
+     *
+     * 顺带：自绘圆角矩形也避免了"方角填充 + 圆角描边"在四个角上打架。
+     *
+     * **收边（quiet）也照画**：那是"这格现在没数据"（值变灰），不是"这格不存在"。
+     * 2026-09-14 用户明确要求过：没数据时边框与底照常要有，四张卡看着是一排。
+     */
+    override fun paintComponent(g: Graphics) {
+        if (model == null) return
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = UIUtil.getPanelBackground()
+            val arc = JBUI.scale(CARD_ARC)
+            g2.fillRoundRect(0, 0, width, height, arc, arc)
+        } finally {
+            g2.dispose()
+        }
+    }
+
     /** 不叫 update：那会与 [java.awt.Component.update] 撞名。 */
     fun setModel(next: StatusCardModel) {
         model = next
         labelView.text = next.label
         valueView.text = next.value
-        valueView.font = if (next.bigValue) valueFontBig else valueFontSmall
         valueView.foreground =
             if (next.quiet) UIUtil.getInactiveTextColor() else UIUtil.getLabelForeground()
 
-        subView.text = next.sub.orEmpty()
-        subView.isVisible = !next.sub.isNullOrEmpty()
+        // 副值不上卡面（见类注释），挂在悬停提示上。**四个子件都要挂**：
+        // 鼠标停在标签或图标上时，Swing 找的是那一个组件自己的 tooltip，
+        // 只给卡片挂的话十有八九弹不出来
+        val tip = next.sub
+        toolTipText = tip
+        labelView.toolTipText = tip
+        valueView.toolTipText = tip
+        iconView.toolTipText = tip
 
-        dotView.set(next.tone)
-        dotView.isVisible = next.leadingDot
+        iconView.set(next.tone, next.quiet)
+
+        // 两行的最大宽放开、高度锁在首选值：BoxLayout 才会把它们拉满卡片宽度
+        // （文字靠 FlowLayout / horizontalAlignment 居中），又不会被竖直拉伸 ——
+        // 竖直的富余要留给下面那个弹簧，指示器才贴得住底
+        topRow.maximumSize = Dimension(Int.MAX_VALUE, topRow.preferredSize.height)
+        valueRow.maximumSize = Dimension(Int.MAX_VALUE, valueRow.preferredSize.height)
+        // 指示器那一行同理。高度在"没有指示器"时是 0 —— 那时它整个不可见
+        indicatorRow.maximumSize =
+            Dimension(Int.MAX_VALUE, indicatorRow.preferredSize.height)
 
         indicatorView.set(next.indicator, next.tone)
         indicatorView.isVisible = next.indicator != Indicator.None
@@ -155,50 +240,99 @@ internal class StatusCardView(
         Dimension(super.getMinimumSize().width, preferredSize.height)
 
     /**
-     * 描边色。**收边时给全透明** —— 不是去掉 border，那样 insets 会变。
+     * 描边色。
+     *
+     * **收边（quiet）也给正常的边** —— 那是"这格没数据"，不是"这格不存在"。
+     * 只有 `setModel` 一次都没调过（model == null，生产里不会出现）时才全透明。
+     *
+     * 无论哪种情况都返回颜色而不换 border 对象：`getBorderInsets` 因此恒为 1，
+     * 收边与否都不会让四张卡左右跳。
      */
     private fun strokeColor(): Color = when {
-        model?.quiet == true -> Color(0, 0, 0, 0)
+        model == null -> Color(0, 0, 0, 0)
         open || hovered -> focusColor()
         else -> lineColor()
     }
 }
 
 /**
- * 值前面那个状态点。
+ * 卡上那个 14px 图标。**自绘。**
  *
- * 颜色只由 [Tone] 决定。连"未连接"也给点（灰色），因为**没有点的那种状态
- * 才是歧义** —— 用户看不出是"没连上"还是"这一格没数据"。
+ * 为什么不用平台图标（`AllIcons.*`）：平台里根本没有"连接""上下文用量"这两种
+ * 语义的图标，混着用会在同一行里露出两种画风 —— 一边是系统色图标、一边是
+ * 跟 [Tone] 变色的自绘。而**颜色必须跟着色调走**：连接卡的"已连接 / 正在载入 /
+ * 启动失败"就靠这一处区分（原来是一个前置状态点，并进图标了）。
+ *
+ * 四个形状各三五笔，缩放按组件实际宽度算，高 DPI 下画出来还是清楚的。
  */
-internal class ToneDotView : JComponent() {
+internal class CardIconView(val icon: CardIcon) : JComponent() {
 
     private var tone: Tone = Tone.Idle
+    private var quiet = false
 
     init {
         isOpaque = false
-        font = UIUtil.getLabelFont()
     }
 
-    fun set(next: Tone) {
-        tone = next
+    fun set(nextTone: Tone, nextQuiet: Boolean) {
+        tone = nextTone
+        quiet = nextQuiet
         repaint()
     }
 
-    /** 当前该画的颜色。暴露出来是为了让"点跟着色调走"能被测试钉住。 */
-    fun color(): Color = toneColor(tone)
+    /** 当前该画的颜色。暴露出来是为了让"图标跟着色调走"能被测试钉住。 */
+    fun color(): Color = if (quiet) UIUtil.getInactiveTextColor() else toneColor(tone)
 
-    override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(11), JBUI.scale(6))
+    override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(14), JBUI.scale(14))
 
     override fun getMaximumSize(): Dimension = preferredSize
+
+    override fun getMinimumSize(): Dimension = preferredSize
 
     override fun paintComponent(g: Graphics) {
         val g2 = g.create() as Graphics2D
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            val size = JBUI.scale(6)
-            g2.color = toneColor(tone)
-            // 竖向居中于整行（这一行比点高得多，值标签撑起来的）
-            g2.fillOval(0, (height - size) / 2, size, size)
+            // 图形按 16×16 的方格画，再整体缩到组件尺寸 —— 这样高 DPI 与
+            // 夹具里那些"没被布局过"的 0 尺寸调用都不会画出畸形的图标
+            val side = minOf(width, height)
+            if (side <= 0) return
+            g2.color = color()
+            g2.stroke = BasicStroke(side / 16f * 1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g2.scale(side / 16.0, side / 16.0)
+            when (icon) {
+                CardIcon.Link -> {
+                    // 地球：一圈加一条横线。连接/会话这一类语义最不容易被误读
+                    g2.draw(Ellipse2D.Double(2.4, 2.4, 11.2, 11.2))
+                    g2.draw(Line2D.Double(2.6, 8.0, 13.4, 8.0))
+                }
+
+                CardIcon.Context -> {
+                    // 四分之一饼：**是符号不是刻度**（6% 按比例画只有 2px 弧，
+                    // 看不见）。真实比例交给数字 —— 见设计稿里的说明
+                    g2.draw(Ellipse2D.Double(2.4, 2.4, 11.2, 11.2))
+                    g2.fill(Arc2D.Double(2.4, 2.4, 11.2, 11.2, 90.0, -90.0, Arc2D.PIE))
+                }
+
+                CardIcon.Tasks -> {
+                    g2.draw(RoundRectangle2D.Double(2.4, 2.8, 11.2, 10.4, 3.0, 3.0))
+                    g2.draw(
+                        Path2D.Double().apply {
+                            moveTo(4.8, 8.2)
+                            lineTo(6.4, 9.8)
+                            lineTo(9.6, 6.4)
+                        }
+                    )
+                }
+
+                CardIcon.Agents -> {
+                    // 两个人：前面一个整的，后面一个错开半头
+                    g2.draw(Ellipse2D.Double(3.6, 3.2, 4.6, 4.6))
+                    g2.draw(Arc2D.Double(2.2, 7.6, 7.4, 7.0, 0.0, 180.0, Arc2D.OPEN))
+                    g2.draw(Ellipse2D.Double(9.8, 4.6, 3.4, 3.4))
+                    g2.draw(Arc2D.Double(8.6, 8.2, 5.4, 5.4, 0.0, 180.0, Arc2D.OPEN))
+                }
+            }
         } finally {
             g2.dispose()
         }
@@ -210,6 +344,10 @@ internal class ToneDotView : JComponent() {
  *
  * 自画而不是拼组件：它有三种形状（条 / 分段 / 点），每种都只有几行绘制代码，
  * 拼出来反而要维护三套子组件。
+ *
+ * 2026-09-14 改版：比例条保留**通长一条**（贴底，所以它必须是铺满的那种），
+ * 分段与点数收成**居中的小方块 / 小圆点** —— 改版前它们是一条 60px 宽的横条，
+ * 在收成两行的卡上显得又长又偏。
  */
 internal class IndicatorView : JComponent() {
 
@@ -230,13 +368,24 @@ internal class IndicatorView : JComponent() {
         repaint()
     }
 
-    override fun getPreferredSize(): Dimension = when (indicator) {
-        Indicator.None -> Dimension(0, 0)
-        is Indicator.Meter, is Indicator.Segments -> Dimension(JBUI.scale(60), JBUI.scale(4))
-        is Indicator.Dots -> Dimension(JBUI.scale(60), JBUI.scale(6))
+    override fun getPreferredSize(): Dimension {
+        // 先接到局部变量：`indicator` 是可变属性，不接的话 when 里智能转换不了
+        val current = indicator
+        return when (current) {
+            Indicator.None -> Dimension(0, 0)
+            // 宽度交给布局（Meter 铺满），高度 2px
+            is Indicator.Meter -> Dimension(0, JBUI.scale(2))
+            is Indicator.Segments -> Dimension(pipsWidth(current.total, PIP), JBUI.scale(PIP))
+            is Indicator.Dots -> Dimension(pipsWidth(current.count, DOT), JBUI.scale(DOT))
+        }
     }
 
-    override fun getMaximumSize(): Dimension = preferredSize
+    override fun getMaximumSize(): Dimension =
+        if (indicator is Indicator.Meter) {
+            Dimension(Int.MAX_VALUE, JBUI.scale(2))
+        } else {
+            preferredSize
+        }
 
     override fun paintComponent(g: Graphics) {
         val g2 = g.create() as Graphics2D
@@ -266,34 +415,31 @@ internal class IndicatorView : JComponent() {
 
     private fun paintSegments(g2: Graphics2D, segments: Indicator.Segments) {
         if (segments.total <= 0) return
-        val gap = JBUI.scale(2)
-        // 均匀分：总宽减去所有间隙，再等分
-        val segW = ((width - gap * (segments.total - 1)).toDouble() / segments.total).toInt()
-        if (segW <= 0) return
-
-        var x = 0
+        val metrics = pipsMetrics(PIP)
+        var x = startX(pipsWidth(segments.total, PIP))
         for (index in 0 until segments.total) {
             g2.color = when {
                 index < segments.done -> okColor()
                 index == segments.done -> focusColor()
                 else -> trackColor()
             }
-            g2.fillRoundRect(x, 0, segW, height, JBUI.scale(1), JBUI.scale(1))
-            x += segW + gap
+            g2.fillRoundRect(x, metrics.y, metrics.size, metrics.size, JBUI.scale(1), JBUI.scale(1))
+            x += metrics.size + metrics.gap
         }
     }
 
     private fun paintDots(g2: Graphics2D, dots: Indicator.Dots) {
-        val size = JBUI.scale(5)
-        val gap = JBUI.scale(3)
-        val y = (height - size) / 2
+        val metrics = pipsMetrics(DOT)
         g2.color = alertColor() ?: focusColor()
+        var x = startX(pipsWidth(dots.count, DOT))
         for (index in 0 until dots.count) {
-            val x = index * (size + gap)
-            if (x + size > width) break
-            g2.fillOval(x, y, size, size)
+            if (x + metrics.size > width) break
+            g2.fillOval(x, metrics.y, metrics.size, metrics.size)
+            x += metrics.size + metrics.gap
         }
     }
+
+    private fun startX(contentWidth: Int): Int = pipsStartX(width, contentWidth)
 
     /** 只有警示色调才覆盖指示器颜色。其余一律强调色 —— 见 [Tone] 的说明。 */
     private fun alertColor(): Color? = when (tone) {
@@ -301,15 +447,39 @@ internal class IndicatorView : JComponent() {
         Tone.Danger -> dangerColor()
         else -> null
     }
+
+    /** 一行 pips 的总宽（含间隙），用来报首选宽度。 */
+    private fun pipsWidth(count: Int, unit: Int): Int {
+        if (count <= 0) return 0
+        val m = pipsMetrics(unit)
+        return count * m.size + (count - 1) * m.gap
+    }
+
+    /** pips 的尺寸与居中位置。两种点数共用同一套算法，免得一个偏左一个偏右。 */
+    private fun pipsMetrics(unit: Int): Pips {
+        val size = JBUI.scale(unit)
+        val gap = JBUI.scale(3)
+        return Pips(size = size, gap = gap, y = (height - size) / 2)
+    }
+
+    private data class Pips(val size: Int, val gap: Int, val y: Int)
+
+    private companion object {
+        /** 分段那一排的方块边长（未缩放）。 */
+        const val PIP = 4
+
+        /** 计数那一排的圆点直径（未缩放）。 */
+        const val DOT = 5
+    }
 }
 
 // ---- 色调 → 颜色 ----
 
 /**
- * 色调 → 实际颜色。**状态点**用它。
+ * 色调 → 实际颜色。**状态图标**用它。
  *
  * 指示器不走这里：指示器的规则是"只有警示色调才改色，其余一律强调色"
- * （见 [Tone]），而状态点的四种色调各有各的颜色。
+ * （见 [Tone]），而图标的四种色调各有各的颜色。
  */
 internal fun toneColor(tone: Tone): Color = when (tone) {
     Tone.Ok -> okColor()
@@ -317,6 +487,18 @@ internal fun toneColor(tone: Tone): Color = when (tone) {
     Tone.Danger -> dangerColor()
     Tone.Idle -> UIUtil.getInactiveTextColor()
 }
+
+/**
+ * 一排点 / 分段的起点：在整行里**居中**。
+ *
+ * 那一行是铺满的（见 `StatusCardView.indicatorRow`），所以左对齐会让它们贴在
+ * 卡片左边 —— 居中得自己算。比例条不走这里：它本来就该通长。
+ *
+ * 单独抽成一个函数是因为它**在绘制里**：组件自身的 x/width 永远是 0/整行宽，
+ * 从外面量不到，只有把这段算术拿出来才钉得住。
+ */
+internal fun pipsStartX(rowWidth: Int, contentWidth: Int): Int =
+    ((rowWidth - contentWidth) / 2).coerceAtLeast(0)
 
 /** 成功色。平台不给就退回 New UI 的一对绿。 */
 internal fun okColor(): Color = JBColor.namedColor(

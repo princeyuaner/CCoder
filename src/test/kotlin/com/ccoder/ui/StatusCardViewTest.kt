@@ -50,14 +50,17 @@ class StatusCardViewTest {
     // ---- 内容 ----
 
     @Test
-    fun `标签、值、副值都画出来`() {
+    fun `标签与值画在卡面上，副值改挂 tooltip`() {
+        // 2026-09-14 改版：卡面从四层收到两行，让出去的就是副值那一行。
+        // 搬走不等于弄丢 —— 悬停能看到
         val card = StatusCardView()
         card.setModel(busy.copy(sub = "12.3k / 200k"))
 
         val texts = labelsIn(card)
         assertTrue("子任务" in texts, "少了标签：$texts")
         assertTrue("3/7" in texts, "少了值：$texts")
-        assertTrue("12.3k / 200k" in texts, "少了副值：$texts")
+        assertFalse("12.3k / 200k" in texts, "副值不该再占卡面一行")
+        assertEquals("12.3k / 200k", card.toolTipText, "副值该挂在悬停提示上")
     }
 
     @Test
@@ -74,13 +77,13 @@ class StatusCardViewTest {
     // ---- 收边 ----
 
     @Test
-    fun `收边的卡不画边框`() {
-        // quiet 不是"隐藏"，是"退到背景里"。用全透明描边而不是换 border 对象 ——
-        // 换了对象 insets 会变，四张卡的宽度就会跟着跳
+    fun `收边的卡也画边框与底 —— 那是"没数据"，不是"没有这格"`() {
+        // 2026-09-14 用户明确要求：子任务 / 子代理没数据时边框照常要有，
+        // 四张卡看着是一排。quiet 只把值与图标压暗
         val card = StatusCardView()
         card.setModel(StatusCardModel(label = "子任务", value = CARD_IDLE_TEXT, quiet = true))
 
-        assertEquals(0, borderColorOf(card).alpha, "收边的卡仍然画了边框")
+        assertTrue(borderColorOf(card).alpha > 0, "收边的卡不该把边框收掉")
     }
 
     @Test
@@ -181,49 +184,76 @@ class StatusCardViewTest {
         val card = StatusCardView()
         card.setModel(StatusCardModel(label = "连接", value = "已连接"))
 
-        // 直接找 IndicatorView。写成 filterIsInstance<JPanel> 会永远为真 ——
-        // IndicatorView 继承 JComponent 而不是 JPanel，那种写法是条假测试
-        val indicator = card.components.filterIsInstance<IndicatorView>().single()
-        assertFalse(indicator.isVisible, "没有指示器时不该占着一块地方")
+        // 递归找 IndicatorView。写成 filterIsInstance<JPanel> 会永远为真 ——
+        // IndicatorView 继承 JComponent 而不是 JPanel，那种写法是条假测试。
+        // （2026-09-14 起指示器外面套了一层 indicatorRow，直接子件里找不到它了）
+        assertFalse(indicatorOf(card).isVisible, "没有指示器时不该占着一块地方")
     }
 
     @Test
-    fun `带状态点的卡把点画出来，不带的不画`() {
-        val card = StatusCardView()
-        card.setModel(StatusCardModel(label = "连接", value = "已连接", leadingDot = true))
-        assertTrue(dotOf(card).isVisible, "连接卡该有状态点")
-
-        card.setModel(busy)
-        assertFalse(dotOf(card).isVisible, "子任务卡不该有状态点")
+    fun `一排点在自己那行里居中`() {
+        // 这一行是铺满的（BoxLayout 只拉得满面板），所以居中靠绘制时的偏移。
+        // 它在绘制里，从外面量不到 —— 算术抽成 pipsStartX 才钉得住
+        assertEquals(40, pipsStartX(rowWidth = 100, contentWidth = 20))
+        assertEquals(0, pipsStartX(rowWidth = 20, contentWidth = 20), "正好放满时不偏")
+        assertEquals(0, pipsStartX(rowWidth = 10, contentWidth = 20), "内容比行宽时不许画到左边去")
     }
 
-    @Test
-    fun `状态点的颜色跟着色调走`() {
-        // 点存在的**唯一**理由就是让 Tone 看得见。颜色不跟着变的话，
-        // "已连接"和"会话已断开"在界面上还是一模一样
-        val card = StatusCardView()
-        card.setModel(StatusCardModel(label = "连接", value = "已连接", tone = Tone.Ok, leadingDot = true))
-        val ok = dotOf(card).color()
-
-        card.setModel(
-            StatusCardModel(label = "连接", value = "会话已断开", tone = Tone.Danger, leadingDot = true)
-        )
-        val danger = dotOf(card).color()
-
-        assertNotEquals(ok, danger, "换了色调，点的颜色没变")
-        assertNotEquals(ok, UIUtil.getInactiveTextColor(), "Ok 不该是灰的")
-    }
-
-    /** 点嵌在"值那一行"里面，所以要递归找。 */
-    private fun dotOf(c: Container): ToneDotView {
-        c.components.filterIsInstance<ToneDotView>().firstOrNull()?.let { return it }
+    /** 指示器嵌在它自己那一行里（[indicatorRow]），所以要递归找。 */
+    private fun indicatorOf(c: Container): IndicatorView {
+        c.components.filterIsInstance<IndicatorView>().firstOrNull()?.let { return it }
         for (child in c.components) {
             if (child is Container) {
-                val found = runCatching { dotOf(child) }.getOrNull()
+                val found = runCatching { indicatorOf(child) }.getOrNull()
                 if (found != null) return found
             }
         }
-        error("这棵树里没有状态点")
+        error("这棵树里没有指示器")
+    }
+
+    @Test
+    fun `图标的颜色跟着色调走 —— 三种连接状态就靠它区分`() {
+        // 改版前这是一个前置状态点，现在并进了图标。颜色不跟着变的话，
+        // "已连接""正在载入…""启动失败"在界面上还是一模一样
+        val card = StatusCardView()
+        card.setModel(StatusCardModel(label = "连接", value = "已连接", tone = Tone.Ok))
+        val ok = iconOf(card).color()
+
+        card.setModel(StatusCardModel(label = "连接", value = "会话已断开", tone = Tone.Danger))
+        val danger = iconOf(card).color()
+
+        assertNotEquals(ok, danger, "换了色调，图标的颜色没变")
+        assertNotEquals(ok, UIUtil.getInactiveTextColor(), "Ok 不该是灰的")
+    }
+
+    @Test
+    fun `收边的卡图标也变灰`() {
+        val card = StatusCardView()
+        card.setModel(busy.copy(quiet = true))
+
+        assertEquals(UIUtil.getInactiveTextColor(), iconOf(card).color())
+    }
+
+    @Test
+    fun `图标按构造参数画，不看数据`() {
+        // 模型是"这一刻的数据"，图标是"这一格是什么"，两者寿命不同 ——
+        // 所以图标由构造参数决定，换模型不会换图标
+        val card = StatusCardView(icon = CardIcon.Context)
+        card.setModel(busy)
+
+        assertEquals(CardIcon.Context, iconOf(card).icon)
+    }
+
+    /** 图标嵌在"图标 + 标签"那一行里，所以要递归找。 */
+    private fun iconOf(c: Container): CardIconView {
+        c.components.filterIsInstance<CardIconView>().firstOrNull()?.let { return it }
+        for (child in c.components) {
+            if (child is Container) {
+                val found = runCatching { iconOf(child) }.getOrNull()
+                if (found != null) return found
+            }
+        }
+        error("这棵树里没有图标")
     }
 
     private fun indicatorCount(c: Container): Int {

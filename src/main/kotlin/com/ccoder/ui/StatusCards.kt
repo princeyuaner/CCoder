@@ -42,24 +42,15 @@ internal data class StatusCardModel(
     val label: String,
     val value: String,
     val tone: Tone = Tone.Idle,
+    /**
+     * 副信息（`12.3k / 200k` 这种）。
+     *
+     * 2026-09-14 改版后**不上卡面**，改挂 tooltip —— 卡面从四层收到两行，
+     * 靠的就是把它让出去。搬走不等于弄丢：悬停能看到，详情浮层里也有。
+     */
     val sub: String? = null,
     val indicator: Indicator = Indicator.None,
     val quiet: Boolean = false,
-    /**
-     * 值前面画一个状态点，颜色由 [tone] 决定。
-     *
-     * 连接卡用。**没有它 [Tone] 就是个算了没人用的数** —— 连接卡的指示器是
-     * `None`，不给点的话"已连接/已断开/启动失败"三种状态在界面上长得一模一样。
-     */
-    val leadingDot: Boolean = false,
-    /**
-     * 值用大一号的字。
-     *
-     * 数字（`6%`、`2/4`、`2`）大一号更好扫；而连接卡的值是**词**
-     * （"正在载入…"），大一号会宽到放不下 —— 420px 里每张卡只有
-     * 约 81px，还要减去状态点。
-     */
-    val bigValue: Boolean = true,
 )
 
 /** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
@@ -89,15 +80,25 @@ internal fun connectionTone(status: String): Tone = when (status) {
 /**
  * 连接卡**永远不空闲** —— "未连接"是一种状态，不是"没数据"。
  *
- * 带一个前置状态点：[Tone] 得有东西去画它，否则三种状态长得一模一样。
+ * 色调由 [connectionTone] 决定，界面把它画在**图标**上（2026-09-14 改版：
+ * 原来那个前置状态点并进了图标，四张卡因此统一成"图标 + 标签 / 值"两行）。
  */
 internal fun connectionCardOf(status: String) = StatusCardModel(
     label = "连接",
     value = status,
     tone = connectionTone(status),
-    leadingDot = true,
-    // 值是词不是数字，用普通字号 —— 大一号连"会话已断开"都放不下
-    bigValue = false,
+)
+
+/**
+ * 连接卡在"正在做事"时的样子。
+ *
+ * 色调统一 Warn：与"正在启动…""正在载入…"同一族 —— 它们都是**过渡态**，
+ * 而绿色只留给"已连接"这种安定状态。
+ */
+internal fun activityCardOf(activity: String) = StatusCardModel(
+    label = "连接",
+    value = activity,
+    tone = Tone.Warn,
 )
 
 // ---- 上下文 ----

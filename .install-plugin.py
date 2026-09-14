@@ -62,3 +62,12 @@ print('   plugin.xml 里的版本 :', re.search(r'<version>([^<]+)</version>', x
 for marker in ('tool__head', 'tool__status', 'flex-shrink:0', 'live-think__spin',
                'tool__file', 'tool-file', 'run__head', 'run__file'):
     print('  ', marker, '出现次数 :', html.count(marker))
+
+# 前端标记只看得到 web 侧。Swing 侧的改动（状态卡、打开文件）落在 jar 里的类上，
+# 所以再点名看几个类 —— "装上去没变化"最常见的成因就是装了个旧 jar
+print()
+print('   lib 里这几个类在不在 :')
+for cls in ('com/ccoder/ui/CardIconView.class',
+            'com/ccoder/ui/ActivityKt.class',
+            'com/ccoder/ui/OpenFileTargetKt.class'):
+    print('  ', cls.split('/')[-1], ':', cls in j.namelist())
