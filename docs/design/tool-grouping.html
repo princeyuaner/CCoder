@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 工具调用 · 分组设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   配色与规格与 transcript-tools.html / tool-progress.html 同一套，
+   产品区域严格 420px（工具窗口的真实宽度）。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --diff-add:#1e2f1f; --diff-del:#33222a;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --diff-add:#e7f6e8; --diff-del:#fdeaea;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1560px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 68ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.brief { margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line); border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; background: var(--page-card); }
+.brief h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief b { color: var(--page-fg); }
+.brief ul { margin: 6px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 5px; }
+.brief .keep { display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px; }
+
+.grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px; margin-top: 34px; align-items:start; }
+@media (max-width: 1280px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 22px 20px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 16px; }
+.thesis b { color: var(--page-fg); }
+.thesis code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; }
+.chip { display:inline-flex; align-items:center; gap:6px; padding: 4px 9px; border-radius: 999px; border:1px solid var(--border); background: var(--surface); font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-bottom: 14px; }
+.chip .dot { width:6px; height:6px; border-radius:50%; background: var(--ok); }
+.chip.mid .dot { background: var(--warn); }
+.chip.big .dot { background: var(--danger); }
+.notes { margin: 14px 0 0; padding-left: 18px; color: var(--page-dim); font-size: 12.5px; }
+.notes li { margin-bottom: 5px; }
+.notes b { color: var(--page-fg); }
+
+/* ============================================================
+   模拟工具窗口 —— 420px 是真实宽度。好看没用，得在这一栏里活。
+   ============================================================ */
+.tw {
+  position: relative; width: 420px; max-width: 100%;
+  background: var(--panel); border:1px solid var(--border); border-radius: 8px;
+  overflow: hidden; display:flex; flex-direction:column;
+}
+.tw::before, .tw::after {
+  content:''; position:absolute; width:7px; height:7px; pointer-events:none;
+  border-color: var(--page-dim); opacity:.5;
+}
+.tw::before { top:5px; left:5px; border-left:1px solid; border-top:1px solid; }
+.tw::after { bottom:5px; right:5px; border-right:1px solid; border-bottom:1px solid; }
+.tw-bar { display:flex; align-items:center; gap:7px; padding: 6px 10px; background: var(--surface); border-bottom:1px solid var(--border); font-size: 11.5px; color: var(--dim); }
+.tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
+.tw-bar .sp { margin-left:auto; }
+.status-row { display:flex; align-items:center; gap:8px; padding: 7px 10px; border-bottom:1px solid var(--border-soft); font-size: 12px; }
+.sess { display:flex; align-items:center; gap:5px; min-width:0; padding: 2px 6px; border-radius: 5px; color: var(--text); font-size: 12px; }
+.sess .caret { color: var(--dim); font-size: 9px; flex:0 0 auto; }
+.ib { display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; flex:0 0 auto; color: var(--dim); font-size:15px; line-height:1; margin-left:auto; border:1px solid transparent; }
+
+.tr { padding: 12px 12px 14px; background: var(--editor); display:flex; flex-direction:column; gap:9px; }
+.bub { border-radius: 9px; padding: 7px 10px; font-size: 12px; line-height:1.5; }
+.bub.u { align-self:flex-end; background: var(--accent-soft); color: var(--text); max-width: 82%; }
+.bub.a { align-self:flex-start; background: var(--surface); border:1px solid var(--border); color: var(--text); max-width: 92%; }
+.ent { display:flex; align-items:flex-end; gap:6px; }
+.ent.right { justify-content:flex-end; }
+.ts { font-family: var(--mono); font-size: 9.5px; color: var(--dim); flex:0 0 auto; padding-bottom:3px; }
+
+.bottom { border-top:1px solid var(--border-soft); padding: 7px 8px 8px; background: var(--panel); }
+.comp { border:1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 8px 10px; }
+.comp .ph { color: var(--dim); font-size: 12px; }
+.comp .bar { display:flex; align-items:center; gap:9px; margin-top: 8px; padding-top: 7px; border-top:1px solid var(--border-soft); }
+.comp .bar .m { font-size: 10.5px; color: var(--dim); font-family: var(--mono); }
+.comp .bar .m.on { color: var(--accent); }
+.comp .bar .r { margin-left:auto; width: 22px; height:22px; border-radius:6px; background: var(--accent); }
+
+/* ============================================================
+   新东西：把连着的一串工具调用并成一张卡
+   ============================================================ */
+
+/* 通用零件（沿用产品里已有的语言）*/
+.tb { display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:4px; background: var(--code); border:1px solid var(--border); font-family: var(--mono); font-size:9px; color: var(--dim); flex:0 0 auto; }
+.meta { font-family: var(--mono); font-size:10px; color: var(--dim); flex:0 0 auto; }
+.meta.ok { color: var(--ok); }
+.meta.add { color: var(--ok); }
+.meta.del { color: var(--danger); }
+.g { color: var(--ok); }
+.spin { display:inline-block; width:9px; height:9px; border-radius:50%; border:1.5px solid var(--border); border-top-color: var(--accent); }
+.badge { display:inline-flex; align-items:center; gap:4px; padding: 1px 6px; border-radius: 4px; font-family: var(--mono); font-size: 9.5px; border:1px solid var(--border); color: var(--dim); }
+.badge.err { color: var(--danger); border-color: var(--danger); }
+.badge.live { color: var(--accent); border-color: var(--accent); }
+
+/* 文件名 chip：可点，点了在编辑器里打开（复用 openFile） */
+.fchip { display:inline-flex; align-items:center; gap:4px; padding: 1px 6px; border-radius: 4px; font-family: var(--mono); font-size: 10px; color: var(--text); background: var(--code); border:1px solid var(--border-soft); white-space:nowrap; }
+.fchip .u { color: var(--dim); }
+
+/* ---- 甲 / 乙 共用的组卡壳 ---- */
+.grp { border:1px solid var(--border); border-radius:7px; background: var(--surface); overflow:hidden; }
+.grp--err { border-color: var(--danger); }
+.grp__head { display:flex; align-items:center; gap:6px; padding: 5px 8px; min-width:0; }
+.grp__head .cav { font-family: var(--mono); font-size:9px; color: var(--dim); flex:0 0 auto; width:8px; }
+.grp__head .ttl { font-size:11.5px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.grp__head .ttl .n { font-family: var(--mono); }
+.grp__head .sp { margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:6px; }
+.grp__files { display:flex; align-items:center; gap:4px; padding: 0 8px 6px; overflow:hidden; }
+.grp__files .lbl { font-family: var(--mono); font-size:9.5px; color: var(--dim); flex:0 0 auto; }
+.grp__body { border-top:1px solid var(--border-soft); padding: 7px 8px 8px; display:flex; flex-direction:column; gap:7px; }
+.grp__body .ind { border-left:2px solid var(--border-soft); padding-left: 7px; display:flex; flex-direction:column; gap:7px; }
+
+/* 组内的一张卡（甲：还是现有的盒子，只是缩进一级） */
+.tbox { border:1px solid var(--border-soft); border-radius:7px; background: var(--surface); overflow:hidden; }
+.tbox > .hd { display:flex; align-items:center; gap:6px; padding: 5px 7px; min-width:0; }
+.tbox .cav { font-family: var(--mono); font-size:9px; color: var(--dim); flex:0 0 auto; width:8px; }
+.tbox .w1 { font-family: var(--mono); font-size:11px; color: var(--dim); flex:0 0 auto; }
+.tbox .w2 { font-family: var(--mono); font-size:11px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.tbox .st { margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:5px; }
+.tbody { border-top:1px solid var(--border-soft); padding: 6px 8px 8px; }
+.cmdline { font-family: var(--mono); font-size: 10.5px; color: var(--text); background: var(--code); border-radius: 5px; padding: 4px 7px; white-space:pre; overflow-x:auto; }
+.cmdline .p { color: var(--dim); }
+.diff { font-family: var(--mono); font-size: 10px; line-height:1.55; border:1px solid var(--border-soft); border-radius: 6px; overflow:hidden; margin-top: 6px; }
+.diff .l { padding: 0 8px; white-space:pre; }
+.diff .del { background: var(--diff-del); }
+.diff .add { background: var(--diff-add); }
+.out { font-family: var(--mono); font-size: 10.5px; line-height:1.5; color: var(--dim); margin:6px 0 0; padding: 5px 8px 6px; background: var(--code); border-radius: 6px; white-space:pre; }
+.out .hl { color: var(--text); }
+
+/* 乙：组内一行一个调用（展开后不再用盒子） */
+.row { display:flex; align-items:center; gap:6px; padding: 3px 6px; border-radius: 5px; min-width:0; }
+.row.hov { background: var(--hover); }
+.row .w1 { font-family: var(--mono); font-size:11px; color: var(--dim); flex:0 0 auto; width: 38px; }
+.row .w2 { font-family: var(--mono); font-size:11px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.row .st { margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:5px; }
+.rowdet { margin: 2px 0 4px 44px; }
+
+/* 丙：按动作分块 */
+.kind { display:flex; flex-direction:column; gap:5px; }
+.kind__h { display:flex; align-items:center; gap:6px; font-family: var(--mono); font-size:9.5px; letter-spacing:.08em; color: var(--dim); text-transform:uppercase; }
+.kind__h .ln { flex:1 1 auto; height:1px; background: var(--border-soft); }
+.kind__b { display:flex; flex-direction:column; gap:4px; padding-left: 2px; }
+.kitem { display:flex; align-items:center; gap:6px; min-width:0; }
+.kitem .w2 { font-family: var(--mono); font-size:11px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.kitem .st { margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:5px; }
+
+/* ---- 现状对照（前提区里那一条）---- */
+.now { background: var(--editor); border:1px solid var(--border); border-radius: 7px; padding: 9px; display:flex; flex-direction:column; gap:5px; }
+.now .trow { display:flex; align-items:center; gap:6px; padding: 4px 6px; border-radius: 6px; border:1px solid var(--border-soft); background: var(--surface); min-width:0; }
+.now .trow .w1 { font-family: var(--mono); font-size:11px; color: var(--dim); flex:0 0 auto; }
+.now .trow .w2 { font-family: var(--mono); font-size:11px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.now .fade { position:relative; }
+.now .fade::after { content:''; position:absolute; inset:auto 0 0 0; height:34px; background: linear-gradient(transparent, var(--editor)); }
+
+/* ---- 细节对比区 ---- */
+.pair { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-top: 26px; }
+.mini { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.mini .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing:.12em; text-transform:uppercase; color: var(--page-dim); margin-bottom: 10px; }
+.mini .ex { background: var(--editor); border:1px solid var(--border); border-radius: 7px; padding: 9px 10px; }
+.mini p { color: var(--page-dim); font-size: 12.5px; margin: 10px 0 0; }
+.mini p b { color: var(--page-fg); }
+
+table.cmp { width:100%; border-collapse: collapse; margin-top: 18px; font-size: 12.5px; }
+table.cmp th, table.cmp td { text-align:left; padding: 9px 10px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+table.cmp th { color: var(--page-dim); font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:500; }
+table.cmp td { color: var(--page-dim); }
+table.cmp td:first-child { color: var(--text); white-space:nowrap; }
+table.cmp code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+table.cmp .no { color: var(--danger); }
+table.cmp .yes { color: var(--ok); }
+
+.verdict { margin-top: 46px; padding: 26px 28px; border:1px solid var(--page-line); border-radius: 14px; background: var(--page-card); border-left: 3px solid var(--ok); }
+.verdict h2 { font-family: var(--serif); font-size: 25px; margin: 0 0 12px; }
+.verdict p { color: var(--page-dim); margin: 0 0 10px; max-width: 80ch; }
+.verdict b { color: var(--page-fg); }
+.verdict code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.ask { margin-top: 16px; display:grid; gap: 10px; }
+.askrow { display:flex; gap:10px; align-items:flex-start; padding: 11px 13px; border:1px solid var(--page-line); border-radius: 9px; background: var(--page-bg); }
+.askrow .k { font-family: var(--mono); font-size: 11px; color: var(--accent); flex: 0 0 auto; padding-top: 2px; }
+.askrow .q { color: var(--page-dim); font-size: 13px; }
+.askrow .q b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 转写区 · 2026-09-14</p>
+      <h1>连着的工具调用，并成一张卡</h1>
+      <p class="lede">
+        你原话是「很多连着的 bash、read、write，是不是可以把他们放一起做成一个卡片，这样没那么乱」。
+        这一页就是同一段真实调用（8 次）在三种分组画法下的样子 —— 带 ▸ 的地方是真能点的。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button type="button" data-theme-set="dark" aria-pressed="true">暗</button>
+      <button type="button" data-theme-set="light" aria-pressed="false">亮</button>
+    </div>
+  </header>
+
+  <!-- ===================== 前提 ===================== -->
+  <section class="brief">
+    <h3>前提：现在的样子，以及三个字不能碰的东西</h3>
+    <p>
+      今天是一次调用一张卡。一次「读代码 → 改两个文件 → 跑测试」的回合就是 8 张卡，
+      一屏放不下，而且它们**本来就是一件事**：
+    </p>
+    <div class="now" style="width:420px">
+      <div class="trow"><span class="tb">B</span><span class="w1">Bash</span><span class="w2">git log --oneline -12</span><span class="meta">✓ 0.4s</span></div>
+      <div class="trow"><span class="tb">R</span><span class="w1">Read</span><span class="w2">ToolCallBlock.tsx</span><span class="meta">✓</span></div>
+      <div class="trow"><span class="tb">G</span><span class="w1">Grep</span><span class="w2">"toolTitle"</span><span class="meta">8 处</span></div>
+      <div class="trow"><span class="tb">R</span><span class="w1">Read</span><span class="w2">tools.ts</span><span class="meta">✓</span></div>
+      <div class="trow"><span class="tb">E</span><span class="w1">Edit</span><span class="w2">tools.ts</span><span class="meta add">+18</span><span class="meta del">−3</span></div>
+      <div class="trow"><span class="tb">B</span><span class="w1">Bash</span><span class="w2">npx vitest run src/tools.test.ts</span><span class="meta ok">✓ 3.1s</span></div>
+      <div class="fade">
+        <div class="trow"><span class="tb">R</span><span class="w1">Read</span><span class="w2">ToolCallBlock.test.tsx</span><span class="meta">✓</span></div>
+        <div class="trow" style="margin-top:5px"><span class="tb">E</span><span class="w1">Edit</span><span class="w2">ToolCallBlock.test.tsx</span><span class="meta add">+34</span></div>
+      </div>
+    </div>
+    <p style="margin-top:14px">
+      <b>三个方案都不碰的既有规矩</b>（上一版设计稿定的，用户点名要保留）：
+    </p>
+    <div class="keep">
+      <span class="badge ok">折叠只有一层</span>
+      <span class="badge ok">失败自动展开</span>
+      <span class="badge ok">输出 14 行封顶</span>
+      <span class="badge ok">卡面只留一行摘要</span>
+      <span class="badge ok">文件名可点 → 编辑器打开</span>
+    </div>
+    <p style="margin-top:12px">
+      另外三件事只有「分组」才会遇到，三个方案都得给答案，我在下面逐个标了：
+      <b>什么样的相邻算一组</b>、<b>跑着的那一组长什么样</b>、<b>组里的失败怎么办</b>。
+    </p>
+  </section>
+
+  <!-- ===================== 三个方案 ===================== -->
+  <div class="grid">
+
+    <!-- ---------- 甲 ---------- -->
+    <article class="card" id="jia">
+      <p class="tag">方案 甲</p>
+      <h2>归堆</h2>
+      <p class="thesis">
+        相邻的两张以上卡片收进一张<b>组卡</b>，卡面一句摘要；点开<b>还是原来那些卡片</b>，
+        只是缩进一级。改的是「怎么摆」，不是「长什么样」。
+      </p>
+      <span class="chip"><i class="dot"></i>纯前端 · 不动协议</span>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+        <div class="status-row">
+          <span class="sess">把连着的工具调用并成一张卡 <span class="caret">▾</span></span>
+          <span class="ib">＋</span>
+        </div>
+        <div class="tr">
+          <div class="ent"><div class="bub a">我先看一眼现有实现，再动手改。</div><span class="ts">15:02</span></div>
+
+          <!-- 组卡（展开态） -->
+          <div class="grp">
+            <div class="grp__head">
+              <span class="cav">▾</span>
+              <span class="ttl"><span class="n">6</span> 次工具调用 · 读 2 · 改 2 · 跑 2</span>
+              <span class="sp"><span class="meta ok">✓ 9.4s</span><span class="badge">6/6</span></span>
+            </div>
+            <div class="grp__files">
+              <span class="lbl">涉及</span>
+              <span class="fchip">tools.ts <span class="u">+18 −3</span></span>
+              <span class="fchip">ToolCallBlock.test.tsx <span class="u">+34</span></span>
+            </div>
+            <div class="grp__body">
+              <div class="ind">
+                <div class="tbox">
+                  <div class="hd"><span class="cav">▸</span><span class="tb">B</span><span class="w1">Bash</span><span class="w2">查最近 12 条提交</span><span class="st"><span class="meta">✓ 0.4s</span></span></div>
+                </div>
+                <div class="tbox">
+                  <div class="hd"><span class="cav">▸</span><span class="tb">R</span><span class="w1">Read</span><span class="w2">ToolCallBlock.tsx</span><span class="st"><span class="meta">✓ 0.1s</span></span></div>
+                </div>
+                <div class="tbox">
+                  <!-- 展开的一张：diff 还是老样子 -->
+                  <div class="hd"><span class="cav">▾</span><span class="tb">E</span><span class="w1">Edit</span><span class="w2">tools.ts</span><span class="st"><span class="meta add">+18</span><span class="meta del">−3</span></span></div>
+                  <div class="tbody">
+                    <div class="diff">
+                      <div class="l del">−  if (command) return firstLine(command)</div>
+                      <div class="l add">+  const summary = str(args.description)</div>
+                      <div class="l add">+  if (summary) return firstLine(summary)</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="tbox">
+                  <div class="hd"><span class="cav">▸</span><span class="tb">B</span><span class="w1">Bash</span><span class="w2">跑 tools 单测</span><span class="st"><span class="meta ok">✓ 3.1s</span></span></div>
+                </div>
+                <div class="tbox">
+                  <div class="hd"><span class="cav">▸</span><span class="tb">R</span><span class="w1">Read</span><span class="w2">ToolCallBlock.test.tsx</span><span class="st"><span class="meta">✓ 0.1s</span></span></div>
+                </div>
+                <div class="tbox">
+                  <div class="hd"><span class="cav">▸</span><span class="tb">E</span><span class="w1">Edit</span><span class="w2">ToolCallBlock.test.tsx</span><span class="st"><span class="meta add">+34</span></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ent"><div class="bub a">改完了，跑一遍全量。</div><span class="ts">15:03</span></div>
+
+          <!-- 收起态：一屏能扫过好几组 -->
+          <div class="grp">
+            <div class="grp__head">
+              <span class="cav">▸</span>
+              <span class="ttl"><span class="n">3</span> 次工具调用 · 跑 3</span>
+              <span class="sp"><span class="meta ok">✓ 12.6s</span></span>
+            </div>
+            <div class="grp__files">
+              <span class="lbl">涉及</span>
+              <span class="fchip">tools.test.ts <span class="u">✓ 30</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="bottom"><div class="comp"><div class="ph">问点什么…</div><div class="bar"><span class="m">默认</span><span class="m">自动</span><span class="m on">⚡ 高</span><span class="r"></span></div></div></div>
+      </div>
+
+      <ul class="notes">
+        <li><b>什么样的相邻算一组</b>：两张以上<b>紧挨着</b>的调用就归一堆；中间的 assistant 文字、你的提问都会把组切断。</li>
+        <li><b>跑着的时候</b>：组头转圈并写着「第 3 / 6」，整组默认展开；跑完<b>不自动收</b>（自动收会跳）。重开会话回放时组是收着的。</li>
+        <li><b>组里的失败</b>：组头标红 + 写着「含 1 处失败」，只把那<b>一张</b>失败的卡自动展开 —— 不把整组炸开。</li>
+        <li><b>代价最小</b>：新组件只负责"摆"，现有的卡片、diff、输出、状态位一行都不改，测试面也小。</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 乙 ---------- -->
+    <article class="card" id="yi">
+      <p class="tag">方案 乙</p>
+      <h2>工序条</h2>
+      <p class="thesis">
+        组卡一样，但点开之后<b>不再是盒子</b>，而是一列紧凑的行（一行一次调用），
+        要看 diff / 输出就单独展开那一行。八次调用展开也只有八行高。
+      </p>
+      <span class="chip mid"><i class="dot"></i>纯前端 · 多一层点击</span>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+        <div class="status-row">
+          <span class="sess">把连着的工具调用并成一张卡 <span class="caret">▾</span></span>
+          <span class="ib">＋</span>
+        </div>
+        <div class="tr">
+          <div class="ent"><div class="bub a">我先看一眼现有实现，再动手改。</div><span class="ts">15:02</span></div>
+
+          <div class="grp">
+            <div class="grp__head">
+              <span class="cav">▾</span>
+              <span class="ttl"><span class="n">6</span> 次工具调用 · 读 2 · 改 2 · 跑 2</span>
+              <span class="sp"><span class="meta ok">✓ 9.4s</span></span>
+            </div>
+            <div class="grp__files">
+              <span class="lbl">涉及</span>
+              <span class="fchip">tools.ts <span class="u">+18 −3</span></span>
+              <span class="fchip">ToolCallBlock.test.tsx <span class="u">+34</span></span>
+            </div>
+            <div class="grp__body">
+              <div class="row"><span class="tb">B</span><span class="w1">Bash</span><span class="w2">查最近 12 条提交</span><span class="st"><span class="meta">0.4s</span></span></div>
+              <div class="row"><span class="tb">R</span><span class="w1">Read</span><span class="w2">ToolCallBlock.tsx</span><span class="st"><span class="meta">0.1s</span></span></div>
+              <!-- 一行展开的样子 -->
+              <div class="row hov"><span class="tb">E</span><span class="w1">Edit</span><span class="w2">tools.ts</span><span class="st"><span class="meta add">+18</span><span class="meta del">−3</span><span class="meta">▾</span></span></div>
+              <div class="rowdet">
+                <div class="diff">
+                  <div class="l del">−  if (command) return firstLine(command)</div>
+                  <div class="l add">+  const summary = str(args.description)</div>
+                  <div class="l add">+  if (summary) return firstLine(summary)</div>
+                </div>
+              </div>
+              <div class="row"><span class="tb">B</span><span class="w1">Bash</span><span class="w2">跑 tools 单测</span><span class="st"><span class="meta ok">3.1s</span></span></div>
+              <div class="row"><span class="tb">R</span><span class="w1">Read</span><span class="w2">ToolCallBlock.test.tsx</span><span class="st"><span class="meta">0.1s</span></span></div>
+              <div class="row"><span class="tb">E</span><span class="w1">Edit</span><span class="w2">ToolCallBlock.test.tsx</span><span class="st"><span class="meta add">+34</span></span></div>
+            </div>
+          </div>
+
+          <div class="ent"><div class="bub a">改完了，跑一遍全量。</div><span class="ts">15:03</span></div>
+          <div class="grp">
+            <div class="grp__head">
+              <span class="cav">▸</span>
+              <span class="ttl"><span class="n">3</span> 次工具调用 · 跑 3</span>
+              <span class="sp"><span class="meta ok">✓ 12.6s</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="bottom"><div class="comp"><div class="ph">问点什么…</div><div class="bar"><span class="m">默认</span><span class="m">自动</span><span class="m on">⚡ 高</span><span class="r"></span></div></div></div>
+      </div>
+
+      <ul class="notes">
+        <li><b>最省地方</b>：一屏能放下现在两屏的量；扫一眼"这轮到底跑了什么"最快。</li>
+        <li><b>代价</b>：diff、命令全文、输出都多了一层点击 —— 现在点开卡片就全铺开，这里得再点一次那一行。</li>
+        <li><b>跑着的时候</b>：和甲一样，只是"第 3 / 6"那行自己会亮。</li>
+        <li><b>组里的失败</b>：那一行标红并自动展开它的输出 —— 比甲更自然，因为行本身就是一次调用。</li>
+      </ul>
+    </article>
+
+    <!-- ---------- 丙 ---------- -->
+    <article class="card" id="bing">
+      <p class="tag">方案 丙</p>
+      <h2>三段式</h2>
+      <p class="thesis">
+        不按"谁挨着谁"，按<b>动作类型</b>分：这段里所有读是一个小节、所有改是一个小节、
+        所有跑是一个小节。卡面就是一句话：<code>读 3 · 改 2 · 跑 3</code>。
+      </p>
+      <span class="chip big"><i class="dot"></i>会打乱顺序 · 需要分类表</span>
+
+      <div class="tw">
+        <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+        <div class="status-row">
+          <span class="sess">把连着的工具调用并成一张卡 <span class="caret">▾</span></span>
+          <span class="ib">＋</span>
+        </div>
+        <div class="tr">
+          <div class="ent"><div class="bub a">我先看一眼现有实现，再动手改。</div><span class="ts">15:02</span></div>
+
+          <div class="grp">
+            <div class="grp__head">
+              <span class="cav">▾</span>
+              <span class="ttl">这一轮 · <span class="n">读 3 · 改 2 · 跑 3</span></span>
+              <span class="sp"><span class="meta ok">✓ 22.0s</span><span class="meta add">+55</span><span class="meta del">−3</span></span>
+            </div>
+            <div class="grp__body">
+              <div class="kind">
+                <div class="kind__h">读 <span class="ln"></span> 3</div>
+                <div class="kind__b">
+                  <div class="kitem"><span class="tb">R</span><span class="fchip">ToolCallBlock.tsx</span><span class="st"><span class="meta">1 次</span></span></div>
+                  <div class="kitem"><span class="tb">R</span><span class="fchip">tools.ts</span><span class="st"><span class="meta">1 次</span></span></div>
+                  <div class="kitem"><span class="tb">G</span><span class="w2">"toolTitle"</span><span class="st"><span class="meta">8 处命中</span></span></div>
+                </div>
+              </div>
+              <div class="kind">
+                <div class="kind__h">改 <span class="ln"></span> 2</div>
+                <div class="kind__b">
+                  <div class="kitem"><span class="tb">E</span><span class="fchip">tools.ts</span><span class="st"><span class="meta add">+18</span><span class="meta del">−3</span></span></div>
+                  <div class="kitem"><span class="tb">E</span><span class="fchip">ToolCallBlock.test.tsx</span><span class="st"><span class="meta add">+34</span></span></div>
+                </div>
+              </div>
+              <div class="kind">
+                <div class="kind__h">跑 <span class="ln"></span> 3</div>
+                <div class="kind__b">
+                  <div class="kitem"><span class="tb">B</span><span class="w2">查最近 12 条提交</span><span class="st"><span class="meta">0.4s</span></span></div>
+                  <div class="kitem"><span class="tb">B</span><span class="w2">跑 tools 单测</span><span class="st"><span class="meta ok">3.1s ✓ 30</span></span></div>
+                  <div class="kitem"><span class="tb">B</span><span class="w2">跑全量单测</span><span class="st"><span class="meta ok">18.5s ✓</span></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ent"><div class="bub a">改完了，跑一遍全量。</div><span class="ts">15:03</span></div>
+        </div>
+        <div class="bottom"><div class="comp"><div class="ph">问点什么…</div><div class="bar"><span class="m">默认</span><span class="m">自动</span><span class="m on">⚡ 高</span><span class="r"></span></div></div></div>
+      </div>
+
+      <ul class="notes">
+        <li><b>信息密度最高</b>：「这轮读了哪些文件、改了哪些、跑了什么」一眼扫完，文件还能直接点开。</li>
+        <li><b>顺序会丢</b>：本来是"读 → 改 → 跑 → 又读 → 又改"，按类型一摆就成了"读 3、改 2、跑 3"。
+          排查问题时"先跑的还是先改的"往往正是关键。</li>
+        <li><b>要一张分类表</b>：Read/Grep/Glob 算读，Edit/Write 算改，Bash 算跑 —— 那 MCP 工具、Agent、WebFetch 算哪一类？
+          每次新工具都要回来补表，而且分错类用户一眼就看得出来。</li>
+        <li><b>跑着的时候</b>：三个小节里哪个是"当前"就亮哪个，比甲/乙更能说明"现在在干嘛"。</li>
+      </ul>
+    </article>
+
+  </div>
+
+  <!-- ===================== 细节对比 ===================== -->
+  <h2 style="font-family:var(--serif);font-size:25px;margin:52px 0 0">三个方案都得回答的四个细节</h2>
+  <div class="pair">
+
+    <div class="mini">
+      <div class="lbl">① 正在跑（甲/乙）</div>
+      <div class="ex">
+        <div class="grp">
+          <div class="grp__head">
+            <span class="cav">▾</span>
+            <span class="ttl">第 <span class="n">3 / 6</span> 次 · 正在跑</span>
+            <span class="sp"><span class="spin"></span><span class="meta">4s</span></span>
+          </div>
+          <div class="grp__body">
+            <div class="row hov"><span class="tb">E</span><span class="w1">Edit</span><span class="w2">tools.ts</span><span class="st"><span class="spin"></span></span></div>
+          </div>
+        </div>
+      </div>
+      <p><b>跑着的组默认展开</b>，组头写「第 3 / 6」而不是写死总数 —— 否则串行来回切时会闪。
+        跑完<b>不自动收</b>：收起来会跳，而人正好在看。</p>
+    </div>
+
+    <div class="mini">
+      <div class="lbl">② 只有一次调用</div>
+      <div class="ex">
+        <div class="grp">
+          <div class="grp__head">
+            <span class="cav">▸</span>
+            <span class="ttl"><span class="n">1</span> 次工具调用 · 跑 1</span>
+            <span class="sp"><span class="meta ok">✓ 0.4s</span></span>
+          </div>
+        </div>
+      </div>
+      <p><b>一次调用也归堆吗？</b>我建议<b>不</b>：一张组卡比一张卡片多占一行、还多一次点击，
+        信息却一模一样。阈值定在 <code>≥ 2</code>，孤零零那次就照旧画成一张卡。</p>
+    </div>
+
+    <div class="mini">
+      <div class="lbl">③ 组里有失败（甲）</div>
+      <div class="ex">
+        <div class="grp grp--err">
+          <div class="grp__head">
+            <span class="cav">▾</span>
+            <span class="ttl"><span class="n">4</span> 次工具调用 · 跑 4</span>
+            <span class="sp"><span class="badge err">含 1 处失败</span><span class="meta">3.6s</span></span>
+          </div>
+          <div class="grp__body">
+            <div class="ind">
+              <div class="tbox">
+                <div class="hd"><span class="cav">▾</span><span class="tb">B</span><span class="w1">Bash</span><span class="w2">跑 tools 单测</span><span class="st"><span class="badge err">失败</span></span></div>
+                <div class="tbody"><pre class="out">2 failed | 28 passed
+<span class="hl">✗ Bash 卡面只留摘要，整条命令留到展开体</span></pre></div>
+              </div>
+              <div class="tbox"><div class="hd"><span class="cav">▸</span><span class="tb">B</span><span class="w1">Bash</span><span class="w2">跑全量单测</span><span class="st"><span class="meta ok">✓</span></span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p>组头标红 + 「含 1 处失败」，只把那<b>一张</b>展开 —— 失败要立刻看得见，但把整组炸开等于退回现状。</p>
+    </div>
+
+    <div class="mini">
+      <div class="lbl">④ 卡面上的文件是能点的</div>
+      <div class="ex">
+        <div class="grp__files" style="padding:0">
+          <span class="lbl">涉及</span>
+          <span class="fchip" style="border-color:var(--accent)">tools.ts <span class="u">+18 −3</span></span>
+          <span class="fchip">OpenFileTarget.kt <span class="u">+120</span></span>
+        </div>
+      </div>
+      <p>组卡上把<b>涉及的文件</b>列成可点 chip（点一下在编辑器里打开，就是上周刚接好的那条桥）——
+        这样"这轮改了什么"不用展开也知道，也不必再翻八张卡去找那个文件名。</p>
+    </div>
+
+  </div>
+
+  <!-- ===================== 代价表 ===================== -->
+  <table class="cmp">
+    <thead>
+      <tr><th>比什么</th><th>甲 · 归堆</th><th>乙 · 工序条</th><th>丙 · 三段式</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>一屏能扫几组</td>
+        <td>收起时和丙一样高</td>
+        <td class="yes">最紧凑（展开也只有八行）</td>
+        <td>收起时和甲一样高</td>
+      </tr>
+      <tr>
+        <td>看 diff / 输出要点几下</td>
+        <td class="yes">点开组就铺开（和现在一样，两下）</td>
+        <td class="no">三下（组 → 行 → 看）</td>
+        <td class="no">三下</td>
+      </tr>
+      <tr>
+        <td>执行顺序</td>
+        <td class="yes">原样保留</td>
+        <td class="yes">原样保留</td>
+        <td class="no">按类型重排，顺序信息丢失</td>
+      </tr>
+      <tr>
+        <td>新增要维护的东西</td>
+        <td class="yes">一个分组函数 + 一层壳</td>
+        <td>分组函数 + 一层壳 + 新的"行"组件</td>
+        <td>分组函数 + 分类表 + 三个小节</td>
+      </tr>
+      <tr>
+        <td>动了哪些既有代码</td>
+        <td class="yes">只动 <code>Transcript.tsx</code> 的渲染</td>
+        <td>同上 + 卡片内部分成"行/详情"两段</td>
+        <td>同上 + 要认工具语义</td>
+      </tr>
+      <tr>
+        <td>以后加新工具时</td>
+        <td class="yes">自动跟着走</td>
+        <td class="yes">自动跟着走</td>
+        <td class="no">要去补分类表</td>
+      </tr>
+      <tr>
+        <td>回放旧会话</td>
+        <td class="yes">老会话也自动成组</td>
+        <td class="yes">同左</td>
+        <td>老会话也成组，但顺序被重排</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ===================== 我怎么看 ===================== -->
+  <section class="verdict">
+    <h2>我怎么看</h2>
+    <p>
+      <b>甲最稳</b>：只加"怎么摆"的一层，现有的卡、diff、输出、状态位一行不改，
+      失败自动展开、输出 14 行封顶这些已经调好的手感全都原样保留。你抱怨的"乱"它已经解决 —— 八张卡变一张。
+    </p>
+    <p>
+      <b>乙更极致</b>：如果嫌甲展开后还是"一叠盒子"，它值得多花的那层点击。
+      代价是 diff 和输出从此藏在第二层 —— 而你上一版刚刚才为"点开就该看到详情"把自动展开加回来的。
+    </p>
+    <p>
+      <b>丙我建议先不做</b>：它更像"任务摘要"，不像转写区。执行顺序被按类型重排之后，
+      "先跑失败还是改完才失败"这类问题就答不出来了 —— 而那正是人翻转写区的原因。
+    </p>
+    <div class="ask">
+      <div class="askrow"><span class="k">01</span><span class="q">选哪个：<b>甲</b> / <b>乙</b> / <b>丙</b>（或者「甲 + 乙的紧凑行」这类混搭，说一声我照着画）</span></div>
+      <div class="askrow"><span class="k">02</span><span class="q">阈值：一张卡<b>也归堆</b>吗？我建议不（<code>≥ 2</code> 才成组）</span></div>
+      <div class="askrow"><span class="k">03</span><span class="q">跑完要不要<b>自动收起</b>？我建议不（会跳），但可以让"下一组开始时"顺手把上一组收掉</span></div>
+      <div class="askrow"><span class="k">04</span><span class="q">组卡上要不要那行<b>可点文件 chip</b>？我建议要 —— 它把"这轮改了啥"提到了不展开就能看见的地方</span></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// 主题切换（展示用）
+document.querySelectorAll('[data-theme-set]').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.themeSet
+    document.querySelectorAll('[data-theme-set]').forEach((x) => {
+      x.setAttribute('aria-pressed', String(x === b))
+    })
+  })
+})
+</script>
+</body>
+</html>

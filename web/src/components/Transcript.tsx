@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
+import { groupRows } from '../grouping'
 import { AssistantBubble } from './AssistantBubble'
 import { ErrorBubble } from './ErrorBubble'
 import { Markdown } from './Markdown'
@@ -8,6 +9,7 @@ import { StreamingCursor } from './StreamingCursor'
 import { SystemNote } from './SystemNote'
 import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ToolRunCard } from './ToolRunCard'
 import { UserBubble } from './UserBubble'
 
 function Timestamp({ ts }: { ts: number }) {
@@ -138,6 +140,10 @@ export function Transcript({ state }: { state: TranscriptState }) {
     return ended
   }, [state.items, resultsByToolUseId])
 
+  // 连着的工具调用并成一组再画（设计稿 tool-grouping.html 方案甲）。
+  // 分组是纯函数、只认 items 的顺序，所以流式过程中每来一条重算一次也不贵
+  const rows = useMemo(() => groupRows(state.items), [state.items])
+
   const scrollerRef = useRef<HTMLDivElement>(null)
   // 跟随意图的同步读版本。scroll 事件处理器必须在同一次事件里读到最新值，
   // 而 state 要等下一次渲染才更新 —— 只读 state 会读到上一轮的旧值。
@@ -206,9 +212,24 @@ export function Transcript({ state }: { state: TranscriptState }) {
         ref={scrollerRef}
         onScroll={handleScroll}
       >
-        {state.items.map((item) => (
-          <Item key={item.id} item={item} results={resultsByToolUseId} ended={endedToolUseIds} />
-        ))}
+        {rows.map((row) =>
+          row.kind === 'run' ? (
+            // key 取组里第一次调用的 id：组的身份就是"这一串"，它只会被追加
+            <ToolRunCard
+              key={row.uses[0].id}
+              uses={row.uses}
+              results={resultsByToolUseId}
+              ended={endedToolUseIds}
+            />
+          ) : (
+            <Item
+              key={row.item.id}
+              item={row.item}
+              results={resultsByToolUseId}
+              ended={endedToolUseIds}
+            />
+          ),
+        )}
         {/* 思考在正文之前 —— 与 SDK 给的块顺序一致 */}
         {liveThinking !== undefined && <LiveThinkingBlock text={liveThinking} />}
         {liveText !== undefined && (

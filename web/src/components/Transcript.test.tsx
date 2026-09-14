@@ -129,6 +129,11 @@ describe('Transcript', () => {
       />,
     )
 
+    // 两条调用会被并成一组（设计稿 tool-grouping.html 方案甲），先展开组。
+    // 组头是此刻唯一还收着的那个按钮 —— 它之后的两个卡片也带 aria-expanded，
+    // 但那要等组展开之后才在文档里
+    await user.click(screen.getByRole('button', { expanded: false }))
+
     // 第一条（toolu_1）没有结果：展开后不能把别人的输出挂上来
     await user.click(screen.getAllByRole('button', { expanded: false })[0])
     expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
