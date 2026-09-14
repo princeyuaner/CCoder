@@ -58,6 +58,24 @@ class ProfileEnvMergeTest {
     fun `没有冲突时不报任何键`() {
         assertEquals(emptyList<String>(), conflictingEnvKeys(mapOf("MY_VAR" to "1")))
     }
+
+    @Test
+    fun `路由变量也算会和模型配置抢的键`() {
+        // 选中第三方配置时别名会被指到配置的 modelId，手填的值同样被盖掉 ——
+        // 不报出来的话，用户会对着一个"改了却不生效"的 SMALL_FAST 发懵
+        val keys = conflictingEnvKeys(
+            mapOf(
+                "MY_VAR" to "1",
+                "ANTHROPIC_SMALL_FAST_MODEL" to "cheap-model",
+                "CLAUDE_CODE_SUBAGENT_MODEL" to "cheap-model",
+            )
+        )
+
+        assertEquals(
+            listOf("ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"),
+            keys,
+        )
+    }
 }
 
 /** 内存版密钥库。**不能**碰 PasswordSafe —— 纯单测环境里它没有实现。 */
@@ -108,6 +126,160 @@ class ProfileEnvWiringTest {
         assertEquals("glm-4.6", p.model, "选中了配置，模型就该由它说了算")
         assertEquals("https://api.example.com", p.envOverrides["ANTHROPIC_BASE_URL"])
         assertEquals("sk-live", p.envOverrides["ANTHROPIC_AUTH_TOKEN"])
+    }
+
+    @Test
+    fun `配置给了端点与密钥时，这条会话归它管`() {
+        // 少了这个开关：CLI 拿 ~/.claude/settings.json 的 env 把端点盖掉，
+        // 而配置的密钥照样发得出去 → 401 Invalid token（spec §6.1）
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "中转", baseUrl = "https://api.example.com", modelId = "glm-4.6"),
+            secret = "sk-live",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        assertEquals("1", p.envOverrides[HOST_MANAGED_PROVIDER_VAR])
+    }
+
+    @Test
+    fun `第三方配置把别名与后台任务的模型名给全`() {
+        // 不补这些名字：CLI 落回它自带的 Claude 模型名，第三方网关上没有那些名字。
+        // 症状很有欺骗性 —— 主对话一切正常，只有起标题 / 压缩上下文 / 子代理报模型不存在
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "中转", baseUrl = "https://api.example.com", modelId = "glm-4.6"),
+            secret = "sk-live",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        for (key in ROUTING_MODEL_ENV_VARS) {
+            assertEquals("glm-4.6", p.envOverrides[key], "$key 该指到配置的模型")
+        }
+        assertEquals(6, ROUTING_MODEL_ENV_VARS.size, "给全 —— 少一个就有一类后台活报错")
+    }
+
+    @Test
+    fun `官方端点不给别名模型名`() {
+        // 官方端点上那些 Claude 名字本来就有效；把 haiku 指到 opus
+        // 只会让后台小活儿变贵
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "官方", baseUrl = "", modelId = "claude-opus-5"),
+            secret = "sk-ant-live",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        for (key in ROUTING_MODEL_ENV_VARS) {
+            assertNull(p.envOverrides[key], "$key 不该被设")
+        }
+    }
+
+    @Test
+    fun `第三方配置没填模型 ID 时没名字可给`() {
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "中转", baseUrl = "https://api.example.com", modelId = ""),
+            secret = "sk-live",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        for (key in ROUTING_MODEL_ENV_VARS) {
+            assertNull(p.envOverrides[key], "没填 modelId 就没得给，不该瞎指")
+        }
+    }
+
+    @Test
+    fun `选中配置时默认打开任务清单工具`() {
+        // 那套工具 CLI 只对它认识的模型开放，第三方网关上的名字它不认识。
+        // 不给这个变量，「子任务」卡永远是空的 —— 不是模型不用，是它调不到
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "中转", baseUrl = "https://api.example.com", modelId = "glm-4.6"),
+            secret = "sk-live",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        assertEquals("true", p.envOverrides[TASK_TOOLS_VAR])
+    }
+
+    @Test
+    fun `手填过任务工具开关就听手填的`() {
+        // 这一项是**默认值**语义，不是路由：想关就关。
+        // 与端点/凭证那批刻意不同 —— 那些混搭会 401，必须由配置说了算
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "中转", baseUrl = "https://api.example.com", modelId = "m"),
+            secret = "sk-live",
+        ) { envOverrides = mutableMapOf(TASK_TOOLS_VAR to "false") }
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        assertEquals("false", p.envOverrides[TASK_TOOLS_VAR], "手填的没被默认值盖掉")
+    }
+
+    @Test
+    fun `配置什么都没给时不碰任务工具开关`() {
+        // 官方端点 + 空密钥：CLI 自己会给（模型名它认识），插件不必插话
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "官方", baseUrl = "", modelId = "claude-opus-5"),
+            secret = "",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        assertNull(p.envOverrides[TASK_TOOLS_VAR])
+    }
+
+    @Test
+    fun `官方端点 + 填了密钥也算配置给了东西`() {
+        // 用户明确填了密钥，就是说了"用这个"。不设开关的话，settings.json 里的
+        // 网关会把端点抢走，而这个密钥会被发到那个网关去
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "官方", baseUrl = "", modelId = "claude-opus-5"),
+            secret = "sk-ant-live",
+        )
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        assertEquals("sk-ant-live", p.envOverrides["ANTHROPIC_API_KEY"])
+        assertEquals("1", p.envOverrides[HOST_MANAGED_PROVIDER_VAR])
+    }
+
+    @Test
+    fun `配置什么都没给时不碰这个开关`() {
+        // 官方端点 + 没填密钥 = 用 CLI 登录态 / 跟着 settings.json 走。
+        // 这里打上开关会把 settings.json 的凭证也剥掉 → authentication_failed
+        // （spec §11.1 那次实测），等于把没配模型的人全打挂
+        val profiles = ModelProfiles(InMemorySecretStore())
+        val s = settingsWith(
+            profiles,
+            ModelProfile(name = "官方", baseUrl = "", modelId = "claude-opus-5"),
+            secret = "",
+        ) { envOverrides = mutableMapOf("ANTHROPIC_AUTH_TOKEN" to "sk-user") }
+
+        val p = s.toStartParams(Path.of("/proj"), profiles)
+
+        assertNull(
+            p.envOverrides[HOST_MANAGED_PROVIDER_VAR],
+            "配置什么都没给，就不该去动 settings.json 里的凭证",
+        )
+        assertEquals("sk-user", p.envOverrides["ANTHROPIC_AUTH_TOKEN"], "用户手填的照样留着")
     }
 
     @Test

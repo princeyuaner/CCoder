@@ -85,7 +85,10 @@ internal enum class AuthKind { API_KEY, AUTH_TOKEN }
 通路是现成的，**协议一行都不用改**：
 
 - `session.js:64` 已经在走 `env: buildChildEnv(process.env, envOverrides)`
-- `env.js` 的黑名单里**只有 `ANTHROPIC_MODEL`**，不碰 `BASE_URL` / `API_KEY` / `AUTH_TOKEN`
+- `env.js` 的黑名单（10 项，宿主隔离用）不拦 `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` /
+  `ANTHROPIC_AUTH_TOKEN`，所以这三个透得过去；`ANTHROPIC_MODEL` 在名单里，
+  所以 `modelId` 走 `options.model`（见下表）
+- 名单里唯一要**反过来用**的是 `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` —— 见 §6.1
 
 映射：
 
@@ -97,6 +100,23 @@ internal enum class AuthKind { API_KEY, AUTH_TOKEN }
 
 `modelId` 刻意不走环境变量：`ANTHROPIC_MODEL` 在黑名单里
 （宿主隔离的一部分，见 `env.js` 的注释），而 `options.model` 这条路本来就通。
+
+### 5.1 密钥可以为空 —— 但只在官方端点下
+
+**官方端点不填密钥是合法的**：用户可能已经 `claude login` 过，走 CLI 的登录态。
+第三方端点则必须有密钥，否则它连不上任何东西，而我们却会安静地发一个空令牌出去。
+
+所以规则分两支：
+
+| `baseUrl` | 密钥 | 行为 |
+|---|---|---|
+| 空（官方） | 有 | 设 `ANTHROPIC_API_KEY` |
+| 空（官方） | 空 | **什么都不设** —— 用 CLI 登录态 |
+| 非空（第三方） | 有 | 设 `ANTHROPIC_BASE_URL` + 按 `authKind` 设认证变量 |
+| 非空（第三方） | 空 | **报错**，不发出请求 |
+
+§4 那句"读不到密钥时报错，不静默降级"精确地说是指第三、四行这一列 ——
+**静默降级指的是"本该用第三方却打到了官方端点"**，不是"没填密钥"。
 
 ## 6. 优先级：profile 赢
 
@@ -113,6 +133,89 @@ UI 上要提示冲突：如果 `envOverrides` 里存在 `ANTHROPIC_BASE_URL` 或
 在模型页**列表上方**挂一条常驻警告条，点名是哪几个键、说明它们会被选中的模型配置覆盖。
 
 放在列表上方而不是表单里：冲突和"当前编的是哪一条"无关，它是整页的事。
+
+### 6.1 外面还有一层：`~/.claude/settings.json` 会盖掉进程环境
+
+上表只管插件内部的三个来源。再往外还有一层：CLI 会把 `~/.claude/settings.json`
+的 `env` **覆盖**到进程环境上（overwrite 语义，2.1.268 实测）。
+
+于是选中一条指向 A 网关的配置、而 `settings.json` 里写着 B 网关时，会**混搭**：
+
+| 变量 | 谁赢 |
+|---|---|
+| `ANTHROPIC_BASE_URL` | `settings.json` —— 端点被抢到 B |
+| `ANTHROPIC_API_KEY` | 选中的配置 —— `settings.json` 里没这个键，留下的是配置的密钥 |
+
+结果是把 A 的密钥发给了 B。用户那边的表现是：面板先**静默约 3 分钟**
+（CLI 对认证失败静默重试），然后弹「Claude CLI 认证失败」。2026-09-14 那次的现场，
+网关回的是 `401 Invalid token`：它只认自己的令牌，**只要请求里带一个不认识的
+`x-api-key` 就拒**，哪怕 `Authorization` 是对的。
+
+**做法**：选中的配置提供了端点或密钥时（`profileEnv` 非空），往 `envOverrides` 里加
+一个 `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1`。这个开关让 CLI 把 settings 来源的
+`ANTHROPIC_CUSTOM_HEADERS` / `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
+`CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_HOST_CREDS_FILE` / … 一律剥掉
+（CLI 内部 `Nbe()` 返回的清单），选中的配置成为唯一来源。
+
+必须守住的两条边界：
+
+1. **配置什么都没给时不加**（官方端点 + 没填密钥 —— 那种会话要用 CLI 登录态）。
+   打上开关会把 `settings.json` 里的凭证也剥掉，只剩 authentication_failed
+   （§11.1 那次实测的成因）。
+2. **继承来的那一份仍然要剥**（`sidecar/env.js` 的既有行为不变）。只有插件显式给的才
+   放行：`HOST_ENV_OVERRIDABLE` 是黑名单的极小子集。宿主顺手带进来的那个意味着
+   插件没给凭证，留着就是 §11.1 的故障。
+
+实测（2.1.268，两次对照）：
+
+| 场景 | 结果 |
+|---|---|
+| settings 放毒饵（`ANTHROPIC_BASE_URL=http://127.0.0.1:9` + 假密钥）；进程环境给真端点真密钥 + 开关 | 请求正常返回，毒饵一个没用上 |
+| 同上但**不带开关** | `401 Invalid token` —— settings 的端点赢、配置的密钥却发了出去 |
+| settings 只放毒饵端点（不给凭证）；进程环境只给密钥 + 开关 | 请求打到**官方端点**（settings 的端点被剥掉），拿回来的是官方自己的 `403 Request not allowed` |
+
+第三行是"官方端点 + 填了密钥"那条支路的证据：即使进程环境里没有 `ANTHROPIC_BASE_URL`，
+settings 里那份照样被剥掉，于是落回官方端点 —— 正是配置的语义。
+
+**别名与后台任务：把等价的模型名显式给全**
+
+同一个开关把 settings 的模型路由变量也剥掉了，于是 `ANTHROPIC_DEFAULT_SONNET_MODEL` /
+`ANTHROPIC_SMALL_FAST_MODEL` 这些没人给 —— CLI 落回它自带的 Claude 模型名，
+而第三方网关上多半没有那些名字。症状很有欺骗性：**主对话一切正常**，只有起标题 /
+压缩上下文 / 子代理这类后台活儿报模型不存在。
+
+所以第三方配置（`baseUrl` 非空 **且** 填了 `modelId`）还会把这一整族显式指到它的
+`modelId`（`ModelProfile.routingModelEnv`）：FABLE / OPUS / SONNET / HAIKU /
+SMALL_FAST / SUBAGENT 六个名字 —— 与 CCG 的 `MODEL_ROUTING_ENV_VARS` 同一批，
+只少了 `ANTHROPIC_MODEL`（主模型走 `options.model`，而它还在 `env.js` 的黑名单里）。
+官方端点**不做**这件事：那些 Claude 名字本来就有效，把 haiku 指到 opus 只会让
+后台小活儿变贵。
+
+实测（同一套毒饵设置，开关打开）：
+
+| 场景 | 结果 |
+|---|---|
+| settings 埋 `ANTHROPIC_DEFAULT_SONNET_MODEL=poison-sonnet-xyz`；进程环境给 `deepseek-v4-pro[1m]`；`--model sonnet` | 用的是 **`deepseek-v4-pro[1m]`** —— 进程环境压得过 settings，"显式给全"确实有效 |
+| settings 埋 `ANTHROPIC_MODEL=poison-main-xyz`；`--model deepseek-flash` | 用的还是 `deepseek-flash` —— 主模型不会被 settings 顶掉，`ANTHROPIC_MODEL` 不必进白名单 |
+
+这六个名字也进了 [`conflictingEnvKeys`] 的名单：手填过它们的用户会在模型页看到
+"会被选中的模型配置覆盖"。
+
+**剥的范围到底有多大**（实测：settings 里声明一圈变量、进程环境给其中一部分，
+再让 settings 里的 `Stop` hook 把子进程环境 dump 出来）：
+
+| settings 里声明了 | 子进程环境里 | 结论 |
+|---|---|---|
+| `ANTHROPIC_MODEL` / 四个 `ANTHROPIC_DEFAULT_*_MODEL` / `ANTHROPIC_SMALL_FAST_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` / `ANTHROPIC_CUSTOM_HEADERS` | 一个都不在 | 这类**全剥** |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL`（进程环境也给了不同的值） | 进程环境那个值 | 进程环境赢 |
+| `CLAUDE_CODE_EFFORT_LEVEL` / `MY_NON_PROVIDER_VAR` | 原样在 | **非 provider 类的 env 照旧生效** |
+| `hooks`（这次 dump 的执行者） | 照常运行 | settings 的其余部分不受影响（permissions / hooks / MCP / 插件同理） |
+
+一句话：**只有 provider / 凭证 / 模型路由这一类 `env` 键被忽略，而且只在选中了
+"会给端点或密钥的配置"时**。`settings.json` 文件本身一个字节都没改 —— CCoder 不写它。
+
+（认证变量不在上面那张表里：CLI 本来就会把凭证从工具/hook 的子进程环境里洗掉，
+所以它们不出现在 dump 里说明不了问题；那两项的证据是前面的 401 对照实验。）
 
 ## 7. UI：设置对话框（方案 A）
 
@@ -175,8 +278,7 @@ UI 上要提示冲突：如果 `envOverrides` 里存在 `ANTHROPIC_BASE_URL` 或
 | `settings/ModelProfile.kt` | 数据类 + `AuthKind` + `modelProfileEnv()` 纯函数 |
 | `settings/ModelProfiles.kt` | Application 级 `PersistentStateComponent`，含密钥读写 |
 | `settings/ModelProfilesDialog.kt` | 设置对话框（`DialogWrapper`） |
-| `ui/ModelLabel.kt` | 可点的模型标签，照 `ModeLabel` |
-| `ui/ModelChooser.kt` | 切换弹层 |
+| `ui/ComposerModel.kt` | 可点的 `ModelLabel` + 切换弹层。放一个文件里是为了对称 `ComposerMode.kt` —— 那边也是 label 与列表同处一室 |
 
 **改动**
 

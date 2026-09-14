@@ -93,6 +93,96 @@ fun modelProfileEnv(profile: ModelProfile, secret: String): Map<String, String> 
 }
 
 /**
+ * 黑名单里**唯一**允许插件重新引入的那一项（名单见 `sidecar/env.js`）。
+ *
+ * 拼在 Kotlin 这一侧而不是写在 env.js：决定"这条会话归谁管"的是选中的配置，
+ * 而 sidecar 只负责放行 —— 两边都不许私自改名。
+ */
+const val HOST_MANAGED_PROVIDER_VAR = "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"
+
+/**
+ * "这条会话的端点与凭证归选中的配置管" 的开关（spec §6.1）。
+ *
+ * 为什么需要它：CLI 会拿 `~/.claude/settings.json` 里的 `env` **覆盖**进程环境
+ * （overwrite 语义）。选中一条指向 A 网关的配置、而 settings.json 里写着 B 网关时，
+ * 端点被 settings.json 抢走、配置的密钥却照样发得出去 —— 症状是一次
+ * `401 Invalid token`（2026-09-14 实测，见 spec §6.1）。
+ *
+ * 打开它之后 CLI 反过来把 settings 来源的 `ANTHROPIC_BASE_URL` /
+ * `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_CUSTOM_HEADERS`
+ * 一律剥掉，选中的配置即唯一来源。
+ *
+ * **只在配置真的给了东西时才设**：一条什么都没给的配置（官方端点 + 没填密钥，
+ * 即 [profileEnv] 为空）要保持"用 CLI 登录态 / 跟着 settings.json 走"的旧行为 ——
+ * 那种情况下打这个开关会把 settings 里的凭证也一并剥掉，只剩
+ * authentication_failed（spec §11.1 那次实测）。
+ */
+fun providerOwnershipEnv(profileEnv: Map<String, String>): Map<String, String> =
+    if (profileEnv.isEmpty()) emptyMap() else mapOf(HOST_MANAGED_PROVIDER_VAR to "1")
+
+/**
+ * 要显式给全的那几个名字（spec §6.1）。
+ *
+ * 与 CCG（`idea-claude-code-gui`）的 `MODEL_ROUTING_ENV_VARS` 同一批，
+ * 只少了 `ANTHROPIC_MODEL`：主模型走 `options.model`，而这个变量在 `env.js`
+ * 的宿主隔离黑名单里，不该由插件重新引入（实测 `--model` 不会被 settings 里的
+ * `ANTHROPIC_MODEL` 顶掉，见 spec §6.1 的对照表）。
+ */
+internal val ROUTING_MODEL_ENV_VARS = listOf(
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+)
+
+/**
+ * 别名与后台任务的"等价模型名"（spec §6.1）。
+ *
+ * 选中配置后 CLI 会把 settings 来源的模型路由变量一并剥掉，于是
+ * `ANTHROPIC_DEFAULT_*` / `ANTHROPIC_SMALL_FAST_MODEL` 就没人给了 —— CLI 落回
+ * 它自带的 Claude 模型名，而第三方网关上多半没有那些名字。症状会很有欺骗性：
+ * **主对话一切正常**，只有起标题 / 压缩上下文 / 子代理这类后台活儿报模型不存在。
+ *
+ * 所以这里显式给全：一整族别名 + 小快模型 + 子代理，全部指到配置的 `modelId`。
+ * 网关后面通常就一个模型，"等价的模型名"就是它。
+ *
+ * **只对第三方端点做**（`baseUrl` 非空）：官方端点上那些 Claude 名字本来就有效，
+ * 把 haiku 指到 opus 只会让后台小活儿变贵。
+ *
+ * @return 空 map = "没得给"：没有 `baseUrl`，或者配置压根没填 `modelId`
+ */
+fun routingModelEnv(profile: ModelProfile): Map<String, String> {
+    val id = profile.modelId.trim()
+    if (profile.baseUrl.isBlank() || id.isEmpty()) return emptyMap()
+    return ROUTING_MODEL_ENV_VARS.associateWith { id }
+}
+
+/**
+ * 任务清单工具的开关（spec §6.1，`2026-09-13-status-cards-design.md`）。
+ *
+ * 拼在 Kotlin 侧的理由同 [HOST_MANAGED_PROVIDER_VAR]：决定给不给的是插件，
+ * sidecar 只负责别挡（这个键不在黑名单里，本来也挡不着）。
+ */
+internal const val TASK_TOOLS_VAR = "CLAUDE_CODE_ENABLE_TODO_TOOLS"
+
+/**
+ * 让模型拿到任务清单工具（`TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`）。
+ *
+ * CLI 2.1.268 默认**只对它能识别的模型**给这套工具；第三方网关上那些名字
+ * （`deepseek-*` 之类）在它眼里属于"不认识"，要这个变量为真才给。实测：
+ * 不加 24 个工具，加了 28 个（多出来的正是那四个）。
+ *
+ * 不给的话「子任务」卡永远是空的 —— 不是模型不用，是它根本调不到。
+ *
+ * **语义是默认值，不是硬规则**：手填过这个键就原样听手填的（用户想关就关）。
+ * 这一点与端点/凭证那批刻意不同 —— 那些是正确性（混搭会 401），这个是工具面偏好。
+ */
+internal fun taskToolsEnv(userOverrides: Map<String, String>): Map<String, String> =
+    if (TASK_TOOLS_VAR in userOverrides) emptyMap() else mapOf(TASK_TOOLS_VAR to "true")
+
+/**
  * 界面上写什么。两级回退：名字 → 模型 ID → "未命名"。
  *
  * 放在这里而不是 ui 包的标签类里：显示名是数据的属性，而且 `settings` 包
@@ -117,6 +207,9 @@ fun mergeProfileEnv(
  *
  * 有冲突不是错误（profile 会赢，见上），但用户得知道 —— 否则他会对着一个
  * "改了却不生效"的 envOverrides 发懵。spec §6 要求把这条提示做进模型页。
+ *
+ * 名单含路由变量（[ROUTING_MODEL_ENV_VARS]）：选中第三方配置时它们也会被
+ * 指到配置的 `modelId`，手填的值同样会被盖掉。
  */
 fun conflictingEnvKeys(envOverrides: Map<String, String>): List<String> =
     envOverrides.keys.filter { it in MODEL_ENV_KEYS }.sorted()
@@ -125,4 +218,4 @@ private val MODEL_ENV_KEYS = setOf(
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
-)
+) + ROUTING_MODEL_ENV_VARS

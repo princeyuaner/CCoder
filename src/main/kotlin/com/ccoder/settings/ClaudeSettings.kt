@@ -147,6 +147,17 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
      * 选中的模型配置在这里翻成环境变量，并进 `envOverrides` —— 那条通路
      * `Protocol.encodeStart` 已经在序列化了，所以协议与 sidecar 都不用动。
      *
+     * 配置给了东西时还会带上 [HOST_MANAGED_PROVIDER_VAR]（见 [providerOwnershipEnv]）：
+     * 少了它，`~/.claude/settings.json` 的 `env` 会把端点抢走而密钥留下，
+     * 症状是一次 `401 Invalid token`（spec §6.1）。
+     *
+     * 第三方配置还会把别名与后台任务的模型名显式给全（见 [routingModelEnv]）：
+     * 那批变量同样会被 settings 那一层剥掉，不补的话主对话正常、后台活儿报模型不存在。
+     *
+     * 另外默认给上任务清单工具的开关（见 [taskToolsEnv]）—— 那套工具 CLI 只对
+     * 它认识的模型开放，第三方网关上不给的话「子任务」卡永远是空的。
+     * 它是**默认值**：`envOverrides` 里手填过这个键就听手填的。
+     *
      * 没有选中任何配置时，这里产出的东西与从前**一字不差**。
      *
      * @param profiles 模型配置的来源。**默认 null 就代表"一条都没配"**，而不是
@@ -156,10 +167,18 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
      */
     fun toStartParams(cwd: Path, profiles: ModelProfiles? = null): StartParams {
         val picked = profiles?.selected()
-        val env = picked?.let { profile ->
+        val pickedEnv = picked?.let { profile ->
             // 官方端点下密钥为空是合法的，modelProfileEnv 自己会处理
             modelProfileEnv(profile, profiles.secretOf(profile.id))
         } ?: emptyMap()
+        // 别名与后台任务的等价模型名。它也是"配置那一侧"的产出 —— 手填的
+        // envOverrides 盖不过它，与 §6 同一条规矩（冲突的键由模型页列出来）
+        val routing = picked?.let(::routingModelEnv) ?: emptyMap()
+        // 端点与凭证归配置管 —— 前提是它真的给了（见 providerOwnershipEnv）
+        val env = pickedEnv + routing + providerOwnershipEnv(pickedEnv)
+        // 任务清单工具：配置给了东西才需要它（这类会话的模型名 CLI 不认识，
+        // 默认不给那套工具）。手填过就听手填的 —— 它是默认值，不是路由
+        val tools = if (pickedEnv.isEmpty()) emptyMap() else taskToolsEnv(envOverrides)
 
         return StartParams(
             cwd = cwd.absolutePathString(),
@@ -172,7 +191,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             claudePath = claudePath.ifBlank { null },
             extraDirs = extraDirs.filter { it.isNotBlank() },
             envOverrides = mergeProfileEnv(
-                envOverrides.filterValues { it.isNotBlank() },
+                envOverrides.filterValues { it.isNotBlank() } + tools,
                 env,
             ),
         )

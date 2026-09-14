@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChildEnv, HOST_ENV_BLACKLIST } from '../env.js';
+import { buildChildEnv, HOST_ENV_BLACKLIST, HOST_ENV_OVERRIDABLE } from '../env.js';
 
 test('黑名单中每个变量都被移除', () => {
   const base = {};
@@ -41,9 +41,44 @@ test('envOverrides 能追加变量', () => {
   assert.equal(out.PATH, '/usr/bin');
 });
 
-test('envOverrides 不能恢复黑名单项', () => {
-  const out = buildChildEnv({}, { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' });
+test('envOverrides 不能恢复黑名单项（宿主隔离那几项）', () => {
+  const out = buildChildEnv({}, {
+    CLAUDE_CODE_ENTRYPOINT: 'sdk-cli',
+    CLAUDE_SESSION_ID: 'abc',
+    ANTHROPIC_MODEL: 'x',
+  });
+  assert.equal(out.CLAUDE_CODE_ENTRYPOINT, undefined);
+  assert.equal(out.CLAUDE_SESSION_ID, undefined);
+  assert.equal(out.ANTHROPIC_MODEL, undefined);
+});
+
+// 这一条是本次修复的核心：同一个变量，继承来的要剥、插件显式给的放行。
+// 剥错了 → settings.json 里的凭证被 CLI 丢掉而插件又没给 → authentication_failed；
+// 放行错了 → profile 的端点被 settings.json 盖掉，密钥却发过去 → 401。
+test('CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 是唯一可被插件重新引入的黑名单项', () => {
+  const out = buildChildEnv(
+    { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '0', PATH: '/usr/bin' },
+    { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' },
+  );
+  assert.equal(out.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST, '1', '插件显式给的值要生效');
+  assert.equal(out.PATH, '/usr/bin');
+});
+
+test('继承来的那一份仍然被剥掉（插件没给时不该传下去）', () => {
+  const out = buildChildEnv({ CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' });
   assert.equal(out.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST, undefined);
+});
+
+// 防的是"顺手把整张黑名单都标成可覆盖"这种扩大化的重构：
+// 每一项都单独试一遍，只有白名单里那几项能留下
+test('可覆盖白名单是黑名单的极小子集', () => {
+  for (const k of HOST_ENV_BLACKLIST) {
+    assert.ok(HOST_ENV_BLACKLIST.includes(k), `${k} 必须在黑名单里`);
+    const out = buildChildEnv({}, { [k]: 'x' });
+    if (HOST_ENV_OVERRIDABLE.includes(k)) continue;
+    assert.equal(out[k], undefined, `${k} 不该能经 envOverrides 恢复`);
+  }
+  assert.deepEqual([...HOST_ENV_OVERRIDABLE], ['CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST']);
 });
 
 test('undefined 值不进入结果', () => {
