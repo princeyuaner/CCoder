@@ -110,4 +110,46 @@ class TaskListTest {
     fun `全是没有文字的条目时等同于空清单`() {
         assertNull(todoListOf(input("""{"todos":[{"status":"pending"},{"activeForm":""}]}""")))
     }
+
+    // ---- 新一代：TaskCreate 的 id 与 TaskList 的快照（形状取真实样本）----
+
+    @Test
+    fun `从 TaskCreate 的结果里认出 id`() {
+        assertEquals("1", taskIdOfCreated("Task #1 created successfully: 写文档"))
+        assertEquals("team-7", taskIdOfCreated("Task #team-7 created successfully: 跑测试"))
+    }
+
+    @Test
+    fun `认不出的结果不硬凑一个 id`() {
+        assertNull(taskIdOfCreated("Updated task #1 status"))
+        assertNull(taskIdOfCreated(""))
+    }
+
+    @Test
+    fun `TaskList 的快照逐行读回条目`() {
+        val entries = taskEntriesOf("#1 [completed] 写文档\n#2 [pending] 跑测试")!!
+
+        assertEquals(2, entries.size)
+        assertEquals("1", entries[0].first)
+        assertEquals(TodoItem("写文档", TodoState.Completed), entries[0].second)
+        assertEquals("2", entries[1].first)
+        assertEquals(TodoState.Pending, entries[1].second.state)
+    }
+
+    @Test
+    fun `快照里认不出的行跳过，认得出的照读`() {
+        val entries = taskEntriesOf("（没有任务）\n#1 [in_progress] 甲\ngarbage")!!
+
+        assertEquals(1, entries.size)
+        assertEquals("甲", entries[0].second.text)
+        assertEquals(TodoState.InProgress, entries[0].second.state)
+    }
+
+    @Test
+    fun `一份都认不出的快照返回 null，不返回空表`() {
+        // 空表会被读成"清单空了"，把界面上好好的一张卡抹掉 ——
+        // 那是在说一件我们并不知道的事
+        assertNull(taskEntriesOf("No tasks found"))
+        assertNull(taskEntriesOf(""))
+    }
 }

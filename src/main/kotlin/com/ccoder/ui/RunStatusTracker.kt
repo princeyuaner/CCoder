@@ -47,7 +47,24 @@ internal class RunStatusTracker {
 
     private val byId = LinkedHashMap<String, RunningTask>()
 
-    /** 模型通过 `TodoWrite` 声明的工作清单。取不到就是 null，不造空清单。 */
+    /**
+     * 任务清单的条目，顺序 = 创建顺序。
+     *
+     * 新一代任务工具是**增量**的（一次一条 + 打补丁），所以这里存的是逐条累积的
+     * 结果，而不是某一次调用的快照。对外只暴露 [todos]。
+     */
+    private val items = mutableListOf<TaskItem>()
+
+    /** `TaskCreate` 的 tool_use id → 刚建的那条。id 要等结果文本回来才认领得到。 */
+    private val awaitingCreate = mutableMapOf<String, TaskItem>()
+
+    /** `TaskList` 的 tool_use id —— 只有它的结果是一份整表快照。 */
+    private val awaitingSnapshot = mutableSetOf<String>()
+
+    /** 清单条目。[id] 是新一代任务工具的身份；老一代（`TodoWrite`）没有，为 null。 */
+    private class TaskItem(var id: String?, var text: String, var state: TodoState)
+
+    /** 模型声明的工作清单。取不到就是 null，不造空清单。 */
     var todos: TaskList? = null
         private set
 
@@ -55,6 +72,9 @@ internal class RunStatusTracker {
 
     fun reset() {
         byId.clear()
+        items.clear()
+        awaitingCreate.clear()
+        awaitingSnapshot.clear()
         todos = null
     }
 
@@ -62,12 +82,19 @@ internal class RunStatusTracker {
         when (event.str("type")) {
             "assistant" -> consumeAssistant(event)
             "system" -> consumeSystem(event)
+            // 新一代任务工具把 id 与整表快照藏在**工具结果**里（见 TaskList.kt 那张表）——
+            // 光看 assistant 侧的 tool_use 是拼不出清单的
+            "user" -> consumeToolResults(event)
             // 其余类型与这里无关 —— 未知即忽略（spec §3.3）
         }
     }
 
     /**
-     * 清单来自助手消息里的 `TodoWrite` 工具调用。
+     * 清单来自助手消息里的工具调用，两代都要认：
+     *
+     * - `TodoWrite`（老）：一次交一整张清单
+     * - `TaskCreate` / `TaskUpdate` / `TaskList`（新，CLI 2.1.268 只有这代）：
+     *   增量建与改，整表快照要等 `TaskList` 的结果（[consumeToolResults]）
      *
      * 这里重新走一遍 content 而**不复用** [MessageRenderer] 的结果，是刻意的：
      * MessageRenderer 的契约是"未知即忽略"的**显示**逻辑，它有权丢掉任何它
@@ -79,10 +106,99 @@ internal class RunStatusTracker {
         for (block in content) {
             if (!block.isJsonObject) continue
             val b = block.asJsonObject
-            if (b.str("type") != "tool_use" || b.str("name") != "TodoWrite") continue
-            // 写成空清单等于清空，同样落到 null
-            todos = b.obj("input")?.let(::todoListOf)
+            if (b.str("type") != "tool_use") continue
+            val input = b.obj("input")
+
+            when (b.str("name")) {
+                // 老一代：写成空清单等于清空，同样落到 null
+                "TodoWrite" -> adopt(input?.let(::todoListOf)?.items.orEmpty().map { null to it })
+
+                "TaskCreate" -> {
+                    // 入参里没有 id（sdk-tools.d.ts:2717），先建条目，id 等结果回来认领
+                    val subject = input?.str("subject")?.takeIf { it.isNotBlank() } ?: continue
+                    val item = TaskItem(id = null, text = subject, state = TodoState.Pending)
+                    items.add(item)
+                    b.str("id")?.let { awaitingCreate[it] = item }
+                    syncTodos()
+                }
+
+                "TaskUpdate" -> {
+                    val id = input?.str("taskId") ?: continue
+                    // 认不出 id 就什么都不做：清单是跨会话续着的，可能本来就有
+                    // 这条任务，只是我们没见过它（等一次 TaskList 的快照补上）
+                    val item = items.firstOrNull { it.id == id } ?: continue
+                    input.str("status")?.let { status ->
+                        // deleted 不是状态而是"删掉"（sdk-tools.d.ts:2760 的联合类型）
+                        if (status == "deleted") items.remove(item) else item.state = stateOf(status)
+                    }
+                    input.str("subject")?.takeIf { it.isNotBlank() }?.let { item.text = it }
+                    syncTodos()
+                }
+
+                // 结果才是整表快照，这里只记下"待会儿要看它的结果"
+                "TaskList" -> b.str("id")?.let { awaitingSnapshot.add(it) }
+            }
         }
+    }
+
+    /**
+     * 工具结果里藏着两样东西：`TaskCreate` 要认领的 id，和 `TaskList` 的整表快照。
+     *
+     * 两者都只认**自己发出过的**那些 tool_use（[awaitingCreate] / [awaitingSnapshot]）——
+     * 照文本硬猜的话，别的工具只要恰好打印了 `#1 [completed] 写文档`，清单就会被它接管。
+     */
+    private fun consumeToolResults(event: JsonObject) {
+        val content = event.obj("message")?.arr("content") ?: return
+        for (block in content) {
+            if (!block.isJsonObject) continue
+            val b = block.asJsonObject
+            if (b.str("type") != "tool_result") continue
+            val useId = b.str("tool_use_id") ?: continue
+            val text = resultText(b) ?: continue
+
+            awaitingCreate.remove(useId)?.let { item ->
+                val id = taskIdOfCreated(text)
+                // 建失败时（is_error）没有 id，那条占位就不能留下 ——
+                // 留着等于凭空多出一条并不存在的任务
+                if (id == null && b.bool("is_error")) items.remove(item)
+                else item.id = id
+                syncTodos()
+            }
+
+            if (awaitingSnapshot.remove(useId)) {
+                // 认不出的快照什么都不动：宁可留着旧清单，也不要把它抹成空的
+                taskEntriesOf(text)?.let(::adopt)
+            }
+        }
+    }
+
+    /** 结果有两种形状：一个字符串，或一串 text block。真实样本是前者，两种都收。 */
+    private fun resultText(block: JsonObject): String? {
+        val raw = block.get("content") ?: return null
+        if (raw.isJsonPrimitive && raw.asJsonPrimitive.isString) return raw.asString
+        if (!raw.isJsonArray) return null
+        return raw.asJsonArray
+            .mapNotNull { el -> el.takeIf { it.isJsonObject }?.asJsonObject?.str("text") }
+            .joinToString("\n")
+            .ifBlank { null }
+    }
+
+    /**
+     * 整表替换。
+     *
+     * 挂着的"待认领"也一并清掉：条目都换了，认领到旧对象上等于写进虚空。
+     */
+    private fun adopt(entries: List<Pair<String?, TodoItem>>) {
+        items.clear()
+        items.addAll(entries.map { (id, item) -> TaskItem(id, item.text, item.state) })
+        awaitingCreate.clear()
+        syncTodos()
+    }
+
+    /** 条目变了就重算对外的 [todos]：空清单是 null，不造"0/0"。 */
+    private fun syncTodos() {
+        todos = items.takeIf { it.isNotEmpty() }
+            ?.let { list -> TaskList(list.map { TodoItem(it.text, it.state) }) }
     }
 
     private fun consumeSystem(event: JsonObject) {

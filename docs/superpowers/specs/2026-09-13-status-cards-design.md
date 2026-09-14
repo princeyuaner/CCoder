@@ -98,10 +98,59 @@ bottom (BorderLayout, 边距 6,8,8,8)
 |---|---|---|
 | 连接 | `statusLabel` 的文字 | 永不空闲（未连接也是一种状态） |
 | 上下文 | `contextUsageOf(event)` | 还没收到过带 `modelUsage` 的 result |
-| 子任务 | `RunStatusTracker.todos` | 从没收到过 `TodoWrite` |
+| 子任务 | `RunStatusTracker.todos` | 从没收到过任务清单（见 §6.1） |
 | 子代理 | `RunStatusTracker.running` | 没有在跑的任务 |
 
 `ContextUsage` 缺窗口容量时（`contextWindow <= 0`）副值只显示已用量，不做除法——沿用 `formatContextUsage` 现有规则。
+
+### 6.1 任务清单的两代形状：`TodoWrite` 与 `Task*`
+
+**这条是 2026-09-14 补的**：卡做出来之后一直没亮过，查下来不是"模型没用"，
+而是**它等的那个工具已经不在工具清单里了** —— 换什么模型都一样。
+
+| 代 | 工具 | 形状 | 出处 |
+|---|---|---|---|
+| 老 | `TodoWrite` | 一次交一整张清单 | `sdk-tools.d.ts:1017` |
+| 新 | `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet` | 增量：一次一条 + 打补丁 | `sdk-tools.d.ts:2717/2743/3933` |
+
+CLI 2.1.268 只提供**新一代**，而且对第三方模型（deepseek-* 这种）还额外**关着闸**：
+
+- 实测：`claude --print --verbose --output-format stream-json` 的 `init` 事件里工具数
+  **24**；加上 `CLAUDE_CODE_ENABLE_TODO_TOOLS=true` 之后是 **28**，多出来的正是
+  `TaskCreate` / `TaskGet` / `TaskList` / `TaskUpdate` —— 两轮里都没有 `TodoWrite`。
+- CLI 内部的判断（`mL()`）：模型不认识、是 application-inference-profile、或属于一批
+  内置模型 id 时默认开；否则要 `CLAUDE_CODE_ENABLE_TODO_TOOLS === true`。
+- 所以**在第三方网关上，不主动给这个变量，这张卡就永远是空的**。CCoder 现在这样给：
+  **选中了提供端点或密钥的模型配置时**，默认往 `envOverrides` 里加
+  `CLAUDE_CODE_ENABLE_TODO_TOOLS=true`（`ModelProfile.taskToolsEnv`）。
+- 它是**默认值**而非硬规则：用户在 `envOverrides` 里手填过这个键就听手填的（想关就关）。
+  这一项与端点/凭证那批刻意不同 —— 那些混搭会 401，必须由配置说了算。
+- 没选中任何配置时插件不插话：那种会话的模型名 CLI 认识，它自己会给。
+
+形状（真实样本，同一次会话抓的）：
+
+```
+[TaskCreate] {"subject":"写文档","description":"编写相关文档","activeForm":"写文档"}
+     ↳ 结果: Task #1 created successfully: 写文档
+[TaskUpdate] {"taskId":"1","status":"in_progress"}
+     ↳ 结果: Updated task #1 status
+[TaskList  ] {}
+     ↳ 结果: #1 [completed] 写文档
+              #2 [pending] 跑测试
+```
+
+**id 只在结果文本里**，所以 `RunStatusTracker` 现在也消费 `user` 事件（工具结果）——
+光看 assistant 侧拼不出清单：
+
+- `TaskCreate` → 先建占位条目，结果回来时认领 id（`taskIdOfCreated`）；建失败
+  （`is_error`）则把占位删掉，不留幽灵条目
+- `TaskUpdate` → 按 id 打补丁；`status:"deleted"` 是**删掉**，不是状态
+- `TaskList` → 结果是一份整表快照，照单全收（`taskEntriesOf`），连本会话没见过的 id
+  一起收 —— 清单是跨会话续着的
+- 只认自己发出过的那些 tool_use：照文本硬猜的话，别的工具恰好打印了同样格式就会接管清单
+
+老一代的 `TodoWrite` 分支**保留**（别的 CLI 版本还在给）。两代混用时谁最后来谁说了算
+—— `TodoWrite` 是快照语义，一来就把增量攒的覆盖掉。
 
 ## 7. 要删掉的（本次的主要风险面）
 

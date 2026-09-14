@@ -253,4 +253,165 @@ class RunStatusTrackerTest {
         assertTrue(t.running.isEmpty())
         assertNull(t.todos)
     }
+
+    // ---- 任务清单：新一代（TaskCreate / TaskUpdate / TaskList）----
+    //
+    // 事件形状全部照 2026-09-14 真实会话抓下来的样本写（CLI 2.1.268）。
+    // 这一代是增量的：建一条一次调用、改状态另一次调用，而 **id 只在结果文本里**，
+    // 所以「工具结果」这条通路必须一起走通。
+
+    private fun toolUse(id: String, name: String, input: String) =
+        """{"type":"assistant","message":{"content":[
+            {"type":"tool_use","id":"$id","name":"$name","input":$input}]}}"""
+
+    private fun toolResult(useId: String, text: String, isError: Boolean = false) =
+        """{"type":"user","message":{"content":[
+            {"type":"tool_result","tool_use_id":"$useId","content":"$text","is_error":$isError}]}}"""
+
+    private fun create(id: String, subject: String) =
+        toolUse(id, "TaskCreate", """{"subject":"$subject","description":"…","activeForm":"$subject"}""")
+
+    private fun update(useId: String, taskId: String, status: String) =
+        toolUse(useId, "TaskUpdate", """{"taskId":"$taskId","status":"$status"}""")
+
+    @Test
+    fun `TaskCreate 建条目，id 从结果文本里认领`() {
+        val t = trackerAfter(
+            create("c1", "写文档"),
+            toolResult("c1", "Task #1 created successfully: 写文档"),
+        )
+
+        assertEquals(1, t.todos!!.total)
+        assertEquals("写文档", t.todos!!.items[0].text)
+        assertEquals(TodoState.Pending, t.todos!!.items[0].state)
+    }
+
+    @Test
+    fun `TaskUpdate 用认领回来的 id 改状态`() {
+        val t = trackerAfter(
+            create("c1", "写文档"),
+            toolResult("c1", "Task #1 created successfully: 写文档"),
+            update("u1", "1", "in_progress"),
+        )
+
+        assertEquals(0, t.todos!!.completed)
+        assertEquals("写文档", t.todos!!.current, "进行中那项要单独取得出来")
+    }
+
+    @Test
+    fun `标记 completed 后计数跟着走`() {
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task #1 created successfully: 甲"),
+            create("c2", "乙"),
+            toolResult("c2", "Task #2 created successfully: 乙"),
+            update("u1", "1", "completed"),
+        )
+
+        assertEquals(2, t.todos!!.total)
+        assertEquals(1, t.todos!!.completed)
+    }
+
+    @Test
+    fun `status=deleted 时条目消失`() {
+        // deleted 不是状态而是"删掉"——它不在状态联合类型里（sdk-tools.d.ts:2760）
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task #1 created successfully: 甲"),
+            update("u1", "1", "deleted"),
+        )
+
+        assertNull(t.todos, "删干净了就该回到 null，而不是留一张 0/0 的卡")
+    }
+
+    @Test
+    fun `没认领到 id 时打不动——但条目不会凭空消失`() {
+        // 结果还没回来就来了一条 TaskUpdate。这时只能什么都不做：
+        // 猜着改状态比不改更糟（界面会显示一个谁也没说过的事实）
+        val t = trackerAfter(
+            create("c1", "甲"),
+            update("u1", "1", "completed"),
+        )
+
+        assertEquals(1, t.todos!!.total)
+        assertEquals(0, t.todos!!.completed)
+    }
+
+    @Test
+    fun `TaskUpdate 认不出的 id 直接忽略`() {
+        // 清单是跨会话续着的，可能本来就有这条任务，只是我们没见过
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task #1 created successfully: 甲"),
+            update("u1", "9", "completed"),
+        )
+
+        assertEquals(0, t.todos!!.completed)
+    }
+
+    @Test
+    fun `TaskList 的快照整表替换，连本会话没见过的 id 一起收`() {
+        val t = trackerAfter(
+            create("c1", "写文档"),
+            toolResult("c1", "Task #1 created successfully: 写文档"),
+            toolUse("l1", "TaskList", """{}"""),
+            toolResult("l1", "#1 [completed] 写文档\n#9 [pending] 上个会话留下的"),
+        )
+
+        assertEquals(2, t.todos!!.total)
+        assertEquals(1, t.todos!!.completed)
+        assertEquals(TodoState.Pending, t.todos!!.items[1].state)
+    }
+
+    @Test
+    fun `认不出的快照什么都不动`() {
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task #1 created successfully: 甲"),
+            toolUse("l1", "TaskList", """{}"""),
+            toolResult("l1", "No tasks found"),
+        )
+
+        assertEquals(1, t.todos!!.total, "宁可留着旧清单，也不要把它抹成空的")
+    }
+
+    @Test
+    fun `TaskCreate 失败时不留下幽灵条目`() {
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task creation failed: 权限不足", isError = true),
+        )
+
+        assertNull(t.todos, "建都没建成，界面上不该有一条并不存在的任务")
+    }
+
+    @Test
+    fun `别的工具的结果不会被当清单`() {
+        // 没发过 TaskList。别的工具恰好打出同样格式的输出，不该接管清单
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task #1 created successfully: 甲"),
+            toolUse("b1", "Bash", """{"command":"echo '#9 [completed] 假的'"}"""),
+            toolResult("b1", "#9 [completed] 假的"),
+        )
+
+        assertEquals(1, t.todos!!.total)
+        assertEquals(0, t.todos!!.completed)
+    }
+
+    @Test
+    fun `两代混用时以最后一次整表替换为准`() {
+        // 老一代的 TodoWrite 是快照语义：它一来就该把增量攒的覆盖掉
+        val t = trackerAfter(
+            create("c1", "甲"),
+            toolResult("c1", "Task #1 created successfully: 甲"),
+            """{"type":"assistant","message":{"content":[
+                {"type":"tool_use","name":"TodoWrite","input":{"todos":[
+                    {"content":"乙","status":"in_progress"}]}}
+            ]}}""",
+        )
+
+        assertEquals(1, t.todos!!.total)
+        assertEquals("乙", t.todos!!.items[0].text)
+    }
 }
