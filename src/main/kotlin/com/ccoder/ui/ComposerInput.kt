@@ -1,7 +1,13 @@
 package com.ccoder.ui
 
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import java.awt.Color
+import java.awt.Graphics
+import java.awt.Shape
+import javax.swing.text.Highlighter
+import javax.swing.text.JTextComponent
 
 /** 输入框内边距（垂直, 水平），未缩放 px。 */
 private const val PADDING_V = 5
@@ -36,4 +42,45 @@ internal fun appendSnippet(area: JBTextArea, snippet: String) {
     area.text = if (existing.isEmpty()) snippet else "$existing\n\n$snippet"
     // 光标停到末尾：追加完接着就能打字
     area.caretPosition = area.text.length
+}
+
+/**
+ * 记号的底色。
+ *
+ * 画**背景**而不是前景：`JTextArea` 是纯文本组件，改字符颜色要换成
+ * StyledDocument（连带影响输入法、补全、高度那几处），而 Highlighter 只是
+ * 在文字底下刷一层 —— 代价小一个数量级，而"它是个东西而不是乱码"这个目的
+ * 已经达到了。
+ */
+private val REF_HIGHLIGHT = object : Highlighter.HighlightPainter {
+    override fun paint(
+        g: Graphics,
+        p1: Int,
+        p2: Int,
+        bounds: Shape,
+        c: JTextComponent,
+    ) {
+        val r = bounds.bounds
+        g.color = refBackground
+        g.fillRect(r.x, r.y, r.width, r.height)
+    }
+}
+
+/** 记号底色。取平台色，取不到时退回一对淡紫（浅色/深色各一）。 */
+private val refBackground: Color = JBColor(Color(0xEF, 0xE6, 0xFF), Color(0x2C, 0x25, 0x40))
+
+/**
+ * 把输入框里所有记号刷上底色。
+ *
+ * 每次文本变化都重刷一遍（见 ClaudePanel 的文档监听）—— 记号会被粘贴、
+ * 被删、被拆开，逐段维护那几处高亮的生命周期比整批重刷更容易出错。
+ * 一次全文扫描是几十微秒的事，而这里每次按键只做一次。
+ */
+internal fun applyRefHighlights(area: JTextComponent) {
+    val highlighter = area.highlighter ?: return
+    highlighter.removeAllHighlights()
+    for (range in refRanges(area.text)) {
+        // 区间越界不该炸掉整个界面 —— 文本正在变的时候（文档事件里）理论上有窗口
+        runCatching { highlighter.addHighlight(range.first, range.last + 1, REF_HIGHLIGHT) }
+    }
 }

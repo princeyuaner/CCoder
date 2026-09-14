@@ -5,7 +5,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.wm.ToolWindowManager
 
@@ -31,7 +30,13 @@ private fun lineNumberOf(text: CharSequence, offset: Int): Int {
     return line
 }
 
-/** 把一次选区格式化成要插进输入框的文本。 */
+/**
+ * 发送时**真正发出去**的那段（路径 + 围栏 + 代码全文）。
+ *
+ * 2026-09-14 起它不再出现在输入框里 —— 输入框里放的是一行记号（[refToken]），
+ * 由 [SnippetRefs] 在发送的那一刻换成这一段。**它的形状一个字节都没变**，
+ * 所以模型收到的东西与改版前完全一致。
+ */
 internal fun formatSnippet(
     path: String,
     lines: IntRange,
@@ -62,8 +67,8 @@ private fun languageTagOf(fileTypeName: String?): String? =
 /**
  * 编辑器右键 →「添加到 CCoder 聊天框」。
  *
- * 只做三件事：取选区、拼片段、交给面板。真正的排版规则在
- * [selectionLineRange] 与 [formatSnippet] 里（那两处有单测钉着）。
+ * 只做三件事：取选区、拼出**记号**与**完整片段**、交给面板
+ * （记号进输入框，片段存进展开表等发送时用）。
  */
 class AddSelectionToChatAction : AnAction() {
 
@@ -89,60 +94,70 @@ class AddSelectionToChatAction : AnAction() {
         val selection = editor.selectionModel
         if (!selection.hasSelection()) return
 
+        val code = selection.selectedText ?: return
         val virtualFile = editor.virtualFile
-        val snippet = formatSnippet(
-            path = relativePathOf(project, virtualFile?.path),
-            lines = selectionLineRange(
-                editor.document.charsSequence,
-                selection.selectionStart,
-                selection.selectionEnd,
-            ),
-            fileTypeName = virtualFile?.fileType?.name,
-            code = selection.selectedText ?: return,
+        val path = mentionPathOf(project, virtualFile?.path)
+        val lines = selectionLineRange(
+            editor.document.charsSequence,
+            selection.selectionStart,
+            selection.selectionEnd,
         )
 
-        withPanel(project) { it.addToComposer(snippet) }
-    }
-
-    /**
-     * 项目内的文件写相对项目根的路径（Claude 在项目目录下工作），
-     * 项目外的退化成绝对路径 —— 相对不了就别硬凑。
-     */
-    private fun relativePathOf(project: Project, absolutePath: String?): String {
-        if (absolutePath == null) return UNKNOWN_PATH
-        val base = project.basePath ?: return absolutePath
-        return FileUtil.getRelativePath(base, absolutePath, '/') ?: absolutePath
-    }
-
-    /**
-     * 拿到面板并执行 [action]。
-     *
-     * 工具窗口没开过时，`show()` 才会去创建内容，而内容不一定在这一拍就建好 ——
-     * 取不到就推迟一拍再试**一次**（只重试一次：重试路径不设上限就成了死循环）。
-     */
-    private fun withPanel(
-        project: Project,
-        retry: Boolean = true,
-        action: (ClaudePanel) -> Unit,
-    ) {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return
-        toolWindow.show()
-        val panel = toolWindow.contentManager.contents.firstOrNull()?.component as? ClaudePanel
-        if (panel != null) {
-            action(panel)
-            return
-        }
-        if (retry) {
-            ApplicationManager.getApplication().invokeLater {
-                withPanel(project, retry = false, action)
-            }
+        // 输入框里放记号，片段留在表里 —— 两样东西都从同一份 code 与 lines 出来，
+        // 不会出现"显示的是这几行、发出去的是另外几行"
+        withPanel(project) {
+            it.addSnippetToComposer(
+                token = refToken(path, lines),
+                snippet = formatSnippet(path, lines, virtualFile?.fileType?.name, code),
+            )
         }
     }
+}
 
-    private companion object {
-        const val TOOL_WINDOW_ID = "CCoder"
-
-        /** 拿不到文件路径时的占位。聊胜于无：至少格式不塌。 */
-        const val UNKNOWN_PATH = "未命名"
+/**
+ * 拿到面板并执行 [action]。
+ *
+ * 工具窗口没开过时，`show()` 才会去创建内容，而内容不一定在这一拍就建好 ——
+ * 取不到就推迟一拍再试**一次**（只重试一次：重试路径不设上限就成了死循环）。
+ *
+ * 三个右键动作（加选区 / 加文件 / 项目树加文件）共用它。
+ */
+internal fun withPanel(
+    project: com.intellij.openapi.project.Project,
+    retry: Boolean = true,
+    action: (ClaudePanel) -> Unit,
+) {
+    val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return
+    toolWindow.show()
+    val panel = toolWindow.contentManager.contents.firstOrNull()?.component as? ClaudePanel
+    if (panel != null) {
+        action(panel)
+        return
     }
+    if (retry) {
+        ApplicationManager.getApplication().invokeLater {
+            withPanel(project, retry = false, action)
+        }
+    }
+}
+
+/** 工具窗口 id。与 plugin.xml 里的 `id="CCoder"` 必须一致。 */
+internal const val TOOL_WINDOW_ID = "CCoder"
+
+/** 拿不到文件路径时的占位。聊胜于无：至少格式不塌。 */
+internal const val UNKNOWN_PATH = "未命名"
+
+/**
+ * 引用里写哪个路径。
+ *
+ * 项目内的文件写相对项目根的路径（Claude 在项目目录下工作，实测相对路径
+ * 会被 CLI 展开）；项目外的退化成绝对路径 —— 相对不了就别硬凑。
+ */
+internal fun mentionPathOf(
+    project: com.intellij.openapi.project.Project,
+    absolutePath: String?,
+): String {
+    if (absolutePath == null) return UNKNOWN_PATH
+    val base = project.basePath ?: return absolutePath
+    return FileUtil.getRelativePath(base, absolutePath, '/') ?: absolutePath
 }

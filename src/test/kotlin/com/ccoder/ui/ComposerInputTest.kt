@@ -50,6 +50,42 @@ class ComposerInputTest {
     }
 
     @Test
+    fun `记号会被刷上底色`() {
+        // 底色是"它是个东西、不是乱码"的全部依据 —— 纯文本组件改不了字符颜色，
+        // 能用的就只有 Highlighter 这一层
+        val area = JBTextArea(3, 40)
+        area.text = "看 " + refToken("a/B.kt", 1..2) + " 这个"
+
+        applyRefHighlights(area)
+
+        assertEquals(1, area.highlighter.highlights.size)
+    }
+
+    @Test
+    fun `记号被删掉之后底色跟着没`() {
+        // 每来一次文本变化就整批重刷，就是为了这件事 ——
+        // 逐段维护高亮的生命周期，删字/粘贴那几条路太难覆盖全
+        val area = JBTextArea(3, 40)
+        area.text = refToken("a/B.kt", 1..2)
+        applyRefHighlights(area)
+
+        area.text = "没了"
+        applyRefHighlights(area)
+
+        assertEquals(0, area.highlighter.highlights.size)
+    }
+
+    @Test
+    fun `没有记号时一层底色都不画`() {
+        val area = JBTextArea(3, 40)
+        area.text = "普通的一句话"
+
+        applyRefHighlights(area)
+
+        assertEquals(0, area.highlighter.highlights.size)
+    }
+
+    @Test
     fun `输入框不填底 —— 底色由卡片统一决定`() {
         // 不透明会把卡片的底色盖掉，视觉上又变成嵌了一层。
         // 这是"卡片是一个整体"的必要条件：内部的几块不能各自有底

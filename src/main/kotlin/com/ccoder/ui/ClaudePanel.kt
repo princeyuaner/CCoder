@@ -306,6 +306,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private val permissionQueue = PermissionQueue { perm, queued -> openPermissionDialog(perm, queued) }
 
+    /**
+     * 片段记号 → 发送时要展开成的那段文本。
+     *
+     * 右键加选区进来的是**一行记号**（见 [refToken]），完整片段存在这里，
+     * 发送的那一刻才换上 —— 输入框因此不会被三十行代码顶满。
+     */
+    private val snippetRefs = SnippetRefs()
+
     /** 当前挂着的权限框。终止路径要把它关掉（那时不能回决定）。 */
     private var permissionDialog: PermissionDialog? = null
 
@@ -346,7 +354,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 补全：文本变了就重算候选。用文档监听而不是按键监听 ——
         // 粘贴、撤销、退格都会改文本，而它们不都是"按键"
         input.document.addDocumentListener(object : DocumentAdapter() {
-            override fun textChanged(e: DocumentEvent) = refreshCompletion()
+            override fun textChanged(e: DocumentEvent) {
+                refreshCompletion()
+                // 记号（⟦…⟧）的底色跟着文本重刷 —— 它会被粘贴、被删、被拆开
+                applyRefHighlights(input)
+            }
         })
         // 光标挪走（点了一下别处）时弹层要跟着收，否则它会停在一个
         // 已经没有查询词的位置上
@@ -2277,9 +2289,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private fun sendCurrentInput() {
         if (input.text.isBlank()) return
-        val text = input.text.trim()
+
+        // 记号在这一刻展开：输入框里只是「一行记号」，发出去的是路径 + 围栏 + 代码全文。
+        // 展开放在**清空输入框之前**，而清空之后表也一起清掉 —— 记号已经不在文本里了，
+        // 留着它只会随会话越攒越大
+        val text = snippetRefs.expand(input.text.trim())
 
         input.text = ""
+        snippetRefs.clear()
         pushOp(toOp(RenderItem.UserText(text)))
 
         if (!ready) {
@@ -2307,7 +2324,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 追加一段文本到输入框（右键「添加到 CCoder 聊天框」的落点）。
+     * 追加一段文本到输入框（三个右键动作的落点：加选区 / 加文件 / 项目树加文件）。
      *
      * 顺带把工具窗口激活、焦点抢到输入框：不然点完右键菜单**看不到任何反应** ——
      * 文本被追加进一个没打开的窗口，用户会以为动作失败了。
@@ -2316,6 +2333,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         appendSnippet(input, text)
         ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.activate(null)
         input.requestFocusInWindow()
+    }
+
+    /**
+     * 追加一行**片段记号**，并记住它对应的完整片段。
+     *
+     * 片段此刻不进界面 —— 它留在 [snippetRefs] 里等发送时展开。两样东西
+     * **一起进来**（而不是各自去算一遍行号），是为了让"输入框里显示的是哪几行"
+     * 与"发出去的是哪几行"在构造上就不可能不一致。
+     */
+    fun addSnippetToComposer(token: String, snippet: String) {
+        snippetRefs.remember(token, snippet)
+        addToComposer(token)
     }
 
     private fun JsonObject.str(key: String): String? =
