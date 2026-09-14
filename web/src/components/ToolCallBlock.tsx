@@ -8,8 +8,8 @@ import { toolCommand, toolDelta, toolDiff, toolFile, toolParams, toolTitle } fro
 /**
  * 一次工具调用。设计稿见 docs/design/transcript-tools.html 方案乙。
  *
- * 折叠只有**一层**：卡片收着，点开后命令、diff、输出直接铺开。
- * 点开卡片本身就表示"我要看这次调用"，再让人点第二下是折腾。
+ * 折叠只有**一层**：展开后命令、diff、输出直接铺开，不再有第二层。
+ * 默认就是展开的（2026-09-14 按用户要求改的）—— 点了收起才收起来。
  *
  * 卡面只留一行：Bash 给摘要（Claude 的 description），文件类工具给文件名 ——
  * 名字**可点**，点了在编辑器里打开；真正的命令原文、diff、输出都在展开体里。
@@ -46,8 +46,10 @@ export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
   // 只有"进行中"才走表：完成态的耗时在回放里算不准（见 elapsed.ts）
   const elapsed = useElapsed(state === 'running')
 
-  // 失败的自动展开：失败正是要立刻看到的东西，让人点开去找等于没显示
-  const [open, setOpen] = useState(matched?.isError === true)
+  // **默认展开**（2026-09-14 按用户要求改的，原来收着）：要能边跑边看输出、
+  // 不用先点一下。输出仍然 14 行封顶、超出的折在按钮后 —— 铺满一屏的那道
+  // 防线还在，见 OUTPUT_HEAD_LINES
+  const [open, setOpen] = useState(true)
   const [showAll, setShowAll] = useState(false)
 
   // live 路径下结果比调用晚到。失败的结果到点时把卡片弹开 ——

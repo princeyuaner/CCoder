@@ -1,10 +1,16 @@
 import { useElapsed } from '../elapsed'
 import { Collapsible } from './Collapsible'
 
-/** 完成的思考块。整块文字已经在手上了，收着，点开才看。 */
+/**
+ * 完成的思考块。
+ *
+ * **默认展开**（2026-09-14 按用户要求改的，原来收着）。两个理由：
+ * 用户要"流式输出"看得见；而且进行中那块是展开的，结束时若突然收起来，
+ * 屏幕上会跳一下 —— 同一种块在两个阶段不该长得不一样。
+ */
 export function ThinkingBlock({ text }: { text: string }) {
   return (
-    <Collapsible title="思考过程" dim>
+    <Collapsible defaultOpen title="思考过程" dim>
       <div className="thinking-text">{text}</div>
     </Collapsible>
   )
@@ -16,9 +22,9 @@ export function ThinkingBlock({ text }: { text: string }) {
  * 为什么要有它：实测 207 个思考块里 **29% 跑过 5 秒以上**（P90 10.5s，最长 31.5s），
  * 而在此之前那段时间屏幕上**什么都不动** —— 用户的原话是"看起来感觉像卡死了"。
  *
- * 默认仍然收着，理由和当初一样：逐字铺开会让转写区持续刷屏，而思考的决策价值
- * 低于正文。区别只在于标题里多了一个转圈和一个秒表 —— 它回答的是"它真的在动，
- * 还是卡住了"，而不是"它在想什么"。想看内容，点开就是实时文字。
+ * **默认展开**（2026-09-14 按用户要求改的，原来收着）：思考的文字逐字流出来，
+ * 一眼能看出"它在想什么"，而不只是"它在动"。标题里的转圈与秒表留着 ——
+ * 收起之后，它们是唯一还在动的信号。
  */
 export function LiveThinkingBlock({ text }: { text: string }) {
   const elapsed = useElapsed(true)
@@ -27,6 +33,7 @@ export function LiveThinkingBlock({ text }: { text: string }) {
     <div data-testid="live-thinking">
       <Collapsible
         dim
+        defaultOpen
         title={
           <>
             <span className="spin live-think__spin" data-testid="thinking-spin" />

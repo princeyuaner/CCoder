@@ -10,13 +10,14 @@ import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
  * （P90 10.5s，最长 31.5s），而在此之前那段时间屏幕上**什么都不动** ——
  * 用户的原话是"看起来感觉像卡死了"。
  *
- * 完成态维持原样（收着的「思考过程」），进行中多一个转圈与秒数。
+ * 2026-09-14 改：两个阶段都**默认展开**（用户要"流式输出"看得见）。
+ * 转圈与秒数留着 —— 收起之后它们是唯一还在动的信号。
  */
 describe('LiveThinkingBlock（进行中）', () => {
-  it('默认收着，标题是「思考中」，正文不渲染', () => {
+  it('默认展开：标题是「思考中」，正文直接看得见', () => {
     render(<LiveThinkingBlock text="在想" />)
     expect(screen.getByText('思考中')).toBeInTheDocument()
-    expect(screen.queryByText('在想')).not.toBeInTheDocument()
+    expect(screen.getByText('在想')).toBeInTheDocument()
   })
 
   it('带一个转圈 —— 这是"它在动"的信号本身', () => {
@@ -46,19 +47,22 @@ describe('LiveThinkingBlock（进行中）', () => {
     }
   })
 
-  it('点开才看得到实时文字', async () => {
+  it('点一下收起 —— 收起来之后只剩标题里那个转圈在动', async () => {
     render(<LiveThinkingBlock text="正在推敲这个方案" />)
-    expect(screen.queryByText('正在推敲这个方案')).not.toBeInTheDocument()
+    expect(screen.getByText('正在推敲这个方案')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button'))
-    expect(screen.getByText('正在推敲这个方案')).toBeInTheDocument()
+    expect(screen.queryByText('正在推敲这个方案')).not.toBeInTheDocument()
+    expect(screen.getByTestId('thinking-spin')).toBeInTheDocument()
   })
 })
 
 describe('ThinkingBlock（完成态）', () => {
-  it('标题是「思考过程」，正文默认收着', () => {
+  it('标题是「思考过程」，正文默认展开', () => {
+    // 与进行中那块一样默认展开：否则思考一结束，屏幕上会**跳一下**
+    // （同一块内容从一个形态换成另一个形态，展开态不该变）
     render(<ThinkingBlock text="想完了" />)
     expect(screen.getByText('思考过程')).toBeInTheDocument()
-    expect(screen.queryByText('想完了')).not.toBeInTheDocument()
+    expect(screen.getByText('想完了')).toBeInTheDocument()
   })
 })

@@ -55,30 +55,33 @@ describe('ToolRunCard', () => {
     expect(screen.getByText(/次工具调用/)).toHaveTextContent('4 次工具调用 · 读 2 · 改 1 · 跑 1')
   })
 
-  it('默认收起 —— 并成一张卡的意义就在这一条', async () => {
-    const user = userEvent.setup()
+  it('默认展开 —— 边跑边看，不用先点一下', () => {
     show([read('a', '/p/a.ts'), bash('b')], [res('toolu_a', 'x'), res('toolu_b', 'y')])
-
-    expect(screen.queryByTestId('run-body')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getByTestId('run-body')).toBeInTheDocument()
   })
 
-  it('展开后里面还是原来那些卡片，各自带着自己的结果', async () => {
+  it('点一下收起 —— 摘要留在卡面上', async () => {
     const user = userEvent.setup()
+    show([read('a', '/p/a.ts'), bash('b')], [res('toolu_a', 'x'), res('toolu_b', 'y')])
+
+    await user.click(screen.getByTestId('run-head'))
+
+    expect(screen.queryByTestId('run-body')).not.toBeInTheDocument()
+    expect(screen.getByText(/次工具调用/)).toBeInTheDocument()
+  })
+
+  it('里面还是原来那些卡片，各自带着自己的结果', () => {
     show([read('a', '/p/a.ts'), bash('b')], [res('toolu_b', '别的输出')])
 
-    await user.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getByText('Read')).toBeInTheDocument()
     expect(screen.getByText('Bash')).toBeInTheDocument()
-
-    // 只有 b 有结果：展开那张卡才看得到输出
-    await user.click(screen.getAllByRole('button', { expanded: false })[1])
+    // 只有 b 有结果：那一份输出只该出现在 b 那张卡上
+    // （两张卡都默认展开，所以这里是"整组里只有一处输出"，不是"点开才有一处"）
+    expect(screen.getAllByTestId('tool-output')).toHaveLength(1)
     expect(screen.getByTestId('tool-output')).toHaveTextContent('别的输出')
   })
 
-  it('有失败就自动弹开组，并标出失败数', () => {
-    // 与单张卡片逐字同一条规矩：失败正是要立刻看到的东西
+  it('有失败就标出失败数，且只有那一张带失败徽标', () => {
     show(
       [bash('a'), bash('b'), bash('c')],
       [res('toolu_a', 'ok'), res('toolu_b', '2 failed', true), res('toolu_c', 'ok')],
@@ -86,8 +89,10 @@ describe('ToolRunCard', () => {
 
     expect(screen.getByText('含 1 处失败')).toBeInTheDocument()
     expect(screen.getByTestId('run-body')).toBeInTheDocument()
-    // 组开、但组内那张失败的卡片自己再弹一次（ToolCallBlock 的规矩）
-    expect(screen.getByTestId('tool-output')).toHaveTextContent('2 failed')
+    expect(screen.getByText('失败')).toBeInTheDocument()
+    // 三张卡都开着，其中一张的输出里是那句失败
+    const outs = screen.getAllByTestId('tool-output').map((el) => el.textContent ?? '')
+    expect(outs.filter((t) => t.includes('2 failed'))).toHaveLength(1)
   })
 
   it('跑着的时候组头转圈，写着已完成 / 总数', () => {

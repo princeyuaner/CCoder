@@ -11,9 +11,12 @@ import { ToolCallBlock } from './ToolCallBlock'
  * 只做"怎么摆"：卡面一句摘要 + 涉及的文件，点开后里面还是原来的
  * [ToolCallBlock]，diff、输出、状态位一行都不改。
  *
- * 与单张卡片**同一条展开规矩**：默认收起，只有失败才自动弹开。
- * 组卡头自己就带着状态（转圈 + 已完成的个数 / 总数），所以"跑着的组要默认
- * 展开"不必再要 —— 那等于把"乱"还回去，一屏又全是内容。
+ * 与单张卡片**同一条展开规矩**：默认展开（2026-09-14 按用户要求改的，
+ * 原来是收着的），点了才收起；失败时自动弹开。
+ *
+ * 一屏会不会被铺满由**里面那些卡片**管：输出 14 行封顶、命令块也有高度上限，
+ * 所以展开不等于"整屏都是内容"。真正的收纳手段是"组"本身：
+ * 回放旧会话时一屏能扫过好几组。
  */
 
 interface Props {
@@ -33,7 +36,7 @@ export function ToolRunCard({ uses, results, ended }: Props) {
   const running = waiting.length > 0 && waiting.some((m) => !ended.has(m.use.toolUseId))
   const aborted = waiting.length > 0 && !running
 
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
 
   // 失败自动弹开 —— 与单张卡片逐字同一条规矩：失败正是要立刻看到的东西。
   // 只弹组卡，组内那一张失败的卡片自己会弹（ToolCallBlock 里同样的 effect），
@@ -50,6 +53,7 @@ export function ToolRunCard({ uses, results, ended }: Props) {
       <button
         type="button"
         className="run__head"
+        data-testid="run-head"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >

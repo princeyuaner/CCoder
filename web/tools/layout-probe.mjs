@@ -123,8 +123,8 @@ function buildPage(scenario) {
     // <button class="tool__file">，它**不带** aria-expanded。
     // 两种卡面交替出现：长路径与长文件名都必须在 420px 里能省略
     const file = i % 2 === 0
-    d.innerHTML = '<div class="tool__head" role="button" tabindex="0" aria-expanded="false">' +
-      '<span class="tool__chevron">▸</span>' +
+    d.innerHTML = '<div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
+      '<span class="tool__chevron is-open">▸</span>' +
       '<span class="tool__badge">B</span>' +
       '<span class="tool__name">Bash</span>' +
       (file
@@ -133,6 +133,13 @@ function buildPage(scenario) {
         : '<span class="tool__title">ls -la /some/very/long/path/that/should/ellipsize/' +
           i + '</span>') +
       STATUS[i % STATUS.length] +
+      '</div>' +
+      // 卡片**默认展开**，所以真实高度里含这两块 —— 探针画的时候也得带上，
+      // 否则量出来的是一排只有卡头的卡片（2026-09-14 之前它们确实是收着的）
+      '<div class="tool__body">' +
+      '<div class="tool__cmd"><span class="tool__prompt">$ </span>node --test test/x.test.js</div>' +
+      // 这里是**外层模板字符串**里，\\n 才是生成页面里的换行转义
+      '<pre class="tool__out">ok 1 - 第一条\\nok 2 - 第二条\\nok 3 - 第三条</pre>' +
       '</div>'
     t.appendChild(d)
   }
@@ -157,14 +164,14 @@ function buildPage(scenario) {
       '<button type="button" class="run__file">ToolCallBlock.test.tsx</button>' +
       '<span class="run__files-rest">+1</span></div>' +
       '<div class="run__body"><div class="run__ind">' +
-      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="false">' +
-      '<span class="tool__chevron">▸</span><span class="tool__badge">E</span>' +
+      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
+      '<span class="tool__chevron is-open">▸</span><span class="tool__badge">E</span>' +
       '<span class="tool__name">Edit</span>' +
       '<button type="button" class="tool__title tool__file">tools.ts</button>' +
       '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
       '<path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span></div></div>' +
-      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="false">' +
-      '<span class="tool__chevron">▸</span><span class="tool__badge">B</span>' +
+      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
+      '<span class="tool__chevron is-open">▸</span><span class="tool__badge">B</span>' +
       '<span class="tool__name">Bash</span>' +
       '<span class="tool__title">跑 tools 单测</span>' +
       '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
