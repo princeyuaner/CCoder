@@ -125,33 +125,46 @@ internal class RoundSendButton : JComponent() {
 }
 
 /**
- * 控件工具栏：左边状态（模型、权限模式），右边发送键。
+ * 控件工具栏：左边状态（模型、权限模式、思考深度），右边发送键。
  *
  * 左侧刻意留宽 —— 以后要加的模型切换等控件都往这儿添，不必再动结构。
  */
-internal fun buildComposerToolbar(model: JComponent, mode: JComponent, send: JComponent): JPanel =
+internal fun buildComposerToolbar(
+    model: JComponent,
+    mode: JComponent,
+    effort: JComponent,
+    send: JComponent,
+): JPanel =
     JPanel(BorderLayout()).apply {
         // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
         isOpaque = false
         border = JBUI.Borders.emptyTop(2)
-        add(buildStatusRow(model, mode), BorderLayout.WEST)
+        add(buildStatusRow(model, mode, effort), BorderLayout.WEST)
         add(send, BorderLayout.EAST)
     }
 
 /**
  * 工具栏左侧的状态区。
  *
- * 这两个都是"现在是什么"的显示，不是按钮 —— 所以用安静的次要文字，
+ * 这几个都是"现在是什么"的显示，不是按钮 —— 所以用安静的次要文字，
  * 让发送键保持唯一的视觉重点。（权限模式切到绕过时会自己跳成警示色，
  * 那是它应得的例外。）
  */
-internal fun buildStatusRow(model: JComponent, mode: JComponent): JPanel =
+internal fun buildStatusRow(
+    model: JComponent,
+    mode: JComponent,
+    effort: JComponent,
+): JPanel =
     JPanel().apply {
         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
         isOpaque = false
         add(model)
         add(javax.swing.Box.createHorizontalStrut(JBUI.scale(10)))
         add(mode)
+        add(javax.swing.Box.createHorizontalStrut(JBUI.scale(10)))
+        // 新的往最右添，不动既有两个的位置 —— 加个控件就让前面两个
+        // 各挪一格，用户会以为整个工具栏换了套布局
+        add(effort)
     }
 
 /** 悬停时压暗一档。没有做完整的调色板，够用即可。 */

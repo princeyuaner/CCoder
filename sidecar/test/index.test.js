@@ -275,6 +275,124 @@ test('setPermissionMode 被拒时上报错误，且不回报成功', async () =>
     '失败时不能报成功，否则界面会显示一个没生效的模式');
 });
 
+// ---- 思考深度（setEffort）----
+
+/** 起一个会话，并给它挂上 setEffort。返回 [dispatcher, out, 收到的档位]。 */
+function withEffortSession(setEffort) {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const s = d.handle(START);
+  const got = [];
+  s.setEffort = async (level) => {
+    got.push(level);
+    return setEffort ? setEffort(level) : undefined;
+  };
+  return { d, out, got };
+}
+
+test('setEffort 成功后回报新档位', async () => {
+  // 与权限模式同一条规矩：界面等这条回执才改标签，
+  // 否则切换失败时标签会显示一个没生效的档位
+  const { d, out, got } = withEffortSession();
+
+  d.handle({ id: '2', method: 'setEffort', params: { level: 'xhigh' } });
+  await tick();
+
+  assert.deepEqual(got, ['xhigh'], '档位必须原样到达会话');
+  const ack = out.find((m) => m.type === 'effortChanged');
+  assert.ok(ack, '没有回执，界面无从知道切换是否生效');
+  assert.equal(ack.level, 'xhigh');
+});
+
+test('setEffort(null) 的回执带显式 null，表示回到默认档', async () => {
+  // null 是有效取值，不是"没传参"。回执把它丢掉的话，
+  // 插件就分不清「回到默认」和「对端协议不一致」了
+  const { d, out, got } = withEffortSession();
+
+  d.handle({ id: '2', method: 'setEffort', params: { level: null } });
+  await tick();
+
+  assert.deepEqual(got, [null], '"回到默认"要真的把 null 传下去，不能被吞成 undefined');
+  const ack = out.find((m) => m.type === 'effortChanged');
+  assert.ok(ack);
+  assert.equal(ack.level, null);
+  assert.ok('level' in ack, '字段本身必须在 —— 插件靠它区分"默认"和"畸形消息"');
+});
+
+test('setEffort 缺 level 参数时回错误，不猜成回到默认', async () => {
+  // 显式 null 与"字段缺失"是两回事：后者说明对方写错了协议。
+  // 猜成"回到默认"会把一个 bug 变成一次静默的行为改变
+  const { d, out, got } = withEffortSession();
+
+  d.handle({ id: '2', method: 'setEffort', params: {} });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_EFFORT_FAILED');
+  assert.equal(e.fatal, false);
+  assert.deepEqual(got, [], '参数都不全，不该去碰会话');
+  assert.ok(!out.some((m) => m.type === 'effortChanged'));
+});
+
+test('setEffort 认不出的档位直接拒绝，不转发给 SDK', async () => {
+  // CLI 对认不出的**字符串**未必报错，可能直接忽略 —— 那时我们会发出
+  // 一条"切换成功"的回执，而档位根本没变。白名单挡的就是这个
+  const { d, out, got } = withEffortSession();
+
+  d.handle({ id: '2', method: 'setEffort', params: { level: 'ultra' } });
+  await tick();
+
+  assert.deepEqual(got, [], '脏值不该被转发给 SDK');
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_EFFORT_FAILED');
+  assert.ok(!out.some((m) => m.type === 'effortChanged'));
+});
+
+test('会话不支持 setEffort 时回错误，不静默成功', async () => {
+  // 老会话没有这个方法。可选链写法在这里会 resolve，
+  // 于是标签会显示一个没生效的档位
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);   // 刻意不挂 setEffort
+
+  d.handle({ id: '2', method: 'setEffort', params: { level: 'high' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_EFFORT_FAILED');
+  assert.equal(e.fatal, false, '切换失败不该断开整个会话');
+  assert.ok(!out.some((m) => m.type === 'effortChanged'),
+    '失败时不能报成功，否则界面会显示一个没生效的档位');
+});
+
+test('还没 start 就 setEffort 时回错误，不抛', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '2', method: 'setEffort', params: { level: 'low' } });
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_EFFORT_FAILED');
+  assert.equal(e.fatal, false);
+});
+
+test('setEffort 被底层拒绝时上报错误，且不回报成功', async () => {
+  const { d, out } = withEffortSession(() => {
+    throw new Error('effortLevel must be a string or null');
+  });
+
+  d.handle({ id: '2', method: 'setEffort', params: { level: 'high' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_EFFORT_FAILED');
+  assert.match(e.message, /string or null/, '底层原因要带到界面上');
+  assert.ok(!out.some((m) => m.type === 'effortChanged'));
+});
+
 test('claude 找不到时上报 CLAUDE_NOT_FOUND 且不抛错', () => {
   const out = [];
   const err = new Error('未找到 claude');

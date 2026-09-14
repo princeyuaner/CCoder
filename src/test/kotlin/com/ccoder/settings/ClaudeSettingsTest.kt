@@ -1,6 +1,7 @@
 package com.ccoder.settings
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -156,6 +157,7 @@ class ClaudeSettingsTest {
             claudePath = "/x/claude"
             permissionMode = PermissionModeSetting.PLAN
             model = "m"
+            effort = EffortSetting.XHIGH
             pendingReminderSeconds = 45
             extraDirs = mutableListOf("/a")
             envOverrides = mutableMapOf("K" to "V")
@@ -164,6 +166,7 @@ class ClaudeSettingsTest {
         assertEquals("/x/claude", restored.claudePath)
         assertEquals(PermissionModeSetting.PLAN, restored.permissionMode)
         assertEquals("m", restored.model)
+        assertEquals(EffortSetting.XHIGH, restored.effort)
         assertEquals(45, restored.pendingReminderSeconds)
         assertEquals(listOf("/a"), restored.extraDirs)
         assertEquals(mapOf("K" to "V"), restored.envOverrides)
@@ -177,5 +180,67 @@ class ClaudeSettingsTest {
             loadState(ClaudeSettings.State(permissionMode = "某个未来版本的模式"))
         }
         assertEquals(PermissionModeSetting.DEFAULT, s.permissionMode)
+    }
+
+    // ---- 思考深度 ----
+
+    @Test
+    fun `思考深度的取值与 SDK 逐字对齐`() {
+        // wireValue 必须与 SDK 的 EffortLevel 一致（sdk.d.ts:594），
+        // 拼错不会报错，只会被 CLI 静默忽略 —— 用户选了却什么都没发生
+        assertEquals(null, EffortSetting.DEFAULT.wireValue)
+        assertEquals("low", EffortSetting.LOW.wireValue)
+        assertEquals("medium", EffortSetting.MEDIUM.wireValue)
+        assertEquals("high", EffortSetting.HIGH.wireValue)
+        assertEquals("xhigh", EffortSetting.XHIGH.wireValue)
+        assertEquals("max", EffortSetting.MAX.wireValue)
+        assertEquals(6, EffortSetting.entries.size)
+    }
+
+    @Test
+    fun `只有默认档的 wireValue 是 null`() {
+        // fromWire 靠"唯一一个 null"把「回到默认」的回执认出来。
+        // 哪天给别的档位也写成 null，它会静默地认错档位 —— 标签就撒谎了
+        assertEquals(
+            listOf(EffortSetting.DEFAULT),
+            EffortSetting.entries.filter { it.wireValue == null },
+        )
+    }
+
+    @Test
+    fun `回执里的 null 认成默认档，认不出的档位返回 null`() {
+        // null 不是"缺数据"，是合法的「默认」（已从 flag 层清除）
+        assertEquals(EffortSetting.DEFAULT, EffortSetting.fromWire(null))
+        assertEquals(EffortSetting.XHIGH, EffortSetting.fromWire("xhigh"))
+
+        // 认不出来时返回 null 而不是退回默认 —— 退回的话，一个未来版本的
+        // 档位会把标签悄悄拨到「默认」，而用户明明什么都没选
+        assertEquals(null, EffortSetting.fromWire("turbo"))
+    }
+
+    @Test
+    fun `持久化的档位名无法识别时回退到默认`() {
+        // 手工编辑配置文件或降级插件都可能留下不认识的值，
+        // 不能因此让设置页炸掉
+        val s = ClaudeSettings().apply {
+            loadState(ClaudeSettings.State(effort = "某个未来版本的档位"))
+        }
+        assertEquals(EffortSetting.DEFAULT, s.effort)
+    }
+
+    @Test
+    fun `选了思考深度也不改变启动参数`() {
+        // 思考深度**刻意不走启动参数**（`Options.effort` 会被 SDK 翻成 CLI 的
+        // `--effort`，与中途切换用的 flag 层是两个优先级来源；两条一起用的话，
+        // 用户选「默认」只清得掉 flag 层、清不掉启动时那个）。
+        // 这条是钉子：哪天有人"顺手"把它加回启动参数，这里会红，
+        // 而注释就在告诉他该去读 session.js 里那段说明
+        val start = ClaudeSettings().apply { effort = EffortSetting.MAX }
+            .toStartParams(Path.of("/proj"))
+
+        assertFalse(
+            start.toString().contains("effort", ignoreCase = true),
+            "思考深度不该出现在启动参数里：$start",
+        )
     }
 }

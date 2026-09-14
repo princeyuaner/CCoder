@@ -49,6 +49,56 @@ internal fun effectivePermissionMode(
     if (selected.requiresDangerousOptIn && !optedIn) PermissionModeSetting.DEFAULT else selected
 
 /**
+ * 思考深度。
+ *
+ * wireValue 必须与 SDK 的 `EffortLevel` 联合类型**逐字**一致：
+ * `'low' | 'medium' | 'high' | 'xhigh' | 'max'`（sdk.d.ts:594）。
+ * 拼错不会报错，只会被 CLI 静默忽略 —— 与 [PermissionModeSetting] 同一个坑。
+ *
+ * [DEFAULT] 的 wireValue 是 **null**，语义是「不干预」：不下发这个字段，
+ * 由 CLI 按模型默认档来。所以没碰过这个设置的用户，行为与从前一字不差。
+ *
+ * 后两档**分模型**（见各自说明）—— 这个事实由弹层的第二行说明如实讲给用户，
+ * 而不是在这里假装它们总能生效。
+ */
+enum class EffortSetting(
+    /** 下发给 CLI 的值。null = 不干预，不下发。 */
+    val wireValue: String?,
+    /** 界面上的显示名。枚举名（DEFAULT / XHIGH）是给代码看的。 */
+    val label: String,
+) {
+    DEFAULT(null, "默认"),
+    LOW("low", "低"),
+    MEDIUM("medium", "中"),
+    HIGH("high", "高"),
+
+    /** 比「高」更深。SDK 原话：不支持的模型上**静默降级为 high**（sdk.d.ts:597）。 */
+    XHIGH("xhigh", "极高"),
+
+    /** 只有少数模型认（sdk.d.ts:598）。 */
+    MAX("max", "最大"),
+    ;
+
+    /** `ComboBox` 拿 `toString` 当显示文本，覆盖它省得处处传 label。 */
+    override fun toString(): String = label
+
+    companion object {
+        /**
+         * 从**下发给 CLI 的那个值**还原，用于读回执。
+         *
+         * 认不出来返回 null 而不是退回 [DEFAULT]：调用方（标签更新那条路）
+         * 的正确反应是「什么都不改」，退回默认值会让一个我们不认识的档位
+         * 把标签悄悄拨到「默认」—— 而用户明明什么都没选。
+         *
+         * `level == null` **是**认得出来的情况：那正是 [DEFAULT]，
+         * 回执里 null 表示已经从 flag 层清除。
+         */
+        fun fromWire(level: String?): EffortSetting? =
+            entries.firstOrNull { it.wireValue == level }
+    }
+}
+
+/**
  * 发送键的两种约定。
  *
  * 用户习惯差异很大（聊天工具是 Enter 发送，编辑器是 Enter 换行），
@@ -87,6 +137,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         var envOverrides: MutableMap<String, String> = mutableMapOf(),
         var pendingReminderSeconds: Int = 30,
         var sendShortcut: String = SendShortcut.DEFAULT.name,
+        var effort: String = EffortSetting.DEFAULT.name,
     )
 
     private var myState = State()
@@ -120,6 +171,11 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         get() = SendShortcut.fromName(myState.sendShortcut)
         set(value) { myState.sendShortcut = value.name }
 
+    var effort: EffortSetting
+        get() = EffortSetting.entries.firstOrNull { it.name == myState.effort }
+            ?: EffortSetting.DEFAULT
+        set(value) { myState.effort = value.name }
+
     override fun getState(): State = myState
 
     /**
@@ -135,6 +191,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             envOverrides = state.envOverrides.toMutableMap(),
             pendingReminderSeconds = state.pendingReminderSeconds,
             sendShortcut = state.sendShortcut,
+            effort = state.effort,
         )
     }
 

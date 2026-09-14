@@ -22,6 +22,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
     private val claudePathField = TextFieldWithBrowseButton()
     private val modelField = JBTextField()
     private val permissionModeBox = ComboBox(PermissionModeSetting.entries.toTypedArray())
+    private val effortBox = ComboBox(EffortSetting.entries.toTypedArray())
     private val sendShortcutBox = ComboBox(SendShortcut.entries.toTypedArray())
     private val dangerousOptIn = JBCheckBox("我明白风险：该模式下 Claude 的所有操作都不再询问")
     private val reminderField = JBTextField()
@@ -45,6 +46,10 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
             .addComponentToRightColumn(hint("留空则使用 CLI 自身配置的模型"))
             .addLabeledComponent(JBLabel("权限模式："), permissionModeBox)
             .addComponentToRightColumn(dangerousOptIn)
+            .addLabeledComponent(JBLabel("思考深度："), effortBox)
+            .addComponentToRightColumn(
+                hint("输入框左下角也能随时改（改了立刻生效，不用重开会话）；「极高」「最大」分模型，其余模型上会降级")
+            )
             .addLabeledComponent(JBLabel("发送快捷键："), sendShortcutBox)
             .addComponentToRightColumn(
                 hint("ENTER = Enter 发送 / Shift+Enter 换行；CTRL_ENTER = Enter 换行 / Ctrl+Enter 发送")
@@ -83,6 +88,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
         return s.claudePath != claudePathField.text.trim() ||
             s.model != modelField.text.trim() ||
             s.permissionMode != permissionModeBox.selectedItem ||
+            s.effort != effortBox.selectedItem ||
             s.sendShortcut != sendShortcutBox.selectedItem ||
             s.pendingReminderSeconds != (reminderField.text.trim().toIntOrNull() ?: 30) ||
             s.extraDirs != extraDirsModel.readColumn(0) ||
@@ -102,6 +108,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
             claudePath = claudePathField.text.trim()
             model = modelField.text.trim()
             permissionMode = effective
+            effort = effortBox.selectedItem as EffortSetting
             sendShortcut = sendShortcutBox.selectedItem as SendShortcut
             pendingReminderSeconds = reminderField.text.trim().toIntOrNull() ?: 30
             extraDirs = extraDirsModel.readColumn(0).toMutableList()
@@ -125,6 +132,7 @@ class ClaudeSettingsPanel(private val project: Project) : Configurable {
         // 所以复位时把勾也还原上
         dangerousOptIn.isSelected = s.permissionMode.requiresDangerousOptIn
         sendShortcutBox.selectedItem = s.sendShortcut
+        effortBox.selectedItem = s.effort
         reminderField.text = s.pendingReminderSeconds.toString()
         updateDangerousVisibility()
 

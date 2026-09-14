@@ -86,6 +86,12 @@ export function createSession({
 
   // 可选参数仅在提供时才传给 SDK —— 传 undefined 与不传的语义不同
   if (model) options.model = model;
+  // 思考深度**刻意不在这里**：Options.effort 会被 SDK 翻成 CLI 的 `--effort`
+  // 启动开关（sdk.mjs：`if (this.options.effort) W.push("--effort", ...)`），
+  // 而中途切换走的是 applyFlagSettings 的 flag 层 —— 是两个优先级来源。
+  // 两条路一起用的话，用户选「默认」只清得掉 flag 层、清不掉启动时那个：
+  // 标签显示「默认」而会话照旧按启动档位跑。控件撒谎比它不好用严重，
+  // 所以它只有一条路：起会话后由界面发 setEffort（见下面的 setEffort）。
   if (extraDirs?.length) options.additionalDirectories = extraDirs;
   if (claudePath) options.pathToClaudeCodeExecutable = claudePath;
 
@@ -175,6 +181,25 @@ export function createSession({
 
     async setPermissionMode(mode) {
       await query?.setPermissionMode?.(mode);
+    },
+
+    /**
+     * 改思考深度。level 为 null = 清除 flag 层、回到模型默认档。
+     *
+     * **刻意不照抄上面 setPermissionMode 的写法**：那行用可选链，
+     * 在 `query` 为 null（`queryFn` 抛错那条路径）时整句会静默成功，
+     * 上层据此发出一条假回执 —— 界面标签切过去了，实际什么都没生效。
+     * 这里缺方法就抛，让失败顺着回执暴露出来，而不是猜。
+     */
+    async setEffort(level) {
+      if (!query || typeof query.applyFlagSettings !== 'function') {
+        throw new Error(
+          '当前 CLI 不支持在会话中途调整思考深度，需要更新 claude 可执行文件'
+        );
+      }
+      // effortLevel 传 null 是「清除」而不是「不设置」—— applyFlagSettings
+      // 的文档明说 null 会把这一项从 flag 层抹掉、回落到低优先级的来源
+      await query.applyFlagSettings({ effortLevel: level ?? null });
     },
 
     /**

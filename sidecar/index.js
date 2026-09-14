@@ -12,6 +12,19 @@ import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
 
 /**
+ * SDK 的 EffortLevel 联合类型（sdk.d.ts:601）。
+ *
+ * 与插件侧的 `EffortSetting` 枚举是**同一份知识的两个副本**，看着像冗余，
+ * 但这里挡的是另一种错：CLI 对认不出的**字符串**未必报错，可能直接忽略 ——
+ * 那时我们会发出一条"切换成功"的回执，而档位根本没变。宁可现在说失败，
+ * 也不要界面上出现一个没生效的档位。
+ *
+ * `'max'` 只在 applyFlagSettings 这条路上被接受，持久化的 Settings.effortLevel
+ * 里没有它（sdk.d.ts:2700-2703）—— 我们走的正是这条路，所以它同样合法。
+ */
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
  * 把 NDJSON 方法调用分发到 session。
  *
  * 与进程 IO 解耦，便于测试注入假 session。
@@ -190,6 +203,44 @@ export function createDispatcher({
         Promise.resolve(call.call(session, mode))
           .then(() => out({ type: 'permissionModeChanged', mode }))
           .catch((err) => fail('SET_MODE_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'setEffort': {
+        // 与 setPermissionMode 同一套：await 并回报结果，成功与失败都要回话 ——
+        // 失败而报成功的话，界面标签会显示一个没生效的档位。
+        //
+        // level **允许是 null**（表示回到「默认」＝把这一项从 flag 层清除），
+        // 所以判的是**键在不在**，不是值真不真。写成 `params.level ?? null`
+        // 会把"没给"和"明确要求清除"混成一种，而前者是协议出错 ——
+        // 那不该默默清掉用户已经选好的档位。
+        if (!('level' in params)) {
+          fail('SET_EFFORT_FAILED', '缺少 level 参数', false);
+          return session;
+        }
+        const level = params.level;
+        if (level !== null && !EFFORT_LEVELS.includes(level)) {
+          fail(
+            'SET_EFFORT_FAILED',
+            `不认识的思考深度：${JSON.stringify(level)}` +
+              '（只接受 low/medium/high/xhigh/max 或 null）',
+            false
+          );
+          return session;
+        }
+        const call = session?.setEffort;
+        if (typeof call !== 'function') {
+          // 没有会话，或会话没这个方法 —— 两种都不能默默当成功
+          fail(
+            'SET_EFFORT_FAILED',
+            session ? '当前会话不支持调整思考深度' : '会话还没建立，思考深度要等连上会话再改',
+            false
+          );
+          return session;
+        }
+        Promise.resolve(call.call(session, level))
+          .then(() => out({ type: 'effortChanged', level }))
+          .catch((err) => fail('SET_EFFORT_FAILED', String(err?.message ?? err), false));
         return session;
       }
 

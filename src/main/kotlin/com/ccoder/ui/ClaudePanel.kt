@@ -16,6 +16,7 @@ import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
+import com.ccoder.settings.EffortSetting
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.ModelProfiles
 import com.ccoder.settings.PermissionModeSetting
@@ -140,6 +141,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 权限模式。可点，点开切换。 */
     private val modeLabel = ModeLabel { toggleModeChooser() }
 
+    /** 思考深度。可点，点开切换。 */
+    private val effortLabel = EffortLabel { toggleEffortChooser() }
+
     /**
      * 当前生效的权限模式。
      *
@@ -162,6 +166,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 打开着的模型列表浮层。同上，也由它实现"再点一次收起"。 */
     private var modelPopup: JBPopup? = null
+
+    /**
+     * 当前生效的思考深度。
+     *
+     * 与 [currentMode] 同一条规矩：**用户点的那一下不直接改它**，等 sidecar
+     * 的回执到了才改。先改标签后等结果的话，切换失败时标签会显示一个没生效的
+     * 档位 —— 而用户正是靠着这个标签判断这一轮要花多少 token。
+     */
+    private var currentEffort: EffortSetting = ClaudeSettings.getInstance(project).effort
+
+    /** 打开着的思考深度浮层。同上，也由它实现"再点一次收起"。 */
+    private var effortPopup: JBPopup? = null
 
     /** 顶部左侧的会话标签。可点，点开列历史会话。 */
     private val sessionLabel = SessionLabel { toggleSessionChooser() }
@@ -360,10 +376,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             viewport.isOpaque = false
         }
 
-        // 底部工具栏：模型与权限模式在左、发送键在右
+        // 底部工具栏：模型、权限模式与思考深度在左、发送键在右
         refreshModeLabel()
         refreshModelLabel()
-        val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, sendButton)
+        refreshEffortLabel()
+        val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, effortLabel, sendButton)
 
         // 四张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
@@ -676,6 +693,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 openModelSettings()
             },
         ), centerOverPanel = true) { modelPopup = null }
+    }
+
+    /** 点思考深度标签 → 弹档位列表；再点一次 → 收起。 */
+    private fun toggleEffortChooser() {
+        effortPopup?.let { open ->
+            open.cancel()
+            return
+        }
+        effortPopup = showTogglePopup(
+            anchor = effortLabel,
+            content = buildEffortList(currentEffort) { pickEffort(it) },
+        ) {
+            effortPopup = null
+        }
     }
 
     /**
@@ -993,6 +1024,34 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
+     * 选中一个思考深度。
+     *
+     * 与 [pickPermissionMode] 同一条规矩：**只发请求、不动标签**，标签等
+     * sidecar 的回执（先改后等的话，切换失败时标签会显示一个没生效的档位）。
+     *
+     * 回合进行中也允许改，也不弹确认框 —— 它改的是**下一轮**，当前这轮既不会
+     * 被腰斩，上下文也不丢。这点与换模型（要重开会话、忙时要确认）正相反。
+     */
+    private fun pickEffort(setting: EffortSetting) {
+        // 列表的任务到此为止，先收起来 —— 与 [pickPermissionMode] 同一条规矩
+        effortPopup?.cancel()
+        effortPopup = null
+
+        if (setting == currentEffort) return
+
+        val c = client
+        if (c == null) {
+            // 没有会话可切。不静默吞掉 —— 点了没反应比明说更让人困惑
+            pushOp(toOp(RenderItem.SystemNote("会话还没建立，思考深度要等连上会话再改")))
+            return
+        }
+        // wireValue 为 null 就是「默认」：让 sidecar 把这一项从 flag 层清掉。
+        // 这个 null 必须**显式**发出去（见 Protocol.encodeSetEffort）——
+        // 省略字段只表示"没提这件事"，清不掉任何东西
+        c.sendLine(Protocol.encodeSetEffort(nextId(), setting.wireValue))
+    }
+
+    /**
      * 会话标签的唯一出口。规则见 [currentSessionTitle]。
      *
      * @param enabled false 时变灰（忙时）—— 但**仍然可点**，见 [setBusy]
@@ -1009,6 +1068,27 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private fun refreshModeLabel() {
         if (autoAllow) modeLabel.setAutoAllow() else modeLabel.setMode(currentMode)
+    }
+
+    /** 思考深度标签的唯一出口。谁改完 [currentEffort] 就调它。 */
+    private fun refreshEffortLabel() {
+        effortLabel.setEffort(currentEffort)
+    }
+
+    /**
+     * 把 [currentEffort] 应用到刚建好的会话。
+     *
+     * **这一趟不能省**：思考深度不走启动参数（理由是启动参数与 flag 层是
+     * 两个优先级来源，两条一起用会让「默认」清不干净 —— 见 sidecar/session.js
+     * 里那段说明），所以新会话起手是 CLI 自己的档位。不拨这一下，用户上次
+     * 存下的档位就只是"界面上存着"，实际跑的仍是默认档。
+     *
+     * 「默认」也照发：那是一条明确的"把 flag 层清掉"的指令。新会话的 flag 层
+     * 本来就是空的，所以这一趟是空转 —— 但为省这一下发而写一个"默认不用发"
+     * 的分支，是在用一条隐性知识换一次网络往返，不划算。
+     */
+    private fun applyEffortToSession() {
+        client?.sendLine(Protocol.encodeSetEffort(nextId(), currentEffort.wireValue))
     }
 
     /** 回合开始/结束时切换按钮。回合结束的信号是 result 事件。 */
@@ -1064,6 +1144,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 新会话从零开始：上一个会话的"不再询问"不跟过来
         autoAllow = false
         refreshModeLabel()
+
+        // 思考深度也按设置重置。标签先显示设置里的值、真正下发在 [Ready]
+        // （那之前会话还不存在）—— 与权限模式同一条：标签显示的是这个会话
+        // 该有的起点，而不是上一个会话留下的值
+        currentEffort = ClaudeSettings.getInstance(project).effort
+        refreshEffortLabel()
 
         val base = project.basePath
         if (base == null) {
@@ -1305,6 +1391,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     disconnected = false
                     refreshMainButton()
                     requestCommands()
+                    applyEffortToSession()
 
                     val resuming = resumeTargetId
                     if (resuming != null) {
@@ -1414,6 +1501,26 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     }
                 }
 
+                // 同权限模式：**生效了**才更新标签，认不出的档位什么都不改
+                is SidecarMessage.EffortChanged -> {
+                    val picked = EffortSetting.fromWire(msg.level)
+                    if (picked == null) {
+                        LOG.warn("收到不认识的思考深度回执：${msg.level}")
+                    } else {
+                        // 起会话时那一趟也会回执。它回的是同一个值，不是"用户
+                        // 切换了"，所以只在真的变了时才往转写区插一句 —— 否则
+                        // 每开一个新会话都会冒出一行「已切换为「默认」」
+                        val changed = picked != currentEffort
+                        currentEffort = picked
+                        refreshEffortLabel()
+                        // 写回设置：下次启动还按这个档位起会话
+                        ClaudeSettings.getInstance(project).effort = picked
+                        if (changed) {
+                            pushOp(toOp(RenderItem.SystemNote("思考深度已切换为「${picked.label}」")))
+                        }
+                    }
+                }
+
                 is SidecarMessage.Exit -> {
                     setConnection("会话已结束")
                     ready = false
@@ -1456,6 +1563,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             "$message\n\n权限模式没有切换。若目标是「绕过权限」，可能是该会话不是" +
                 "以它启动的 —— SDK 要求绕过在启动时就声明（sdk.d.ts:1853-1856）。" +
                 "可在设置里把权限模式改过去，然后重启会话。"
+
+        // 切档失败的常见原因是 CLI 太老 —— applyFlagSettings 是较新的控制请求，
+        // 老版本上根本没有。不把原因说死：也可能是会话没建起来
+        "SET_EFFORT_FAILED" ->
+            "$message\n\n思考深度没有改变，这一轮仍按原来的档位跑。" +
+                "会话中途改档位需要较新版本的 claude 可执行文件；" +
+                "可以升级它，或在设置里改好后重开会话。"
 
         else -> message
     }

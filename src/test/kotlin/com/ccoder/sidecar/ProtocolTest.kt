@@ -98,6 +98,57 @@ class ProtocolTest {
     }
 
     @Test
+    fun `解析 effortChanged 回执`() {
+        val msg = Protocol.parse("""{"type":"effortChanged","level":"xhigh"}""")
+        assertTrue(msg is SidecarMessage.EffortChanged)
+        assertEquals("xhigh", (msg as SidecarMessage.EffortChanged).level)
+    }
+
+    @Test
+    fun `effortChanged 的 level 为 null 是合法的默认档，不是畸形`() {
+        // 「默认」档就是这个形态：已经从 flag 层清除、回落模型自己的档位。
+        // 照抄 permissionModeChanged 那条「缺字段即畸形」的话，这里会被丢掉，
+        // 表现是选了「默认」之后标签一动不动 —— 看着像点坏了
+        val msg = Protocol.parse("""{"type":"effortChanged","level":null}""")
+        assertTrue(msg is SidecarMessage.EffortChanged, "null 档位被当成畸形丢掉了")
+        assertNull((msg as SidecarMessage.EffortChanged).level)
+    }
+
+    @Test
+    fun `effortChanged 缺 level 键时按畸形丢弃`() {
+        // 与上一条是一对：**键在不在**才是判据。键都没有，说明对端协议
+        // 跟我们对不上，界面无从知道该显示什么 —— 不能猜成「默认」，
+        // 那会把一次协议错误变成一次静默的行为改变
+        assertNull(Protocol.parse("""{"type":"effortChanged"}"""))
+        assertNull(Protocol.parse("""{"type":"effortChanged","level":123}"""))
+        assertNull(Protocol.parse("""{"type":"effortChanged","level":{"a":1}}"""))
+    }
+
+    @Test
+    fun `encodeSetEffort 把档位原样发出去`() {
+        val line = Protocol.encodeSetEffort("r1", "high")
+
+        assertTrue(line.endsWith("\n"), "每条消息自带换行（NDJSON 分帧靠它）")
+        val obj = com.google.gson.JsonParser.parseString(line.trim()).asJsonObject
+        assertEquals("setEffort", obj.get("method").asString)
+        assertEquals("r1", obj.get("id").asString)
+        assertEquals("high", obj.getAsJsonObject("params").get("level").asString)
+    }
+
+    @Test
+    fun `encodeSetEffort 的 null 是显式 JSON null，不是省略字段`() {
+        // 省略只表示"没提这件事"，清不掉 flag 层里已经有的档位。
+        // 写成 `level?.let { addProperty(...) }` 就会变成省略 ——
+        // 于是「默认」这一档点了没反应，而回执照样说切成功了
+        val line = Protocol.encodeSetEffort("r2", null)
+        val params = com.google.gson.JsonParser.parseString(line.trim())
+            .asJsonObject.getAsJsonObject("params")
+
+        assertTrue(params.has("level"), "level 字段被省略了：$line")
+        assertTrue(params.get("level").isJsonNull, "level 不是 JSON null：$line")
+    }
+
+    @Test
     fun `未知类型映射为 Unknown 而非 null`() {
         // spec §3.3：未知类型必须被静默忽略，但不能与"解析失败"混淆
         val msg = Protocol.parse("""{"type":"some_future_type_v99"}""")

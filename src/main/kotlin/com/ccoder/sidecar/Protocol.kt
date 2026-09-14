@@ -1,8 +1,10 @@
 package com.ccoder.sidecar
 
 import com.google.gson.JsonArray
+import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 
 /**
  * sidecar 与插件之间的消息。
@@ -40,6 +42,18 @@ sealed interface SidecarMessage {
      * 标签会显示一个没生效的模式。这是个安全控件，显示错的比不好用严重。
      */
     data class PermissionModeChanged(val mode: String) : SidecarMessage
+
+    /**
+     * 思考深度切换的回执。
+     *
+     * 与 [PermissionModeChanged] 同一条规矩：界面**只**在收到它之后才更新标签，
+     * 免得切换失败时标签显示一个没生效的档位。
+     *
+     * [level] 为 null 不是"缺数据"，而是**合法的「默认」档** —— 意思是已经从
+     * flag 层清除、回落到模型自己的默认档。所以解析时不能把 null 当畸形丢掉
+     * （见 [Protocol.parse] 里那个 `has("level")` 判断）。
+     */
+    data class EffortChanged(val level: String?) : SidecarMessage
 
     /** 错误。fatal=true 表示会话已终止。 */
     data class Failure(val message: String, val code: String?, val fatal: Boolean) : SidecarMessage
@@ -166,6 +180,18 @@ object Protocol {
             // 留着只会让界面显示一个空模式
             "permissionModeChanged" ->
                 obj.str("mode")?.let { SidecarMessage.PermissionModeChanged(it) }
+
+            // 「默认」档的 level 就是 JSON null，所以这里**不能照抄上面那条**
+            // 「缺字段即畸形」的规则：在 str() 眼里，"键不在"与"键在且为 null"
+            // 长得一模一样，一把梭会把合法的默认档回执当成畸形丢掉 ——
+            // 表现是选了「默认」标签不动，看着像点坏了。
+            //
+            // 要的是**键在不在**：键不在才是畸形（界面无从知道该显示什么）。
+            "effortChanged" -> when {
+                !obj.has("level") -> null
+                obj.get("level").isJsonNull -> SidecarMessage.EffortChanged(null)
+                else -> obj.str("level")?.let { SidecarMessage.EffortChanged(it) }
+            }
 
             "permission" -> {
                 // requestId 是关联权限决定的唯一凭据，缺了就无法回传决定，
@@ -304,6 +330,23 @@ object Protocol {
 
     fun encodeSetPermissionMode(id: String, mode: String): String =
         line(id, "setPermissionMode", JsonObject().apply { addProperty("mode", mode) })
+
+    /**
+     * 会话中途改思考深度。
+     *
+     * [level] 为 null 表示**清除** flag 层、回落到模型默认档（即界面上的
+     * 「默认」）—— 所以这个字段要**显式写成 JSON null**，不能像别的可选字段
+     * 那样"为 null 就省略"。省略与 null 在 sidecar 侧是两种意思：
+     * 前者是"没提这件事"，后者是"把它清掉"。
+     */
+    fun encodeSetEffort(id: String, level: String?): String =
+        line(
+            id,
+            "setEffort",
+            JsonObject().apply {
+                add("level", level?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+            },
+        )
 
     /**
      * 权限决定。

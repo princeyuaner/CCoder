@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.EffortSetting
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.PermissionModeSetting
 import com.intellij.ui.components.JBScrollPane
@@ -67,10 +68,11 @@ class ComposerRenderProbe {
             // （与 ModeLabel 一样），所以这里也自己造一个
             val model = ModelLabel {}.apply { setProfile(ModelProfile(name = "Sonnet 4.5")) }
             val modeLabel = ModeLabel {}.apply { setMode(mode) }
+            val effortLabel = EffortLabel {}.apply { setEffort(EffortSetting.HIGH) }
             val send = RoundSendButton().apply {
                 setState(mainButtonState(ready = true, busy = false, disconnected = false))
             }
-            val toolbar = buildComposerToolbar(model, modeLabel, send)
+            val toolbar = buildComposerToolbar(model, modeLabel, effortLabel, send)
 
             val card = buildComposerCard(inputScroll, toolbar)
 

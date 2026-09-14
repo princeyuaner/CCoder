@@ -2,8 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession } from '../session.js';
 
-/** 记录调用参数的假 query()，按脚本产出事件。 */
-function fakeQuery(script = []) {
+/**
+ * 记录调用参数的假 query()，按脚本产出事件。
+ *
+ * [extra] 用来给假 Query 挂额外的方法（比如 applyFlagSettings）——
+ * 真实 Query 上有而这里默认没有的，正是"老 CLI 不支持"那种情形，
+ * 所以缺省就是缺，不要补空实现。
+ */
+function fakeQuery(script = [], extra = {}) {
   const calls = { options: null, prompts: [] };
   async function* gen(prompt) {
     calls.prompts.push(prompt);
@@ -16,7 +22,7 @@ function fakeQuery(script = []) {
       return Object.assign(gen(params.prompt), {
         interrupt: async () => { calls.interrupted = true; },
         setPermissionMode: async (m) => { calls.permissionMode = m; },
-      });
+      }, extra);
     },
   };
 }
@@ -194,6 +200,72 @@ test('setPermissionMode 转发到 SDK Query', async () => {
   await new Promise((r) => setImmediate(r));
   await s.setPermissionMode('acceptEdits');
   assert.equal(q.calls.permissionMode, 'acceptEdits');
+});
+
+test('setEffort 走 applyFlagSettings 把档位原样转发', async () => {
+  const applied = [];
+  const q = fakeQuery([], {
+    applyFlagSettings: async (s) => { applied.push(s); },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await s.setEffort('xhigh');
+
+  assert.deepEqual(applied, [{ effortLevel: 'xhigh' }]);
+});
+
+test('setEffort(null) 传的是显式 null —— 省略等于什么都没做', async () => {
+  // SDK 文档：undefined 会被 JSON 序列化丢掉、没有任何效果。
+  // 要"回到默认"必须显式传 null（sdk.d.ts:2695-2700）。
+  // 写成 `{ effortLevel: level ?? undefined }` 或 `if (level) {...}` 的话这条会挂
+  const applied = [];
+  const q = fakeQuery([], {
+    applyFlagSettings: async (s) => { applied.push(s); },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await s.setEffort(null);
+
+  assert.equal(applied.length, 1);
+  assert.ok('effortLevel' in applied[0], '字段必须在，哪怕值是 null');
+  assert.equal(applied[0].effortLevel, null);
+});
+
+test('没有 applyFlagSettings 时抛错，不静默成功', async () => {
+  // 可选链 `query?.applyFlagSettings?.()` 在这里会 await 一个 undefined，
+  // 于是"成功"了 —— 上层据此发出一条假回执，标签切过去了而什么都没生效
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  // 错误信息是**面向用户**的（它会原样进转写区），所以钉中文而不是内部 API 名
+  await assert.rejects(() => s.setEffort('high'), /思考深度/);
+});
+
+test('query 建不起来时 setEffort 也抛错，不静默成功', async () => {
+  // queryFn 抛错（返回了 Promise 之类）时 query 会是 null。这正是
+  // setPermissionMode 那条的可选链会误报成功的场景
+  const s = createSession({
+    cwd: '/tmp',
+    permissionMode: 'default',
+    queryFn: () => { throw new Error('建不起来'); },
+  });
+  await new Promise((r) => setImmediate(r));
+
+  await assert.rejects(() => s.setEffort('high'), /思考深度/);
+});
+
+test('思考深度不进启动参数', () => {
+  // Options.effort 会被 SDK 翻成 CLI 的 `--effort`，而中途切换走的是
+  // applyFlagSettings 的 flag 层 —— 两个优先级来源。两条一起用的话，
+  // 用户选「默认」只清得掉 flag 层、清不掉启动时那个：标签显示默认、
+  // 会话照旧按启动档位跑。所以它只有一条路
+  const q = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'default', effort: 'max', queryFn: q.fn });
+
+  assert.ok(!('effort' in q.calls.options), '思考深度不该经过启动参数');
 });
 
 test('SDK 事件原样透传给 onEvent', async () => {

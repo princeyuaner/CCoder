@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.EffortSetting
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.PermissionModeSetting
 import com.intellij.ui.components.JBScrollPane
@@ -55,6 +56,8 @@ class ComposerModelRenderProbe {
             Shot(null, PermissionModeSetting.DEFAULT, hoverModel = true),
             // 绕过的警示色被悬停顶掉是什么样，也得看一眼
             Shot(opus, PermissionModeSetting.BYPASS_PERMISSIONS, hoverMode = true),
+            // 思考深度不是「默认」时长什么样：这是它最长的一档
+            Shot(opus, PermissionModeSetting.DEFAULT, effort = EffortSetting.XHIGH),
         ),
     )
 
@@ -70,13 +73,21 @@ class ComposerModelRenderProbe {
         listOf(
             Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS),
             Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS, hoverModel = true, hoverMode = true),
+            // 最挤的一版：最长的模型名 + 最长的模式 + 最长的档位。
+            // 三个都拉到极限还塞得下，才是真的塞得下
+            Shot(
+                longName,
+                PermissionModeSetting.BYPASS_PERMISSIONS,
+                effort = EffortSetting.XHIGH,
+            ),
         ),
     )
 
-    /** 一行的样子：选中的配置、模式，以及哪个标签被鼠标压着。 */
+    /** 一行的样子：选中的配置、模式、思考深度，以及哪个标签被鼠标压着。 */
     private data class Shot(
         val profile: ModelProfile?,
         val mode: PermissionModeSetting,
+        val effort: EffortSetting = EffortSetting.DEFAULT,
         val hoverModel: Boolean = false,
         val hoverMode: Boolean = false,
     )
@@ -133,6 +144,8 @@ class ComposerModelRenderProbe {
         val modeLabel = ModeLabel {}.apply { setMode(shot.mode) }
         if (shot.hoverMode) hover(modeLabel)
 
+        val effortLabel = EffortLabel {}.apply { setEffort(shot.effort) }
+
         val send = RoundSendButton().apply {
             setState(mainButtonState(ready = true, busy = false, disconnected = false))
         }
@@ -150,7 +163,13 @@ class ComposerModelRenderProbe {
 
         return JPanel(BorderLayout()).apply {
             isOpaque = false
-            add(buildComposerCard(inputScroll, buildComposerToolbar(modelLabel, modeLabel, send)), BorderLayout.NORTH)
+            add(
+                buildComposerCard(
+                    inputScroll,
+                    buildComposerToolbar(modelLabel, modeLabel, effortLabel, send),
+                ),
+                BorderLayout.NORTH,
+            )
         }
     }
 
