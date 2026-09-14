@@ -1,12 +1,13 @@
 package com.ccoder.ui
 
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import java.awt.Cursor
 import javax.swing.JButton
 
 /**
- * 状态栏最右的「＋」。
+ * 顶部那一行的「＋」。
+ *
+ * 位置：**齿轮左边**（见 [buildTopRow]）。2026-09-14 之前它在最右角、
+ * 齿轮在左，用户要求对调过 —— 这一句写在这里免得下次又照着旧记忆改。
  *
  * ## 为什么是图标不是文字
  *
@@ -20,16 +21,12 @@ import javax.swing.JButton
  * 并把"先做什么"写进 tooltip。
  *
  * 只负责显示与点击；现在是不是忙、能不能点，由 [newSessionEnabled] 判定。
+ * 造型与齿轮共用一份（[asTopRowIconButton]）—— 同一行里两个按钮得长得一样。
  */
 internal class SessionNewButton(private val onClick: () -> Unit) : JButton("＋") {
 
     init {
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusable = false
-        margin = JBUI.emptyInsets()
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        font = font.deriveFont(15f)
+        asTopRowIconButton()
         addActionListener { onClick() }
         setBlock(SwitchBlock.None)
     }

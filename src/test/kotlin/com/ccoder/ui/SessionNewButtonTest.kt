@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * 状态栏最右的「＋」。
+ * 顶部那一行最右的「＋」。
  *
  * 它和会话标签的区别是：标签点了有东西可看（弹出列表），而它是个单一动作
  * 按钮 —— 点了没反应更像坏了。所以忙时是**置灰**而不是"点了才说"

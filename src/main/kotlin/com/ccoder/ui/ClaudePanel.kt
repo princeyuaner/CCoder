@@ -44,7 +44,6 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
-import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Point
@@ -227,25 +226,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var sessionPopup: JBPopup? = null
 
     /**
-     * 右上角的齿轮。造型照 [newSessionButton] —— 同一行里两个按钮，一个有边框
-     * 一个没有会很扎眼（字号 15f 也是照它）。
+     * 右上角的齿轮。造型与「＋」共用一份（见 [settingsGearButton] 与
+     * [asTopRowIconButton]）—— 同一行里两个按钮，一个有边框一个没有会很扎眼。
      *
      * **不随忙闲置灰**：它开的是设置对话框，而对话框只读写配置、不碰会话
      * （见 [showModelProfilesDialog]），会话进行中也该能开。
      */
-    private val settingsButton = JButton("⚙").apply {
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusable = false
-        margin = JBUI.emptyInsets()
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        font = font.deriveFont(15f)
-        foreground = UIUtil.getLabelForeground()
-        toolTipText = "设置"
-        addActionListener { openModelSettings() }
-    }
+    private val settingsButton = settingsGearButton { openModelSettings() }
 
-    /** 最右的「＋」。会话标签在它左边（设计稿 §一 A）。 */
+    /** 「＋」。位置与间距见 [buildTopRow]（2026-09-14 起在齿轮左边）。 */
     private val newSessionButton = SessionNewButton { onNewSession() }
 
     /** 最近一次列出来的会话。删除成功后从它里面摘掉那一行再重画。 */
@@ -397,24 +386,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         // 顶部：左边是连接状态，右边是会话标签（可点，点开列历史会话）
         // 与「＋」新建。发送/停止按钮在输入区下方的工具栏里
-        // 顶部这一行现在只有会话：标签靠左，齿轮与「＋」在右（用户最初要的就是右上角）。
+        // 顶部这一行现在只有会话：标签靠左，「＋」与齿轮在右。
         // 连接状态已经挪到下面的上下文行 —— 那一行原先只为了它一个人撑高度。
         //
-        // 标签待在 CENTER 里拿剩余宽度而不是给固定首选宽：长标题才不会把
-        // 右边两个按钮挤出去，超了自己打省略号（spec §2.3 的同一条理由）。
-        val top = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(4, 8)
-            add(sessionLabel, BorderLayout.CENTER)
-            add(
-                JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.X_AXIS)
-                    isOpaque = false
-                    add(settingsButton)   // 齿轮在左
-                    add(newSessionButton) // 「＋」仍在最右 —— 用户最初要的就是右上角
-                },
-                BorderLayout.EAST,
-            )
-        }
+        // 布局本身在 [buildTopRow] 里：它可测（这一行不可测 —— 依赖 Project），
+        // 而"两个按钮挨多近""谁在左"正是那一版改的两件事。
+        val top = buildTopRow(sessionLabel, settingsButton, newSessionButton)
 
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
         val inputScroll = JBScrollPane(input).apply {

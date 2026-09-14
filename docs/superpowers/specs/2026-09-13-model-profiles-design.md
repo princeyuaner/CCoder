@@ -285,7 +285,7 @@ SMALL_FAST / SUBAGENT 六个名字 —— 与 CCG 的 `MODEL_ROUTING_ENV_VARS` �
 | 文件 | 改什么 |
 |---|---|
 | `ui/ComposerToolbar.kt` | `buildModelLabel()` → 返回 `ModelLabel`；补悬停 |
-| `ui/ClaudePanel.kt` | 顶行（`:307` 那个 `top`）的 EAST 槽加齿轮，排在「＋」左边；接标签点击；切换走确认框 + `restartSession` |
+| `ui/ClaudePanel.kt` + `ui/TopRow.kt` | 顶行（`:307` 那个 `top`）的 EAST 槽加齿轮；接标签点击；切换走确认框 + `restartSession`。**2026-09-14 改**：顺序对调（现在「＋」在左、齿轮占最右角），间距收紧到 2px —— 布局挪进 `ui/TopRow.kt`，那一份可测（`TopRowTest`） |
 | `settings/ClaudeSettings.kt` | `toStartParams` 合并选中 profile 的 env；`model` 降级为回退值 |
 | `sidecar/env.js` | **不动**（黑名单本来就不拦这三个变量） |
 | `sidecar/session.js` | **不动**（`env` 通路现成） |

@@ -100,6 +100,9 @@ h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacin
 .tw-bar .sp { margin-left:auto; }
 
 /* ---- 顶部状态栏 ---- */
+.picked-note { margin: 0 0 12px; font-size: 12.5px; color: var(--page-dim); border-left: 3px solid var(--ok); padding: 4px 0 4px 10px; background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.picked-note b { color: var(--page-fg); }
+.picked-note code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
 .status-row {
   display:flex; align-items:center; gap:8px;
   padding: 7px 10px; border-bottom:1px solid var(--border-soft);
@@ -348,6 +351,12 @@ td code { font-family: var(--mono); font-size: 12px; background: var(--code); pa
   </div>
 
   <h2 class="section-title">一、右上角那一行怎么排</h2>
+  <p class="picked-note">
+    <b>2026-09-14 追记：</b>这一页画的还是"状态栏最右一个「＋」"。齿轮进来之后最右角归了齿轮，
+    「＋」挪到它左边；同一天两个图标的间距也收紧了（原来的间隔是各自默认边框那 3px 横向内边距，
+    画都不画却照样占地方，白多出 6px）。真界面在 <code>ui/TopRow.kt</code> ——
+    <b>下面 A 图里的排布不是现状</b>。
+  </p>
   <p class="section-lede">
     现在这一行是 <code>[● 已连接] …… [会话名 ▾]</code>，会话标签靠 <code>margin-left:auto</code> 顶到最右。
     加一个新建按钮，就有两个东西抢同一个角。四种排法，看哪种<b>扫一眼就知道哪个是哪个</b>。

@@ -104,7 +104,7 @@ h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacin
 .tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
 .tw-bar .sp { margin-left:auto; }
 
-/* 顶行：会话标签 + ＋ + 设置齿轮 */
+/* 顶行：会话标签 + ＋ + 设置齿轮（2026-09-14 起＋在左、齿轮在右，见 .ibpair） */
 .status-row {
   display:flex; align-items:center; gap:8px;
   padding: 7px 10px; border-bottom:1px solid var(--border-soft);
@@ -115,8 +115,11 @@ h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacin
 .sess .caret { color: var(--dim); font-size: 9px; flex:0 0 auto; }
 .ib { display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:5px; flex:0 0 auto;
       color: var(--dim); font-size:15px; line-height:1; cursor:pointer; border:1px solid transparent; }
-.ib.gear { margin-left:0; }
-.ib.new { margin-left:auto; }
+/* 两个图标按钮挨着放、一起推到最右；间距 2px —— 真界面一样（ui/TopRow.kt） */
+.ibpair { margin-left:auto; display:flex; align-items:center; gap:2px; }
+.picked-note { margin: 0 0 12px; font-size: 12.5px; color: var(--page-dim); border-left: 3px solid var(--ok); padding: 4px 0 4px 10px; background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.picked-note b { color: var(--page-fg); }
+.picked-note code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
 .ib.act { border-color: var(--accent); color: var(--accent); }
 
 /* 转写区 */
@@ -264,6 +267,14 @@ table.cmp td.n { color: var(--danger); }
         下面是三种放法 —— 差别在设置<b>放在哪</b>，不在于好不好看。
       </p>
     </div>
+
+  <p class="picked-note">
+    <b>2026-09-14 追记：</b>齿轮按这一页做了（右上角，点开设置对话框）。同一天用户又提了两处
+    并已实施：顶行那两个图标按钮<b>间距收紧</b>（原来的间隔不是谁定的 —— 是两个按钮各自默认边框
+    的 3px 横向内边距，画都不画却照样占地方，白多出 6px），以及<b>顺序对调</b> ——
+    现在是「＋」在左、齿轮占最右角（原为齿轮在左）。图上两处都照改过了，
+    真界面在 <code>ui/TopRow.kt</code>。
+  </p>
     <div class="toggle" role="group" aria-label="主题">
       <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
       <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
@@ -313,8 +324,10 @@ table.cmp td.n { color: var(--danger); }
         <div class="tw-bar"><span class="ic"></span><span>CCoder</span><span class="sp"></span></div>
         <div class="status-row">
           <div class="sess"><span class="nm">重构 sidecar 启动流程</span><span class="caret">▾</span></div>
-          <div class="ib gear act" title="设置">⚙</div>
-          <div class="ib new">＋</div>
+          <div class="ibpair">
+            <div class="ib new" title="新建会话">＋</div>
+            <div class="ib gear act" title="设置">⚙</div>
+          </div>
         </div>
         <div class="tr">
           <div class="bub u">把这个改成读配置</div>
@@ -418,8 +431,10 @@ table.cmp td.n { color: var(--danger); }
         <div class="tw-bar"><span class="ic"></span><span>CCoder</span><span class="sp"></span></div>
         <div class="status-row">
           <div class="sess"><span class="nm">重构 sidecar 启动流程</span><span class="caret">▾</span></div>
-          <div class="ib gear act">⚙</div>
-          <div class="ib new">＋</div>
+          <div class="ibpair">
+            <div class="ib new" title="新建会话">＋</div>
+            <div class="ib gear act" title="设置">⚙</div>
+          </div>
         </div>
 
         <!-- 内嵌层 -->
