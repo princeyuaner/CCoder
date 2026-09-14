@@ -1,36 +1,19 @@
 package com.ccoder.ui
 
-import com.google.gson.JsonObject
 import java.util.Locale
 
 /**
- * 一次 result 事件带来的上下文用量。
+ * 上下文占用的数值。
  *
- * @param contextWindow 上下文窗口容量；缺失记为 0，由格式化那层决定怎么显示
+ * 两个数都来自 CLI 自己的 `getContextUsage()`（见
+ * [com.ccoder.sidecar.Protocol.encodeContextUsage]）—— 那正是 `/context` 用的
+ * 同一份读数，所以卡片显示的就是 CLI 会告诉你的东西。
+ *
+ * @param usedTokens 已占用的 token（各类目之和：系统提示、工具、消息……）
+ * @param windowTokens 算比例用的分母。它是 CLI 解析出来的**可压缩窗口**，未必
+ *   等于模型的硬上限（可能被压缩策略收窄过）；为 0 表示没拿到，此时不做除法
  */
-internal data class ContextUsage(val inputTokens: Long, val contextWindow: Long)
-
-/**
- * 从 result 事件的 `modelUsage` 里取出主对话的用量。
- *
- * `modelUsage` 是 `Record<模型名, ModelUsage>`（sdk.d.ts:5056），子 agent 与
- * 辅助模型也各占一项，而它们的输入量远小于主对话。取输入量最大的那一项作为
- * "上下文占用"—— 主对话的输入包含完整历史，必然是最大的。
- *
- * 取不到就返回 null 而**不是造一个零值**：零值会被显示成"上下文 0"，
- * 那是假信息。
- */
-internal fun contextUsageOf(event: JsonObject): ContextUsage? {
-    val perModel = event.get("modelUsage")?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
-
-    return perModel.entrySet()
-        .mapNotNull { (_, value) -> value.takeIf { it.isJsonObject }?.asJsonObject }
-        .mapNotNull { entry ->
-            val input = entry.long("inputTokens") ?: return@mapNotNull null
-            ContextUsage(inputTokens = input, contextWindow = entry.long("contextWindow") ?: 0L)
-        }
-        .maxByOrNull { it.inputTokens }
-}
+internal data class ContextUsage(val usedTokens: Long, val windowTokens: Long)
 
 /** 按量级缩写 token 数：12345 → "12.3k"。 */
 internal fun formatTokenCount(tokens: Long): String = when {
@@ -46,25 +29,19 @@ internal fun formatTokenCount(tokens: Long): String = when {
  * 放大、把绝对数放小，两者得能分开取。
  */
 internal fun contextPercentOf(usage: ContextUsage): Int? {
-    if (usage.contextWindow <= 0) return null
-    return Math.round(usage.inputTokens * 100.0 / usage.contextWindow).toInt()
+    if (usage.windowTokens <= 0) return null
+    return Math.round(usage.usedTokens * 100.0 / usage.windowTokens).toInt()
 }
 
 /** "12.3k / 200k"。窗口未知时只给已用量，仍然不做除法。 */
 internal fun contextRatioText(usage: ContextUsage): String {
-    val used = formatTokenCount(usage.inputTokens)
-    if (usage.contextWindow <= 0) return used
-    return "$used / ${formatTokenCount(usage.contextWindow)}"
+    val used = formatTokenCount(usage.usedTokens)
+    if (usage.windowTokens <= 0) return used
+    return "$used / ${formatTokenCount(usage.windowTokens)}"
 }
 
 /** 200000 → "200k" 而不是 "200.0k"；用 ROOT locale 避免某些语言下小数点是逗号。 */
 private fun trimTrailingZero(value: Double): String {
     val formatted = String.format(Locale.ROOT, "%.1f", value)
     return formatted.removeSuffix(".0")
-}
-
-private fun JsonObject.long(key: String): Long? {
-    val value = get(key) ?: return null
-    if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return null
-    return value.asLong
 }

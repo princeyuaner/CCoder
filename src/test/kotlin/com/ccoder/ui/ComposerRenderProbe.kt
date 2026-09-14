@@ -38,7 +38,7 @@ class ComposerRenderProbe {
         SwingUtilities.invokeAndWait {
             val cards = StatusCardsRow(onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(connectionCardOf("已连接"))
-                context.setModel(contextCardOf(ContextUsage(inputTokens = 12300, contextWindow = 200000)))
+                context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
                 todos.setModel(
                     todoCardOf(
                         TaskList(

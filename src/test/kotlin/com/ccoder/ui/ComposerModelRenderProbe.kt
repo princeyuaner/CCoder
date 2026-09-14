@@ -30,13 +30,27 @@ import javax.swing.SwingUtilities
  */
 class ComposerModelRenderProbe {
 
+    // 一条配置挂好几个模型是常态（同一个网关下换个档），所以这里就按常态画
     private val opus = ModelProfile(
-        id = "p1", name = "中转 Opus", modelId = "claude-opus-4-6", baseUrl = "https://api.relay.example.com",
+        id = "p1", name = "中转 Opus",
+        modelIds = mutableListOf("claude-opus-4-6", "claude-opus-4-6[1m]", "claude-sonnet-4-5"),
+        modelId = "claude-opus-4-6",
+        baseUrl = "https://api.relay.example.com",
     )
     private val qwen = ModelProfile(
-        id = "p2", name = "本地 Qwen", modelId = "qwen3-coder-30b", baseUrl = "http://localhost:11434",
+        id = "p2", name = "本地 Qwen",
+        modelIds = mutableListOf("qwen3-coder-30b"),
+        modelId = "qwen3-coder-30b",
+        baseUrl = "http://localhost:11434",
     )
-    private val official = ModelProfile(id = "p3", name = "官方", modelId = "claude-sonnet-4-5")
+    private val official = ModelProfile(
+        id = "p3", name = "官方",
+        modelIds = mutableListOf("claude-sonnet-4-5"),
+        modelId = "claude-sonnet-4-5",
+    )
+
+    /** 一条没指定模型的配置 —— 它也得有一行可选，那一行长什么样要看一眼。 */
+    private val bare = ModelProfile(id = "p5", name = "裸配置")
 
     /**
      * 两个标签 × 悬停。
@@ -92,15 +106,24 @@ class ComposerModelRenderProbe {
         val hoverMode: Boolean = false,
     )
 
-    private val longName =
-        ModelProfile(name = "Claude Opus 4 中转（公司代理）", modelId = "claude-opus-4-6")
+    private val longName = ModelProfile(
+        name = "Claude Opus 4 中转（公司代理）",
+        modelIds = mutableListOf("claude-opus-4-6-20250929-thinking-exp"),
+        modelId = "claude-opus-4-6-20250929-thinking-exp",
+    )
 
-    /** 弹层：有配置时。宽度看它的首选尺寸，不用跟标签对齐。 */
+    /**
+     * 弹层：多配置 × 多模型，而且**后果两种都有**。
+     *
+     * 当前那条是热切换（不标），别的都标〔会重开会话〕—— 这两个信号在同
+     * 一张图里才看得出会不会打架（组头本来就长，再挂一个标记有可能越宽）。
+     */
     @Test
     fun `把切换弹层画成图片`() = renderPopup(
         "build/probe/composer-model-popup.png",
-        profiles = listOf(opus, longDetail, qwen, official),
+        profiles = listOf(opus, longDetail, qwen, official, bare),
         currentId = "p1",
+        effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
     )
 
     /** 一条配置都没有时。这是新用户点开看到的第一眼。 */
@@ -108,10 +131,11 @@ class ComposerModelRenderProbe {
     fun `把空弹层画成图片`() =
         renderPopup("build/probe/composer-model-popup-empty.png", profiles = emptyList(), currentId = null)
 
-    /** 弹层最宽的那一版：modelId 与主机名都很长。 */
+    /** 弹层最宽的那一版：模型名与主机名都很长。 */
     private val longDetail = ModelProfile(
         id = "p4",
         name = "公司中转",
+        modelIds = mutableListOf("claude-opus-4-6-20250929", "deepseek-v4-flash-vision-exp[1m]"),
         modelId = "claude-opus-4-6-20250929",
         baseUrl = "https://api.anthropic-relay.internal.corp.example.com",
     )
@@ -173,9 +197,14 @@ class ComposerModelRenderProbe {
         }
     }
 
-    private fun renderPopup(path: String, profiles: List<ModelProfile>, currentId: String?) {
+    private fun renderPopup(
+        path: String,
+        profiles: List<ModelProfile>,
+        currentId: String?,
+        effectOf: (ModelProfile) -> PickEffect = { PickEffect.Hot },
+    ) {
         SwingUtilities.invokeAndWait {
-            val list = buildModelList(profiles, currentId, {}, {})
+            val list = buildModelList(profiles, currentId, effectOf, {}, {})
             val pad = JBUI.scale(10)
             val outer = JPanel(BorderLayout()).apply {
                 isOpaque = true

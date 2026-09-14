@@ -9,6 +9,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
@@ -25,10 +26,35 @@ import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.ScrollPaneConstants
 import javax.swing.event.DocumentEvent
 
 /** `JBPasswordField` 打码时用的字符。显式写出来，是因为那只眼睛要拿它做比对。 */
 private const val ECHO_MASKED = '•'
+
+/** 「模型 ID」那一栏的标题。探针与用例引用它，不抄字面量。 */
+internal const val MODEL_IDS_LABEL = "模型 ID（一行一个）"
+
+/**
+ * 左栏那个新建按钮。与 [ADD_MODEL_LABEL] **必须不同名** ——
+ * 一个建配置、一个给配置添模型，同名叫人点错。
+ */
+internal const val ADD_PROFILE_LABEL = "＋ 添加配置"
+
+/** 模型列表里那个添加按钮。 */
+internal const val ADD_MODEL_LABEL = "＋ 添加模型"
+
+/** 哪一行在用。与左侧列表的〔使用中〕是同一句话，两个地方别写岔。 */
+internal const val IN_USE_LABEL = "使用中"
+
+/** 〔使用中〕占的宽度（三个汉字），按固定宽度留位 —— 见 [ModelProfilesDialog.modelIdRow]。 */
+private const val IN_USE_WIDTH = 46
+
+/** 模型列表最多先长这么高（约四行），再多就滚。 */
+private const val MODEL_LIST_MAX_HEIGHT = 132
+
+/** 表单内容的宽度：440 的栏宽减去左右各 16 的内边距。量高度前要先喂它。 */
+private const val FORM_CONTENT_WIDTH = 408
 
 /** 打开设置对话框，停在「模型」页。 */
 fun showModelProfilesDialog(project: Project) {
@@ -167,8 +193,14 @@ internal class ModelProfilesDialog(
         add(formSlot, BorderLayout.NORTH)
     }
 
-    /** 「＋ 添加模型」：建一条空配置并立刻进入编辑。 */
-    private fun addButton(): JComponent = JBLabel("＋ 添加模型").apply {
+    /**
+     * 左栏的「＋ 添加配置」：建一条空配置并立刻进入编辑。
+     *
+     * 它建的是**配置**（端点 + 密钥 + 一族模型），不是单个模型 —— 所以文案不能
+     * 写成「添加模型」：表单里那一栏也有个添加按钮，两个同名但干的事不同，
+     * 点错了是"怎么多出来一条空的配置"。
+     */
+    private fun addButton(): JComponent = JBLabel(ADD_PROFILE_LABEL).apply {
         foreground = UIUtil.getInactiveTextColor()
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         border = JBUI.Borders.empty(8, 10)
@@ -266,7 +298,6 @@ internal class ModelProfilesDialog(
 
         val name = JBTextField(p.name)
         val url = JBTextField(p.baseUrl)
-        val modelId = JBTextField(p.modelId)
         val authKind = ComboBox(AuthKind.entries.toTypedArray()).apply {
             // 显示 label 而不是枚举名：用户不该看到 AUTH_TOKEN 这种给代码看的词。
             // 只在**这里**翻译，不去覆写 toString()（那会连日志里的名字一起改掉）
@@ -277,13 +308,72 @@ internal class ModelProfilesDialog(
         // 用 JBPasswordField 而不是普通输入框：这是唯一一个明文写在屏幕上就等于泄漏的字段
         val secret = JBPasswordField().apply { text = profiles.secretOf(p.id) }
 
-        fun save() {
-            val next = p.copy(
-                name = name.text,
-                baseUrl = url.text,
-                modelId = modelId.text,
-                authKind = (authKind.selectedItem as AuthKind).name,
+        // ---- 模型那一族（一行一个）----
+
+        val modelFields = mutableListOf<JBTextField>()
+        // 哪一行是"当前用的"。存**组件**而不是下标：下面会把空行滤掉，
+        // 下标就会错位；组件引用不会
+        var currentField: JBTextField? = null
+
+        /**
+         * 从当前界面装配出一份配置。
+         *
+         * 抽出来是因为**三个地方要用**：save()，以及增删某一行的两个动作 ——
+         * 后两者必须先把已改过的文字收进来，否则"改完第 2 行、再删第 1 行"
+         * 会把第 2 行的修改一起丢掉。
+         *
+         * `modelId` 取的是那**一行**的内容：把在用的那个模型改了名，改名之后
+         * 它仍然是在用的那个。取不到（那一行被删了、或改成了空）就给空串，
+         * 让 [normalizeModelProfile] 把它落到第一项 —— 政策只有那一个出处。
+         */
+        fun collect(): ModelProfile = p.copy(
+            name = name.text,
+            baseUrl = url.text,
+            modelIds = modelFields.map { it.text.trim() }.filter { it.isNotEmpty() }.toMutableList(),
+            modelId = currentField?.text?.trim().orEmpty(),
+            authKind = (authKind.selectedItem as AuthKind).name,
+        )
+
+        val modelRows = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        p.modelIds.forEach { id ->
+            val f = JBTextField(id)
+            modelFields += f
+            if (id == p.modelId) currentField = f
+            modelRows.add(
+                modelIdRow(
+                    field = f,
+                    inUse = id == p.modelId,
+                    onRemove = {
+                        // 先 collect 再删：否则上面那些框里刚打的字会跟着这一行一起没
+                        val kept = collect()
+                        applyAndRefresh(
+                            normalizeModelProfile(
+                                kept.copy(
+                                    modelIds = kept.modelIds.filterNot { m -> m == id }
+                                        .toMutableList()
+                                )
+                            )
+                        )
+                    },
+                )
             )
+        }
+        modelRows.add(
+            addModelRow {
+                val kept = collect()
+                // 空行先塞进去，用户打字时才落库：normalizeModelProfile 会把空行
+                // 滤掉，所以这一步**不能**upsert（那等于什么都没加）
+                editing = kept.copy(modelIds = (kept.modelIds + "").toMutableList())
+                refresh()
+            }
+        )
+
+        fun save() {
+            val next = collect()
             editing = next
             profiles.upsert(next)
             // **只在密钥真的变了时才写**。四个字段共用这一个 save()，无条件写的话
@@ -300,7 +390,14 @@ internal class ModelProfilesDialog(
             rebuildList()   // 改名要立刻反映到列表
         }
 
-        listOf(name, url, modelId, secret).forEach { f ->
+        listOf(name, url, secret).forEach { f ->
+            f.document.addDocumentListener(object : DocumentAdapter() {
+                override fun textChanged(e: DocumentEvent) = save()
+            })
+        }
+        // 模型那几个框**编辑时不重建表单** —— 上面那三个同理由走 save()，
+        // 而重建会把光标位置和选区丢掉（同 secretField 那条注释）
+        modelFields.forEach { f ->
             f.document.addDocumentListener(object : DocumentAdapter() {
                 override fun textChanged(e: DocumentEvent) = save()
             })
@@ -311,7 +408,7 @@ internal class ModelProfilesDialog(
         formSlot.add(field("Base URL", url))
         formSlot.add(field("认证方式", authKind))
         formSlot.add(field("API Key", secretField(secret)))
-        formSlot.add(field("模型 ID", modelId))
+        formSlot.add(field(MODEL_IDS_LABEL, modelListBox(modelRows)))
 
         // 删除放**底部左**，与"关闭"分开 —— 它和"保存这次编辑"不是一类动作
         formSlot.add(Box.createVerticalStrut(JBUI.scale(16)))
@@ -371,6 +468,108 @@ internal class ModelProfilesDialog(
         row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
         return row
     }
+
+    /**
+     * 写完一条配置并重建两栏。**结构性**动作走这里（增删模型），
+     * 而改文字走 `save()` —— 那个只重建左栏，不碰正在编辑的输入框。
+     */
+    private fun applyAndRefresh(next: ModelProfile) {
+        editing = next
+        profiles.upsert(next)
+        refresh()
+    }
+
+    /**
+     * 「模型 ID」那一栏的外框：定高 + 可滚。
+     *
+     * **必须封顶**：表单挂在 `BorderLayout.NORTH` 上，它自己不会滚，模型一多
+     * 就把整张表单顶出 540px 的对话框，底部那些字段直接看不见了。
+     *
+     * 高度是量出来的（同 [conflictWarning] 的写法）：宽度先喂进去，再读
+     * `preferredSize`。封顶必须**等于**量出来的那个值 —— 给 `Int.MAX_VALUE`
+     * 的话这个框会成为表单里的弹簧，把上面的字段顶开。
+     */
+    private fun modelListBox(rows: JComponent): JComponent {
+        val width = JBUI.scale(FORM_CONTENT_WIDTH)
+        rows.setSize(width, Int.MAX_VALUE)
+        val scroll = JBScrollPane(
+            rows,
+            ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+            ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+        ).apply {
+            border = JBUI.Borders.empty()
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            preferredSize = Dimension(
+                width,
+                minOf(rows.preferredSize.height, JBUI.scale(MODEL_LIST_MAX_HEIGHT)),
+            )
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
+        return scroll
+    }
+
+    /**
+     * 一个模型：可编辑的输入框 + 右边〔使用中〕与 ✕。
+     *
+     * 〔使用中〕的位置**按固定宽度留出来**，不写就没有。三行模型里只有一行
+     * 在用，不留位的话 ✕ 会一行一个位置，看起来像没对齐 —— 同 `MARK` 那个
+     * "未选中也缩进"的道理。
+     */
+    private fun modelIdRow(field: JBTextField, inUse: Boolean, onRemove: () -> Unit): JComponent {
+        // 固定宽度的占位**必须做在 JPanel 上**：JBLabel 覆写了 getPreferredSize
+        // （它按内容算，还要处理 HTML），给它设 preferredSize 是不生效的 ——
+        // 实测两行的 ✕ 会落在 36px 和 0px 上，看起来像没对齐
+        val badge = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            preferredSize = Dimension(JBUI.scale(IN_USE_WIDTH), 0)
+            if (inUse) {
+                add(
+                    JBLabel(IN_USE_LABEL).apply { foreground = UIUtil.getInactiveTextColor() },
+                    BorderLayout.WEST,
+                )
+            }
+        }
+
+        val remove = JBLabel("✕").apply {
+            toolTipText = "删掉这个模型"
+            foreground = UIUtil.getInactiveTextColor()
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            border = JBUI.Borders.emptyLeft(6)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) = onRemove()
+            })
+        }
+
+        val east = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            add(badge)
+            add(remove)
+        }
+
+        val row = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.emptyBottom(4)
+            add(field, BorderLayout.CENTER)
+            add(east, BorderLayout.EAST)
+        }
+        // 加完子件之后再量（同 ModelProfiles 里 listRow 的注释）
+        row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
+        return row
+    }
+
+    /** [ADD_MODEL_LABEL]。是个动作，所以不占勾位、贴着左边。 */
+    private fun addModelRow(onAdd: () -> Unit): JComponent =
+        JBLabel(ADD_MODEL_LABEL).apply {
+            foreground = UIUtil.getInactiveTextColor()
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            border = JBUI.Borders.emptyTop(2)
+            alignmentX = Component.LEFT_ALIGNMENT
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) = onAdd()
+            })
+        }
 
     /**
      * 一个字段：上面标签、下面输入框。

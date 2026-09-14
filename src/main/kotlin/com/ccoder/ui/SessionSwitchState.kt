@@ -62,13 +62,17 @@ internal fun sessionTitle(session: SessionInfo): String =
 /**
  * 会话标签上的名字：有标题给标题，没有给 null。
  *
+ * **用户自己起的名字压过一切** —— 改名之后回到列表还显示那句自动摘要，
+ * 那个改名就白改了。
+ *
  * 与 [sessionTitle] 分开，是因为"没有标题"在两处的含义不同：列表行需要一个
  * 占位（空白行看起来像渲染坏了），标签需要的是 null —— 它显示的是斜体的
  * 「新会话」。给标签一个「（无标题）」的话，打开一个无标题的会话，标签上会
  * 出现一个看着像真标题的东西。
  */
 internal fun sessionLabelTitle(session: SessionInfo): String? =
-    session.summary?.takeIf { it.isNotBlank() }
+    session.customTitle?.takeIf { it.isNotBlank() }
+        ?: session.summary?.takeIf { it.isNotBlank() }
         ?: session.firstPrompt?.takeIf { it.isNotBlank() }
 
 /**

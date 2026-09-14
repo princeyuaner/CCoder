@@ -40,19 +40,38 @@ class StatusCardsRenderProbe {
         render("build/status-cards-probe-longstatus.png", busy = true, connectionText = "正在载入…")
 
     /**
+     * **还没测到用量**那一版单独出一张。
+     *
+     * 这条是**会话刚建立、还没问回用量**那一拍的样子。它以前是收边的「空闲」，
+     * 现在是一个正常字号带边框的 `0` —— 后者是不是看着像一句"这个会话是空的"
+     * 的断言，得看图才知道。
+     */
+    @Test
+    fun `把还没测到用量的上下文卡画成图片`() =
+        render("build/status-cards-probe-nousage.png", busy = true, noUsage = true)
+
+    /**
      * @param busy true = 四样都有内容；false = 后两张收边。
      *   空闲那张同时把上下文推到 92%，顺手验证警示色。
+     * @param noUsage true = 上下文没有测量值（`contextCardOf(null)`）。
      */
-    private fun render(path: String, busy: Boolean, connectionText: String? = null) {
+    private fun render(
+        path: String,
+        busy: Boolean,
+        connectionText: String? = null,
+        noUsage: Boolean = false,
+    ) {
         SwingUtilities.invokeAndWait {
             val cards = StatusCardsRow(onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(
                     connectionCardOf(connectionText ?: if (busy) "已连接" else "会话已断开")
                 )
                 context.setModel(
-                    contextCardOf(
-                        if (busy) ContextUsage(12300, 200000) else ContextUsage(184000, 200000)
-                    )
+                    when {
+                        noUsage -> contextCardOf(null)
+                        busy -> contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000))
+                        else -> contextCardOf(ContextUsage(usedTokens = 184000, windowTokens = 200000))
+                    }
                 )
                 todos.setModel(
                     if (busy) {

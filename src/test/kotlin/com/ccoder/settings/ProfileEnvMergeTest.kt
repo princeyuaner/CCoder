@@ -95,13 +95,27 @@ private class InMemorySecretStore : SecretStore {
  */
 class ProfileEnvWiringTest {
 
+    /**
+     * 夹具里写的都是"一条配置一个模型"的老形状（`modelId = "glm-4.6"`），而现在的
+     * 不变量是"`modelId` 必须落在 `modelIds` 里"。这**不是**为了绕开 upsert 的
+     * 规范化 —— 那一步只认 `modelIds`，空列表时会把 `modelId` 清掉（见
+     * [normalizeModelProfile] 的说明）。对话框写库时保证两者一致，夹具也该一致。
+     * 老 XML 走的是 [ModelProfiles.loadState] 里那次显式迁移，这里补的是同一件事。
+     */
+    private fun ModelProfile.withModelList(): ModelProfile =
+        if (modelIds.isEmpty() && modelId.isNotBlank()) {
+            copy(modelIds = mutableListOf(modelId))
+        } else {
+            this
+        }
+
     private fun settingsWith(
         profiles: ModelProfiles,
         selected: ModelProfile,
         secret: String,
         configure: ClaudeSettings.() -> Unit = {},
     ): ClaudeSettings {
-        profiles.upsert(selected)
+        profiles.upsert(selected.withModelList())
         profiles.setSecret(selected.id, secret)
         profiles.select(selected.id)
         return ClaudeSettings().apply(configure)

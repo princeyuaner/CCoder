@@ -55,6 +55,38 @@ sealed interface SidecarMessage {
      */
     data class EffortChanged(val level: String?) : SidecarMessage
 
+    /**
+     * 会话中途换模型的回执。
+     *
+     * 与 [PermissionChanged] 同一条规矩：界面**只**在收到它之后才更新标签。
+     *
+     * [model] 没有"清除"那一档（与 [EffortChanged] 正相反）—— 换模型永远是
+     * 换到一个**具体名字**，所以这里不需要 `has()` 那套判断，缺字段就是畸形。
+     *
+     * 回执说的是"CLI 收下了"，不是"这个模型在网关上真的存在"。后者 CLI 不校验，
+     * 认不出的名字要到下一轮请求才会响亮地失败 —— 那是一个看得见的错误，
+     * 不是一条静默的谎。
+     */
+    data class ModelChanged(val model: String) : SidecarMessage
+
+    /**
+     * 上下文用量的应答。
+     *
+     * 是**请求-响应式**的（带 [requestId]），因为它总是"问一次答一次"：
+     * 会话建立后问一次，每轮跑完再问一次。
+     *
+     * 与 `ui` 包里那个 [com.ccoder.ui.ContextUsage] 不是一回事：这个是协议报文，
+     * 那个是卡片用的值对象。名字不同是为了别让读代码的人以为可以互换。
+     *
+     * [windowTokens] 是**算比例用的那个分母**（CLI 的 `rawMaxTokens`），不是模型
+     * 硬上限 —— 它可能是按压缩策略收窄过的窗口。
+     */
+    data class ContextUsageReport(
+        val requestId: String,
+        val usedTokens: Long,
+        val windowTokens: Long,
+    ) : SidecarMessage
+
     /** 错误。fatal=true 表示会话已终止。 */
     data class Failure(val message: String, val code: String?, val fatal: Boolean) : SidecarMessage
 
@@ -77,6 +109,43 @@ sealed interface SidecarMessage {
     data class History(
         val requestId: String,
         val sessionId: String,
+        val items: List<JsonObject>,
+    ) : SidecarMessage
+
+    /**
+     * 改名 / 打标签的回执。
+     *
+     * 两者各是一个消息而不是共用一个"某字段变了"的信封：它们影响的是**不同**
+     * 的字段（改名不动 tag，反之亦然），合起来会让人以为整行都可能变。
+     *
+     * [title]/[tag] 是**回读**来的权威值（sidecar 改完会读一次会话记录），
+     * 不是回显我们刚发出去的东西 —— 回读才知道写入真的落下了。
+     * tag 为 null 是有效取值，表示标签被清掉。
+     */
+    data class SessionRenamed(
+        val requestId: String,
+        val sessionId: String,
+        val title: String?,
+    ) : SidecarMessage
+
+    data class SessionTagged(
+        val requestId: String,
+        val sessionId: String,
+        val tag: String?,
+    ) : SidecarMessage
+
+    /** `listSubagents` 的应答。 */
+    data class Subagents(val requestId: String, val agents: List<SubagentInfo>) : SidecarMessage
+
+    /**
+     * 某个子代理的转写。
+     *
+     * [items] 与 `loadHistory` 那份**同形**（都是原始会话消息），所以解析与渲染
+     * 可以完全复用 —— 子代理的转写本来就是同一套消息格式。
+     */
+    data class SubagentMessages(
+        val requestId: String,
+        val agentId: String,
         val items: List<JsonObject>,
     ) : SidecarMessage
 
@@ -116,6 +185,26 @@ data class SessionInfo(
     val summary: String?,
     val firstPrompt: String?,
     val lastModified: Long,
+    /**
+     * 用户自己起的名字。**显示时优先于 [summary]** —— 不然改完名回到列表
+     * 看到的还是那句自动摘要，等于白改。
+     */
+    val customTitle: String? = null,
+    /** 用户打的标签。null = 没打（或刚清掉）。 */
+    val tag: String? = null,
+)
+
+/**
+ * 一个子代理。
+ *
+ * [toolUseId] 是它与界面上"运行中的任务"对上号的凭据 —— 任务那一侧的 id
+ * 就是 tool_use id。对不上（读不到元信息）时为 null，界面就只显示 [agentId]。
+ */
+data class SubagentInfo(
+    val agentId: String,
+    val agentType: String?,
+    val description: String?,
+    val toolUseId: String?,
 )
 
 /**
@@ -191,6 +280,61 @@ object Protocol {
                 !obj.has("level") -> null
                 obj.get("level").isJsonNull -> SidecarMessage.EffortChanged(null)
                 else -> obj.str("level")?.let { SidecarMessage.EffortChanged(it) }
+            }
+
+            // 照 permissionModeChanged（**不是**上面那条）：模型没有"清除"这个
+            // 状态，所以缺字段就是畸形，没有"键在且为 null 也合法"那种情况
+            "modelChanged" -> obj.str("model")?.let { SidecarMessage.ModelChanged(it) }
+
+            "sessionRenamed" -> {
+                val rid = obj.str("id")
+                val sid = obj.str("sessionId")
+                if (rid == null || sid == null) null
+                else SidecarMessage.SessionRenamed(rid, sid, obj.str("value"))
+            }
+
+            "sessionTagged" -> {
+                val rid = obj.str("id")
+                val sid = obj.str("sessionId")
+                if (rid == null || sid == null) null
+                else SidecarMessage.SessionTagged(rid, sid, obj.str("value"))
+            }
+
+            "subagents" -> {
+                val rid = obj.str("id")
+                if (rid == null) null else SidecarMessage.Subagents(rid, parseSubagents(obj.arr("agents")))
+            }
+
+            "subagentMessages" -> {
+                val rid = obj.str("id")
+                val agentId = obj.str("agentId")
+                if (rid == null || agentId == null) {
+                    null
+                } else {
+                    SidecarMessage.SubagentMessages(
+                        rid,
+                        agentId,
+                        obj.arr("items")
+                            ?.filter { it.isJsonObject }
+                            ?.map { it.asJsonObject }
+                            ?: emptyList(),
+                    )
+                }
+            }
+
+            // 缺 id 就无从配对，按畸形丢弃（同 permission 那条）。两个计数缺失
+            // 记 0：卡片本来就有"没测量值就显示 0"这条路
+            "contextUsage" -> {
+                val requestId = obj.str("id")
+                if (requestId == null) {
+                    null
+                } else {
+                    SidecarMessage.ContextUsageReport(
+                        requestId = requestId,
+                        usedTokens = obj.long("usedTokens") ?: 0L,
+                        windowTokens = obj.long("windowTokens") ?: 0L,
+                    )
+                }
             }
 
             "permission" -> {
@@ -286,7 +430,54 @@ object Protocol {
     fun encodeDeleteSession(id: String, sessionId: String): String =
         line(id, "deleteSession", JsonObject().apply { addProperty("sessionId", sessionId) })
 
+    /**
+     * 给会话改个名字。
+     *
+     * [title] 传**空串**等于恢复自动标题：CLI 把自定义名字单独存在
+     * `custom-title.json` 里，而读的时候空名字会被当成"没有"
+     * （SDK 内部是 `eZ(...) || void 0`），所以写个空名就回到自动摘要。
+     */
+    fun encodeRenameSession(id: String, sessionId: String, title: String): String =
+        line(id, "renameSession", JsonObject().apply {
+            addProperty("sessionId", sessionId)
+            addProperty("title", title)
+        })
+
+    /**
+     * 打标签 / 清标签。
+     *
+     * [tag] 为 null 表示**清掉**，所以要**显式**写 JSON null —— 省略字段只表示
+     * "没提这件事"（同 [encodeSetEffort]）。
+     */
+    fun encodeTagSession(id: String, sessionId: String, tag: String?): String =
+        line(id, "tagSession", JsonObject().apply {
+            addProperty("sessionId", sessionId)
+            add("tag", tag?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+        })
+
+    fun encodeListSubagents(id: String, dir: String, sessionId: String): String =
+        line(id, "listSubagents", JsonObject().apply {
+            addProperty("dir", dir)
+            addProperty("sessionId", sessionId)
+        })
+
+    fun encodeSubagentMessages(id: String, dir: String, sessionId: String, agentId: String): String =
+        line(id, "subagentMessages", JsonObject().apply {
+            addProperty("dir", dir)
+            addProperty("sessionId", sessionId)
+            addProperty("agentId", agentId)
+        })
+
     fun encodeListCommands(id: String): String = encodeSimple(id, "listCommands")
+
+    /**
+     * 问一次上下文用量。会话建立后问一次，每轮跑完再问一次。
+     *
+     * 这是**唯一的**用量来源：result 事件里的 `usage` / `modelUsage` 我们不再读
+     * （前者只有主循环最后一次调用的三个 input 字段，后者是跨回合累计的总额，
+     * 而且恢复会话时两个都拿不到窗口）。
+     */
+    fun encodeContextUsage(id: String): String = encodeSimple(id, "contextUsage")
 
     /**
      * 响应类消息的关联 id。非响应消息返回 null。
@@ -299,6 +490,11 @@ object Protocol {
         is SidecarMessage.History -> msg.requestId
         is SidecarMessage.SessionDeleted -> msg.requestId
         is SidecarMessage.Commands -> msg.requestId
+        is SidecarMessage.ContextUsageReport -> msg.requestId
+        is SidecarMessage.SessionRenamed -> msg.requestId
+        is SidecarMessage.SessionTagged -> msg.requestId
+        is SidecarMessage.Subagents -> msg.requestId
+        is SidecarMessage.SubagentMessages -> msg.requestId
         else -> null
     }
 
@@ -347,6 +543,16 @@ object Protocol {
                 add("level", level?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
             },
         )
+
+    /**
+     * 会话中途换模型。
+     *
+     * [model] **必填**，永远是个具体名字 —— 没有 [encodeSetEffort] 那种「清空」
+     * 状态（`setModel(undefined)` 表达的不是清除），所以这里不需要 JSON null
+     * 那条路，sidecar 侧也会把空串当参数错误挡下来。
+     */
+    fun encodeSetModel(id: String, model: String): String =
+        line(id, "setModel", JsonObject().apply { addProperty("model", model) })
 
     /**
      * 权限决定。
@@ -398,6 +604,31 @@ object Protocol {
                 summary = o.str("summary"),
                 firstPrompt = o.str("firstPrompt"),
                 lastModified = o.long("lastModified") ?: 0L,
+                customTitle = o.str("customTitle"),
+                tag = o.str("tag"),
+            )
+        }
+    }
+
+    /**
+     * 逐条解析子代理。
+     *
+     * 缺 `agentId` 的条目**跳过而非废掉整个列表** —— 与 [parseSessionList]
+     * 同一条理由：一条坏数据不该让另外几个子代理都看不见。
+     * 元信息（类型/描述/toolUseId）读不到是常事（文件可能不在），
+     * 那几项给 null，界面退化成只显示 id。
+     */
+    private fun parseSubagents(arr: JsonArray?): List<SubagentInfo> {
+        if (arr == null) return emptyList()
+        return arr.mapNotNull { el ->
+            if (!el.isJsonObject) return@mapNotNull null
+            val o = el.asJsonObject
+            val agentId = o.str("agentId") ?: return@mapNotNull null
+            SubagentInfo(
+                agentId = agentId,
+                agentType = o.str("agentType"),
+                description = o.str("description"),
+                toolUseId = o.str("toolUseId"),
             )
         }
     }

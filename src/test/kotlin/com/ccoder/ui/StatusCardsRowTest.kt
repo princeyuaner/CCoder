@@ -127,7 +127,7 @@ class StatusCardsRowTest {
     /** 跟生产一样：四张卡都灌上模型。 */
     private fun configured(): StatusCardsRow = row().apply {
         connection.setModel(connectionCardOf("已连接"))
-        context.setModel(contextCardOf(ContextUsage(inputTokens = 12300, contextWindow = 200000)))
+        context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
         todos.setModel(todoCardOf(null))
         running.setModel(runningCardOf(emptyList()))
     }

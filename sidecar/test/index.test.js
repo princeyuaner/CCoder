@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDispatcher } from '../index.js';
 
 /** 等一拍，让 dispatcher 里 await 的那个 Promise 落地。 */
@@ -393,6 +396,175 @@ test('setEffort 被底层拒绝时上报错误，且不回报成功', async () =
   assert.ok(!out.some((m) => m.type === 'effortChanged'));
 });
 
+// ---- 换模型（setModel）----
+
+/** 起一个会话，并给它挂上 setModel。返回 [dispatcher, out, 收到的模型名]。 */
+function withModelSession(setModel) {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const s = d.handle(START);
+  const got = [];
+  s.setModel = async (model) => {
+    got.push(model);
+    return setModel ? setModel(model) : undefined;
+  };
+  return { d, out, got };
+}
+
+test('setModel 成功后回报新模型', async () => {
+  // 与权限模式、思考深度同一条规矩：界面等这条回执才改标签，
+  // 否则切换失败时标签会显示一个没生效的模型
+  const { d, out, got } = withModelSession();
+
+  d.handle({ id: '2', method: 'setModel', params: { model: 'deepseek-v4-pro[1m]' } });
+  await tick();
+
+  assert.deepEqual(got, ['deepseek-v4-pro[1m]'], '模型名必须原样到达会话');
+  const ack = out.find((m) => m.type === 'modelChanged');
+  assert.ok(ack, '没有回执，界面无从知道切换是否生效');
+  assert.equal(ack.model, 'deepseek-v4-pro[1m]', '回执要回显我们发出去的那个名字 —— 界面拿它做等值校验');
+});
+
+test('setModel 缺 model 参数时回错误，不转发', async () => {
+  const { d, out, got } = withModelSession();
+
+  d.handle({ id: '2', method: 'setModel', params: {} });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_MODEL_FAILED');
+  assert.equal(e.fatal, false);
+  assert.deepEqual(got, [], '参数都不全，不该去碰会话');
+  assert.ok(!out.some((m) => m.type === 'modelChanged'));
+});
+
+test('setModel 的空名字与非字符串都拒绝', async () => {
+  // 与档位那条**刻意不同**：档位是闭集所以要白名单，模型名是用户在网关上
+  // 定义的、sidecar 无从知道，认不出的名字会在下一轮请求时响亮地失败。
+  // 但空名字要挡 —— setModel 表达不了"不要模型"，空名字只会变成一次莫名其妙的请求
+  for (const bad of ['', '   ', 123, null, { model: 'x' }]) {
+    const { d, out, got } = withModelSession();
+
+    d.handle({ id: '2', method: 'setModel', params: { model: bad } });
+    await tick();
+
+    const e = out.find((m) => m.type === 'error');
+    assert.equal(e.code, 'SET_MODEL_FAILED', `没挡住：${JSON.stringify(bad)}`);
+    assert.deepEqual(got, [], `脏值被转发了：${JSON.stringify(bad)}`);
+    assert.ok(!out.some((m) => m.type === 'modelChanged'));
+  }
+});
+
+test('会话不支持 setModel 时回错误，不静默成功', async () => {
+  // 老会话没有这个方法。可选链写法在这里会 resolve，
+  // 于是标签会显示一个没生效的模型
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);   // 刻意不挂 setModel
+
+  d.handle({ id: '2', method: 'setModel', params: { model: 'x' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_MODEL_FAILED');
+  assert.equal(e.fatal, false, '切换失败不该断开整个会话');
+  assert.ok(!out.some((m) => m.type === 'modelChanged'),
+    '失败时不能报成功，否则界面会显示一个没生效的模型');
+});
+
+test('还没 start 就 setModel 时回错误，不抛', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '2', method: 'setModel', params: { model: 'x' } });
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_MODEL_FAILED');
+  assert.equal(e.fatal, false);
+});
+
+test('setModel 被底层拒绝时上报错误，且不回报成功', async () => {
+  const { d, out } = withModelSession(() => {
+    throw new Error('Unsupported control request subtype: set_model');
+  });
+
+  d.handle({ id: '2', method: 'setModel', params: { model: 'x' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SET_MODEL_FAILED');
+  assert.match(e.message, /set_model/, '底层原因要带到界面上');
+  assert.ok(!out.some((m) => m.type === 'modelChanged'));
+});
+
+// ---- 上下文用量（contextUsage）----
+
+/** 起一个会话并给它挂上 contextUsage。 */
+function withUsageSession(fn) {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const s = d.handle(START);
+  s.contextUsage = async () => fn();
+  return { d, out };
+}
+
+test('contextUsage 把 CLI 的读数按协议字段回报', async () => {
+  const { d, out } = withUsageSession(async () => ({
+    totalTokens: 456990,
+    rawMaxTokens: 1000000,
+    maxTokens: 1000000,
+  }));
+
+  d.handle({ id: '9', method: 'contextUsage', params: {} });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'contextUsage');
+  assert.ok(ack, '没有应答，卡片就一直没有数');
+  assert.equal(ack.id, '9', 'id 必须回传 —— 插件靠它配对');
+  assert.equal(ack.usedTokens, 456990);
+  assert.equal(ack.windowTokens, 1000000);
+});
+
+test('contextUsage：rawMaxTokens 缺失时退回 maxTokens 当分母', async () => {
+  const { d, out } = withUsageSession(async () => ({ totalTokens: 5, maxTokens: 200000 }));
+
+  d.handle({ id: '9', method: 'contextUsage', params: {} });
+  await tick();
+
+  assert.equal(out.find((m) => m.type === 'contextUsage').windowTokens, 200000);
+});
+
+test('contextUsage 失败时回错误，不静默给 0', async () => {
+  // 静默给 0 的话，"卡片一直是 0"和"上下文真的是空的"在界面上长得一模一样
+  const { d, out } = withUsageSession(async () => {
+    throw new Error('当前 CLI 不支持读取上下文用量');
+  });
+
+  d.handle({ id: '9', method: 'contextUsage', params: {} });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'CONTEXT_USAGE_FAILED');
+  assert.equal(e.fatal, false, '读不到用量不该断开整个会话');
+  assert.ok(!out.some((m) => m.type === 'contextUsage'), '失败时不能报一个假读数');
+});
+
+test('还没 start 就 contextUsage 时回错误，不抛', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '9', method: 'contextUsage', params: {} });
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'NO_SESSION');
+  assert.equal(e.fatal, false);
+});
+
 test('claude 找不到时上报 CLAUDE_NOT_FOUND 且不抛错', () => {
   const out = [];
   const err = new Error('未找到 claude');
@@ -441,7 +613,13 @@ test('畸形输入被忽略而非抛错', () => {
 // ---- 会话列表与历史（Task 3）----
 
 /** 假的 SDK 会话 API，用来把真实 SDK 挡在单测之外。 */
-function fakeSessionApi({ listError = null, historyError = null, deleteFails = false } = {}) {
+function fakeSessionApi({
+  listError = null,
+  historyError = null,
+  deleteFails = false,
+  updateError = null,
+  subagentError = null,
+} = {}) {
   const calls = [];
   return {
     calls,
@@ -461,9 +639,32 @@ function fakeSessionApi({ listError = null, historyError = null, deleteFails = f
         if (historyError) throw new Error(historyError);
         return [{ type: 'user', message: { role: 'user', content: '你好' } }];
       },
-      deleteSession: async (opts) => {
-        calls.push(['deleteSession', opts]);
+      // **位置参数**：SDK 的签名是 (sessionId, options)。签名写错了假实现
+      // 照样"成功"，所以这里的形状必须和真的一模一样
+      deleteSession: async (sid, opts) => {
+        calls.push(['deleteSession', sid, opts]);
         if (deleteFails) throw new Error('找不到这个会话');
+      },
+      renameSession: async (sid, title, opts) => {
+        calls.push(['renameSession', sid, title, opts]);
+        if (updateError) throw new Error(updateError);
+      },
+      tagSession: async (sid, tag, opts) => {
+        calls.push(['tagSession', sid, tag, opts]);
+        if (updateError) throw new Error(updateError);
+      },
+      // 回读：改了名之后由它给出权威值
+      getSessionInfo: async (sid) => ({ sessionId: sid, customTitle: '新名字', tag: 'wip' }),
+      listSubagents: async (sid, opts) => {
+        calls.push(['listSubagents', sid, opts]);
+        if (subagentError) throw new Error(subagentError);
+        // 真实的 agentId **不带** agent- 前缀（文件名才是 agent-<id>.jsonl）
+        return ['a1b2c3d4'];
+      },
+      getSubagentMessages: async (sid, aid, opts) => {
+        calls.push(['getSubagentMessages', sid, aid, opts]);
+        if (subagentError) throw new Error(subagentError);
+        return [{ type: 'user', message: { role: 'user', content: '干活' } }];
       },
     },
   };
@@ -506,8 +707,8 @@ test('listSessions 只传界面要用的字段', () => {
     const s = out.find((m) => m.type === 'sessions').sessions[0];
     assert.deepEqual(
       Object.keys(s).sort(),
-      ['firstPrompt', 'lastModified', 'sessionId', 'summary'],
-      'SDK 的 gitBranch / fileSize / cwd / tag 不该过线',
+      ['customTitle', 'firstPrompt', 'lastModified', 'sessionId', 'summary', 'tag'],
+      'SDK 的 gitBranch / fileSize / cwd 不该过线（customTitle 与 tag 是界面要用的）',
     );
   });
 });
@@ -616,7 +817,9 @@ test('deleteSession 不需要活会话也能应答', () => {
   d.handle({ id: 'r1', method: 'deleteSession', params: { sessionId: 'sess-9' } });
 
   assert.equal(fa.calls.length, 1);
-  assert.deepEqual(fa.calls[0][1], { sessionId: 'sess-9' });
+  // **位置参数**。这条原本断言的是 `{ sessionId: 'sess-9' }` —— 它把错误的
+  // 调用形状当成期望值钉住了，于是删除坏了整整一版都没人发现
+  assert.equal(fa.calls[0][1], 'sess-9');
 });
 
 test('删除成功回 sessionDeleted，且带 id 回显', async () => {
@@ -726,4 +929,218 @@ test('会话方法意外抛错时回 error，不静默挂着', async () => {
 
   assert.ok(out.some((m) => m.type === 'error' && m.code === 'LIST_COMMANDS_FAILED'));
   assert.ok(!out.some((m) => m.type === 'commands'), '失败了不该回一份空列表假装成功');
+});
+
+// ---- 会话改名 / 打标签 / 子代理 ----
+
+test('deleteSession 用位置参数调 SDK —— 传对象会被 UUID 校验挡下', async () => {
+  // 回归测试。改之前这里是 `deleteSession({ sessionId })`，而 SDK 的签名是
+  // `(sessionId, options?)`，实现第一行就做 UUID 校验 —— 传对象必然抛
+  // "Invalid sessionId: [object Object]"，也就是删除**从来没成功过**。
+  // 假实现来者不拒，所以形状错了也全绿；这条钉的就是形状
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'deleteSession', params: { sessionId: 'sess-9' } });
+  await tick();
+
+  assert.equal(fa.calls[0][0], 'deleteSession');
+  assert.equal(fa.calls[0][1], 'sess-9', '第一个参数必须是 sessionId 本身');
+  assert.ok(out.some((m) => m.type === 'sessionDeleted'));
+});
+
+test('renameSession 回报**回读**来的名字，不是我们刚发出去的那个', async () => {
+  // 回读才知道写入真的落下了。这里是假的 getSessionInfo 返回 '新名字'，
+  // 而请求里发的是 '我起的'
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({
+    id: 'r1', method: 'renameSession', params: { sessionId: 'sess-9', title: '我起的', dir: '/proj' },
+  });
+  await tick();
+
+  assert.deepEqual(fa.calls[0], ['renameSession', 'sess-9', '我起的', { dir: '/proj' }]);
+  const msg = out.find((m) => m.type === 'sessionRenamed');
+  assert.ok(msg, '改名必须有回执，界面等它才动那一行');
+  assert.equal(msg.value, '新名字');
+  assert.equal(msg.id, 'r1');
+});
+
+test('renameSession 缺 title 时回错误，不猜成"清掉名字"', async () => {
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'renameSession', params: { sessionId: 'sess-9' } });
+  await tick();
+
+  assert.equal(out.find((m) => m.type === 'error').code, 'SESSION_UPDATE_FAILED');
+  assert.ok(!out.some((m) => m.type === 'sessionRenamed'));
+});
+
+test('renameSession 失败时上报，且不回报成功', async () => {
+  const out = [];
+  const fa = fakeSessionApi({ updateError: '文件被占用' });
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'renameSession', params: { sessionId: 's', title: 'x' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.equal(e.code, 'SESSION_UPDATE_FAILED');
+  assert.match(e.message, /文件被占用/);
+  assert.ok(!out.some((m) => m.type === 'sessionRenamed'));
+});
+
+test('tagSession 的 null 是"清掉"，要原样传下去', async () => {
+  // 与 setEffort 同一条：null 是有效取值，不是"没传参"。
+  // 吞成 undefined 的话，"清除标签"会变成什么都不做
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r1', method: 'tagSession', params: { sessionId: 's', tag: null } });
+  await tick();
+
+  assert.equal(fa.calls[0][1], 's');
+  assert.equal(fa.calls[0][2], null, '清标签要真的把 null 传下去');
+  assert.ok(out.some((m) => m.type === 'sessionTagged'));
+});
+
+test('tagSession 缺 tag 键时回错误，不猜成清除', async () => {
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fakeSessionApi().api,
+  });
+
+  d.handle({ id: 'r1', method: 'tagSession', params: { sessionId: 's' } });
+  await tick();
+
+  assert.equal(out.find((m) => m.type === 'error').code, 'SESSION_UPDATE_FAILED');
+});
+
+test('listSubagents 把磁盘上的元信息并进列表', async () => {
+  // SDK 只给 id 列表；类型 / 描述 / **toolUseId** 都在 agent-<id>.meta.json 里，
+  // 而最后那个是界面把它和"运行中的任务"对上号的唯一凭据
+  const root = mkdtempSync(join(tmpdir(), 'ccoder-sub-'));
+  try {
+    const dir = join(root, 'proj-A', 'sess-1', 'subagents');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'agent-a1b2c3d4.meta.json'),
+      JSON.stringify({ agentType: 'Explore', description: '找调用点', toolUseId: 'call_9' }),
+    );
+
+    const out = [];
+    const fa = fakeSessionApi();
+    const d = createDispatcher({
+      sessionFactory: fakeSessionFactory().factory,
+      out: (m) => out.push(m),
+      sessionApi: fa.api,
+      projectsRoot: root,
+    });
+
+    d.handle({ id: 'r1', method: 'listSubagents', params: { sessionId: 'sess-1', dir: '/proj' } });
+    await tick();
+
+    const msg = out.find((m) => m.type === 'subagents');
+    assert.ok(msg, '没有应答，浮层就一直是空的');
+    assert.deepEqual(msg.agents, [
+      { agentId: 'a1b2c3d4', agentType: 'Explore', description: '找调用点', toolUseId: 'call_9' },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('listSubagents 读不到元信息时只给 id，不整条失败', async () => {
+  // 元信息读不到是常事（文件不在、被清过）。整条请求失败的话，
+  // 那几个子代理在界面上会彻底消失 —— 而它们确实存在
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fakeSessionApi().api,
+    projectsRoot: join(tmpdir(), 'ccoder-does-not-exist'),
+  });
+
+  d.handle({ id: 'r1', method: 'listSubagents', params: { sessionId: 'sess-1' } });
+  await tick();
+
+  assert.deepEqual(out.find((m) => m.type === 'subagents').agents, [
+    { agentId: 'a1b2c3d4', agentType: null, description: null, toolUseId: null },
+  ]);
+});
+
+test('listSubagents 缺 sessionId 时回错误', async () => {
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fakeSessionApi().api,
+  });
+
+  d.handle({ id: 'r1', method: 'listSubagents', params: {} });
+  await tick();
+
+  assert.equal(out.find((m) => m.type === 'error').code, 'SUBAGENTS_FAILED');
+});
+
+test('subagentMessages 回传某个子代理的转写', async () => {
+  const out = [];
+  const fa = fakeSessionApi();
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({
+    id: 'r1', method: 'subagentMessages', params: { sessionId: 's', agentId: 'a1', dir: '/proj' },
+  });
+  await tick();
+
+  assert.deepEqual(fa.calls[0], ['getSubagentMessages', 's', 'a1', { dir: '/proj' }]);
+  const msg = out.find((m) => m.type === 'subagentMessages');
+  assert.equal(msg.agentId, 'a1', '带 agentId 回去，界面才知道这是谁的转写');
+  assert.equal(msg.items.length, 1);
+});
+
+test('subagentMessages 缺 agentId 时回错误', async () => {
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fakeSessionApi().api,
+  });
+
+  d.handle({ id: 'r1', method: 'subagentMessages', params: { sessionId: 's' } });
+  await tick();
+
+  assert.equal(out.find((m) => m.type === 'error').code, 'SUBAGENT_MESSAGES_FAILED');
 });

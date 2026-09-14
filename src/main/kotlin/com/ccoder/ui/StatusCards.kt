@@ -110,21 +110,27 @@ internal fun connectionCardOf(status: String) = StatusCardModel(
  *
  * 阈值 70/90 是计划外新增：一个永远同色的进度条是装饰，而上下文写满
  * 是长会话里唯一会**静默**毁掉会话的事。
+ *
+ * **没有测量值时显示 0，不写「空闲」**：那个词的意思是"没在跑"（子任务、子代理
+ * 用它是对的），而上下文恰恰不是这回事 —— 恢复一场长对话之后它一点都不空闲，
+ * 我们只是没测过。显示 0 至少是个能被纠正的数字（新会话本来就近乎空），
+ * 而「空闲」是一句说反了的话。
  */
 internal fun contextCardOf(usage: ContextUsage?): StatusCardModel {
-    if (usage == null) return quietCard("上下文")
-
-    val percent = contextPercentOf(usage)
+    val u = usage ?: ContextUsage(usedTokens = 0, windowTokens = 0)
+    val percent = contextPercentOf(u)
     return StatusCardModel(
         label = "上下文",
-        value = if (percent != null) "$percent%" else formatTokenCount(usage.inputTokens),
+        value = if (percent != null) "$percent%" else formatTokenCount(u.usedTokens),
         tone = when {
             percent == null -> Tone.Idle
             percent >= 90 -> Tone.Danger
             percent >= 70 -> Tone.Warn
             else -> Tone.Idle
         },
-        sub = contextRatioText(usage),
+        // 窗口未知时不给副值：那会拼出"0 / 0"或"325.4k / 325.4k"这种把同一个数
+        // 说两遍的样子。绝对数在值上已经给过了
+        sub = if (u.windowTokens > 0) contextRatioText(u) else null,
         indicator = if (percent != null) Indicator.Meter(percent / 100.0) else Indicator.None,
     )
 }

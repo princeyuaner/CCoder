@@ -268,6 +268,92 @@ test('思考深度不进启动参数', () => {
   assert.ok(!('effort' in q.calls.options), '思考深度不该经过启动参数');
 });
 
+// ---- 换模型（setModel）----
+
+test('setModel 把模型名原样转发', async () => {
+  const got = [];
+  const q = fakeQuery([], { setModel: async (m) => { got.push(m); } });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await s.setModel('deepseek-v4-pro[1m]');
+
+  assert.deepEqual(got, ['deepseek-v4-pro[1m]']);
+});
+
+test('没有 setModel 时抛错，不静默成功', async () => {
+  // 同 setEffort：可选链 `query?.setModel?.()` 在这里会 await 一个 undefined，
+  // 于是"成功"了 —— 上层据此发出一条假回执，标签切过去了而什么都没生效
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  // 错误信息是**面向用户**的（它会原样进转写区），所以钉中文而不是内部 API 名
+  await assert.rejects(() => s.setModel('x'), /换模型/);
+});
+
+test('query 建不起来时 setModel 也抛错，不静默成功', async () => {
+  const s = createSession({
+    cwd: '/tmp',
+    permissionMode: 'default',
+    queryFn: () => { throw new Error('建不起来'); },
+  });
+  await new Promise((r) => setImmediate(r));
+
+  await assert.rejects(() => s.setModel('x'), /换模型/);
+});
+
+test('模型照旧走启动参数 —— 与思考深度那条正相反', () => {
+  // 两边是**刻意**不同的：effort 的「默认」是个需要"清除"的状态，而
+  // `Options.effort`（--effort）与 applyFlagSettings 是两个优先级来源，
+  // 一起用会互相顶，所以它只有中途那条路。
+  // 模型永远是个具体名字、没有"清除"这一档，`Options.model`（--model）与
+  // `set_model` 改的是同一个来源 —— 启动带着它，第一轮就是对的
+  const q = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'default', model: 'deepseek-v4-flash[1m]', queryFn: q.fn });
+
+  assert.equal(q.calls.options.model, 'deepseek-v4-flash[1m]', '模型必须走启动参数');
+});
+
+test('起会话时不主动发 setModel', async () => {
+  // 与 `applyEffortToSession` 正相反：模型已经在启动参数里了，ready 之后再补一刀
+  // 是多余的（还会多出一条毫无意义的回执）。这条钉住那个"顺手对齐一下"的念头
+  const got = [];
+  const q = fakeQuery([], { setModel: async (m) => { got.push(m); } });
+  createSession({ cwd: '/tmp', permissionMode: 'default', model: 'm', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  assert.deepEqual(got, [], '起会话不该顺手发 setModel');
+});
+
+test('contextUsage 走 CLI 的 getContextUsage，且只要 summary', async () => {
+  const asked = [];
+  const q = fakeQuery([], {
+    getContextUsage: async (opts) => {
+      asked.push(opts);
+      return { totalTokens: 456990, rawMaxTokens: 1000000, percentage: 46 };
+    },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  const cu = await s.contextUsage();
+
+  assert.deepEqual(asked, [{ detail: 'summary' }],
+    '只要 summary —— full 会为每个类目各发起一次 token 计数调用');
+  assert.equal(cu.totalTokens, 456990);
+});
+
+test('没有 getContextUsage 时抛错，不静默给个空读数', async () => {
+  // 与 setEffort 同一条规矩：可选链会把"方法不存在"变成"成功"，
+  // 卡片从此永远显示 0 而没人知道为什么
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await assert.rejects(() => s.contextUsage(), /上下文用量/);
+});
+
 test('SDK 事件原样透传给 onEvent', async () => {
   const seen = [];
   const q = fakeQuery([

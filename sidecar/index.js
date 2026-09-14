@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline';
-import { realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   listSessions as sdkListSessions,
   getSessionMessages as sdkGetSessionMessages,
   deleteSession as sdkDeleteSession,
+  renameSession as sdkRenameSession,
+  tagSession as sdkTagSession,
+  getSessionInfo as sdkGetSessionInfo,
+  listSubagents as sdkListSubagents,
+  getSubagentMessages as sdkGetSubagentMessages,
 } from '@anthropic-ai/claude-agent-sdk';
 import { NdjsonDecoder, encodeNdjson, parseLine } from './ndjson.js';
 import { createSession } from './session.js';
@@ -23,6 +30,48 @@ import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
  * 里没有它（sdk.d.ts:2700-2703）—— 我们走的正是这条路，所以它同样合法。
  */
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * 某条会话的子代理目录。
+ *
+ * 磁盘布局是 SDK 文档写明的：
+ * `~/.claude/projects/<项目目录名>/<sessionId>/subagents/agent-<agentId>.jsonl`。
+ *
+ * **不自己拼那个"项目目录名"**：它是 cwd 转义出来的（`C:\a\b` → `C--a-b`），
+ * 照抄一套转义规则等于把 CLI 的内部约定钉进来 —— 换个盘符、UNC 路径、
+ * 或哪天转义改了，就静默找不到。扫一遍项目目录找 `<sessionId>` 那层，
+ * 慢一点，但不会错。
+ */
+function subagentDirOf(projectsRoot, sessionId) {
+  let projects;
+  try {
+    projects = readdirSync(projectsRoot);
+  } catch {
+    return null;
+  }
+  for (const name of projects) {
+    const dir = join(projectsRoot, name, sessionId, 'subagents');
+    if (existsSync(dir)) return dir;
+  }
+  return null;
+}
+
+/**
+ * 一个子代理的元信息。
+ *
+ * 里面有 `agentType` / `description` / **`toolUseId`** —— 最后那个是界面能把它
+ * 和"运行中的任务"对上号的唯一凭据（任务的 id 就是 tool_use id）。
+ *
+ * 读不到给空对象：列表里退化成只显示 agentId，总比整条请求失败强。
+ */
+function subagentMeta(dir, agentId) {
+  if (!dir) return {};
+  try {
+    return JSON.parse(readFileSync(join(dir, `agent-${agentId}.meta.json`), 'utf8'));
+  } catch {
+    return {};
+  }
+}
 
 /**
  * 把 NDJSON 方法调用分发到 session。
@@ -43,7 +92,15 @@ export function createDispatcher({
     listSessions: sdkListSessions,
     getSessionMessages: sdkGetSessionMessages,
     deleteSession: sdkDeleteSession,
+    renameSession: sdkRenameSession,
+    tagSession: sdkTagSession,
+    getSessionInfo: sdkGetSessionInfo,
+    listSubagents: sdkListSubagents,
+    getSubagentMessages: sdkGetSubagentMessages,
   },
+  // 子代理的元信息得自己去磁盘上读（SDK 只给 id 列表），所以根目录做成可注入的
+  // —— 不然那段路径逻辑没法测，只能靠真实 home 目录，单测里跑不了
+  projectsRoot = join(homedir(), '.claude', 'projects'),
 }) {
   let session = null;
   const preStartQueue = [];   // start 之前到达的 send，按序补发
@@ -148,6 +205,10 @@ export function createDispatcher({
               summary: s.summary ?? null,
               firstPrompt: s.firstPrompt ?? null,
               lastModified: s.lastModified ?? 0,
+              // 用户自己改的名字与标签 —— 列表显示时**名字优先于自动摘要**，
+              // 不然改完名回到列表看到的还是原来那句摘要，等于没改
+              customTitle: s.customTitle ?? null,
+              tag: s.tag ?? null,
             })),
           }))
           .catch((err) => fail('LIST_SESSIONS_FAILED', String(err?.message ?? err), false));
@@ -176,9 +237,101 @@ export function createDispatcher({
           fail('DELETE_FAILED', '删除会话缺少 sessionId', false);
           return session;
         }
-        Promise.resolve(sessionApi.deleteSession({ sessionId }))
+        // 位置参数，**不是** `{ sessionId }` —— SDK 的实现第一行就做 UUID 校验，
+        // 传对象进去必然抛 "Invalid sessionId: [object Object]"。这个错假实现
+        // 测不出来（它来者不拒），所以单测里钉的是**调用形状**而不是结果
+        Promise.resolve(sessionApi.deleteSession(sessionId))
           .then(() => out({ type: 'sessionDeleted', id: msg.id, sessionId }))
           .catch((err) => fail('DELETE_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'renameSession':
+      case 'tagSession': {
+        // 与 deleteSession 同一条：都是**列表上的动作**，不需要活会话
+        const sessionId = params.sessionId;
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          fail('SESSION_UPDATE_FAILED', '改会话缺少 sessionId', false);
+          return session;
+        }
+        // tag **允许是 null**（表示清除标签），所以判的是键在不在，不是值真不真
+        const renaming = method === 'renameSession';
+        const key = renaming ? 'title' : 'tag';
+        if (!(key in params)) {
+          fail('SESSION_UPDATE_FAILED', `缺少 ${key} 参数`, false);
+          return session;
+        }
+        const value = params[key];
+
+        const mutate = renaming
+          ? sessionApi.renameSession(sessionId, value, { dir: params.dir })
+          : sessionApi.tagSession(sessionId, value, { dir: params.dir });
+
+        Promise.resolve(mutate)
+          // 改完**回读**一次拿权威值，而不是回显我们刚发的东西：回读才知道写入
+          // 真的落下了。读不回来就退回刚设的值 —— 改是改成了，因为读不回来
+          // 就报失败是撒谎
+          .then(() => sessionApi.getSessionInfo(sessionId, { dir: params.dir }).catch(() => null))
+          .then((info) => {
+            const read = info ? (renaming ? info.customTitle : info.tag) ?? null : value;
+            out({
+              type: renaming ? 'sessionRenamed' : 'sessionTagged',
+              id: msg.id,
+              sessionId,
+              // 只带**变了的那一个**字段：改名不影响 tag，反之亦然。
+              // 整行回传会让人以为别的字段也可能变了
+              value: read,
+            });
+          })
+          .catch((err) => fail('SESSION_UPDATE_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'listSubagents': {
+        // 与 listSessions 同一条：读磁盘，不需要活会话
+        const sessionId = params.sessionId;
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          fail('SUBAGENTS_FAILED', '缺少 sessionId', false);
+          return session;
+        }
+        Promise.resolve(sessionApi.listSubagents(sessionId, { dir: params.dir }))
+          .then((ids) => {
+            const dir = subagentDirOf(projectsRoot, sessionId);
+            out({
+              type: 'subagents',
+              id: msg.id,
+              agents: (ids ?? []).map((agentId) => {
+                const meta = subagentMeta(dir, agentId);
+                return {
+                  agentId,
+                  agentType: meta.agentType ?? null,
+                  description: meta.description ?? null,
+                  toolUseId: meta.toolUseId ?? null,
+                };
+              }),
+            });
+          })
+          .catch((err) => fail('SUBAGENTS_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'subagentMessages': {
+        const { sessionId, agentId } = params;
+        if (typeof sessionId !== 'string' || typeof agentId !== 'string') {
+          fail('SUBAGENT_MESSAGES_FAILED', '缺少 sessionId 或 agentId', false);
+          return session;
+        }
+        // 不传 limit：转写本来就是给人看的，静默截断比慢一点坏得多
+        Promise.resolve(
+          sessionApi.getSubagentMessages(sessionId, agentId, { dir: params.dir })
+        )
+          .then((items) => out({
+            type: 'subagentMessages',
+            id: msg.id,
+            agentId,
+            items: items ?? [],
+          }))
+          .catch((err) => fail('SUBAGENT_MESSAGES_FAILED', String(err?.message ?? err), false));
         return session;
       }
 
@@ -244,6 +397,41 @@ export function createDispatcher({
         return session;
       }
 
+      case 'setModel': {
+        // 与 setEffort 同一套：await 并回报结果，成功与失败都要回话 ——
+        // 失败而报成功的话，界面标签会显示一个没生效的模型。
+        //
+        // **刻意不做名字白名单**（与 EFFORT_LEVELS 相反）。档位是个闭集，而且
+        // CLI 对认不出的档位可能**静默忽略**，所以那边必须本地挡；模型名是用户
+        // 在自己网关上定义的，sidecar 无从知道，认不出的名字会在**下一轮请求时
+        // 响亮地失败**（模型不存在），不是静默 —— 本地挡只会把能用的名字限死成
+        // 一份猜的清单。
+        //
+        // 但**空串要挡**：`setModel` 表达不了"不要模型"这个状态
+        // （`setModel(undefined)` 不是清除），空名字只会变成一次莫名其妙的请求。
+        const model = params.model;
+        if (typeof model !== 'string' || model.trim() === '') {
+          fail('SET_MODEL_FAILED', '缺少 model 参数（换模型没有"清空"这一档）', false);
+          return session;
+        }
+        const call = session?.setModel;
+        if (typeof call !== 'function') {
+          // 没有会话，或会话没这个方法 —— 两种都不能默默当成功
+          fail(
+            'SET_MODEL_FAILED',
+            session ? '当前会话不支持换模型' : '会话还没建立，换模型要等连上会话再改',
+            false
+          );
+          return session;
+        }
+        // 回执**回显请求里那个字符串**，不去读 CLI 的解析结果：界面靠它做
+        // "回的是不是我刚发的那个"的等值校验（见 ClaudePanel 的 pendingModelPick）
+        Promise.resolve(call.call(session, model))
+          .then(() => out({ type: 'modelChanged', model }))
+          .catch((err) => fail('SET_MODEL_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
       case 'listCommands': {
         // 命令列表是会话的属性，没有会话就没有命令可报。打错是"问早了"
         // 而不是"出错了"——插件在 ready 之后才问，所以不致命
@@ -263,6 +451,29 @@ export function createDispatcher({
             skills: skillList,
           }))
           .catch((err) => fail('LIST_COMMANDS_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'contextUsage': {
+        // 与 listCommands 同一条：它是会话的属性，没有会话就没得报。
+        // 插件在 ready 之后才问，所以"问早了"不致命
+        const call = session?.contextUsage;
+        if (typeof call !== 'function') {
+          fail('NO_SESSION', '会话尚未建立', false);
+          return session;
+        }
+        Promise.resolve(call.call(session))
+          .then((cu) => out({
+            type: 'contextUsage',
+            id: msg.id,
+            // 字段名是**驼峰**（2026-09-14 实测），不是 d.ts 里写的 snake_case ——
+            // 照 d.ts 读 total_tokens 会拿到 undefined
+            usedTokens: cu?.totalTokens ?? 0,
+            // 分母取 rawMaxTokens：文档说 usage 是 "measured against" 它，
+            // percentage 也是拿它算的（maxTokens 是另一个，实测这里同值）
+            windowTokens: cu?.rawMaxTokens ?? cu?.maxTokens ?? 0,
+          }))
+          .catch((err) => fail('CONTEXT_USAGE_FAILED', String(err?.message ?? err), false));
         return session;
       }
 

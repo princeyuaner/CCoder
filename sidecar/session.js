@@ -203,6 +203,29 @@ export function createSession({
     },
 
     /**
+     * 换模型，**后续回合**生效，会话与上下文都留着。
+     *
+     * 与 [setEffort] 刻意相反：那边启动参数一个字节都不发（`Options.effort` 会被
+     * SDK 翻成 CLI 的 `--effort`，与 `applyFlagSettings` 是两个优先级来源，
+     * 一起用会互相顶）。模型这边 **`Options.model` 照发不误** —— 它翻成
+     * `--model`，而 `set_model` 改的是同一个来源（"这个会话用哪个模型"），
+     * 不存在"清不掉启动那份"的问题：模型永远是个具体名字，没有「默认」这种
+     * 需要清除的档位。启动带 `--model` 保证第一轮就对，中途切换带 `set_model`。
+     *
+     * 与 [setEffort] 同一条规矩：缺方法就抛，**不照抄 setPermissionMode 的可选链**
+     * —— 那种写法在 `query === null`（`queryFn` 抛错那条路径）时整句静默成功，
+     * 上层据此发出一条假回执，标签切过去了而什么都没生效。
+     */
+    async setModel(model) {
+      if (!query || typeof query.setModel !== 'function') {
+        throw new Error(
+          '当前 CLI 不支持在会话中途换模型，需要更新 claude 可执行文件'
+        );
+      }
+      await query.setModel(model);
+    },
+
+    /**
      * 会话可用的命令列表（带描述）。
      *
      * 尽力而为：取不到给空数组，**不抛**。命令补全挂着不该把聊天带崩 ——
@@ -228,6 +251,31 @@ export function createSession({
       } catch {
         return [];
       }
+    },
+
+    /**
+     * 上下文占用的**权威读数** —— CLI 自己算的那份（`/context` 用的就是它）。
+     *
+     * 2026-09-14 实测（CLI 2.1.268）：
+     * - **一条消息都没发就能调**（`query()` 建好之后即可），所以恢复会话时
+     *   不必等第一轮跑完；
+     * - **会把恢复的历史算进去** —— resume 一条长会话报的是
+     *   `Messages: 455407`，不是 0；
+     * - 返回 `rawMaxTokens`（它用来算比例的那个窗口），分母也一并解决了。
+     *
+     * 这正是它替掉"插件自己从 result 事件拼 + 从历史推"那套的理由：那边要
+     * 三个 input 字段相加、还要按会话记窗口，因为它拿不到窗口。
+     *
+     * `detail: 'summary'` 走"上次响应的 usage + 本地估算"，不额外发起
+     * token 计数调用；卡片只要总数，不需要按类目拆。
+     *
+     * 与 [setEffort] 同一条规矩：方法缺失就抛，不静默给一个空读数。
+     */
+    async contextUsage() {
+      if (!query || typeof query.getContextUsage !== 'function') {
+        throw new Error('当前 CLI 不支持读取上下文用量，需要更新 claude 可执行文件');
+      }
+      return await query.getContextUsage({ detail: 'summary' });
     },
 
     stop() {

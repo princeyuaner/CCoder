@@ -38,14 +38,38 @@ class SessionListRenderProbe {
     fun `把悬停强调的那一行画成图片`() =
         render("build/session-list-probe-hover.png", SwitchBlock.None, hoverRow = 1)
 
-    private fun render(path: String, block: SwitchBlock, hoverRow: Int = -1) {
+    /**
+     * **改过名、打过标签**的那一版单独出一张。
+     *
+     * 行尾多了个标签 chip，而那一行本来就只剩 420px —— 最长的标题 + 最长的时间
+     * 再叠一个标签，时间会不会被挤掉、✕ 会不会顶出画面，只能看。
+     */
+    @Test
+    fun `把有名字与标签的那一版画成图片`() =
+        render("build/session-list-probe-tagged.png", SwitchBlock.None, tagged = true)
+
+    private fun render(
+        path: String,
+        block: SwitchBlock,
+        hoverRow: Int = -1,
+        tagged: Boolean = false,
+    ) {
         SwingUtilities.invokeAndWait {
             val sessions = listOf(
                 SessionInfo("s1", "还可以做什么功能", null, now - 30_000),
                 // 这一条是全列表最长的标题 —— 挤掉时间的嫌疑就落在它身上
                 SessionInfo("s2", "PyCharm插件调用Claude Code", null, now - 3_600_000),
                 SessionInfo("s3", null, "你好", now - 90_000_000),
-                SessionInfo("s4", "重构 extractor 的指纹计算，顺便把跨块的 CR 边界也一起处理掉", null, now - 5 * 86_400_000),
+                // 最挤的一条：最长的标题 + 自定义名字 + 标签 + 一周前
+                if (tagged) {
+                    SessionInfo(
+                        "s4", "自动摘要被名字盖住", null, now - 5 * 86_400_000,
+                        customTitle = "重构 extractor 的指纹计算，顺便把跨块的 CR 边界也处理掉",
+                        tag = "重构",
+                    )
+                } else {
+                    SessionInfo("s4", "重构 extractor 的指纹计算，顺便把跨块的 CR 边界也一起处理掉", null, now - 5 * 86_400_000)
+                },
             )
 
             val list = buildSessionList(sessions, currentSessionId = "s2", block = block)

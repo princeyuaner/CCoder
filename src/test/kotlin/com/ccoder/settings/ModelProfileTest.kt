@@ -135,4 +135,154 @@ class ModelProfileTest {
         )
         assertEquals("未命名", ModelProfile().displayName())
     }
+
+    // ---- 模型列表的规范化 ----
+
+    @Test
+    fun `规范化会去掉空行空白与重复`() {
+        val p = ModelProfile(
+            modelIds = mutableListOf("  a  ", "", "   ", "b", "a"),
+            modelId = "b",
+        )
+
+        val n = normalizeModelProfile(p)
+
+        assertEquals(listOf("a", "b"), n.modelIds, "顺序要留：第一项是新建时的默认")
+    }
+
+    @Test
+    fun `当前模型不在列表里时落到第一项`() {
+        val n = normalizeModelProfile(
+            ModelProfile(modelIds = mutableListOf("a", "b"), modelId = "很久以前那个")
+        )
+
+        assertEquals("a", n.modelId)
+    }
+
+    /**
+     * **空列表不会把 `modelId` 变成唯一的候选。**
+     *
+     * 反过来做看着更"宽容"，实际会让"删掉最后一个模型"当场把它复活 ——
+     * 用户删不掉东西是最难解释的一类 bug。代价是老 XML 的迁移必须在
+     * [ModelProfiles.loadState] 里显式做（那条路有专门的用例）。
+     */
+    @Test
+    fun `列表为空时当前模型被清掉，不是被补回列表`() {
+        val n = normalizeModelProfile(ModelProfile(modelIds = mutableListOf(), modelId = "唯一那个"))
+
+        assertTrue(n.modelIds.isEmpty(), "空列表不该被补出东西来：${n.modelIds}")
+        assertEquals("", n.modelId)
+    }
+
+    @Test
+    fun `规范化返回的是新列表，不与入参共享`() {
+        // data class 的 copy() 会共享同一个 MutableList —— 就地改会让两份 profile 一起变
+        val p = ModelProfile(modelIds = mutableListOf("a"), modelId = "a")
+
+        val n = normalizeModelProfile(p)
+        n.modelIds.add("b")
+
+        assertEquals(listOf("a"), p.modelIds, "规范化动到了入参的列表")
+    }
+
+    // ---- 能不能热切换 ----
+
+    private val relay = ModelProfile(
+        name = "中转",
+        baseUrl = "https://api.example.com",
+        modelIds = mutableListOf("a", "b"),
+        modelId = "a",
+        authKind = AuthKind.AUTH_TOKEN.name,
+    )
+
+    @Test
+    fun `同一条配置里换模型可以热切换`() {
+        assertTrue(canHotSwitch(relay, "tok", relay.copy(modelId = "b"), "tok"))
+    }
+
+    /**
+     * 两条配置填了同样的端点与密钥时也该热切换。
+     *
+     * 这不是顺手放宽：把一个网关拆成几条来管是合理的用法，那种切换没理由丢上下文 ——
+     * 而判据（端点与凭证那批环境变量）本来就说明不需要换进程。
+     */
+    @Test
+    fun `同样的端点与密钥之间可以热切换`() {
+        val other = ModelProfile(
+            name = "同一个网关的另一条",
+            baseUrl = "https://api.example.com",
+            modelIds = mutableListOf("c"),
+            modelId = "c",
+            authKind = AuthKind.AUTH_TOKEN.name,
+        )
+
+        assertTrue(canHotSwitch(relay, "tok", other, "tok"))
+    }
+
+    @Test
+    fun `端点不同只能重开`() {
+        val other = relay.copy(baseUrl = "https://other.example.com")
+
+        assertFalse(canHotSwitch(relay, "tok", other, "tok"))
+    }
+
+    @Test
+    fun `密钥不同只能重开`() {
+        // 换条配置同端点但是另一把钥匙：热切会继续用旧的密钥，那是一次
+        // 静默的错凭证 —— 比丢上下文严重
+        assertFalse(canHotSwitch(relay, "tok", relay.copy(modelId = "b"), "另一把"))
+    }
+
+    @Test
+    fun `认证方式不同只能重开`() {
+        // 两个变量语义不同（x-api-key vs Bearer），换了就是另一个环境
+        val other = relay.copy(modelId = "b", authKind = AuthKind.API_KEY.name)
+
+        assertFalse(canHotSwitch(relay, "tok", other, "tok"))
+    }
+
+    /**
+     * 第三方配置没填密钥时 [modelProfileEnv] 会抛。这里必须**捕获后返回 false**，
+     * 也就是"证明不了它一样，就走重开"—— 重开那条路会把这条错误原样报出来
+     * （`startSession` 的 catch），不会吞掉。
+     */
+    @Test
+    fun `证明不了相同时不抛，返回 false`() {
+        val noSecret = ModelProfile(
+            name = "没填密钥的网关",
+            baseUrl = "https://api.example.com",
+            modelIds = mutableListOf("a"),
+            modelId = "a",
+            authKind = AuthKind.AUTH_TOKEN.name,
+        )
+
+        assertFalse(canHotSwitch(relay, "tok", noSecret, ""))
+        assertFalse(canHotSwitch(noSecret, "", relay, "tok"))
+    }
+
+    /**
+     * 目标模型是空串时不能热切：`setModel` 表达不了"不要模型"这个状态。
+     * 切到一条没配模型的配置只能重开（那条路的 `toStartParams` 会把它变成
+     * "不传 `--model`"，正是想要的语义）。
+     */
+    @Test
+    fun `目标没有模型时不能热切`() {
+        val bare = ModelProfile(name = "裸配置", baseUrl = "https://api.example.com", authKind = AuthKind.AUTH_TOKEN.name)
+
+        assertFalse(canHotSwitch(relay, "tok", bare, "tok"))
+    }
+
+    /** 没选中任何配置时按空环境算 —— 起会话时确实什么都没给 CLI。 */
+    @Test
+    fun `从没选配置切到一条什么都不给的配置可以热切`() {
+        val officialNoKey = ModelProfile(
+            name = "官方",
+            modelIds = mutableListOf("claude-sonnet-4-5"),
+            modelId = "claude-sonnet-4-5",
+        )
+
+        assertTrue(canHotSwitch(null, "", officialNoKey, ""))
+        // 但那条配置要给密钥的话，环境就变了
+        assertFalse(canHotSwitch(null, "", officialNoKey, "sk-ant-x"))
+    }
 }

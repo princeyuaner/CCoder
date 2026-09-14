@@ -81,7 +81,27 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
 
     override fun getState(): State = myState
 
+    /**
+     * 读盘时**逐条迁移并收敛**。
+     *
+     * 迁移那一步是为老 XML：改版前一条配置只有一个模型，存在 `modelId` 里、
+     * 没有 `modelIds`。反序列化之后列表是空的，直接收敛会把那个模型名丢掉
+     * （`normalizeModelProfile` 会把空的 `modelId` 落成空串）—— 症状是用户
+     * 升级完发现模型没了。所以先把它补成单项列表，再收敛。
+     *
+     * 收敛放在这里而不是只放在 [upsert]：手改过 XML 的用户也可能写出
+     * "模型不在列表里"这种状态，读的时候就该修好。
+     */
     override fun loadState(state: State) {
+        state.profiles.replaceAll { p ->
+            val migrated =
+                if (p.modelIds.isEmpty() && p.modelId.isNotBlank()) {
+                    p.copy(modelIds = mutableListOf(p.modelId.trim()))
+                } else {
+                    p
+                }
+            normalizeModelProfile(migrated)
+        }
         myState = state
         secretCache.clear()
     }
@@ -106,9 +126,29 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
         myState.selectedId = id?.takeIf { wanted -> myState.profiles.any { it.id == wanted } }
     }
 
+    /**
+     * 记下"现在用这条配置里的这个模型"：**选中它，并把它当前用的模型指到它**。
+     *
+     * 两件事必须一起做。分开写会留下"选中的是 A、而当前模型还指着 B"的中间态，
+     * 而标签读的正是这两个字段 —— 那一瞬间它会显示一个不存在的东西。
+     *
+     * 配置不存在、或模型不在它的列表里，**整个不动**（不是只做一半）：
+     * 这两件事都发生在"回执到达时用户已经改过设置了"那条竞态上，
+     * 那时候宁可什么都不改，也不要写进一个半截状态。
+     */
+    fun pick(profileId: String, modelId: String) {
+        val i = myState.profiles.indexOfFirst { it.id == profileId }
+        if (i < 0) return
+        if (modelId !in myState.profiles[i].modelIds) return
+        myState.profiles[i] = myState.profiles[i].copy(modelId = modelId)
+        myState.selectedId = profileId
+    }
+
+    /** 写入前一律收敛，让不变量只有一个出处（见 [normalizeModelProfile]）。 */
     fun upsert(profile: ModelProfile) {
-        val i = myState.profiles.indexOfFirst { it.id == profile.id }
-        if (i >= 0) myState.profiles[i] = profile else myState.profiles.add(profile)
+        val next = normalizeModelProfile(profile)
+        val i = myState.profiles.indexOfFirst { it.id == next.id }
+        if (i >= 0) myState.profiles[i] = next else myState.profiles.add(next)
     }
 
     fun remove(id: String) {

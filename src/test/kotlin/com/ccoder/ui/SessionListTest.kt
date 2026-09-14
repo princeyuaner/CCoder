@@ -11,6 +11,7 @@ import java.awt.Component
 import java.awt.Container
 import java.awt.event.MouseEvent
 import javax.swing.JButton
+import javax.swing.JTextField
 import javax.swing.JComponent
 import javax.swing.JLabel
 
@@ -325,5 +326,111 @@ class SessionListTest {
             textsIn(list).any { it.contains("清空") },
             "删当前会话没说明后果：${textsIn(list)}",
         )
+    }
+
+    // ---- 改名与标签 ----
+
+    @Test
+    fun `标签 chip：有标签带井号，没有显示加号`() {
+        assertEquals("＋", tagChipText(null))
+        assertEquals("＋", tagChipText("  "), "空白标签等于没有")
+        assertEquals("#wip", tagChipText("wip"), "不带井号会和标题混成一句")
+    }
+
+    @Test
+    fun `标题优先用用户自己起的名字`() {
+        // 改完名回到列表还显示那句自动摘要的话，改名就白改了
+        assertEquals("我的名字", sessionLabelTitle(sessions[0].copy(customTitle = "我的名字")))
+        assertEquals("还可以做什么功能", sessionLabelTitle(sessions[0]), "没改过名就还是摘要")
+    }
+
+    @Test
+    fun `双击标题就地改名，双击处换成输入框`() {
+        val list = buildSessionList(sessions, currentSessionId = null, block = SwitchBlock.None)
+        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+
+        doubleClick(title)
+
+        assertTrue(
+            jTextFieldsIn(list).isNotEmpty(),
+            "双击之后应该有一个输入框接住输入",
+        )
+        assertEquals("还可以做什么功能", jTextFieldsIn(list).first().text, "预填原来的名字")
+    }
+
+    @Test
+    fun `单击标题不会进改名 —— 那一下是切换会话`() {
+        var picked: String? = null
+        val list = buildSessionList(sessions, currentSessionId = null, block = SwitchBlock.None) { picked = it.sessionId }
+        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+
+        click(title)
+
+        assertTrue(jTextFieldsIn(list).isEmpty(), "单击就进编辑的话，切换会话会被弄钝")
+        assertEquals("s1", picked)
+    }
+
+    @Test
+    fun `忙时双击标题也不进改名`() {
+        // 整列都不可点时，改名入口也不该露出来 —— 与删除按钮同一条
+        val list = buildSessionList(
+            sessions, currentSessionId = null, block = SwitchBlock.PermissionPending,
+        )
+        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+
+        doubleClick(title)
+
+        assertTrue(jTextFieldsIn(list).isEmpty())
+    }
+
+    @Test
+    fun `回车提交改名，把新名字报出去`() {
+        var renamed: Pair<String, String>? = null
+        val list = buildSessionList(
+            sessions, currentSessionId = null, block = SwitchBlock.None,
+            onRename = { s, t -> renamed = s.sessionId to t },
+        )
+        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+        doubleClick(title)
+
+        val field = jTextFieldsIn(list).first().apply { text = "新名字" }
+        field.postActionEvent()
+
+        assertEquals("s1" to "新名字", renamed)
+    }
+
+    @Test
+    fun `名字没改就不发请求`() {
+        var renamed: Pair<String, String>? = null
+        val list = buildSessionList(
+            sessions, currentSessionId = null, block = SwitchBlock.None,
+            onRename = { s, t -> renamed = s.sessionId to t },
+        )
+        doubleClick(textsAndComponents(list).first { it.text == "还可以做什么功能" })
+
+        jTextFieldsIn(list).first().postActionEvent()   // 原样回车
+
+        assertNull(renamed, "没动过的东西不该发一趟请求")
+    }
+
+    private fun doubleClick(component: Component) {
+        component.dispatchEvent(
+            MouseEvent(
+                component, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
+                0, 5, 5, 2, false, MouseEvent.BUTTON1,
+            )
+        )
+    }
+
+    private fun jTextFieldsIn(root: Container): List<JTextField> {
+        val out = mutableListOf<JTextField>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JTextField) out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return out
     }
 }

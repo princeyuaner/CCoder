@@ -12,6 +12,7 @@ import com.ccoder.sidecar.SidecarListener
 import com.ccoder.sidecar.SidecarLocator
 import com.ccoder.sidecar.SidecarMessage
 import com.ccoder.sidecar.SidecarNotFoundException
+import com.ccoder.sidecar.SubagentInfo
 import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
@@ -111,6 +112,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var lastUsage: ContextUsage? = null
 
     /**
+     * 正在问子代理列表。
+     *
+     * 那一拍浮层还没建出来，所以"再点一次收起"不能靠 `runDetailPopup != null`
+     * 判断 —— 用这个字段兜住，否则响应回来时会把用户已经放弃的浮层弹出来。
+     */
+    private var subagentsLoading = false
+
+    /**
      * 运行状态与任务清单。
      *
      * **每一个事件都喂给它**（包括 Push 给转写区的那些）—— 这里读的是
@@ -178,6 +187,19 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 打开着的思考深度浮层。同上，也由它实现"再点一次收起"。 */
     private var effortPopup: JBPopup? = null
+
+    /**
+     * 在途的那次换模型请求（热切换）。
+     *
+     * 回执里**只有模型名**，没有"哪条配置"—— 而两条填了同样端点的配置之间也能
+     * 热切（[canHotSwitch] 有意允许），所以光靠模型名回推不出该写进哪一条。
+     * 意图得自己攥着。
+     *
+     * 它同时是一道校验：回执里的名字必须等于我们发出去的那个。不等就说明有
+     * 别的 `setModel` 在飞（或乱序），那时什么都不改比改错强 —— 同
+     * [currentMode] 那条"认不出的就不动标签"。
+     */
+    private var pendingModelPick: ModelPick? = null
 
     /** 顶部左侧的会话标签。可点，点开列历史会话。 */
     private val sessionLabel = SessionLabel { toggleSessionChooser() }
@@ -495,15 +517,37 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 记下最新的上下文用量。
+     * 问一次上下文用量。
      *
-     * 没有用量数据时**保持原样**（可能是非 result 事件，也可能是 SDK 这次
-     * 没带 modelUsage）—— 清空会把已有的读数抹掉。
+     * 会话建立后问一次，每轮跑完再问一次。**恢复的会话也走同一条路** ——
+     * 实测 CLI 一条消息都没发就能答，而且会把恢复的历史算进去（resume 一条长
+     * 会话报的是 Messages 45 万，不是 0），所以不必等第一轮、也不必自己从
+     * 历史里推。
+     *
+     * 读失败**不往转写区插错误**：读不到用量不值得打断用户，卡片自己会显示
+     * "没测量值"（0）。但必须留痕 —— 否则"卡片一直不动"这种症状无从查起。
      */
-    private fun updateUsage(event: JsonObject) {
-        val usage = contextUsageOf(event) ?: return
-        lastUsage = usage
-        refreshStatusCards()
+    private fun requestContextUsage() {
+        val c = client ?: return
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeContextUsage(reqId)) { outcome ->
+            // 回调在读取线程上，碰 Swing 必须回到 EDT
+            ApplicationManager.getApplication().invokeLater {
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val report = outcome.message as? SidecarMessage.ContextUsageReport
+                        if (report == null) {
+                            LOG.warn("上下文用量返回了意外的消息")
+                        } else {
+                            lastUsage = ContextUsage(report.usedTokens, report.windowTokens)
+                            refreshStatusCards()
+                        }
+                    }
+
+                    is RequestOutcome.Failed -> LOG.warn("读取上下文用量失败：${outcome.reason}")
+                }
+            }
+        }
     }
 
     /** 唯一的连接状态写入口。文字变了，卡上的点与色跟着变。 */
@@ -547,7 +591,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      *   一旦漏写 `this.` 就是静默的错。
      */
     private fun toggleDetail(wantsTodos: Boolean) {
-        val card = if (wantsTodos) statusCards.todos else statusCards.running
+        val card: StatusCardView = if (wantsTodos) statusCards.todos else statusCards.running
         val wasOpen = todosOpen == wantsTodos && runDetailPopup != null
 
         runDetailPopup?.cancel()
@@ -555,17 +599,100 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         statusCards.todos.setOpen(false)
         statusCards.running.setOpen(false)
 
-        if (wasOpen) return
+        if (wasOpen) {
+            // 还能顺手取消一次正在路上的"打开"
+            subagentsLoading = false
+            return
+        }
 
         todosOpen = wantsTodos
-        runDetailPopup = showTogglePopup(
-            anchor = card,
-            content = if (wantsTodos) {
-                runStatus.todos?.let(::buildTodoDetail) ?: buildRunningDetail(emptyList())
-            } else {
-                buildRunningDetail(runStatus.running)
-            },
-        ) {
+        if (wantsTodos) {
+            showDetailPopup(
+                card,
+                runStatus.todos?.let(::buildTodoDetail)
+                    ?: buildRunningDetail(emptyList(), emptyList()) {},
+            )
+            return
+        }
+        // 子代理那一段要问一次 sidecar —— 它的记录在磁盘上，不在事件流里。
+        // **先请求、收到才弹**（同会话列表）：不先弹一个"载入中"，
+        // 免得还要处理"弹出后再换内容"那套尺寸重算
+        subagentsLoading = true
+        requestSubagents(card)
+    }
+
+    /**
+     * 问一次这个会话的子代理。
+     *
+     * 拿不到会话或目录时**仍然把浮层弹出来**（只列运行中那段）：点了没反应
+     * 比一个少一段的浮层更像坏了。
+     */
+    private fun requestSubagents(card: StatusCardView) {
+        val c = client
+        val dir = project.basePath
+        val sessionId = currentSessionId
+        if (c == null || dir == null || sessionId == null) {
+            subagentsLoading = false
+            showDetailPopup(card, buildRunningDetail(runStatus.running, emptyList()) {})
+            return
+        }
+
+        val id = nextId()
+        c.request(id, Protocol.encodeListSubagents(id, dir, sessionId)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                // 应答回来时用户可能已经把它收起来了
+                if (!subagentsLoading) return@invokeLater
+                subagentsLoading = false
+
+                val msg = (outcome as? RequestOutcome.Answered)?.message
+                if (msg !is SidecarMessage.Subagents) {
+                    // 读不到就不列那一段，但浮层照弹 —— 运行中那段还是有用的
+                    LOG.warn("列出子代理失败：${(outcome as? RequestOutcome.Failed)?.reason}")
+                }
+                val agents = (msg as? SidecarMessage.Subagents)?.agents ?: emptyList()
+                showDetailPopup(
+                    card,
+                    buildRunningDetail(runStatus.running, agents, ::openSubagentTranscript),
+                )
+            }
+        }
+    }
+
+    /**
+     * 看一个子代理的转写。**换页**而不是另开一个浮层：两个叠在一起的话，
+     * 关掉上面那个会把下面那个一起带走（同一套 showTogglePopup 的关闭语义），
+     * 用户会觉得"点了一下全没了"。
+     */
+    private fun openSubagentTranscript(agent: SubagentInfo) {
+        val c = client
+        val dir = project.basePath
+        val sessionId = currentSessionId
+        if (c == null || dir == null || sessionId == null) return
+
+        val id = nextId()
+        c.request(id, Protocol.encodeSubagentMessages(id, dir, sessionId, agent.agentId)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                val msg = (outcome as? RequestOutcome.Answered)?.message
+                if (msg !is SidecarMessage.SubagentMessages) {
+                    pushOp(
+                        toOp(
+                            RenderItem.ErrorItem(
+                                "读子代理转写失败：${(outcome as? RequestOutcome.Failed)?.reason ?: "没有回执"}"
+                            )
+                        )
+                    )
+                    return@invokeLater
+                }
+                showDetailPopup(statusCards.running, buildSubagentDetail(agent, msg.items))
+            }
+        }
+    }
+
+    /** 把详情浮层挂到某张卡上。首次打开与换页走同一条。 */
+    private fun showDetailPopup(card: StatusCardView, content: JComponent) {
+        // 先取消旧的：它的 onClosed 会把字段置空，所以必须排在赋值之前
+        runDetailPopup?.cancel()
+        runDetailPopup = showTogglePopup(anchor = card, content = content) {
             runDetailPopup = null
             statusCards.todos.setOpen(false)
             statusCards.running.setOpen(false)
@@ -685,6 +812,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         modelPopup = showTogglePopup(modelLabel, buildModelList(
             profiles = profiles.profiles(),
             currentId = profiles.selectedId(),
+            // 弹层上那句〔会重开会话〕与真正怎么切，走的是**同一个判定**
+            effectOf = { p -> effectFor(p, profiles) },
             onPick = { pick -> switchModel(pick) },
             onManage = {
                 // 与 [switchModel] 同一条规矩：先收起浮层，别让它挂在模态对话框后面
@@ -693,6 +822,26 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 openModelSettings()
             },
         ), centerOverPanel = true) { modelPopup = null }
+    }
+
+    /**
+     * 现在这一选会走哪条路。弹层与 [switchModel] 共用，免得两边各判各的。
+     *
+     * 代价：它要读密钥（判端点变没变），而这是**在 EDT 上**发生的 —— 每条配置
+     * 第一次会同步碰一次 PasswordSafe（之后走 [ModelProfiles] 的内存缓存）。
+     * 弹层里每条配置都要判一次，所以第一次点开可能卡一下。这条代价是换来的：
+     * 弹层上那句〔会重开会话〕必须与实际发生的事同源，猜一个更省的判据
+     * 就等于让标签撒谎。
+     */
+    private fun effectFor(target: ModelProfile, profiles: ModelProfiles): PickEffect {
+        val current = profiles.selected()
+        return pickEffect(
+            hasSession = ready,
+            current = current,
+            currentSecret = current?.let { profiles.secretOf(it.id) } ?: "",
+            to = target,
+            toSecret = profiles.secretOf(target.id),
+        )
     }
 
     /** 点思考深度标签 → 弹档位列表；再点一次 → 收起。 */
@@ -710,27 +859,54 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 切换模型 = 重开会话。
+     * 切换模型。**两条路**，由 [pickEffect] 判定 —— 与弹层上那句〔会重开会话〕
+     * 是同一个判定，不会出现"写着秒切、实际重开"。
      *
-     * 模型是会话启动参数（`toStartParams` → `start` → `options.model`），
-     * 没有热切换这条路。转写历史留着 —— 走 [restartSession] 那条既有路径。
+     * - **端点与凭证没变** → 热切换：发一条 `set_model`，会话、上下文、转写
+     *   全都留着。同一条配置内换模型必然走这条。
+     * - **变了**（或没有会话）→ 老路：重开会话。`options.env` 烤在子进程里，
+     *   端点换了就只能重开。
      */
-    private fun switchModel(pick: ModelProfile) {
+    private fun switchModel(pick: ModelPick) {
         // 列表的任务到此为止，先收起来 —— 与 [pickPermissionMode] 同一条规矩。
         // 不收的话它会一直挂在面板上，而底下正在重开会话
         modelPopup?.cancel()
         modelPopup = null
 
         val profiles = ModelProfiles.getInstance()
-        if (profiles.selectedId() == pick.id) return
+        // 从 ModelProfiles 现取，不用弹层里那份快照：设置对话框是模态的，
+        // 用户完全可能在弹层开着的时候改过这条配置
+        val target = profiles.profiles().firstOrNull { it.id == pick.profileId } ?: return
+        val current = profiles.selected()
+        if (current?.id == target.id && current.modelId == pick.modelId) return
 
-        // 会话进行中先把"上下文会丢"说清楚，别让用户切完才发现。
+        if (effectFor(target, profiles) == PickEffect.Hot) {
+            // 回合进行中也允许、也不弹确认框 —— setModel 改的是**后续回合**，
+            // 当前这轮既不该被腰斩，上下文也不丢。这与重开那条路正相反
+            // （那边忙时必须确认，因为上下文真的要没）
+            val c = client
+            if (c == null) {
+                // ready 为真而通道为空，理论上到不了这里。不静默吞掉 ——
+                // 点了没反应比明说更让人困惑（同 [pickPermissionMode] 那条）
+                pushOp(toOp(RenderItem.SystemNote("会话还没建立，换模型要等连上会话再改")))
+                return
+            }
+            // 先记意图再发：回执只带模型名，没它认不出该写进哪条配置。
+            // 顺序反过来（先发后记）会留下一个回执可能先到的窗口
+            pendingModelPick = pick
+            // 标签**现在不动**：等回执。先改标签后等结果的话，切换失败时
+            // 标签会显示一个没生效的模型 —— 同 [currentMode] / [currentEffort]
+            c.sendLine(Protocol.encodeSetModel(nextId(), pick.modelId))
+            return
+        }
+
+        // 重开那条路。会话进行中先把"上下文会丢"说清楚，别让用户切完才发现。
         // **确认放在改选中态之前**：用户点了取消，选中态就该原样不动。
         // 先改后回滚会留下"标签闪了一下又变回去"的中间态，而且回滚那一步
         // 一旦忘了写，选中态就永久跑偏 —— 这里干脆不给它跑偏的机会
-        if (busy && !confirmModelSwitch(pick)) return
+        if (busy && !confirmModelSwitch(target, pick.modelId)) return
 
-        profiles.select(pick.id)
+        profiles.pick(target.id, pick.modelId)
         refreshModelLabel()
         restartSession()
     }
@@ -740,12 +916,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      *
      * 这条提示**不能省** —— 少了它用户会以为切完还能接着聊，
      * 等发现上下文没了已经晚了（spec §9）。
+     *
+     * 要说**为什么**：热切换的模型是秒切的，不解释的话用户会以为这个也是坏的。
      */
-    private fun confirmModelSwitch(pick: ModelProfile): Boolean =
+    private fun confirmModelSwitch(target: ModelProfile, modelId: String): Boolean =
         Messages.showYesNoDialog(
             project,
-            "切换会重开会话，这段对话的上下文不保留。",
-            "切换到「${pick.displayName()}」",
+            "新配置的端点或凭证与当前会话不同，只能重开会话 —— 这段对话的上下文不保留。",
+            "切换到「${target.displayName()} · $modelId」",
             "切换并重开",
             "取消",
             null,
@@ -803,6 +981,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val content = buildSessionList(
             sessions, currentSessionId, block,
             onDelete = { s -> requestDeleteSession(s) },
+            onRename = { s, title -> requestRenameSession(s.sessionId, title) },
+            onTag = { s, tag -> requestTagSession(s.sessionId, tag) },
         ) { picked ->
             sessionPopup?.cancel()
             sessionPopup = null
@@ -844,6 +1024,69 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 按钮已置灰，这里只是兜底
         if (switchBlock(busy, permissionQueue.totalPending) != SwitchBlock.None) return
         startNewSession()
+    }
+
+    /**
+     * 改名 / 打标签。与删除同一条规矩：**等回执之后才动界面**。
+     *
+     * 这里没有删除那种"不可逆"的分量（改错了再改一次就行），但规矩不变 ——
+     * 先改行再等回执的话，写入失败时列表显示的是一个并不存在的新名字。
+     */
+    private fun requestRenameSession(sessionId: String, title: String) {
+        val c = client ?: return reportSessionEditFailure("改名", "会话通道已关闭")
+        val id = nextId()
+        c.request(id, Protocol.encodeRenameSession(id, sessionId, title)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                val msg = (outcome as? RequestOutcome.Answered)?.message
+                if (msg !is SidecarMessage.SessionRenamed) {
+                    reportSessionEditFailure("改名", (outcome as? RequestOutcome.Failed)?.reason)
+                    return@invokeLater
+                }
+                applySessionEdit(msg.sessionId) { it.copy(customTitle = msg.title) }
+            }
+        }
+    }
+
+    private fun requestTagSession(sessionId: String, tag: String?) {
+        val c = client ?: return reportSessionEditFailure("改标签", "会话通道已关闭")
+        // 空串在界面上是"清掉"：传 null 过去，sidecar 会显式发一个 JSON null
+        val normalized = tag?.takeIf { it.isNotBlank() }
+        val id = nextId()
+        c.request(id, Protocol.encodeTagSession(id, sessionId, normalized)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                val msg = (outcome as? RequestOutcome.Answered)?.message
+                if (msg !is SidecarMessage.SessionTagged) {
+                    reportSessionEditFailure("改标签", (outcome as? RequestOutcome.Failed)?.reason)
+                    return@invokeLater
+                }
+                applySessionEdit(msg.sessionId) { it.copy(tag = msg.tag) }
+            }
+        }
+    }
+
+    /**
+     * 把某一行的改动写回缓存并重画。
+     *
+     * **只动那一行、不重列会话**：改名与打标签不改变列表的成员与顺序，
+     * 为它们跑一趟 listSessions 既慢、又会把用户正看着的浮层闪一下。
+     */
+    private fun applySessionEdit(sessionId: String, edit: (SessionInfo) -> SessionInfo) {
+        var updated: SessionInfo? = null
+        sessionListCache = sessionListCache.map { row ->
+            if (row.sessionId != sessionId) row else edit(row).also { updated = it }
+        }
+        // 改的正是当前会话时，顶上那个标签也得跟着 —— 否则列表里是新名字、
+        // 顶上还挂着旧的，看着像没生效
+        if (sessionId == currentSessionId) {
+            currentSessionTitle = updated?.let(::sessionLabelTitle)
+            refreshSessionLabel()
+        }
+        refreshSessionList()
+    }
+
+    /** 失败时**行不动** —— 把它改成新名字才是撒谎。 */
+    private fun reportSessionEditFailure(what: String, reason: String?) {
+        pushOp(toOp(RenderItem.ErrorItem("${what}失败：${reason ?: "没有回执"}")))
     }
 
     /**
@@ -972,6 +1215,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             rest.forEach { pushOp(toOp(it)) }
             rendered += rest.size
         }
+
+        // 用量不在这里补 —— `ready` 那一拍已经问过 CLI 了（实测它一条消息都没发
+        // 就能答，而且把这份历史算了进去）。这里再推一遍只会多一个会漂的数据源
 
         resumeTargetId = null
         setBusy(false)
@@ -1132,6 +1378,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // SDK 的电平信号"在启动时不发任何东西"，只会在下次成员变动时重发全量 ——
         // 所以消费者必须自己清空，否则上一轮的"2 个运行中"会一直挂在那儿
         runStatus.reset()
+        // 用量同理：它是**上一个会话**的读数，新会话起手是空的。
+        // 不清的话，换模型重开会话之后那一格会继续显示上一场的百分比 ——
+        // 一个又大又吓人的数，而新会话其实什么都没装
+        lastUsage = null
         refreshStatusCards()
 
         // 标题由 [switchToSession] 在切之前就设好了（列表里现成的）；
@@ -1359,6 +1609,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 而且手里攥着一个已销毁面板的 lambda
         modelPopup?.cancel()
         modelPopup = null
+        // 在途的换模型请求属于**上一个会话**：它的回执（如果还会来）不该再
+        // 写进设置里去 —— 那会让一次针对旧会话的切换改掉新会话的模型
+        pendingModelPick = null
 
         // spec §6.2 规则① 的终止路径：先作废本地待决卡片。
         // 真正把挂起的 canUseTool 承诺 resolve 掉的是 sidecar 收到 stop 后的
@@ -1392,6 +1645,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     refreshMainButton()
                     requestCommands()
                     applyEffortToSession()
+                    // 用量也问一次：恢复的会话在这里就能拿到真数（含分母），
+                    // 新会话则拿到"0 + 窗口"，卡片不用先显示一轮的空白
+                    requestContextUsage()
 
                     val resuming = resumeTargetId
                     if (resuming != null) {
@@ -1425,7 +1681,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     }
 
                     // 用量只在 result 事件里给；取不到就保持原样
-                    updateUsage(msg.event)
+                    // 一轮跑完，用量变了。重新问一次而不是自己从事件里解析：
+                    // result 的 usage 只有主循环最后一次调用的三个 input 字段，
+                    // 而 modelUsage 是跨回合累计的总额 —— 两个都不是"现在有多满"
+                    requestContextUsage()
                     // init 事件里那个 model **不再写进标签**：标签现在由
                     // refreshModelLabel 填，写的是用户选中的那条配置（spec §8）。
                     // 直接写 .text 会连它的展开箭头一起抹掉，也会与弹层里
@@ -1520,6 +1779,46 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         }
                     }
                 }
+
+                // 同权限模式/思考深度：**生效了**才更新标签
+                is SidecarMessage.ModelChanged -> {
+                    val pick = pendingModelPick
+                    pendingModelPick = null
+                    when {
+                        // 没发过请求就来了回执（或旧会话的迟到回执）：
+                        // 无从知道该写进哪条配置 —— 不动比猜一个强
+                        pick == null ->
+                            LOG.warn("收到没有对应请求的模型回执：${msg.model}")
+
+                        // 回的不是我发的那个。有别的 setModel 在飞，或者乱序 ——
+                        // 按"对不上就不改"处理，免得标签显示一个没人确认过的模型
+                        msg.model != pick.modelId ->
+                            LOG.warn("模型回执与请求对不上：发的是 ${pick.modelId}，回的是 ${msg.model}")
+
+                        else -> {
+                            val profiles = ModelProfiles.getInstance()
+                            // pick 会把选中态与当前模型一起写下去。它自己会挡住
+                            // "配置已被删掉"与"模型已不在列表里"这两种情况
+                            // （那说明用户在我们等回执的时候改过设置），
+                            // 挡住了标签就保持原样，不会指向一个不存在的东西
+                            profiles.pick(pick.profileId, pick.modelId)
+                            refreshModelLabel()
+                            // 窗口大小跟着模型走：不重问的话，用量卡还会用上一个
+                            // 模型的分母，而那多半是另一个窗口
+                            requestContextUsage()
+                            pushOp(toOp(RenderItem.SystemNote("模型已切换为「${pick.modelId}」")))
+                        }
+                    }
+                }
+
+                // 请求-响应式的应答本该由 SidecarClient 的待决表按 id 截走，
+                // 到不了这里 —— 列出来只为穷尽性
+                is SidecarMessage.ContextUsageReport,
+                is SidecarMessage.SessionRenamed,
+                is SidecarMessage.SessionTagged,
+                is SidecarMessage.Subagents,
+                is SidecarMessage.SubagentMessages,
+                -> Unit
 
                 is SidecarMessage.Exit -> {
                     setConnection("会话已结束")

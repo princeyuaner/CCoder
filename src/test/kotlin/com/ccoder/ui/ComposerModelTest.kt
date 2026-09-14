@@ -27,21 +27,40 @@ class ComposerModelTest {
         assertEquals("无模型", modelLabelText(null))
     }
 
+    /**
+     * 显示**模型 ID** 而不是配置名：一条配置可以挂好几个模型，而它们跑起来
+     * 不是一回事 —— 标签还写着配置名的话，切完模型看不出来切了没有。
+     */
     @Test
-    fun `选中时标签写配置名`() {
-        assertEquals("中转 Opus", modelLabelText(ModelProfile(name = "中转 Opus")))
+    fun `选中时标签写当前模型 ID`() {
+        val p = ModelProfile(name = "中转 Opus", modelId = "deepseek-flash", modelIds = mutableListOf("deepseek-flash"))
+
+        assertEquals("deepseek-flash", modelLabelText(p))
     }
 
+    /** 这条配置没指定模型时，配置名才是唯一能说明"用的是哪条"的东西。 */
     @Test
-    fun `名字空白的配置退回写模型 ID`() {
-        // 用户可能只填了 modelId 就存了 —— 标签不该是空的
-        val p = ModelProfile(name = "  ", modelId = "deepseek-flash")
-        assertEquals("deepseek-flash", modelLabelText(p))
+    fun `配置没指定模型时退回写配置名`() {
+        assertEquals("中转 Opus", modelLabelText(ModelProfile(name = "中转 Opus")))
     }
 
     @Test
     fun `名字与 ID 都空时写未命名`() {
         assertEquals("未命名", modelLabelText(ModelProfile()))
+    }
+
+    /**
+     * 模型 ID 是用户填的、没有上限，而这一行还并排站着权限与思考两个标签 ——
+     * 不截断的话一个长名字会把那两个挤出工具窗口。
+     */
+    @Test
+    fun `超长的模型 ID 会截断`() {
+        val p = ModelProfile(modelId = "claude-opus-4-6-20250929-with-a-very-long-suffix")
+
+        val text = modelLabelText(p)
+
+        assertTrue(text.endsWith("…"), "没有截断：$text")
+        assertTrue(text.length <= 25, "截完还是太长：$text")
     }
 
     // ---- 标签本身 ----
@@ -104,44 +123,119 @@ class ComposerModelTest {
         assertEquals(UIUtil.getInactiveTextColor(), label.foreground, "移开后没有恢复")
     }
 
-    // ---- 弹层里的列表 ----
+    // ---- 弹层：分组 ----
 
+    /**
+     * 一条配置挂多个模型，所以弹层要**两级**：组头认配置，行认模型。
+     * 光有模型名认不出是哪来的 —— 两条配置完全可以是同一个网关、同一族模型名。
+     */
     @Test
-    fun `列表列出每一条配置`() {
-        val list = buildModelList(listOf(profile("a", "中转 Opus"), profile("b", "本地 Qwen")), "a", {}, {})
-        val texts = textsIn(list).joinToString("\n")
+    fun `按配置分组列出每个模型`() {
+        val list = buildModelList(
+            listOf(
+                ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro")),
+                ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
+            ),
+            "a",
+            { PickEffect.Hot }, {}, {},
+        )
+        val texts = textsIn(list)
 
-        assertTrue(texts.contains("中转 Opus"), "少了第一条：\n$texts")
-        assertTrue(texts.contains("本地 Qwen"), "少了第二条：\n$texts")
+        assertTrue(texts.any { it.contains("中转") }, "少了组头：$texts")
+        assertTrue(texts.any { it.contains("flash") }, "少了 flash：$texts")
+        assertTrue(texts.any { it.contains("pro") }, "少了 pro：$texts")
+        assertTrue(texts.any { it.contains("本地") }, "少了第二条配置：$texts")
+        assertTrue(texts.any { it.contains("qwen") }, "少了 qwen：$texts")
     }
 
+    /** 勾判的是**两级**：选中的那条配置、以及它当前那个模型。 */
     @Test
-    fun `列表标出当前配置`() {
-        val list = buildModelList(listOf(profile("a", "中转 Opus"), profile("b", "本地 Qwen")), "b", {}, {})
+    fun `当前项只打一个勾`() {
+        val list = buildModelList(
+            listOf(
+                ModelProfile(id = "a", name = "中转", modelId = "pro", modelIds = mutableListOf("flash", "pro")),
+                ModelProfile(id = "b", name = "本地", modelId = "qwen", modelIds = mutableListOf("qwen")),
+            ),
+            "a",
+            { PickEffect.Hot }, {}, {},
+        )
         val marked = textsIn(list).filter { it.contains(MARK) }
 
         assertEquals(1, marked.size, "应当且只应当标一个当前项：$marked")
-        assertTrue(marked[0].contains("本地 Qwen"), "标错了：${marked[0]}")
-    }
-
-    @Test
-    fun `点某一行把那条配置报出去`() {
-        val picked = mutableListOf<ModelProfile>()
-        val target = profile("b", "本地 Qwen")
-        val list = buildModelList(listOf(profile("a", "中转 Opus"), target), "a", { picked += it }, {})
-
-        click(labelContaining(list, "本地 Qwen"))
-
-        assertEquals(listOf(target), picked)
+        assertTrue(marked[0].contains("pro"), "标错了：${marked[0]}")
     }
 
     /**
-     * 一条配置都没配时，弹层不能是空的 —— 那看起来像抽风。它得说清楚
-     * 现状，并给出唯一的出路（去设置里加一条）。
+     * 一条没指定模型的配置（官方端点用 CLI 默认模型那种）也是合法配置，
+     * 所以它也得有一行可以选 —— 只显示组头的话，它就成了纯装饰。
      */
     @Test
+    fun `没指定模型的配置也有一行可选`() {
+        val picked = mutableListOf<ModelPick>()
+        val list = buildModelList(
+            listOf(ModelProfile(id = "a", name = "官方")),
+            null,
+            { PickEffect.Hot },
+            { picked += it },
+            {},
+        )
+
+        assertTrue(textsIn(list).any { it.contains(NO_MODEL_LABEL) }, "少了那一行：${textsIn(list)}")
+        click(labelContaining(list, NO_MODEL_LABEL))
+        assertEquals(listOf(ModelPick("a", "")), picked)
+    }
+
+    @Test
+    fun `点某一行报出配置与模型两级`() {
+        val picked = mutableListOf<ModelPick>()
+        val list = buildModelList(
+            listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro"))),
+            "a",
+            { PickEffect.Hot },
+            { picked += it },
+            {},
+        )
+
+        click(labelContaining(list, "pro"))
+
+        assertEquals(listOf(ModelPick("a", "pro")), picked)
+    }
+
+    // ---- 弹层：后果写出来 ----
+
+    /**
+     * 跨配置切换会重开会话（端点或凭证变了），这件事要在**点之前**就说清楚。
+     * 今天只在忙的时候弹确认框，空闲时一个字都不说，用户切完才发现上下文没了。
+     */
+    @Test
+    fun `会重开会话的组才标出来`() {
+        val list = buildModelList(
+            listOf(
+                ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash")),
+                ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
+            ),
+            "a",
+            { p -> if (p.id == "a") PickEffect.Hot else PickEffect.Restart },
+            {}, {},
+        )
+        val badges = textsIn(list).filter { it == "会重开会话" }
+
+        assertEquals(1, badges.size, "应当且只应当标一组：${textsIn(list)}")
+    }
+
+    /** 没有会话时标"会重开会话"是吓唬人 —— 那时根本没有上下文可丢。 */
+    @Test
+    fun `没有会话时不标重开`() {
+        assertTrue(restartBadge(PickEffect.NoSession) == null)
+        assertTrue(restartBadge(PickEffect.Hot) == null)
+        assertEquals("会重开会话", restartBadge(PickEffect.Restart))
+    }
+
+    // ---- 弹层：其它 ----
+
+    @Test
     fun `没有配置时列表说明现状`() {
-        val texts = textsIn(buildModelList(emptyList(), null, {}, {})).joinToString("\n")
+        val texts = textsIn(buildModelList(emptyList(), null, { PickEffect.Hot }, {}, {})).joinToString("\n")
 
         assertTrue(texts.contains("还没有配置任何模型"), "实际：$texts")
     }
@@ -149,7 +243,10 @@ class ComposerModelTest {
     @Test
     fun `列表里有去管理配置的入口`() {
         var managed = 0
-        val list = buildModelList(listOf(profile("a", "中转 Opus")), "a", {}, { managed++ })
+        val list = buildModelList(
+            listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
+            "a", { PickEffect.Hot }, {}, { managed++ },
+        )
 
         click(labelContaining(list, MANAGE_LABEL))
 
@@ -162,7 +259,12 @@ class ComposerModelTest {
      */
     @Test
     fun `操作行只说管理，不出现编辑表单的字段`() {
-        val texts = textsIn(buildModelList(listOf(profile("a", "中转 Opus")), "a", {}, {})).joinToString("\n")
+        val texts = textsIn(
+            buildModelList(
+                listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
+                "a", { PickEffect.Hot }, {}, {},
+            )
+        ).joinToString("\n")
 
         assertTrue(texts.contains(MANAGE_LABEL), "实际：$texts")
         listOf("Base URL", "密钥", "认证方式").forEach {
@@ -170,53 +272,58 @@ class ComposerModelTest {
         }
     }
 
-    // ---- 行里的第二行 ----
+    // ---- 组头写什么 ----
 
     @Test
-    fun `第二行写明模型 ID 与端点主机`() {
+    fun `组头写配置名与端点主机`() {
         // 两条配置可以都叫「中转」，光看名字选不出来 —— 得让用户认出是哪条
-        val p = ModelProfile(name = "中转", modelId = " deepseek-flash ", baseUrl = "https://api.deepseek.com/v1")
+        val p = ModelProfile(name = "中转", baseUrl = "https://api.deepseek.com/v1")
 
-        assertEquals("deepseek-flash · api.deepseek.com", modelDetail(p))
+        assertEquals("中转 · api.deepseek.com", groupHeaderText(p))
     }
 
     @Test
-    fun `第二行不出现空白：没填端点写官方端点，没填 ID 也说一声`() {
-        assertEquals("未填写模型 ID · 官方端点", modelDetail(ModelProfile(name = "官方")))
+    fun `组头不出现空白：没填端点写官方端点`() {
+        assertEquals("官方 · 官方端点", groupHeaderText(ModelProfile(name = "官方")))
     }
 
     @Test
     fun `主机名再长也会截断`() {
-        val p = ModelProfile(name = "公司中转", modelId = "m", baseUrl = "https://api.anthropic-relay.internal.corp.example.com")
+        val p = ModelProfile(name = "公司中转", baseUrl = "https://api.anthropic-relay.internal.corp.example.com")
 
-        val detail = modelDetail(p)
+        val header = groupHeaderText(p)
 
-        assertTrue(detail.endsWith("…"), "没有截断：$detail")
-        assertTrue(detail.length < 40, "截完还是太长：$detail")
+        assertTrue(header.endsWith("…"), "没有截断：$header")
+        assertTrue(header.length < 40, "截完还是太长：$header")
     }
 
     /**
      * 弹层的宽度是内容撑开的，而主机名是用户填的 —— 不设上限的话，一条配置
-     * 就能把弹层撑得比工具窗口（420px）还宽。这条钉的是那个上限。
+     * 就能把弹层撑得比工具窗口（420px）还宽。这条钉的是那个上限，
+     * 而且取的是**最宽的那种组合**：长主机名 + 长模型 ID + 重开标记。
      */
     @Test
     fun `弹层不会比工具窗口宽`() {
         val long = ModelProfile(
+            id = "a",
             name = "公司中转",
-            modelId = "claude-opus-4-6-20250929",
+            modelIds = mutableListOf("claude-opus-4-6-20250929-thinking-with-extra-suffix"),
+            modelId = "claude-opus-4-6-20250929-thinking-with-extra-suffix",
             baseUrl = "https://api.anthropic-relay.internal.corp.example.com",
         )
 
-        val list = buildModelList(listOf(long, profile("b", "本地 Qwen")), "b", {}, {})
+        val list = buildModelList(
+            listOf(long, ModelProfile(id = "b", name = "本地 Qwen", modelIds = mutableListOf("qwen"))),
+            "b",
+            { PickEffect.Restart },
+            {}, {},
+        )
 
         // 列表自己是 preference 撑开的，父面板的边距不算在内
         assertTrue(list.preferredSize.width < 420, "弹层宽 ${list.preferredSize.width}px，比工具窗口还宽")
     }
 
     // ---- 工具 ----
-
-    private fun profile(id: String, name: String) =
-        ModelProfile(id = id, name = name, modelId = "m-$id", baseUrl = "https://api.example.com")
 
     private fun click(component: Component) {
         component.dispatchEvent(

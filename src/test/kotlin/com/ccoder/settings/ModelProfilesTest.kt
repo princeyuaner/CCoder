@@ -141,4 +141,95 @@ class ModelProfilesTest {
 
         assertEquals("", store.read(a.id), "空白密钥该当成清除，不是一个空口令")
     }
+
+    // ---- 一族模型（modelIds）----
+
+    /**
+     * 老 XML 里一条配置只有一个模型，存在 `modelId` 里、没有 `modelIds`。
+     *
+     * 这条是升级路径的证据：`normalizeModelProfile` **不会**把空的列表当成
+     * "那就用 modelId 吧"（那样"删掉最后一个模型"会当场复活），所以补列表
+     * 这一步必须由 [ModelProfiles.loadState] 显式做。漏了它，用户升级完会
+     * 发现模型名没了。
+     */
+    @Test
+    fun `读老形状的配置时把 modelId 补成单项列表`() {
+        val m = fresh()
+        val old = ModelProfile(name = "中转", baseUrl = "https://a", modelId = "glm-4.6")
+
+        m.loadState(ModelProfiles.State(profiles = mutableListOf(old), selectedId = old.id))
+
+        val loaded = m.profiles().single()
+        assertEquals(listOf("glm-4.6"), loaded.modelIds)
+        assertEquals("glm-4.6", loaded.modelId, "升级不该把用户填的模型名丢掉")
+        assertEquals(old.id, m.selectedId())
+    }
+
+    /** 写入时同样收敛，免得绕开 loadState 的那几条路（对话框、热切换回执）留下坏状态。 */
+    @Test
+    fun `写入时把不在列表里的当前模型落到第一项`() {
+        val m = fresh()
+
+        m.upsert(ModelProfile(name = "中转", modelIds = mutableListOf("a", "b"), modelId = "c"))
+
+        assertEquals("a", m.profiles().single().modelId)
+    }
+
+    /**
+     * 多个模型要经得起平台序列化。
+     *
+     * `ClaudeSettings.State.extraDirs` 是先例（顶层 `MutableList<String>`），
+     * 但**嵌在列表元素里的** `MutableList<String>` 没有先例 —— 这条就是那个证据。
+     * 顺序也得留住：第一项是新建时的默认。
+     */
+    @Test
+    fun `多个模型经 XmlSerializer 往返后逐字不变`() {
+        val m = fresh()
+        val p = ModelProfile(
+            name = "中转",
+            baseUrl = "https://api.example.com",
+            modelIds = mutableListOf("deepseek-v4-flash[1m]", "deepseek-v4-pro[1m]", "glm-4.6"),
+            modelId = "deepseek-v4-pro[1m]",
+        )
+        m.upsert(p)
+
+        val loaded = XmlSerializer
+            .deserialize(serializeState(m), ModelProfiles.State::class.java)
+            .profiles
+            .single()
+
+        assertEquals(p.modelIds, loaded.modelIds, "列表没往返回来")
+        assertEquals("deepseek-v4-pro[1m]", loaded.modelId)
+    }
+
+    // ---- 换当前模型 ----
+
+    @Test
+    fun `pick 同时改选中态与当前模型`() {
+        val m = fresh()
+        val a = ModelProfile(name = "A", modelIds = mutableListOf("x", "y"), modelId = "x")
+        val b = ModelProfile(name = "B", modelIds = mutableListOf("z"), modelId = "z")
+        m.upsert(a)
+        m.upsert(b)
+        m.select(a.id)
+
+        m.pick(a.id, "y")
+
+        assertEquals("y", m.profiles().first { it.id == a.id }.modelId)
+        assertEquals(a.id, m.selectedId(), "选中态也得跟着 —— 两件事分开写会留下半截状态")
+    }
+
+    @Test
+    fun `pick 认不出的模型或配置什么都不改`() {
+        val m = fresh()
+        val a = ModelProfile(name = "A", modelIds = mutableListOf("x"), modelId = "x")
+        m.upsert(a)
+        m.select(a.id)
+
+        m.pick(a.id, "不存在")
+        m.pick("不存在的配置", "x")
+
+        assertEquals("x", m.profiles().single().modelId)
+        assertEquals(a.id, m.selectedId())
+    }
 }

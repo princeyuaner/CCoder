@@ -125,6 +125,8 @@ class ModelProfilesDialogProbe {
         id = "p1",
         name = "DeepSeek",
         baseUrl = "https://api.deepseek.com/anthropic",
+        // 一条配置挂两个模型是常态，画图时就得按常态画
+        modelIds = mutableListOf("deepseek-flash[1m]", "deepseek-v4-pro[1m]"),
         modelId = "deepseek-flash[1m]",
         authKind = AuthKind.AUTH_TOKEN.name,
     )
@@ -132,12 +134,14 @@ class ModelProfilesDialogProbe {
         id = "p2",
         name = "官方 Sonnet",
         baseUrl = "https://api.anthropic-relay.internal.corp.example.com/anthropic",
+        modelIds = mutableListOf("claude-sonnet-5"),
         modelId = "claude-sonnet-5",
     )
     private val opus = ModelProfile(
         id = "p3",
         name = "中转 Opus",
         baseUrl = "https://relay.example.com",
+        modelIds = mutableListOf("claude-opus-5"),
         modelId = "claude-opus-5",
         authKind = AuthKind.AUTH_TOKEN.name,
     )
@@ -269,6 +273,7 @@ class ModelProfilesDialogSaveTest {
         id = "p1",
         name = "DeepSeek",
         baseUrl = "https://api.deepseek.com/anthropic",
+        modelIds = mutableListOf("deepseek-flash[1m]", "deepseek-v4-pro[1m]"),
         modelId = "deepseek-flash[1m]",
         authKind = AuthKind.AUTH_TOKEN.name,
     )
@@ -300,6 +305,45 @@ class ModelProfilesDialogSaveTest {
         return input as? JTextComponent
             ?: findFirst(input, { it is JTextComponent }) as? JTextComponent
             ?: error("「$label」下面没有输入控件")
+    }
+
+    /**
+     * 「模型 ID」那一栏里所有输入框，从上到下。
+     *
+     * 不能走 [fieldOf] —— 它只回第一个，而这里的每个模型各占一行。外面套了一层
+     * 滚动框（限高用），所以得往里走。
+     */
+    private fun modelFields(dialog: ModelProfilesDialog): List<JTextComponent> {
+        val out = mutableListOf<JTextComponent>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JTextComponent) out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(inputOf(dialog.contentPanel, MODEL_IDS_LABEL))
+        return out
+    }
+
+    /**
+     * 摆好版之后，每一行那个 ✕ 在自己的行里的 x。
+     *
+     * 比较的是**局部坐标**：两行的宽度一样，所以 ✕ 的 x 只差在它左边那个
+     * 〔使用中〕占位有多宽 —— 正是要钉的那个东西。
+     */
+    private fun deleteButtonXs(dialog: ModelProfilesDialog): List<Int> {
+        val out = mutableListOf<Int>()
+        SwingUtilities.invokeAndWait {
+            layoutAll(dialog.contentPanel)
+            fun walk(c: Container) {
+                for (child in c.components) {
+                    if (child is JLabel && child.text == "✕") out += child.location.x
+                    if (child is Container) walk(child)
+                }
+            }
+            walk(dialog.contentPanel)
+        }
+        return out
     }
 
     /** 字段下面那个下拉。 */
@@ -339,17 +383,77 @@ class ModelProfilesDialogSaveTest {
     }
 
     @Test
-    fun `改 Base URL 与模型 ID 同样立刻落库`() {
+    fun `改 Base URL 同样立刻落库`() {
         val store = MemoryStore()
         val (dialog, service) = openOn(store, p1)
 
         type(dialog, "Base URL", "https://relay.example.com/v1")
-        type(dialog, "模型 ID", "glm-4.6")
 
         val saved = service.profiles().single()
         assertEquals("https://relay.example.com/v1", saved.baseUrl)
-        assertEquals("glm-4.6", saved.modelId)
         assertEquals("p1", saved.id, "改字段不该换 id —— 换了 id 密钥就失联了")
+    }
+
+    /**
+     * 模型是一族，每一行一个。改第一行（正好是在用的那个）应当：列表里那一项
+     * 被改掉，而**在用的仍然是它** —— 把在用的模型改个名，改名之后它依然在用，
+     * 不该被顶到第一项去（那正是"取下标"会犯的错）。
+     */
+    @Test
+    fun `改在用的那一行：列表跟着改，在用的还是它`() {
+        val store = MemoryStore()
+        val (dialog, service) = openOn(store, p1)
+
+        SwingUtilities.invokeAndWait { modelFields(dialog)[0].text = "glm-4.6" }
+
+        val saved = service.profiles().single()
+        assertEquals(listOf("glm-4.6", "deepseek-v4-pro[1m]"), saved.modelIds)
+        assertEquals("glm-4.6", saved.modelId, "改的是在用的那一行，它就该仍然在用")
+    }
+
+    /** 删一行只该去掉那一行，别的行——包括刚打过字还没失焦的——都得留着。 */
+    @Test
+    fun `删掉一行只去掉那一行`() {
+        val store = MemoryStore()
+        val (dialog, service) = openOn(store, p1)
+
+        // 先改第二行（还没删），再删第一行：已打的字不能跟着第一行一起没
+        SwingUtilities.invokeAndWait { modelFields(dialog)[1].text = "改过的" }
+        SwingUtilities.invokeAndWait { clickOn(findLabel(dialog.contentPanel, "✕")!!) }
+
+        val saved = service.profiles().single()
+        assertEquals(listOf("改过的"), saved.modelIds)
+        assertEquals("改过的", saved.modelId, "在用的那个被删了，就该落到剩下的第一项")
+    }
+
+    /**
+     * 每行末尾的 ✕ 要**对齐**。
+     *
+     * 〔使用中〕只挂在在用的那一行上，不按固定宽度留位的话，有它的那行会把 ✕
+     * 往左挤 —— 三行三个位置，看起来像没对齐（同 `MARK` 那条"未选中也缩进"）。
+     * 渲染图上看得出，但它值得一条能红的断言，而不是靠人每次看图。
+     */
+    @Test
+    fun `模型行的删除按钮对齐`() {
+        val store = MemoryStore()
+        val (dialog, _) = openOn(store, p1)
+
+        val xs = deleteButtonXs(dialog)
+
+        assertEquals(2, xs.size, "两行应当各有一个 ✕")
+        assertEquals(xs[0], xs[1], "✕ 没对齐 —— 〔使用中〕那个位置没留够")
+    }
+
+    @Test
+    fun `加一行会多出一个空输入框`() {
+        val store = MemoryStore()
+        val (dialog, service) = openOn(store, p1)
+
+        SwingUtilities.invokeAndWait { clickOn(findLabel(dialog.contentPanel, ADD_MODEL_LABEL)!!) }
+
+        assertEquals(3, modelFields(dialog).size, "点一下该多一行")
+        // 空行**不落库**：normalizeModelProfile 会把空串滤掉，写了等于没写
+        assertEquals(2, service.profiles().single().modelIds.size, "空行不该被存进去")
     }
 
     @Test

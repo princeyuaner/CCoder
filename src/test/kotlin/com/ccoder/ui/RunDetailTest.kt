@@ -1,10 +1,13 @@
 package com.ccoder.ui
 
 import com.google.gson.JsonParser
+import com.ccoder.sidecar.SubagentInfo
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
+import java.awt.event.MouseEvent
 import java.awt.Container
 import javax.swing.JLabel
 
@@ -64,7 +67,7 @@ class RunDetailTest {
     @Test
     fun `运行段带上计数`() {
         val running = tracker(started("t1", "查找 sidecar 启动路径"), started("t2", "核对 SDK 类型")).running
-        val labels = labelsIn(buildRunningDetail(running))
+        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
 
         assertTrue("运行中" in labels, "要有段标题")
         assertTrue("2" in labels, "要带计数：$labels")
@@ -77,7 +80,7 @@ class RunDetailTest {
             """{"type":"system","subtype":"task_progress","task_id":"t1",
                 "usage":{"total_tokens":12400,"duration_ms":8000}}""",
         ).running
-        val labels = labelsIn(buildRunningDetail(running))
+        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
 
         assertTrue(labels.any { it == "12.4k tok · 8s" }, "实际：$labels")
     }
@@ -85,7 +88,7 @@ class RunDetailTest {
     @Test
     fun `运行段空着时说实话，而不是给一个空框`() {
         // 卡上写"空闲"时不该弹得出来，但真弹出来了就得说实话
-        assertEquals(listOf("当前没有任务"), labelsIn(buildRunningDetail(emptyList())))
+        assertEquals(listOf("当前没有任务"), labelsIn(buildRunningDetail(emptyList(), emptyList()) {}))
     }
 
     // ---- 两段分家 ----
@@ -97,7 +100,7 @@ class RunDetailTest {
         val t = tracker(todosLabel("甲" to "pending"), started("t1", "甲"))
 
         val todoLabels = labelsIn(buildTodoDetail(t.todos!!))
-        val runningLabels = labelsIn(buildRunningDetail(t.running))
+        val runningLabels = labelsIn(buildRunningDetail(t.running, emptyList()) {})
 
         assertTrue("任务清单" in todoLabels)
         assertTrue("运行中" !in todoLabels, "清单浮层里不该出现运行段：$todoLabels")
@@ -121,5 +124,114 @@ class RunDetailTest {
         // 某些语言下 %.2f 之类会输出逗号，这里虽全是整数格式，
         // 但整条链路统一 locale 才不会被将来的改动咬到
         assertEquals("1m05s", formatDuration(65_000))
+    }
+
+    // ---- 子代理段 ----
+
+    @Test
+    fun `子代理那一段列出类型与描述`() {
+        val box = buildRunningDetail(
+            emptyList(),
+            listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+        ) {}
+
+        val texts = labelsIn(box).joinToString("\n")
+        assertTrue(texts.contains("Explore"), "实际：$texts")
+        assertTrue(texts.contains("找调用点"), "实际：$texts")
+    }
+
+    @Test
+    fun `点某个子代理把打开动作报出去`() {
+        val picked = mutableListOf<String>()
+        val box = buildRunningDetail(
+            emptyList(),
+            listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+        ) { picked += it.agentId }
+
+        clickFirstClickable(box)
+
+        assertEquals(listOf("a1"), picked)
+    }
+
+    @Test
+    fun `对不上子代理的运行中任务不可点`() {
+        // 后台命令（local_bash 那种）没有子代理转写 —— 给它一个可点外观是骗人
+        val box = buildRunningDetail(
+            listOf(RunningTask("call_x", "local_bash", "跑测试", null, 0, 0)),
+            emptyList(),
+        ) {}
+
+        assertTrue(!hasClickable(box), "没有对应子代理的任务不该挂点击监听器")
+    }
+
+    @Test
+    fun `对得上的运行中任务可以点开`() {
+        val picked = mutableListOf<String>()
+        val box = buildRunningDetail(
+            listOf(RunningTask("call_9", "explore", "找调用点", null, 0, 0)),
+            listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+        ) { picked += it.agentId }
+
+        clickFirstClickable(box)
+
+        assertEquals(listOf("a1"), picked, "任务的 id 就是 tool_use id，靠它对上子代理")
+    }
+
+    @Test
+    fun `子代理转写把条数写在标题上`() {
+        val box = buildSubagentDetail(
+            SubagentInfo("a1", "Explore", "找调用点", "call_9"),
+            listOf(ev("""{"type":"user","message":{"content":"去找"}}""")),
+        )
+
+        assertTrue(labelsIn(box).joinToString("\n").contains("1 条"), "实际：${labelsIn(box)}")
+    }
+
+    // ---- 消息取字 ----
+
+    @Test
+    fun `messageText 认字符串与块数组两种形状`() {
+        assertEquals("你好", messageText(ev("""{"message":{"content":"你好"}}""")))
+        assertEquals(
+            "第一段\n第二段",
+            messageText(
+                ev("""{"message":{"content":[{"type":"text","text":"第一段"},{"type":"text","text":"第二段"}]}}""")
+            ),
+        )
+    }
+
+    @Test
+    fun `messageText 把工具调用折成一行`() {
+        // 一段全是工具调用的转写，不给这一行就跟空白没区别
+        assertEquals(
+            "→ Read",
+            messageText(ev("""{"message":{"content":[{"type":"tool_use","name":"Read"}]}}""")),
+        )
+    }
+
+    @Test
+    fun `messageText 读不出文字时给 null`() {
+        assertNull(messageText(ev("""{"message":{"content":[]}}""")))
+        assertNull(messageText(ev("""{"type":"system"}""")))
+    }
+
+    /** 点树里第一个挂了监听器的组件 —— 行是 JPanel，不是按钮。 */
+    private fun clickFirstClickable(root: Component) {
+        findClickable(root)?.dispatchEvent(
+            MouseEvent(
+                findClickable(root), MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
+                0, 3, 3, 1, false, MouseEvent.BUTTON1,
+            )
+        )
+    }
+
+    private fun hasClickable(root: Component): Boolean = findClickable(root) != null
+
+    private fun findClickable(root: Component): Component? {
+        if (root.mouseListeners.isNotEmpty()) return root
+        if (root is Container) {
+            for (c in root.components) findClickable(c)?.let { return it }
+        }
+        return null
     }
 }

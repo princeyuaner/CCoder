@@ -32,9 +32,91 @@ data class ModelProfile(
     var id: String = UUID.randomUUID().toString(),
     var name: String = "",
     var baseUrl: String = "",
+    /**
+     * 这条配置可用的模型，第一个是新建/兜底时的那个。
+     *
+     * 空 = 这条配置**不指定模型** —— 官方端点上这是合法的（用 CLI 默认模型），
+     * 第三方端点上则要靠 [modelId] 与路由变量，所以别把空当成"没配好"。
+     *
+     * 类型是 [MutableList] 而不是 `List`：XmlSerializer 认的是可变集合。
+     */
+    var modelIds: MutableList<String> = mutableListOf(),
+    /**
+     * 当前用的那个。**不变量：要么是空串，要么落在 [modelIds] 里** ——
+     * 见 [normalizeModelProfile]。
+     *
+     * 它同时是**老 XML 的迁移落点**：改版前一条配置只有一个模型，就存在这个
+     * 字段里，且没有 [modelIds]。那份数据不能丢（用户配好的模型名会静默消失），
+     * 所以这个字段的名字与类型都没动，只在 [ModelProfiles.loadState] 里多一步
+     * 把它补进列表。
+     */
     var modelId: String = "",
     var authKind: String = AuthKind.API_KEY.name,
 )
+
+/**
+ * 把一条配置收敛成不变量成立的样子。
+ *
+ * 不变量只有一条：**[ModelProfile.modelId] 要么空、要么在 [ModelProfile.modelIds] 里**。
+ * 破了它的后果不是崩溃，是标签显示一个候选列表里根本没有的模型 —— 用户点开
+ * 弹层找不到自己正在用的那个。
+ *
+ * 由 [ModelProfiles.loadState] 与 [ModelProfiles.upsert] 两个入口调用。别处不许
+ * 自己维护这条不变量：入口只有一个，才谈得上"绕不过去"。
+ *
+ * **列表为空时 `modelId` 会被清掉**，不是被当成唯一的候选。这一条是刻意的：
+ * 反过来做（空列表时把 `modelId` 补进列表）看着更"宽容"，实际会让"删掉最后
+ * 一个模型"当场把它复活 —— 用户删不掉东西是最难解释的一类 bug。
+ * 代价是老 XML 的迁移**不能指望这个函数**，必须在 [ModelProfiles.loadState]
+ * 里显式做那一步。
+ */
+fun normalizeModelProfile(profile: ModelProfile): ModelProfile {
+    val current = profile.modelId.trim()
+    val ids = profile.modelIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    return profile.copy(
+        modelIds = ids.toMutableList(),
+        modelId = if (current in ids) current else ids.firstOrNull() ?: "",
+    )
+}
+
+/**
+ * 能不能**不重开会话**就换过去。
+ *
+ * 判据只有一条：端点与凭证那批环境变量变不变。`options.env` 在子进程 spawn 时就
+ * 烤死了，中途改不了 —— 所以只要它一样，换模型就只是把 `set_model` 发下去，
+ * 会话、上下文、转写全都留着。
+ *
+ * 同一条配置内换模型必然为 true。两条**填了同样端点与密钥**的配置之间也是 true，
+ * 这是有意的：把一个网关拆成几条来管是完全合理的用法，那种切换没理由丢上下文。
+ *
+ * [from] 为 null 表示"起会话时没选中任何配置"（走 CLI 自己的登录态与 settings），
+ * 它的环境变量按空集算 —— 所以从"没配置"切到"一条什么都没给的官方配置"同样是热切换。
+ *
+ * [modelProfileEnv] 在"第三方端点没填密钥"时会抛。这里捕获后返回 false，即
+ * "证明不了它一样就重开"—— 重开那条路本来就会把这条错误报出来（见
+ * `ClaudePanel.startSession` 的 catch），不会吞掉。**两个都抛也不能算相等**，
+ * 所以不能写成 `runCatching{}.getOrNull() == runCatching{}.getOrNull()`。
+ *
+ * **目标模型是空串时也不热切**：`setModel` 表达不了"不要模型"这个状态 ——
+ * `setModel(undefined)` 不是"清除"，空串会变成一个空的模型名发出去。所以
+ * "切到一条没配模型的配置"只能走重开（那条路的 `toStartParams` 会把它变成
+ * "不传 `--model`"，正是想要的语义）。
+ */
+fun canHotSwitch(
+    from: ModelProfile?,
+    fromSecret: String,
+    to: ModelProfile,
+    toSecret: String,
+): Boolean {
+    if (to.modelId.isBlank()) return false
+    val before = if (from == null) {
+        emptyMap()
+    } else {
+        runCatching { modelProfileEnv(from, fromSecret) }.getOrNull() ?: return false
+    }
+    val after = runCatching { modelProfileEnv(to, toSecret) }.getOrNull() ?: return false
+    return before == after
+}
 
 /** [authKind] 那份字符串对应的枚举。坏值退回 [AuthKind.API_KEY] —— XML 是手可改的。 */
 fun ModelProfile.authKindEnum(): AuthKind =

@@ -149,6 +149,165 @@ class ProtocolTest {
     }
 
     @Test
+    fun `encodeSetModel 把模型名原样发出去`() {
+        val line = Protocol.encodeSetModel("r1", "deepseek-v4-pro[1m]")
+
+        assertTrue(line.endsWith("\n"), "每条消息自带换行（NDJSON 分帧靠它）")
+        val obj = com.google.gson.JsonParser.parseString(line.trim()).asJsonObject
+        assertEquals("setModel", obj.get("method").asString)
+        assertEquals("r1", obj.get("id").asString)
+        assertEquals("deepseek-v4-pro[1m]", obj.getAsJsonObject("params").get("model").asString)
+    }
+
+    @Test
+    fun `解析 modelChanged 回执`() {
+        val msg = Protocol.parse("""{"type":"modelChanged","model":"glm-4.6"}""")
+
+        assertTrue(msg is SidecarMessage.ModelChanged, "实际：$msg")
+        assertEquals("glm-4.6", (msg as SidecarMessage.ModelChanged).model)
+    }
+
+    /**
+     * 与 `effortChanged` **刻意不同**：那边 `null` 是合法的「默认」档，要靠
+     * `has("level")` 分辨"键不在"与"键在且为 null"；模型没有"清除"这个状态，
+     * 永远是个具体名字，所以缺字段就是畸形。
+     */
+    @Test
+    fun `modelChanged 缺 model 或类型不对时按畸形丢弃`() {
+        assertNull(Protocol.parse("""{"type":"modelChanged"}"""))
+        assertNull(Protocol.parse("""{"type":"modelChanged","model":null}"""))
+        assertNull(Protocol.parse("""{"type":"modelChanged","model":123}"""))
+    }
+
+    @Test
+    fun `解析 contextUsage 应答`() {
+        val msg = Protocol.parse(
+            """{"type":"contextUsage","id":"r7","usedTokens":456990,"windowTokens":1000000}"""
+        )
+
+        assertTrue(msg is SidecarMessage.ContextUsageReport)
+        val r = msg as SidecarMessage.ContextUsageReport
+        assertEquals("r7", r.requestId)
+        assertEquals(456990L, r.usedTokens)
+        assertEquals(1000000L, r.windowTokens)
+    }
+
+    @Test
+    fun `contextUsage 缺 id 时按畸形丢弃`() {
+        // 没有 id 就配不上对，那条应答永远不会被认领 —— 留着只会让它挂到超时
+        assertNull(Protocol.parse("""{"type":"contextUsage","usedTokens":1,"windowTokens":2}"""))
+    }
+
+    @Test
+    fun `contextUsage 缺计数时记 0`() {
+        // 计数缺失不是"无从显示"，卡片本来就有"没测量值显示 0"这条路；
+        // 而 id 缺了才真的没法用
+        val msg = Protocol.parse("""{"type":"contextUsage","id":"r1"}""")
+
+        assertTrue(msg is SidecarMessage.ContextUsageReport)
+        assertEquals(0L, (msg as SidecarMessage.ContextUsageReport).usedTokens)
+    }
+
+    @Test
+    fun `contextUsage 是请求-响应式的，能被待决表按 id 截走`() {
+        // 漏登记 responseIdOf 的症状是：每次问用量都要等到 10 秒超时，
+        // 而卡片看起来"只是不更新"—— 很难查
+        val msg = Protocol.parse("""{"type":"contextUsage","id":"r7"}""")!!
+        assertEquals("r7", Protocol.responseIdOf(msg))
+    }
+
+    @Test
+    fun `encodeContextUsage 产出可配对的请求`() {
+        val line = Protocol.encodeContextUsage("r9")
+        val obj = com.google.gson.JsonParser.parseString(line.trim()).asJsonObject
+
+        assertEquals("contextUsage", obj.get("method").asString)
+        assertEquals("r9", obj.get("id").asString)
+    }
+
+    @Test
+    fun `解析会话改名与打标签的回执`() {
+        val renamed = Protocol.parse("""{"type":"sessionRenamed","id":"r1","sessionId":"s1","value":"我起的"}""")
+        assertTrue(renamed is SidecarMessage.SessionRenamed)
+        assertEquals("我起的", (renamed as SidecarMessage.SessionRenamed).title)
+
+        // value 为 null 是有效的：标签被清掉了
+        val tagged = Protocol.parse("""{"type":"sessionTagged","id":"r2","sessionId":"s1","value":null}""")
+        assertTrue(tagged is SidecarMessage.SessionTagged)
+        assertNull((tagged as SidecarMessage.SessionTagged).tag)
+    }
+
+    @Test
+    fun `改名与标签都登记了配对 id`() {
+        // 漏登记的后果是"点了改名要等 10 秒超时"，而界面上看起来只是没反应
+        val renamed = Protocol.parse("""{"type":"sessionRenamed","id":"r1","sessionId":"s1"}""")!!
+        val tagged = Protocol.parse("""{"type":"sessionTagged","id":"r2","sessionId":"s1"}""")!!
+        assertEquals("r1", Protocol.responseIdOf(renamed))
+        assertEquals("r2", Protocol.responseIdOf(tagged))
+    }
+
+    @Test
+    fun `解析子代理列表`() {
+        val msg = Protocol.parse(
+            """
+            {"type":"subagents","id":"r1","agents":[
+              {"agentId":"a1","agentType":"Explore","description":"找调用点","toolUseId":"call_9"},
+              {"agentId":"a2"}
+            ]}
+            """.trimIndent(),
+        )
+
+        assertTrue(msg is SidecarMessage.Subagents)
+        val agents = (msg as SidecarMessage.Subagents).agents
+        assertEquals(2, agents.size)
+        assertEquals("call_9", agents[0].toolUseId, "运行中的任务靠它对上号")
+        assertNull(agents[1].agentType, "元信息读不到时退化成只显示 id")
+    }
+
+    @Test
+    fun `子代理缺 agentId 的条目跳过，不废掉整张表`() {
+        // 与 parseSessionList 同一条：一条坏数据不该让另外几个都看不见
+        val msg = Protocol.parse(
+            """{"type":"subagents","id":"r1","agents":[{"agentType":"Explore"},{"agentId":"a2"}]}"""
+        ) as SidecarMessage.Subagents
+
+        assertEquals(listOf("a2"), msg.agents.map { it.agentId })
+    }
+
+    @Test
+    fun `解析子代理转写，并登记配对 id`() {
+        val msg = Protocol.parse(
+            """{"type":"subagentMessages","id":"r3","agentId":"a1","items":[{"type":"user"}]}"""
+        )
+
+        assertTrue(msg is SidecarMessage.SubagentMessages)
+        val m = msg as SidecarMessage.SubagentMessages
+        assertEquals("a1", m.agentId, "要带 agentId 回来，界面才知道这是谁的转写")
+        assertEquals(1, m.items.size)
+        assertEquals("r3", Protocol.responseIdOf(m))
+    }
+
+    @Test
+    fun `子代理转写缺 agentId 时按畸形丢弃`() {
+        assertNull(Protocol.parse("""{"type":"subagentMessages","id":"r3","items":[]}"""))
+    }
+
+    @Test
+    fun `会话改名与打标签的编码`() {
+        val renamed = com.google.gson.JsonParser
+            .parseString(Protocol.encodeRenameSession("r1", "s1", "名字").trim()).asJsonObject
+        assertEquals("renameSession", renamed.get("method").asString)
+        assertEquals("名字", renamed.getAsJsonObject("params").get("title").asString)
+
+        // 清标签要**显式**写 JSON null —— 省略字段只表示"没提这件事"
+        val tagged = com.google.gson.JsonParser
+            .parseString(Protocol.encodeTagSession("r2", "s1", null).trim()).asJsonObject
+            .getAsJsonObject("params")
+        assertTrue(tagged.has("tag"), "tag 字段被省略了：清不掉标签")
+        assertTrue(tagged.get("tag").isJsonNull)
+    }
+
+    @Test
     fun `未知类型映射为 Unknown 而非 null`() {
         // spec §3.3：未知类型必须被静默忽略，但不能与"解析失败"混淆
         val msg = Protocol.parse("""{"type":"some_future_type_v99"}""")
@@ -433,6 +592,14 @@ class ProtocolTest {
         // 非响应消息必须返回 null，否则 SidecarClient 会把它们从 listener 那里截走
         assertNull(Protocol.responseIdOf(SidecarMessage.Ready("s", "m")))
         assertNull(Protocol.responseIdOf(SidecarMessage.Unknown("whatever")))
+
+        // ModelChanged 是**广播**（同 PermissionModeChanged / EffortChanged）：
+        // 它没有 id，认领它的是 ClaudePanel 手里的 pendingModelPick ——
+        // 那边还要拿回执里的名字与发出去的那个对一遍，比 id 配对多一层校验。
+        // 顺手给它登记 responseIdOf 会让它被待决表截走，而 sidecar 失败时发的是
+        // 一条**不带 id** 的 error（responseIdOf 对 Failure 返回 null），
+        // 于是那条待决请求只能等 10 秒超时关闭
+        assertNull(Protocol.responseIdOf(SidecarMessage.ModelChanged("m")))
     }
 
     // ---- 删除会话 ----

@@ -1,18 +1,25 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.SubagentInfo
+import com.google.gson.JsonObject
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Cursor
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.RenderingHints
 import java.awt.BasicStroke
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.util.Locale
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -85,18 +92,140 @@ internal fun buildTodoDetail(todos: TaskList): JComponent {
  *
  * 空着时给一句实话而不是一个空框 —— 卡上写着"空闲"时本不该弹得出来，
  * 但真弹出来了就得说清楚。
+ *
+ * ## 为什么还有第二段
+ *
+ * [running] 是**现在在跑**的东西（事件流里的 task 消息），[subagents] 是
+ * **这个会话跑过的全部子代理**（磁盘上的转写记录）。两套来源不同：
+ * 跑完的子代理只在后者里。
+ *
+ * 同一件事会在两段里都出现一次 —— 那是**故意的**：上面回答"现在在跑什么"，
+ * 下面回答"这个会话都干过什么"。靠 [SubagentInfo.toolUseId] 与任务的 id
+ * 对上号（任务的 id 就是 tool_use id），于是上面那段的条目也能点开看转写。
+ *
+ * @param onOpen 点某条 → 看它的转写。对不上号的（元信息没读到、或本来就不是
+ *   子代理而是后台命令）不可点 —— 没有 agentId 就取不到转写
  */
-internal fun buildRunningDetail(running: List<RunningTask>): JComponent {
+internal fun buildRunningDetail(
+    running: List<RunningTask>,
+    subagents: List<SubagentInfo>,
+    onOpen: (SubagentInfo) -> Unit,
+): JComponent {
     val box = detailBox()
-    if (running.isEmpty()) {
+    if (running.isEmpty() && subagents.isEmpty()) {
         box.add(JBLabel("当前没有任务").apply { foreground = UIUtil.getInactiveTextColor() })
         return box
     }
 
-    box.add(sectionHeader("运行中", running.size.toString()))
-    running.forEach { box.add(taskRow(it)) }
+    if (running.isNotEmpty()) {
+        box.add(sectionHeader("运行中", running.size.toString()))
+        running.forEach { task ->
+            // 任务 → 子代理：靠 tool_use id 对上。对不上就还是普通一行
+            box.add(taskRow(task, subagents.firstOrNull { it.toolUseId == task.id }, onOpen))
+        }
+    }
+
+    if (subagents.isNotEmpty()) {
+        box.add(sectionHeader("这个会话的子代理", subagents.size.toString()))
+        subagents.forEach { box.add(subagentRow(it, onOpen)) }
+    }
     return box
 }
+
+/**
+ * 一个子代理。有描述就用描述（那是人写的任务名），没有退回类型，再没有给 id。
+ */
+private fun subagentRow(agent: SubagentInfo, onOpen: (SubagentInfo) -> Unit): JComponent {
+    val row = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(2, 0)
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        toolTipText = "看它的转写"
+    }
+
+    val text = listOfNotNull(agent.agentType, agent.description).joinToString("  ")
+    val name = JBLabel(text.ifBlank { agent.agentId.take(8) })
+    row.add(name, BorderLayout.WEST)
+
+    row.addMouseListener(
+        object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) = onOpen(agent)
+        }
+    )
+    return row
+}
+
+/**
+ * 某个子代理的转写。
+ *
+ * 逐条列**纯文本**，不复用转写区的渲染器：那一套是 JCEF 里的，而这个浮层是
+ * Swing 的 —— 为它把整套渲染搬过来不值得。这里要回答的只是"它干了什么"。
+ */
+internal fun buildSubagentDetail(agent: SubagentInfo, items: List<JsonObject>): JComponent {
+    val box = detailBox()
+    val title = listOfNotNull(agent.agentType, agent.description).joinToString("  ")
+    box.add(sectionHeader(title.ifBlank { agent.agentId.take(8) }, "${items.size} 条"))
+
+    val lines = items.mapNotNull { item ->
+        val text = messageText(item) ?: return@mapNotNull null
+        val who = if (item.get("type")?.asString == "user") "›" else "‹"
+        "$who $text"
+    }
+    if (lines.isEmpty()) {
+        box.add(JBLabel("这份转写里没有可显示的文字").apply {
+            foreground = UIUtil.getInactiveTextColor()
+        })
+        return box
+    }
+
+    val area = JBTextArea(lines.joinToString("\n\n")).apply {
+        isEditable = false
+        lineWrap = true
+        wrapStyleWord = true
+        foreground = UIUtil.getLabelForeground()
+        border = JBUI.Borders.empty(4, 6)
+    }
+    // 限高 + 可滚：转写可以很长，让它撑开浮层会把整个面板顶出去
+    box.add(
+        JBScrollPane(area).apply {
+            border = JBUI.Borders.empty()
+            preferredSize = JBUI.size(380, 280)
+        }
+    )
+    return box
+}
+
+/**
+ * 一条消息里能读出来的文字。读不出来给 null（整条都是工具调用之类的）。
+ *
+ * `message.content` 有两种形状：裸字符串（用户消息常见），或块数组。
+ * 数组里只取 `text`，工具调用折成一行 `→ 工具名` —— 少了它，一段全是工具
+ * 调用的转写会看起来像空的。
+ */
+internal fun messageText(item: JsonObject): String? {
+    val content = item.obj("message")?.get("content") ?: return null
+    if (content.isJsonPrimitive && content.asJsonPrimitive.isString) {
+        return content.asString.takeIf { it.isNotBlank() }
+    }
+    if (!content.isJsonArray) return null
+
+    val parts = content.asJsonArray.mapNotNull { el ->
+        if (!el.isJsonObject) return@mapNotNull null
+        val block = el.asJsonObject
+        when (block.str("type")) {
+            "text" -> block.str("text")?.takeIf { it.isNotBlank() }
+            "tool_use" -> block.str("name")?.let { "→ $it" }
+            else -> null
+        }
+    }
+    return parts.joinToString("\n").takeIf { it.isNotBlank() }
+}
+
+private fun JsonObject.str(key: String): String? =
+    get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+
+private fun JsonObject.obj(key: String): JsonObject? =
+    get(key)?.takeIf { it.isJsonObject }?.asJsonObject
 
 private fun sectionHeader(title: String, count: String): JComponent =
     JPanel(BorderLayout()).apply {
@@ -139,9 +268,23 @@ private fun todoRow(item: TodoItem): JComponent = JPanel(BorderLayout()).apply {
     )
 }
 
-private fun taskRow(task: RunningTask): JComponent = JPanel(BorderLayout()).apply {
+private fun taskRow(
+    task: RunningTask,
+    /** 与它对应的子代理（按 tool_use id 对上）。null = 对不上，那就不可点。 */
+    agent: SubagentInfo?,
+    onOpen: (SubagentInfo) -> Unit,
+): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
     border = JBUI.Borders.emptyBottom(3)
+    if (agent != null) {
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        toolTipText = "看它的转写"
+        addMouseListener(
+            object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) = onOpen(agent)
+            }
+        )
+    }
 
     val label = listOfNotNull(task.kind, task.detail ?: task.label)
         .joinToString("  ")

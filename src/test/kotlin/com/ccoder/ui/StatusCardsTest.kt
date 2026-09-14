@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -55,16 +56,21 @@ class StatusCardsTest {
     // ---- 上下文 ----
 
     @Test
-    fun `还没收到用量时收边`() {
+    fun `还没收到用量时显示 0，不写「空闲」`() {
+        // 「空闲」的意思是"没在跑"（子任务/子代理用它是对的），而上下文恰恰不是
+        // 这回事 —— 恢复一场长对话之后它一点都不空闲，我们只是还没测过。
+        // 显示 0 至少是个能被纠正的数字
         val card = contextCardOf(null)
-        assertTrue(card.quiet)
-        assertEquals(CARD_IDLE_TEXT, card.value)
+
+        assertEquals("0", card.value)
+        assertNull(card.sub, "窗口都不知道，副值会拼成两遍同一个数")
         assertEquals(Indicator.None, card.indicator)
+        assertFalse(card.quiet, "这是个读数，不是「这格没内容」")
     }
 
     @Test
     fun `有用量时给百分比与绝对数`() {
-        val card = contextCardOf(ContextUsage(inputTokens = 12345, contextWindow = 200000))
+        val card = contextCardOf(ContextUsage(usedTokens = 12345, windowTokens = 200000))
 
         assertEquals("6%", card.value)
         assertEquals("12.3k / 200k", card.sub, "绝对数是现存信息，不能在拆卡时弄丢")
@@ -74,19 +80,20 @@ class StatusCardsTest {
 
     @Test
     fun `窗口未知时不显示百分比，也不做除零`() {
-        val card = contextCardOf(ContextUsage(inputTokens = 500, contextWindow = 0))
+        val card = contextCardOf(ContextUsage(usedTokens = 500, windowTokens = 0))
 
         assertEquals(500L.toString(), card.value, "没有窗口就只能给已用量本身")
-        assertEquals("500", card.sub)
+        // 副值只在窗口已知时给：否则会拼出"500 / 500"这种把同一个数说两遍的样子
+        assertNull(card.sub)
         assertEquals(Indicator.None, card.indicator)
     }
 
     @Test
     fun `上下文将满时转警示色`() {
         // 计划外新增，见计划文档顶部说明
-        assertEquals(Tone.Idle, contextCardOf(ContextUsage(1000, 200000)).tone)
-        assertEquals(Tone.Warn, contextCardOf(ContextUsage(150000, 200000)).tone)
-        assertEquals(Tone.Danger, contextCardOf(ContextUsage(190000, 200000)).tone)
+        assertEquals(Tone.Idle, contextCardOf(ContextUsage(usedTokens = 1000, windowTokens = 200000)).tone)
+        assertEquals(Tone.Warn, contextCardOf(ContextUsage(usedTokens = 150000, windowTokens = 200000)).tone)
+        assertEquals(Tone.Danger, contextCardOf(ContextUsage(usedTokens = 190000, windowTokens = 200000)).tone)
     }
 
     // ---- 子任务 ----
