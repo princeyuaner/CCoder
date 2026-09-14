@@ -59,5 +59,6 @@ html = j.read('webui/index.html').decode('utf-8', 'replace')
 print()
 print('校验装上去的那份（%s）:' % os.path.basename(jar_path))
 print('   plugin.xml 里的版本 :', re.search(r'<version>([^<]+)</version>', xml).group(1))
-for marker in ('tool__head', 'tool__status', 'flex-shrink:0', 'live-think__spin'):
+for marker in ('tool__head', 'tool__status', 'flex-shrink:0', 'live-think__spin',
+               'tool__file', 'tool-file', 'run__head', 'run__file'):
     print('  ', marker, '出现次数 :', html.count(marker))

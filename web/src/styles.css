@@ -252,6 +252,9 @@ body {
   align-items: center;
   gap: 6px;
   width: 100%;
+  /* 这一条是 div 化之后必须补的：<button> 默认 border-box，div 默认
+   * content-box，配上 width:100% 会让右内边距溢出卡片，把状态位挤出可视区 */
+  box-sizing: border-box;
   padding: 5px 8px;
   background: none;
   border: none;
@@ -264,6 +267,14 @@ body {
 
 .tool__head:hover {
   background: var(--bg, #1e1f22);
+}
+
+/* 卡片头不再是 <button>（卡面上要能放一个真的按钮，见 ToolCallBlock.tsx），
+ * UA 的焦点环跟着没了 —— 键盘用户不能失去位置感，这里补回来 */
+.tool__head:focus-visible,
+.tool__file:focus-visible {
+  outline: 1px solid var(--accent, #4a88c7);
+  outline-offset: -1px;
 }
 
 .tool__chevron {
@@ -308,6 +319,35 @@ body {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--text, #dcdcdc);
+}
+
+/* 可点的文件名。类名里保留 .tool__title —— 省略号与"唯一的弹性元素"
+ * 两件事都还指望它。
+ *
+ * 字体与颜色**必须逐条写出来**：<button> 不继承这两样，靠默认值的话
+ * 同一个卡面上会出现"另一种字体、更暗一档"的文件名（span 那半还是
+ * mono 与 --text）。也不能用 `font: inherit` 简写 —— 简写在层叠里按整组算，
+ * 会把 .tool__title 的 mono / 11px 一起盖掉。
+ *
+ * 静止时与命令原文同色，但**画一条下划线**：能不能点不该靠悬停才发现。
+ * 线用文字本色（不是 --border —— 那个在深色主题下几乎看不见），
+ * 悬停时连色带线一起换成强调色。 */
+.tool__file {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text, #dcdcdc);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tool__file:hover {
+  /* 下划线跟着 currentColor 一起变，不用再写一遍 text-decoration */
+  color: var(--accent, #2f65ca);
 }
 
 .tool__delta {
@@ -445,6 +485,10 @@ body {
   font-size: 11px;
   overflow-x: auto;
   white-space: pre;
+  /* 命令可能是一整段脚本（heredoc、`&&` 串起来的一串），没有上限时
+   * 一展开就把上面几十条对话顶出屏幕 */
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .tool__prompt {
@@ -518,6 +562,139 @@ body {
   font-size: 12px;
   overflow-x: auto;
   white-space: pre;
+}
+
+/* ---- 工具组卡（设计稿 tool-grouping.html 方案甲「归堆」）----
+ *
+ * 连续两次以上的工具调用并成一张：卡面一句摘要 + 涉及的文件，
+ * 点开后里面还是上面那些卡片（.tool），只是缩进一级。
+ */
+
+.run {
+  border: 1px solid var(--border, #393b40);
+  border-radius: 7px;
+  background: var(--surface, #2b2d30);
+  overflow: hidden;
+  /* 同 .tool 那一行，一字不差地同样重要：本元素也是高度受限 flex 列的
+   * **直接子项**，而 overflow: hidden 会把 flex 项的自动最小尺寸从内容高改成 0
+   * （CSS Flexbox §4.5）。不写这一行，内容一溢出它就会被压成一条细缝 ——
+   * DOM 全对、单测全绿、屏幕上看不见（2026-09-13 那次事故的原样重演）。 */
+  flex-shrink: 0;
+}
+
+.run--error {
+  border-color: var(--error-bg, #4a1f1f);
+}
+
+.run__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim, #8c8c8c);
+  cursor: pointer;
+  text-align: left;
+}
+
+.run__head:hover {
+  background: var(--bg, #1e1f22);
+}
+
+.run__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text, #dcdcdc);
+}
+
+.run__count {
+  font-family: var(--font-mono, monospace);
+}
+
+.run__status {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.run__step {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-dim, #8c8c8c);
+}
+
+/* 涉及的文件。卡面一行放不下就靠「+N」收尾，不换行 */
+.run__files {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 6px;
+  overflow: hidden;
+}
+
+.run__files-lbl {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  color: var(--text-dim, #8c8c8c);
+}
+
+.run__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--border-soft, #303236);
+  border-radius: 4px;
+  background: var(--code-bg, #191a1c);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text, #dcdcdc);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.run__file:hover {
+  color: var(--accent, #2f65ca);
+  border-color: var(--accent, #2f65ca);
+}
+
+.run__file-delta {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 9.5px;
+}
+
+.run__files-rest {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  color: var(--text-dim, #8c8c8c);
+}
+
+.run__body {
+  border-top: 1px solid var(--border-soft, #303236);
+  padding: 7px 8px 8px;
+}
+
+/* 组内的卡片往右缩一级：一眼看出它们属于上面那条摘要 */
+.run__ind {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-left: 7px;
+  border-left: 2px solid var(--border-soft, #303236);
 }
 
 /* ---- 其他 ---- */

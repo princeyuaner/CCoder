@@ -1,8 +1,16 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ToolCallBlock } from './ToolCallBlock'
+import { openFile } from '../bridge'
 import type { ToolResultItem } from '../types'
+
+// 打开文件走的是桥；这里只关心"点了有没有发出那次调用"
+vi.mock('../bridge', () => ({ openFile: vi.fn() }))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 /**
  * 工具卡片（设计稿 transcript-tools.html 方案乙）。
@@ -14,6 +22,10 @@ import type { ToolResultItem } from '../types'
  *
  * 折叠层次只有一层：卡片收起，点开后命令、diff、输出**直接铺开**。
  * 点开卡片本身就表示"我要看这次调用"，再让人点第二下是折腾。
+ *
+ * 2026-09-14 追加两条：「bash 别在卡面上铺命令原文」（改摘要）与
+ * 「点文件名在编辑器里打开」—— 卡面因此多了一个按钮，卡片头也从
+ * <button> 变成了 div[role=button]。
  */
 
 const use = (name: string, input: unknown, toolUseId = 'toolu_1') => ({
@@ -49,6 +61,87 @@ describe('ToolCallBlock', () => {
   it('Bash 的标题就是它跑的那条命令', () => {
     render(<ToolCallBlock item={use('Bash', { command: 'gradlew test' })} />)
     expect(screen.getByText('gradlew test')).toBeInTheDocument()
+  })
+
+  it('Bash 卡面只留摘要，整条命令留到展开体', async () => {
+    // 用户的第二条原话是「bash 能不要直接显示代码吗」：卡面一句话，
+    // 命令全文点开才出现 —— 而且必须是**全文**，不是首行
+    render(
+      <ToolCallBlock
+        item={use('Bash', { command: 'npm test\nnode tools/probe.mjs', description: '跑单测' })}
+      />,
+    )
+
+    expect(screen.getByText('跑单测')).toBeInTheDocument()
+    expect(screen.queryByText('npm test')).not.toBeInTheDocument()
+
+    await userEvent.click(header())
+    expect(screen.getByTestId('tool-command')).toHaveTextContent('node tools/probe.mjs')
+  })
+
+  it('文件名可点 → 在编辑器里打开（Read 带上 offset 行号）', async () => {
+    render(<ToolCallBlock item={use('Read', { file_path: '/p/src/A.kt', offset: 120 })} />)
+
+    await userEvent.click(screen.getByTestId('tool-file'))
+    expect(openFile).toHaveBeenCalledWith('/p/src/A.kt', 120)
+  })
+
+  it('点文件名只打开文件，不会顺手把卡片开合', async () => {
+    render(<ToolCallBlock item={use('Edit', { file_path: '/p/A.kt' })} />)
+
+    await userEvent.click(screen.getByTestId('tool-file'))
+    expect(openFile).toHaveBeenCalledWith('/p/A.kt', undefined)
+    // 仍然是收起的那张：展开体没被点出来
+    expect(header()).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-params')).not.toBeInTheDocument()
+  })
+
+  it('文件名进得了 Tab 序，Enter 也能打开', async () => {
+    render(<ToolCallBlock item={use('Read', { file_path: '/p/A.kt' })} />)
+
+    await userEvent.tab() // 第一站：卡片头
+    await userEvent.tab() // 第二站：文件名
+    const link = screen.getByTestId('tool-file')
+    expect(link).toHaveFocus()
+
+    await userEvent.keyboard('{Enter}')
+    expect(openFile).toHaveBeenCalledWith('/p/A.kt', undefined)
+  })
+
+  it('卡片头用 Enter 与 Space 都能开合 —— div 化以后得自己补', async () => {
+    render(<ToolCallBlock item={use('Bash', { command: 'ls' })} result={result('out')} />)
+
+    const head = header()
+    await userEvent.tab()
+    expect(head).toHaveFocus()
+
+    await userEvent.keyboard('{Enter}')
+    expect(screen.getByTestId('tool-output')).toBeInTheDocument()
+
+    await userEvent.keyboard(' ')
+    expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
+  })
+
+  it('文件名显示基名，完整路径挂在 tooltip 上', () => {
+    render(<ToolCallBlock item={use('Edit', { file_path: 'C:\\a\\b\\C.kt' })} />)
+
+    const link = screen.getByTestId('tool-file')
+    expect(link).toHaveTextContent('C.kt')
+    expect(link).toHaveAttribute('title', 'C:\\a\\b\\C.kt')
+  })
+
+  it('没有文件路径的工具不画可点的文件名', () => {
+    render(<ToolCallBlock item={use('Bash', { command: 'ls' })} />)
+    expect(screen.queryByTestId('tool-file')).not.toBeInTheDocument()
+  })
+
+  it('带 aria-expanded 的按钮只有一个 —— 文件名按钮不许带', () => {
+    // 该属性是既有用例定位"开合手柄"的锚（getByRole('button', {expanded:false})）。
+    // 给文件名按钮也补一个，会让那批用例一起报"找到多个元素"
+    render(<ToolCallBlock item={use('Read', { file_path: '/p/A.kt' })} result={result('内容')} />)
+
+    expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(1)
+    expect(screen.getByTestId('tool-file')).not.toHaveAttribute('aria-expanded')
   })
 
   it('默认是收起的 —— 一屏要能扫过好几个工具', () => {

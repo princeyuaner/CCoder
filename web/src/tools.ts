@@ -1,5 +1,5 @@
 /**
- * 工具卡片上的标题、diff 与改动规模 —— 全是纯函数。
+ * 工具卡片上的标题、可点文件名、diff 与改动规模 —— 全是纯函数。
  *
  * 为什么单独一层：渲染组件跑在 JCEF 里、依赖 DOM，起不了又快又稳的单测，
  * 而"这次调用在改哪个文件、跑了什么命令"恰恰是设计稿里被点名的那件事
@@ -20,11 +20,29 @@ export interface ToolDelta {
   del: number
 }
 
+/**
+ * 一次工具调用指向的文件。
+ *
+ * [path] **原样透传**（不做任何归一化）：归一化只存在于 Kotlin 一侧，
+ * 两处各归一化一次就会有两份真相。
+ *
+ * [line] 是 **1 基**行号，与 Claude 的 `offset` 同基准；减一在 Kotlin 那一步做，
+ * 只做一次。
+ */
+export interface ToolFileRef {
+  path: string
+  line?: number
+}
+
 /** 带文件路径的工具。它们的标题显示文件名而不是整条路径。 */
 const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'NotebookRead'])
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
+}
+
+function num(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function parseArgs(input: string): Record<string, unknown> | null {
@@ -44,7 +62,8 @@ function firstLine(text: string): string {
   return i < 0 ? text : text.slice(0, i)
 }
 
-function baseName(path: string): string {
+/** 路径的最后一段。卡面只有一行，整条路径会把那一行挤爆。 */
+export function baseName(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '')
   const i = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
   return i < 0 ? trimmed : trimmed.slice(i + 1)
@@ -66,8 +85,13 @@ export function toolTitle(name: string, input: string): string {
   if (!args) return firstLine(input.trim())
 
   if (name === 'Bash') {
-    const command = str(args.command)
+    // 摘要优先：description 是 Claude 自己写的那句人话（"运行测试"），
+    // 卡面上"只留一行"要的就是它；命令原文留给展开体（见 toolCommand）
+    const summary = str(args.description)
+    if (summary) return firstLine(summary)
+    // 没有摘要才退回命令首行 —— 卡面宁可露一行命令，也不要空着。
     // 多行脚本只取第一行：一行标题放不下整段，而第一行信息量最大
+    const command = str(args.command)
     if (command) return firstLine(command)
   }
 
@@ -99,6 +123,44 @@ export function toolTitle(name: string, input: string): string {
     if (text) return firstLine(text)
   }
   return ''
+}
+
+/**
+ * 展开体里的**完整**命令。非 Bash 给空串。
+ *
+ * 与 [toolTitle] 分开是刻意的：卡面要的是"一句话"，详情要的是"真正跑了什么"。
+ * 多行脚本在标题里只留首行是卡面的取舍，不该传染到详情里 ——（曾经传染过：
+ * 详情复用了标题，于是整条命令永远看不全）。
+ *
+ * 非 Bash 给**空串**而不是 null：调用方拿它判断要不要回落到"参数原文"那条兜底，
+ * 空串才让那条路继续生效。
+ */
+export function toolCommand(name: string, input: string): string {
+  if (name !== 'Bash') return ''
+  const args = parseArgs(input)
+  if (!args) return ''
+  return str(args.command) ?? ''
+}
+
+/**
+ * 这次调用指向的文件。认不出来给 null，调用方据此不画可点的文件名。
+ *
+ * 只有真的有文件在手上的工具才给：Bash / Grep / Glob 没有单一路径，
+ * 硬凑一个出来只会把用户带到错的地方。
+ */
+export function toolFile(name: string, input: string): ToolFileRef | null {
+  if (!FILE_TOOLS.has(name)) return null
+  const args = parseArgs(input)
+  if (!args) return null
+
+  const path = str(args.file_path) ?? str(args.notebook_path)
+  if (path === null) return null
+
+  // 行号只有 Read 给得出：它的 offset 就是行号（1 基，原样上传）。
+  // 编辑类工具的参数里没有行号信息 —— 猜一个等于把人指到错的地方
+  if (name !== 'Read') return { path }
+  const offset = num(args.offset)
+  return offset !== null && offset >= 1 ? { path, line: offset } : { path }
 }
 
 /**

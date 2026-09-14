@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import type { ToolResultItem, ToolUseItem } from '../types'
+import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
 import { toolStateOf } from '../toolStatus'
-import { toolDelta, toolDiff, toolParams, toolTitle } from '../tools'
+import { toolCommand, toolDelta, toolDiff, toolFile, toolParams, toolTitle } from '../tools'
 
 /**
  * 一次工具调用。设计稿见 docs/design/transcript-tools.html 方案乙。
  *
  * 折叠只有**一层**：卡片收着，点开后命令、diff、输出直接铺开。
  * 点开卡片本身就表示"我要看这次调用"，再让人点第二下是折腾。
+ *
+ * 卡面只留一行：Bash 给摘要（Claude 的 description），文件类工具给文件名 ——
+ * 名字**可点**，点了在编辑器里打开；真正的命令原文、diff、输出都在展开体里。
  *
  * 结果（[ToolResultItem]）是**另一条消息**，由 [Transcript] 按 toolUseId
  * 配好传进来；配不上就当没有 —— 挂错卡片比不显示更糟。
@@ -56,26 +60,74 @@ export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
   const delta = toolDelta(item.name, item.input)
   const diff = toolDiff(item.name, item.input)
 
+  // 这次调用指向的文件。有它，卡面那个文件名就是可点的
+  const file = toolFile(item.name, item.input)
+
   const all = matched ? outputLines(matched.text) : []
   const shown = showAll ? all : all.slice(0, OUTPUT_HEAD_LINES)
   const hidden = all.length - shown.length
 
-  // Bash 的完整命令；认不出的工具没有命令也没有 diff，退回参数原文
-  const command = item.name === 'Bash' ? title : ''
+  // Bash 的完整命令 —— 卡面只做摘要，详情要的是"真正跑了什么"。
+  // 认不出的工具没有命令也没有 diff，退回参数原文
+  const command = toolCommand(item.name, item.input)
   const params = toolParams(item.input)
+
+  const toggle = () => setOpen((v) => !v)
+
+  /**
+   * 卡片头的键盘语义。div 化以后浏览器不再替我们做这件事。
+   *
+   * 焦点在文件名按钮上时**直接让路**：它的 Enter/Space 由浏览器变成 click，
+   * 这里再拦一次就是按一下空格既打开文件又开合卡片。
+   */
+  const onHeadKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault() // 空格不拦会滚页面
+      toggle()
+    }
+  }
 
   return (
     <div className={`tool${matched?.isError ? ' tool--error' : ''}`}>
-      <button
-        type="button"
+      {/* 卡片头是 div[role=button] 而不是 <button>：卡面上的文件名要可点，
+          而按钮里套按钮是坏结构。代价是键盘与焦点环得自己补
+          （onHeadKeyDown 见上，焦点环见 styles.css 里的 :focus-visible） */}
+      <div
         className="tool__head"
+        role="button"
+        tabIndex={0}
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
+        onKeyDown={onHeadKeyDown}
       >
         <span className={`tool__chevron${open ? ' is-open' : ''}`}>▸</span>
         <span className="tool__badge">{item.name.slice(0, 1).toUpperCase()}</span>
         <span className="tool__name">{item.name}</span>
-        {title !== '' && <span className="tool__title">{title}</span>}
+        {title !== '' &&
+          (file ? (
+            /* 这里**不能**加 aria-expanded：卡片头是既有用例定位"开合手柄"的锚
+               （getByRole('button', { expanded: false })），多一个带该属性的按钮
+               会让那一批用例报"找到多个元素"，而错误信息完全指不到根因 */
+            <button
+              type="button"
+              className="tool__title tool__file"
+              data-testid="tool-file"
+              title={file.path}
+              onClick={(e) => {
+                // 只打开文件，别顺手把卡片也开合了
+                e.stopPropagation()
+                openFile(file.path, file.line)
+              }}
+            >
+              {title}
+            </button>
+          ) : (
+            // 摘要悬停时给完整命令 —— 卡面省下来的那截信息不该真的消失
+            <span className="tool__title" title={command !== '' ? command : undefined}>
+              {title}
+            </span>
+          ))}
         {delta && (
           <span className="tool__delta" data-testid="tool-delta">
             {delta.add > 0 && <span className="tool__add">+{delta.add}</span>}
@@ -110,7 +162,7 @@ export function ToolCallBlock({ item, result, turnEnded = false }: Props) {
             </span>
           )}
         </span>
-      </button>
+      </div>
 
       {open && (
         <div className="tool__body">

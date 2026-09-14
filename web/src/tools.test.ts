@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { toolDelta, toolDiff, toolParams, toolTitle } from './tools'
+import {
+  toolCommand,
+  toolDelta,
+  toolDiff,
+  toolFile,
+  toolParams,
+  toolTitle,
+} from './tools'
 
 /**
  * 工具卡片上那行标题。
@@ -18,6 +25,24 @@ describe('toolTitle', () => {
     // 一行标题放不下整段脚本，第一行已经是信息量最大的那部分
     const input = JSON.stringify({ command: 'git log --oneline -15\n&& git branch --show-current' })
     expect(toolTitle('Bash', input)).toBe('git log --oneline -15')
+  })
+
+  it('Bash 有 description 时用它当摘要 —— 卡面不铺命令原文', () => {
+    const input = JSON.stringify({
+      command: 'npm test -- --run\nnode tools/probe.mjs',
+      description: '跑前端单测',
+    })
+    expect(toolTitle('Bash', input)).toBe('跑前端单测')
+  })
+
+  it('Bash 的 description 空着时退回命令首行', () => {
+    expect(toolTitle('Bash', JSON.stringify({ command: 'ls -la', description: '' }))).toBe('ls -la')
+  })
+
+  it('description 是 Bash 专属：别的工具带了也不改标题', () => {
+    // 规则外溢会让 Read 的标题变成一句和文件无关的话
+    const input = JSON.stringify({ file_path: '/x/y/A.kt', description: '读一下' })
+    expect(toolTitle('Read', input)).toBe('A.kt')
   })
 
   it('文件类工具给文件名，而不是整条路径', () => {
@@ -55,6 +80,72 @@ describe('toolTitle', () => {
   it('什么都没有时给空串 —— 调用方据此不画那一行', () => {
     expect(toolTitle('Bash', '')).toBe('')
     expect(toolTitle('Bash', '{}')).toBe('')
+  })
+})
+
+describe('toolCommand', () => {
+  it('给整条命令 —— 多行也不截断', () => {
+    // 展开体的职责是"真正跑了什么"，首行取舍只属于卡面
+    const input = JSON.stringify({ command: 'set -e\nnode --test\nnode tools/probe.mjs' })
+    expect(toolCommand('Bash', input)).toBe('set -e\nnode --test\nnode tools/probe.mjs')
+  })
+
+  it('非 Bash 给空串 —— 让「参数原文」那条兜底继续生效', () => {
+    expect(toolCommand('Read', JSON.stringify({ file_path: '/a' }))).toBe('')
+    expect(toolCommand('mcp__codegraph__explore', JSON.stringify({ query: 'q' }))).toBe('')
+  })
+
+  it('参数坏掉、没有命令时给空串，不抛', () => {
+    expect(toolCommand('Bash', '{{{')).toBe('')
+    expect(toolCommand('Bash', '{}')).toBe('')
+  })
+})
+
+describe('toolFile', () => {
+  it('Read 给路径与行号（offset 是 1 基，原样上传）', () => {
+    const input = JSON.stringify({ file_path: 'C:\\p\\src\\A.kt', offset: 120, limit: 40 })
+    expect(toolFile('Read', input)).toEqual({ path: 'C:\\p\\src\\A.kt', line: 120 })
+  })
+
+  it('Read 没有 offset、或它不是一个正经行号时，不给行号', () => {
+    expect(toolFile('Read', JSON.stringify({ file_path: '/p/A.kt' }))).toEqual({ path: '/p/A.kt' })
+    expect(toolFile('Read', JSON.stringify({ file_path: '/p/A.kt', offset: 0 }))).toEqual({
+      path: '/p/A.kt',
+    })
+    expect(toolFile('Read', JSON.stringify({ file_path: '/p/A.kt', offset: '3' }))).toEqual({
+      path: '/p/A.kt',
+    })
+  })
+
+  it('编辑类工具取 file_path，但都不给行号', () => {
+    // 它们的参数里没有行号信息，猜一个等于把人指到错的地方
+    for (const name of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+      expect(toolFile(name, JSON.stringify({ file_path: '/p/A.kt' }))).toEqual({ path: '/p/A.kt' })
+    }
+  })
+
+  it('NotebookRead 走 notebook_path', () => {
+    expect(toolFile('NotebookRead', JSON.stringify({ notebook_path: '/p/n.ipynb' }))).toEqual({
+      path: '/p/n.ipynb',
+    })
+  })
+
+  it('没有单一路径的工具给 null', () => {
+    expect(toolFile('Bash', JSON.stringify({ command: 'ls' }))).toBeNull()
+    expect(toolFile('Grep', JSON.stringify({ pattern: 'x' }))).toBeNull()
+    expect(toolFile('Glob', JSON.stringify({ pattern: '**/*.kt' }))).toBeNull()
+  })
+
+  it('参数坏掉、缺路径、路径空白时给 null，不抛', () => {
+    expect(toolFile('Read', '{{{')).toBeNull()
+    expect(toolFile('Read', '{}')).toBeNull()
+    expect(toolFile('Read', JSON.stringify({ file_path: '' }))).toBeNull()
+    expect(toolFile('Edit', JSON.stringify({ old_string: 'a', new_string: 'b' }))).toBeNull()
+  })
+
+  it('路径原样透传 —— 归一化只在 Kotlin 一侧做一次', () => {
+    const input = JSON.stringify({ file_path: '.\\web\\..\\web/src/A.tsx' })
+    expect(toolFile('Read', input)).toEqual({ path: '.\\web\\..\\web/src/A.tsx' })
   })
 })
 

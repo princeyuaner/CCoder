@@ -15,6 +15,11 @@
  * 只有真的渲染一遍才抓得到。与 Kotlin 侧的 `*RenderProbe` 是同一个思路，
  * 这里是它在浏览器里的对应物。
  *
+ * 2026-09-14 追加一条：还量卡片头是不是正好占满卡片宽（`headOverflow`）。
+ * 卡片头从 `<button>` 变成 `div[role=button]` 之后，div 的 content-box 撞上
+ * `width: 100%` 会让它比卡片宽出两个内边距，右侧的状态位直接被裁掉 ——
+ * 也是同一类"DOM 全对、屏幕上不对"的问题。
+ *
  * 用法：
  *   npm run probe:layout
  *   CCoder_CHROMIUM="C:\path\to\msedge.exe" npm run probe:layout
@@ -59,8 +64,8 @@ function findChromium() {
  * 必须留着 —— 内容不溢出时 flex 压缩根本不触发，只用小场景是量不出问题的。
  */
 const SCENARIOS = [
-  { name: 'overflow', note: '内容严重溢出（38 文字 + 86 卡片）', entries: 38, tools: 86, thinking: 6, notes: 3 },
-  { name: 'fits', note: '内容不溢出（2 文字 + 2 卡片）', entries: 2, tools: 2, thinking: 1, notes: 1 },
+  { name: 'overflow', note: '内容严重溢出（38 文字 + 86 卡片 + 2 组）', entries: 38, tools: 86, thinking: 6, notes: 3, groups: 2 },
+  { name: 'fits', note: '内容不溢出（2 文字 + 2 卡片 + 2 组）', entries: 2, tools: 2, thinking: 1, notes: 1, groups: 2 },
 ]
 
 /** 卡片高度下限。卡片头是 5px 内边距 + 一行 12px 文字 + 2px 边框 ≈ 29px。 */
@@ -113,29 +118,106 @@ function buildPage(scenario) {
   for (let i = 0; i < S.tools; i++) {
     const d = document.createElement('div')
     d.className = 'tool'
-    d.innerHTML = '<button type="button" class="tool__head">' +
+    // DOM 结构照抄 ToolCallBlock.tsx：卡片头是 div[role=button]（不是 <button>，
+    // 因为卡面上还有一个真的按钮），文件类工具的名字就是那个
+    // <button class="tool__file">，它**不带** aria-expanded。
+    // 两种卡面交替出现：长路径与长文件名都必须在 420px 里能省略
+    const file = i % 2 === 0
+    d.innerHTML = '<div class="tool__head" role="button" tabindex="0" aria-expanded="false">' +
       '<span class="tool__chevron">▸</span>' +
       '<span class="tool__badge">B</span>' +
       '<span class="tool__name">Bash</span>' +
-      '<span class="tool__title">ls -la /some/very/long/path/that/should/ellipsize/' + i + '</span>' +
+      (file
+        ? '<button type="button" class="tool__title tool__file">' +
+          'SessionSwitchStateTestWithAVeryLongName.kt</button>'
+        : '<span class="tool__title">ls -la /some/very/long/path/that/should/ellipsize/' +
+          i + '</span>') +
       STATUS[i % STATUS.length] +
-      '</button>'
+      '</div>'
     t.appendChild(d)
   }
   t.scrollTop = t.scrollHeight   // 真实页面也会自动滚到底
+
+  // 工具组卡（方案甲）：组头 + 涉及文件 + 展开后的缩进体。
+  // 它和 .tool 一样是 .transcript 的**直接子项** —— 当年被压成 2px 的就是这类元素，
+  // 所以每一组都必须在这里出现，光有卡片量不出这个坑
+  for (let i = 0; i < S.groups; i++) {
+    const d = document.createElement('div')
+    d.className = 'run'
+    d.innerHTML = '<button type="button" class="run__head" aria-expanded="true">' +
+      '<span class="tool__chevron is-open">▸</span>' +
+      '<span class="run__title"><span class="run__count">6</span> 次工具调用 · 读 2 · 改 2 · 跑 2</span>' +
+      '<span class="run__status">' +
+      '<svg class="tool__check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span>' +
+      '</button>' +
+      '<div class="run__files"><span class="run__files-lbl">涉及</span>' +
+      '<button type="button" class="run__file">tools.ts' +
+      '<span class="run__file-delta"><span class="tool__add">+18</span>' +
+      '<span class="tool__del">−3</span></span></button>' +
+      '<button type="button" class="run__file">ToolCallBlock.test.tsx</button>' +
+      '<span class="run__files-rest">+1</span></div>' +
+      '<div class="run__body"><div class="run__ind">' +
+      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="false">' +
+      '<span class="tool__chevron">▸</span><span class="tool__badge">E</span>' +
+      '<span class="tool__name">Edit</span>' +
+      '<button type="button" class="tool__title tool__file">tools.ts</button>' +
+      '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
+      '<path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span></div></div>' +
+      '<div class="tool"><div class="tool__head" role="button" tabindex="0" aria-expanded="false">' +
+      '<span class="tool__chevron">▸</span><span class="tool__badge">B</span>' +
+      '<span class="tool__name">Bash</span>' +
+      '<span class="tool__title">跑 tools 单测</span>' +
+      '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
+      '<path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span></div></div>' +
+      '</div></div>'
+    t.appendChild(d)
+  }
 
   const h = (sel) => {
     const el = document.querySelector(sel)
     return el ? el.getBoundingClientRect().height : -1
   }
   const card = t.lastElementChild
+  // 卡片头必须正好占满卡片的内容宽。宽出来就说明它比卡片还宽
+  // （div 的 content-box 撞上 width:100% 正是这个症状），右侧内边距会被
+  // 卡片的 overflow:hidden 裁掉，状态位跟着看不见。
+  //
+  // :scope > 不是可选的：组卡里面还嵌着 .tool（缩进一级），不加限定
+  // 会量到组内那张卡的头，量出来是个负几十的数（2026-09-14 实际踩到）。
+  const overflowOf = (parent, sel) => {
+    const hd = parent?.querySelector(':scope > ' + sel)
+    if (!hd) return -1
+    return Math.round((hd.getBoundingClientRect().width - parent.clientWidth) * 10) / 10
+  }
+  const headOverflow = overflowOf(t.querySelector('.tool'), '.tool__head')
+  const runHeadOverflow = overflowOf(t.querySelector('.run'), '.run__head')
+  // 两种标题的**计算样式**必须一致：可点的那半是个 <button>，而按钮不继承
+  // 字体与颜色 —— 少写一条就会在同一个卡面上出现"另一种字体、更暗一档"
+  // 的文件名，缩略图里根本看不出来
+  const styleOf = (sel) => {
+    const el = t.querySelector(sel)
+    if (!el) return null
+    const cs = getComputedStyle(el)
+    return cs.fontFamily + ' | ' + cs.fontSize + ' | ' + cs.color
+  }
   document.getElementById('measure').textContent = 'MEASURE ' + JSON.stringify({
     tool: h('.tool'),
     head: h('.tool__head'),
     entry: h('.entry'),
     thinking: h('.thinking-text'),
     note: h('.system-note'),
+    status: h('.tool__status'),
+    run: h('.run'),
     clipped: card.scrollHeight > card.clientHeight + 1,
+    headOverflow: headOverflow,
+    runHeadOverflow: runHeadOverflow,
+    titleStyle: styleOf('.tool__title:not(.tool__file)'),
+    fileStyle: styleOf('.tool__file'),
+    // 能不能点不该靠悬停才发现 —— 静止态就得有下划线
+    fileDecoration: (() => {
+      const el = t.querySelector('.tool__file')
+      return el ? getComputedStyle(el).textDecorationLine : null
+    })(),
     scrollH: t.scrollHeight,
     clientH: t.clientHeight,
   })
@@ -193,15 +275,38 @@ for (const scenario of SCENARIOS) {
   const problems = []
   if (m.tool < MIN_CARD_H) problems.push(`.tool 高度 ${m.tool} < ${MIN_CARD_H}`)
   if (m.head < MIN_HEAD_H) problems.push(`.tool__head 高度 ${m.head} < ${MIN_HEAD_H}`)
+  if (m.run < MIN_CARD_H) {
+    problems.push(`.run 高度 ${m.run} < ${MIN_CARD_H}（组卡被压扁 —— flex-shrink: 0 还在吗？）`)
+  }
   if (m.entry < MIN_CARD_H) problems.push(`.entry 高度 ${m.entry} < ${MIN_CARD_H}`)
   if (m.clipped) problems.push('卡片内容被裁剪（scrollHeight > clientHeight）')
+  if (m.headOverflow > 1) {
+    problems.push(`.tool__head 比卡片宽 ${m.headOverflow}px（div 化以后漏了 box-sizing: border-box?）`)
+  }
+  if (m.runHeadOverflow > 1) {
+    problems.push(`.run__head 比组卡宽 ${m.runHeadOverflow}px（漏了 box-sizing: border-box?）`)
+  }
+  if (m.fileDecoration !== 'underline') {
+    problems.push(
+      `可点文件名没有下划线（text-decoration-line=${m.fileDecoration}）——` +
+      ' 没有它没人知道文件名能点',
+    )
+  }
+  if (m.fileStyle && m.fileStyle !== m.titleStyle) {
+    problems.push(
+      `可点文件名与命令原文的计算样式不一致：${m.fileStyle} ≠ ${m.titleStyle}` +
+      '（<button> 不继承字体与颜色，逐条写出来了吗？）',
+    )
+  }
 
   const status = problems.length ? '失败' : '通过'
   if (problems.length) failed++
   console.log(`[${status}] ${scenario.name} — ${scenario.note}`)
   console.log(
     `         tool=${m.tool} head=${m.head} entry=${m.entry} thinking=${m.thinking}` +
-    ` note=${m.note} clipped=${m.clipped} scrollH=${m.scrollH} clientH=${m.clientH}`,
+    ` note=${m.note} status=${m.status} run=${m.run} clipped=${m.clipped}` +
+    ` headOverflow=${m.headOverflow}` +
+    ` scrollH=${m.scrollH} clientH=${m.clientH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)
 }

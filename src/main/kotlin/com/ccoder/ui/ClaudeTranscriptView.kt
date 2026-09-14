@@ -264,6 +264,14 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             "pageState" -> LOG.warn("CCoder 转写视图：页面状态 $message")
 
             "openLink" -> obj.str("url")?.let { BrowserUtil.browse(it) }
+
+            // 卡片上点了文件名：在编辑器里打开并定位（见 OpenFileTarget）。
+            // 这条链路自己会跳线程，CEF 回调线程上直接调没问题
+            "openFile" -> parseOpenFileTarget(obj)?.let { openInEditor(project, it) }
+
+            // 认不出的 op 不留静默。桥这一层是"界面全对、日志全干净、
+            // 就是没反应"最典型的产地，而这个文件已经为这类问题付过一次代价
+            else -> LOG.info("CCoder 转写视图：忽略未知的桥消息 ${obj.str("op") ?: message.take(120)}")
         }
     }
 
