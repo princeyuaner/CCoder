@@ -269,6 +269,10 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             // 这条链路自己会跳线程，CEF 回调线程上直接调没问题
             "openFile" -> parseOpenFileTarget(obj)?.let { openInEditor(project, it) }
 
+            // 代码块的复制键（见 CopyText）：JCEF 里 navigator.clipboard 不可用
+            // （不是安全上下文），复制这件事只能回平台来做
+            "copy" -> parseCopyText(obj)?.let(::copyToClipboard)
+
             // 认不出的 op 不留静默。桥这一层是"界面全对、日志全干净、
             // 就是没反应"最典型的产地，而这个文件已经为这类问题付过一次代价
             else -> LOG.info("CCoder 转写视图：忽略未知的桥消息 ${obj.str("op") ?: message.take(120)}")

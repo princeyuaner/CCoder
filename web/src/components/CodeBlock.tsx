@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { copyText } from '../bridge'
 import { highlightCode } from '../highlight'
 
 const WRAP_KEY = 'ccoder.codeWrap'
@@ -34,14 +35,11 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const html = useMemo(() => highlightCode(code, lang), [code, lang])
   const showLang = lang.trim().length > 0
 
-  const copy = useCallback(async () => {
-    try {
-      // 复制**原始代码**而非高亮后的 HTML——后者含大量 span 标签
-      await navigator.clipboard.writeText(code)
-      setCopied(true)
-    } catch {
-      // 剪贴板不可用时静默失败，不打断阅读
-    }
+  const copy = useCallback(() => {
+    // 复制**原始代码**而非高亮后的 HTML——后者含大量 span 标签。
+    // 走桥（见 copyText）：JCEF 里 navigator.clipboard 根本不存在
+    copyText(code)
+    setCopied(true)
   }, [code])
 
   return (

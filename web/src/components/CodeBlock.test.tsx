@@ -5,6 +5,8 @@ import { CodeBlock } from './CodeBlock'
 
 beforeEach(() => {
   localStorage.clear()
+  // 桥是每个用例自己决定要不要挂的（挂了 = JCEF 真机，没挂 = 浏览器/探针）
+  delete (window as { ccoder?: unknown }).ccoder
 })
 
 /**
@@ -39,7 +41,36 @@ describe('CodeBlock', () => {
     expect(screen.getByTestId('code-block')).not.toHaveClass('is-wrapped')
   })
 
-  it('点击复制把代码写入剪贴板', async () => {
+  it('桥在时走桥 —— JCEF 里 navigator.clipboard 根本不存在', async () => {
+    const user = userEvent.setup()
+    const writeText = clipboardSpy()
+    const send = vi.fn()
+    ;(window as { ccoder?: unknown }).ccoder = { send }
+    render(<CodeBlock code="print('hi')" lang="python" />)
+
+    await user.click(screen.getByRole('button', { name: /复制/ }))
+
+    // 复制必须交给 Kotlin 去做（平台的 CopyPasteManager），
+    // navigator 那条路在 JCEF 里是 undefined：点了什么都不发生
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(send.mock.calls[0][0] as string)).toEqual({ op: 'copy', text: "print('hi')" })
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('复制的是原始代码而非高亮后的 HTML', async () => {
+    const user = userEvent.setup()
+    const send = vi.fn()
+    ;(window as { ccoder?: unknown }).ccoder = { send }
+    const raw = 'def f(x):\n    return x < 3 and x > 1'
+    render(<CodeBlock code={raw} lang="python" />)
+
+    await user.click(screen.getByRole('button', { name: /复制/ }))
+
+    // 高亮会把 < > & 变成实体，复制必须拿原文
+    expect(JSON.parse(send.mock.calls[0][0] as string).text).toBe(raw)
+  })
+
+  it('桥不在时退回 navigator.clipboard（浏览器里跑探针/dev 那条路）', async () => {
     const user = userEvent.setup()
     const writeText = clipboardSpy()
     render(<CodeBlock code="print('hi')" lang="python" />)
@@ -47,18 +78,6 @@ describe('CodeBlock', () => {
     await user.click(screen.getByRole('button', { name: /复制/ }))
 
     expect(writeText).toHaveBeenCalledWith("print('hi')")
-  })
-
-  it('复制的是原始代码而非高亮后的 HTML', async () => {
-    const user = userEvent.setup()
-    const writeText = clipboardSpy()
-    const raw = 'def f(x):\n    return x < 3 and x > 1'
-    render(<CodeBlock code={raw} lang="python" />)
-
-    await user.click(screen.getByRole('button', { name: /复制/ }))
-
-    // 高亮会把 < > & 变成实体，复制必须拿原文
-    expect(writeText).toHaveBeenCalledWith(raw)
   })
 
   it('复制后按钮文案变为已复制', async () => {
