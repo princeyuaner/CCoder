@@ -62,6 +62,16 @@ class StatusCardsRenderProbe {
         render("build/status-cards-probe-activity.png", busy = true, activity = ACTIVITY_RUNNING)
 
     /**
+     * **等待响应那一版**：动作词让到标签行、秒数进值行（[waitingCardOf]）。
+     *
+     * 这一格只有约 95px，换行放就是为了不省略 —— 但"换过来之后还读得通吗"
+     * 只有看图才知道。
+     */
+    @Test
+    fun `把等待响应时的四张卡画成图片`() =
+        render("build/status-cards-probe-waiting.png", busy = true, waitingSeconds = 42)
+
+    /**
      * @param busy true = 四样都有内容；false = 后两张收边。
      *   空闲那张同时把上下文推到 92%，顺手验证警示色。
      * @param noUsage true = 上下文没有测量值（`contextCardOf(null)`）。
@@ -73,14 +83,15 @@ class StatusCardsRenderProbe {
         connectionText: String? = null,
         noUsage: Boolean = false,
         activity: String? = null,
+        waitingSeconds: Int? = null,
     ) {
         SwingUtilities.invokeAndWait {
             val cards = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(
-                    if (activity != null) {
-                        activityCardOf(activity)
-                    } else {
-                        connectionCardOf(connectionText ?: if (busy) "已连接" else "已断开")
+                    when {
+                        waitingSeconds != null -> waitingCardOf(waitingSeconds)
+                        activity != null -> activityCardOf(activity)
+                        else -> connectionCardOf(connectionText ?: if (busy) "已连接" else "已断开")
                     }
                 )
                 context.setModel(

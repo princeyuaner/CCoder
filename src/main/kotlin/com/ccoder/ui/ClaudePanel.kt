@@ -344,6 +344,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private val pendingToolIds = mutableSetOf<String>()
 
+    /**
+     * 「等待响应」那格的秒表（见 [startWaitingTicker]）。null = 还没建过。
+     */
+    private var waitingTicker: javax.swing.Timer? = null
+
+    /** 这一轮等待的开始时刻（毫秒）。只在 [ACTIVITY_WAITING] 那一档有意义。 */
+    private var waitingSince = 0L
+
     private val snippetRefs = SnippetRefs()
 
     /** 用量请求的闸：一次只允许一个在途（见 [UsageRequestGate]）。 */
@@ -736,7 +744,52 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun setActivity(text: String?) {
         if (activity == text) return
         activity = text
+        // 「等待响应」那格要显示秒数，所以这一档得自己走表（见 waitingCardOf）。
+        // 其余动作词不带秒数：工具卡上本来就有自己的计时，两处同时跳反而吵
+        if (text == ACTIVITY_WAITING) startWaitingTicker() else stopWaitingTicker()
         refreshStatusCards()
+    }
+
+    /**
+     * 等待中的秒表。
+     *
+     * **一秒一跳，但只在「等待响应」这一档**：等模型开口的那几十秒里，一个不动的
+     * 四个字分不出"它在走"还是"它挂了"（2026-09-15 用户报过"卡几十秒"）。
+     *
+     * 建的时机是第一次要用它，而不是在构造里 —— 面板建起来的时候还没在等谁。
+     * 停下来由 [stopWaitingTicker] 负责，`dispose()` 里也摘一次：这个 Timer 捕获
+     * 整个面板，留着它等于把面板钉在事件队列上。
+     */
+    private fun startWaitingTicker() {
+        waitingSince = System.currentTimeMillis()
+        val ticker = waitingTicker
+            ?: javax.swing.Timer(1000) { refreshConnectionCard() }.also { waitingTicker = it }
+        if (!ticker.isRunning) ticker.start()
+    }
+
+    private fun stopWaitingTicker() {
+        waitingTicker?.stop()
+    }
+
+    /** 这一档等了多久（秒）。没有计时在跑时给 0。 */
+    private fun waitingSeconds(): Int =
+        ((System.currentTimeMillis() - waitingSince) / 1000).toInt().coerceAtLeast(0)
+
+    /**
+     * 连接卡单独一刷。
+     *
+     * 与 [refreshStatusCards] 分开是为了秒表：等待中的数字每秒都在变，而另外
+     * 三张卡（用量、清单、子代理）跟这一秒毫无关系，不该跟着重算。
+     */
+    private fun refreshConnectionCard() {
+        val now = activity
+        statusCards.connection.setModel(
+            when {
+                now == ACTIVITY_WAITING -> waitingCardOf(waitingSeconds())
+                now != null -> activityCardOf(now)
+                else -> connectionCardOf(connectionText)
+            }
+        )
     }
 
     /**
@@ -747,9 +800,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun refreshStatusCards() {
         // 忙时这张卡改说"在干什么"：转写区是滚动区，长任务跑起来最新的那条
         // 早就滚上去了，抬头一眼能看见的只有这里
-        statusCards.connection.setModel(
-            activity?.let(::activityCardOf) ?: connectionCardOf(connectionText)
-        )
+        refreshConnectionCard()
         statusCards.context.setModel(contextCardOf(lastUsage))
         statusCards.todos.setModel(todoCardOf(runStatus.todos))
         statusCards.running.setModel(runningCardOf(runStatus.running))
@@ -1931,6 +1982,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     override fun dispose() {
+        // 秒表捕获着这个面板：不摘的话它会把面板钉在事件队列上，一秒一跳地
+        // 刷一个已经没了的组件
+        stopWaitingTicker()
         stopSession()
         Disposer.dispose(transcriptView)
     }

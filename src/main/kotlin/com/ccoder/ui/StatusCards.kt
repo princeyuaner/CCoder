@@ -101,6 +101,29 @@ internal fun activityCardOf(activity: String) = StatusCardModel(
     tone = Tone.Warn,
 )
 
+/**
+ * 卡在「等待响应」时的样子：**动作词上标签行，秒数上值行**。
+ *
+ * 2026-09-15 加。用户问"为什么调用工具后会突然卡几十秒" —— 那几十秒是上游还没
+ * 吐出第一个 token（实测 P90 10.3s、P99 38.8s、最长 89s，见 [activityChangeOf]
+ * 里那段）。只写四个字「等待响应」分不出"它在走"还是"它挂了"，秒数得动起来。
+ *
+ * **为什么换行放**（动作词让到标签行、秒数进值行）：值那一行是居中大字，而这一格
+ * 只有约 95px 宽 —— 「等待响应 12s」并排会被省略号截掉（[ActivityTest] 里那条
+ * "每个动作词都得短得住"就是量这个的）。换过来之后两行各自都窄。
+ *
+ * 秒数写法与工具卡、进行中的思考块一致（都是 `12s`）—— 同一个东西在三个地方
+ * 长得一样，用户不用重新认一遍。
+ */
+internal fun waitingCardOf(seconds: Int) = StatusCardModel(
+    label = ACTIVITY_WAITING,
+    value = elapsedText(seconds),
+    tone = Tone.Warn,
+)
+
+/** 秒数怎么写。单独一个函数是为了让三处（这里、工具卡、思考块）有同一个出处。 */
+internal fun elapsedText(seconds: Int): String = "${seconds}s"
+
 // ---- 上下文 ----
 
 /**

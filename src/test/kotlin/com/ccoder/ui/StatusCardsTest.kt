@@ -49,6 +49,38 @@ class StatusCardsTest {
         assertFalse(card.quiet, "正在干活不是「没数据」")
     }
 
+    // ---- 等待响应那一格：秒数得动起来 ----
+
+    @Test
+    fun `等待响应时动作词上标签行、秒数上值行`() {
+        // 2026-09-15 用户问"为什么调用工具后会突然卡几十秒"。那几十秒里四个字
+        // 不动的「等待响应」分不出"它在走"还是"它挂了" —— 秒数要跳。
+        //
+        // 换行放的理由是宽度：这一格约 95px，「等待响应 12s」并排会被省略号截掉
+        val card = waitingCardOf(12)
+
+        assertEquals(ACTIVITY_WAITING, card.label)
+        assertEquals("12s", card.value)
+        assertEquals(Tone.Warn, card.tone, "等待也是过渡态")
+        assertFalse(card.quiet)
+    }
+
+    @Test
+    fun `等待秒数两位数也放得下`() {
+        // 实测这条路径上 P99 到过 38.8s、最长 89s —— 秒数会长到两位数
+        val card = waitingCardOf(89)
+
+        assertTrue(card.value.length <= 4, "值那一行放不下：${card.value}")
+        assertTrue(card.label.length <= 6, "标签那一行也窄：${card.label}")
+    }
+
+    @Test
+    fun `秒数写法与工具卡一致`() {
+        // 同一个东西在三个地方（状态卡、工具卡、思考块）长得一样，用户不用重新认
+        assertEquals("5s", elapsedText(5))
+        assertEquals("89s", elapsedText(89))
+    }
+
     // ---- 上下文 ----
 
     @Test
