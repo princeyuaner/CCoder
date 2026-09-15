@@ -163,12 +163,10 @@
 | 1 | **`.mcp.json` 的形状成立**：项目根下 `{"mcpServers": {"名字": {"command": ..., "args": [...]}}}` 会被读到 —— 配一个指向不存在命令的 server，它以 `status=failed`、`scope=project` 出现在 `mcpServerStatus()` 里 | Q1 |
 | 2 | **不需要批准也会被读**（`enableAllProjectMcpServers` 前后 status 不变） | Q2 |
 | 3 | `mcpServerStatus()` 会列出**所有来源**的 server，并带 `scope`（`user` / `project`） | 基线 |
-| 4 | 本机基线：user 级有 `codegraph`、`vibe-trading`（都是 failed），project 级有 `code-review-graph`（pending） | 基线 |
-
-**hooks 那一半尚未实测**（`--hooks` 才跑，要花模型回合）：`.claude/settings.json` 的
-`hooks` 键是否被读、`hook_started` / `hook_response` 事件的形状、以及
-`Options.settings`（flag 层，不落盘）能不能作为后备。
-**本文件在那一跑之前不对 hooks 的实现方式下结论。**
+| 4 | 本机基线：user 级有 `codegraph`、`vibe-trading`，project 级有 `code-review-graph` | 基线 |
+| 5 | **`.claude/settings.json` 的 `hooks` 键被读且会被执行**：一条 `matcher: "Write"`、`command: "echo ... >&2; exit 2"` 的 PreToolUse 真的拦住了写入 | Q3 |
+| 6 | **`Options.settings`（flag 层）同样生效** —— 不想落盘时有后备路 | Q5 |
+| 7 | **被拦住时，事件流里没有 `hook_*` 事件（0 条）**，但那次工具调用变成一条 **`is_error=true` 的工具结果**，hook 的 stderr 原样在里面：`PreToolUse:Write hook error: [命令]: probe: 这条写入被 hook 拦下了` | Q3/Q4 |
 
 ## 3.2 已知的 SDK 形状（读 d.ts 得出，非实测）
 
@@ -190,16 +188,22 @@
 - **明确不做**：独立的"测连接"按钮、`sdk` / `claudeai-proxy` 两种形状、
   `timeout` / `alwaysLoad` 高级项、其余 26 个 hook 事件
 
-## 3.4 连带效应（这一条是本版新发现的）
+## 3.4 连带效应：**不需要改代码**（探针把这件事解掉了）
 
-`MessageRenderer.kt:280` 现在是：
+原本担心的是：`MessageRenderer.kt:280` 把 `hook_started` / `hook_response` 整条丢弃，
+那么"拦住写文件"的 hook 会让写入静默不发生、转写区一个字都不解释 —— 计划里因此排了
+一步 T3.5「改成只在阻断 / 失败时出一行」。
 
-```kotlin
-"hook_started", "hook_response" -> emptyList()
-```
+**探针事实 7 把这一步消掉了**：被拦下时根本没有 `hook_*` 事件可显示，但**被拦的那次工具调用
+自己会变成一条 `is_error=true` 的工具结果，hook 的 stderr 原样在里面**；而工具卡本来就有
+"失败自动展开"（`2026-09-14` 那份工具卡设计里点名的既有行为）。
 
-hooks **被整条丢弃**。配上 hooks 面板之后，一个"拦住写文件"的 PreToolUse hook 会让写入
-静默不发生，而转写区一个字都不解释。要改成**只在阻断 / 失败时出一行**（用户已定）。
+也就是说：**用户已经能看见解释**，走的是既有的错误结果渲染这条路。
+`MessageRenderer.kt:280` 保持原样，本版不动它。
+
+> 值得记一笔的是：那条 `emptyList()` 分支在本机路径上**至今没被触发过**
+> （两次探针都没见到 `hook_*` 事件）。它可能是为别的事件源留的，也可能是死代码 ——
+> 但那是另一件事，不在这三件里。
 
 ---
 

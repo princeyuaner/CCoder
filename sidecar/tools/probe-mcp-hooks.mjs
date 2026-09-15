@@ -201,7 +201,7 @@ try {
     {
       const d = openSession();
       const from = d.events.length;
-      d.send(`请用 Write 工具把文件 ${TARGET} 的内容写成 BLOCKED，完成后回复 OK`);
+      d.input.send(`请用 Write 工具把文件 ${TARGET} 的内容写成 BLOCKED，完成后回复 OK`);
       const deadline = Date.now() + 90000;
       while (Date.now() < deadline && !d.events.slice(from).some((m) => m.type === 'result')) {
         await sleep(300);
@@ -217,12 +217,38 @@ try {
         console.log(`      · ${h.subtype} ${JSON.stringify(h.hook_name ?? h.hook_event ?? null)} `
           + `exit=${h.exit_code ?? '-'} out=${JSON.stringify(String(h.output ?? h.stderr ?? '').slice(0, 60))}`);
       }
+      // 被拦住之后，**转写区到底能看见什么** —— 这决定 T3.5 要不要做。
+      // 若工具卡自己就是一条错误结果（带 hook 的 stderr），那界面天然有解释，
+      // MessageRenderer.kt:280 那条死分支可以不动；若什么都没有，界面得自己造。
+      const seen = [];
+      for (const m of d.events.slice(from)) {
+        if (m.type === 'assistant') {
+          const txt = (m.message?.content ?? []).filter((b) => b.type === 'text')
+            .map((b) => b.text).join('');
+          const tu = (m.message?.content ?? []).filter((b) => b.type === 'tool_use').map((b) => b.name);
+          if (txt || tu.length) seen.push(`assistant tools=[${tu.join(',')}] text=${JSON.stringify(txt.slice(0, 70))}`);
+        }
+        if (m.type === 'user') {
+          const blocks = Array.isArray(m.message?.content) ? m.message.content : [];
+          for (const b of blocks) {
+            if (b?.type !== 'tool_result') continue;
+            const c = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
+            seen.push(`tool_result is_error=${b.is_error ?? false} ${JSON.stringify(String(c).slice(0, 130))}`);
+          }
+        }
+      }
+      console.log(`  ${ts()} 被拦下时，事件流里能看见的 ${seen.length} 条：`);
+      for (const s of seen.slice(0, 8)) console.log(`      · ${s}`);
+      const hasErrorResult = seen.some((s) => s.startsWith('tool_result') && s.includes('is_error=true'));
       note('Q3', wrote
         ? '**hook 没生效** —— 项目级 settings.json 的 hooks 不被读，或字段名不对'
         : 'hook 生效：Write 被拦下了');
-      note('Q4', hookEvents.length
-        ? `事件流里有 ${hookEvents.length} 条 hook_* 事件（形状见上）—— 界面要能解释"为什么没发生"`
-        : '**事件流里没有 hook_* 事件** —— 被拦住时用户将没有任何线索，界面只能自己造');
+      note('Q4', !hookEvents.length && hasErrorResult
+        ? '**没有 hook_* 事件，但被拦下的工具调用会变成一条 is_error 的工具结果**（带 hook 的 stderr）'
+          + ' —— 界面天然有解释，T3.5 那条死分支可以不动'
+        : hookEvents.length
+          ? `事件流里有 ${hookEvents.length} 条 hook_* 事件（形状见上）—— 界面要能解释"为什么没发生"`
+          : '**既没有 hook_* 事件、也没有错误结果** —— 被拦住时用户没有任何线索，界面只能自己造');
       d.input.stop();
       try { await d.q.interrupt?.(); } catch { /* 预期 */ }
     }
@@ -237,7 +263,7 @@ try {
         },
       });
       const from = e.events.length;
-      e.send(`请用 Write 工具把文件 ${TARGET} 的内容写成 BLOCKED2，完成后回复 OK`);
+      e.input.send(`请用 Write 工具把文件 ${TARGET} 的内容写成 BLOCKED2，完成后回复 OK`);
       const deadline = Date.now() + 90000;
       while (Date.now() < deadline && !e.events.slice(from).some((m) => m.type === 'result')) {
         await sleep(300);
