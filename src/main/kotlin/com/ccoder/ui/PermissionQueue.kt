@@ -1,7 +1,11 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SidecarMessage
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
 
 data class PermissionDecision(
     val allow: Boolean,
@@ -122,11 +126,30 @@ object PermissionOptions {
      *
      * sdk.d.ts:228-233：SDK 已把 title 渲染为完整问句，
      * 应优先使用而非从 toolName+input 重拼。缺失时才逐级降级。
+     *
+     * 2026-09-15 补一条：「把工具名念一遍」不算问句。用户截了 `ExitPlanMode` 的框
+     * 来问"这个是什么审批" —— 因为标题就是 `ExitPlanMode` 这一个词。CLI 对内置工具
+     * 给的 title/displayName 常常就是工具名本身，那种情况下要自己说人话
+     * （见 [friendlyToolName]）。认不出的工具仍退回工具名：宁可给一个生词，
+     * 也不要给一句编出来的话。
      */
     fun primaryText(p: SidecarMessage.Permission): String =
-        p.title?.takeIf { it.isNotBlank() }
-            ?: p.displayName?.takeIf { it.isNotBlank() }
-            ?: p.toolName
+        p.title?.takeIf { it.isNotBlank() && !isBareToolName(it, p) }
+            ?: p.displayName?.takeIf { it.isNotBlank() && !isBareToolName(it, p) }
+            ?: friendlyToolName(p.toolName)
+
+    private fun isBareToolName(text: String, p: SidecarMessage.Permission): Boolean =
+        text.trim().equals(p.toolName, ignoreCase = true)
+
+    /**
+     * 工具名 → 人话。只认确知的那几个；其余原样。
+     */
+    private fun friendlyToolName(toolName: String): String = when (toolName) {
+        // 模型写完计划、请求退出"仅规划"模式开始干活。它的入参就是那份计划，
+        // 用户此刻要做的就是读计划 + 决定是否放行
+        EXIT_PLAN_MODE_TOOL -> "退出计划模式"
+        else -> toolName
+    }
 
     /**
      * 「允许」那颗按钮上写什么。
@@ -145,3 +168,102 @@ object PermissionOptions {
         p.displayName?.takeIf { it.isNotBlank() && !it.equals(p.toolName, ignoreCase = true) }
             ?: "允许"
 }
+
+/** `ExitPlanMode` 的工具名。SDK 那边的字面量，拼错就永远匹配不上。 */
+internal const val EXIT_PLAN_MODE_TOOL = "ExitPlanMode"
+
+/** 计划文本在入参里的字段名（实测：`{"plan":"…","planFilePath":"…"}`）。 */
+internal const val PLAN_FIELD = "plan"
+
+/**
+ * 权限框里那段「输入」该怎么显示。
+ *
+ * @param caption 顶部那行小字（「原始输入」/「计划内容」）
+ * @param text 文本区里的正文 —— 换行是**真换行**
+ * @param rows 文本区的行数
+ * @param maxHeight 文本区的高度上限（未缩放 px）：长正文给得高一些，仍可滚动
+ */
+internal data class PermissionBody(
+    val caption: String,
+    val text: String,
+    val rows: Int,
+    val maxHeight: Int,
+)
+
+/** 超过这个长度就算"正文"，不再塞进 JSON 里当一行字符串。 */
+private const val LONG_FIELD_MIN_CHARS = 200
+
+/**
+ * 把权限询问的入参翻译成**能读的一段字**。
+ *
+ * ## 为什么不能直接 `input.toString()`
+ *
+ * 2026-09-15 用户截了 `ExitPlanMode` 的审批框来问"里面的内容都看不到"。
+ * 那条入参是 `{"plan": "<3408 字的计划，含真换行>", "planFilePath": "…"}` ——
+ * Gson 的 `toString()` 把它压成**一行**、换行变成字面 `\n`，再塞进一个 3 行高的
+ * 滚动框。而那个框里装的正是用户要批准的东西：**看不到内容的审批不是审批，
+ * 是让人闭眼点按钮。**
+ *
+ * ## 规则
+ *
+ * 入参里最长的那个字符串字段，只要够长或带换行，就把它**按文本铺开**
+ * （`plan` 这类字段本来就是给人读的段落）；其余字段按缩进 JSON 附在后面，
+ * 一样都不藏 —— 审批框里截断信息比排版难看严重得多。没有这样的字段
+ * （比如 Bash 那种 `command` + `description` 的短入参）就整份缩进 JSON。
+ */
+internal fun permissionBody(input: JsonObject): PermissionBody {
+    val field = longTextField(input)
+    if (field == null) {
+        return PermissionBody(INPUT_CAPTION, prettyJson(input), GENERIC_ROWS, GENERIC_MAX_HEIGHT)
+    }
+
+    val rest = JsonObject().apply {
+        input.entrySet().filter { it.key != field.key }.forEach { add(it.key, it.value) }
+    }
+    val text = buildString {
+        append(field.value.asString)
+        if (rest.size() > 0) {
+            append("\n\n————————————\n其余参数：\n")
+            append(prettyJson(rest))
+        }
+    }
+    return PermissionBody(
+        // 计划是这一档里唯一有专名的：它同时回答了"这是在批准什么"
+        caption = if (field.key == PLAN_FIELD) PLAN_CAPTION else INPUT_CAPTION,
+        text = text,
+        rows = LONG_ROWS,
+        maxHeight = LONG_MAX_HEIGHT,
+    )
+}
+
+/** 长正文按文本铺开时用的那几个数。 */
+private const val INPUT_CAPTION = "原始输入"
+private const val PLAN_CAPTION = "计划内容"
+private const val GENERIC_ROWS = 3
+private const val GENERIC_MAX_HEIGHT = 80
+private const val LONG_ROWS = 12
+private const val LONG_MAX_HEIGHT = 320
+
+/**
+ * 入参里最长的那个字符串字段 —— 但只有它够长或带换行时才认。
+ *
+ * 判据不写死字段名：`plan` 是实测到的那一个，而这类"正文型入参"以后还会有
+ * （写文件、多行脚本）。按形状认，比重一个白名单耐得住。
+ */
+private fun longTextField(input: JsonObject): Map.Entry<String, JsonElement>? =
+    input.entrySet()
+        .filter { it.value.isJsonPrimitive && it.value.asJsonPrimitive.isString }
+        .maxByOrNull { it.value.asString.length }
+        ?.takeIf { (it.value.asString.length >= LONG_FIELD_MIN_CHARS) || ('\n' in it.value.asString) }
+
+/**
+ * 缩进 JSON。
+ *
+ * `disableHtmlEscaping`：Gson 默认把 `<` `>` `&` 转成 `<` 之类，那是给
+ * 网页用的防御。这里是 Swing 的文本区，转义只会让命令和代码更难读。
+ */
+private fun prettyJson(element: JsonElement): String =
+    PRETTY_GSON.toJson(element)
+
+private val PRETTY_GSON: Gson =
+    GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()

@@ -191,6 +191,28 @@ describe('toolParams', () => {
     expect(toolParams('not json')).toBeNull()
     expect(toolParams('')).toBeNull()
   })
+
+  it('长正文按文本铺开，不是一行转义 JSON', () => {
+    // ExitPlanMode 的 plan 是三千多字的计划，压成一行 `\n` 转义之后人读不了，
+    // 而那正是用户要审的东西（2026-09-15 用户报"里面的内容都看不到"）。
+    // 与 Kotlin 侧 permissionBody 是同一套规则。
+    const plan = '# 计划\n\n第一段\n第二段'
+    const out = toolParams(JSON.stringify({ plan, planFilePath: 'C:\\plans\\x.md' }))!
+
+    expect(out.startsWith('# 计划')).toBe(true)
+    expect(out).toContain('第一段\n第二段') // 真换行
+    expect(out).toContain('planFilePath') // 其余字段一个都不藏
+  })
+
+  it('多行参数也算正文', () => {
+    const out = toolParams(JSON.stringify({ command: 'set -e\ncd /tmp', description: '跑一段' }))!
+
+    expect(out.startsWith('set -e\ncd /tmp')).toBe(true)
+  })
+
+  it('短参数照旧走缩进 JSON', () => {
+    expect(toolParams(JSON.stringify({ command: 'ls' }))).toBe('{\n  "command": "ls"\n}')
+  })
 })
 
 describe('toolDelta', () => {

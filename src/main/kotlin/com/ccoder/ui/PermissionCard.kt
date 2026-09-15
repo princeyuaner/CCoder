@@ -97,11 +97,14 @@ class PermissionCard(
             }
         }
 
-        val inputArea = JBTextArea(permission.input.toString()).apply {
+        // 入参按"能读"的样子铺开：长正文（比如 ExitPlanMode 那份计划）走文本，
+        // 短入参走缩进 JSON —— 见 permissionBody 里那段"看不到内容的审批不是审批"
+        val body = permissionBody(permission.input)
+        val inputArea = JBTextArea(body.text).apply {
             isEditable = false
             lineWrap = true
             wrapStyleWord = true
-            rows = 3
+            rows = body.rows
             foreground = UIUtil.getInactiveTextColor()
         }
 
@@ -138,14 +141,16 @@ class PermissionCard(
             isOpaque = false
             add(header)
             add(Box.createVerticalStrut(6))
-            add(JBLabel("原始输入").apply {
+            add(JBLabel(body.caption).apply {
                 foreground = UIUtil.getInactiveTextColor()
                 alignmentX = LEFT_ALIGNMENT
             })
             add(JBScrollPane(inputArea).apply {
                 border = JBUI.Borders.empty()
                 alignmentX = LEFT_ALIGNMENT
-                maximumSize = Dimension(Int.MAX_VALUE, 80)
+                // 长正文（计划那种）给得高一些：80px 只够四行，而那是要读的东西。
+                // 仍然封顶 —— 卡片再高也不该把按钮顶出屏幕
+                maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(body.maxHeight))
             })
             add(Box.createVerticalStrut(6))
             add(buttons.apply { alignmentX = LEFT_ALIGNMENT })

@@ -51,6 +51,29 @@ class PermissionDialogRenderProbe {
         suggestions = null,
     )
 
+    /**
+     * 真机那份 `ExitPlanMode` 入参的形状（从会话记录里抄的字段名与量级）：
+     * `{"plan": "<几千字的计划>", "planFilePath": "…"}`。
+     */
+    private fun planPermission() = SidecarMessage.Permission(
+        requestId = "r2",
+        toolName = "ExitPlanMode",
+        input = JsonParser.parseString(
+            """
+            {"plan":"# 提问弹框：长文本换行 + 最小化\n\n## Context\n\n用户报了两个问题，都在提问弹框这条链上（AskQuestionCard / AskQuestionDialog / AskSequence）：\n\n1. **长题干不换行，把整个弹框撑宽。** 根因是两件事叠在一起：题干、选项 label、选项说明全是 JLabel（Swing 的 JLabel 从不自动换行），而 AskQuestionCard.getPreferredSize() 只把 preferred 宽度钉在 CARD_WIDTH(420)，没有覆写 getMinimumSize()。\n\n2. **没有最小化。** 框是全模态、且唯一的退路是 X/Esc，而 spec 6.2 明确把\"关窗\"定义成整条拒绝。\n\n## 验证\n\n- Kotlin 1081 全过\n- 渲染探针出图并量了宽度\n","planFilePath":"C:\\Users\\CY\\.claude\\plans\\swirling-finding-kettle.md"}
+            """
+        ).asJsonObject,
+        // 真机就是这样：title 与 displayName 都把工具名念了一遍
+        title = "ExitPlanMode",
+        displayName = "ExitPlanMode",
+        description = null,
+        blockedPath = null,
+        decisionReason = null,
+        defaultToNo = false,
+        suppressAlwaysAllowRule = false,
+        suggestions = null,
+    )
+
     @Test
     fun `把权限卡片画成图片`() = SwingUtilities.invokeAndWait {
         val column = JPanel().apply {
@@ -78,6 +101,13 @@ class PermissionDialogRenderProbe {
 
         caption("③ 队列里还排着两个（queuedCount > 0 时多一行说明）")
         column.add(PermissionCard(permission(displayName = "Bash"), queuedCount = 2) {})
+        column.add(Box.createVerticalStrut(14))
+
+        // ④ 2026-09-15 用户截图那一张：ExitPlanMode 的审批框。入参里装的是一份
+        // 三千多字的计划，改之前它被压成一行转义 JSON 塞在 3 行高的框里 ——
+        // 用户的原话是"里面的内容都看不到"。这一格就是盯着这件事的
+        caption("④ ExitPlanMode：入参是整份计划 —— 标题说人话、正文按段落铺开")
+        column.add(PermissionCard(planPermission(), queuedCount = 0) {})
         column.add(Box.createVerticalGlue())
 
         val w = 460

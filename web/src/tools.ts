@@ -200,7 +200,39 @@ export function toolDiff(name: string, input: string): DiffLine[] | null {
  */
 export function toolParams(input: string): string | null {
   const args = parseArgs(input)
-  return args ? JSON.stringify(args, null, 2) : null
+  if (!args) return null
+
+  // 长正文（`ExitPlanMode` 的 `plan` 就是）按**文本**铺开，不等长地塞进 JSON 的
+  // 一行字符串里 —— 那份计划有三千多字，压成一行 `\n` 转义之后人根本读不了，
+  // 而这正是用户要审的东西（2026-09-15 用户报"里面的内容都看不到"）。
+  // 与 Kotlin 侧 permissionBody 同一条规则、同一套阈值，两边显示的形状要一致。
+  const field = longTextField(args)
+  if (field === null) return JSON.stringify(args, null, 2)
+
+  const rest: Record<string, unknown> = { ...args }
+  delete rest[field]
+  const body = String(args[field])
+  if (Object.keys(rest).length === 0) return body
+  return `${body}\n\n————————————\n其余参数：\n${JSON.stringify(rest, null, 2)}`
+}
+
+/** 超过这个长度就算"正文"（与 Kotlin 侧 LONG_FIELD_MIN_CHARS 同一个数）。 */
+const LONG_FIELD_MIN_CHARS = 200
+
+/**
+ * 入参里最长的那个字符串字段 —— 只有它够长或带换行时才认。
+ *
+ * 按形状认而不是按字段名：`plan` 是实测到的那一个，这类"正文型入参"以后还会有。
+ */
+function longTextField(args: Record<string, unknown>): string | null {
+  let best: string | null = null
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== 'string') continue
+    if (best === null || value.length > (args[best] as string).length) best = key
+  }
+  if (best === null) return null
+  const text = args[best] as string
+  return text.length >= LONG_FIELD_MIN_CHARS || text.includes('\n') ? best : null
 }
 
 /** 加了几行、删了几行。标题行右侧的 `+1 −1`，不点开就知道这次改动的规模。 */

@@ -188,4 +188,79 @@ class PermissionOptionsTest {
         assertTrue(p.defaultToNo)
         assertTrue(p.suppressAlwaysAllowRule)
     }
+
+    // ---- 标题：把工具名念一遍不算问句（2026-09-15 用户问"这个是什么审批"）----
+
+    @Test
+    fun `标题只是工具名时换成人话`() {
+        // CLI 对内置工具给的 title/displayName 就是工具名本身，标题于是显示
+        // 「ExitPlanMode」—— 用户看不出这是在批准什么
+        val p = perm(toolName = "ExitPlanMode", title = "ExitPlanMode", displayName = "ExitPlanMode")
+        assertEquals("退出计划模式", PermissionOptions.primaryText(p))
+    }
+
+    @Test
+    fun `认不出的工具仍退回工具名`() {
+        // 宁可给一个生词，也不要编一句可能不对的话
+        val p = perm(toolName = "SomeMcpTool", title = "SomeMcpTool")
+        assertEquals("SomeMcpTool", PermissionOptions.primaryText(p))
+    }
+
+    @Test
+    fun `真问句不会被当成工具名`() {
+        val p = perm(toolName = "ExitPlanMode", title = "Claude 想退出计划模式")
+        assertEquals("Claude 想退出计划模式", PermissionOptions.primaryText(p))
+    }
+
+    // ---- 入参正文：看不到内容的审批不是审批 ----
+
+    private fun bodyOf(json: String) =
+        permissionBody(JsonParser.parseString(json).asJsonObject)
+
+    @Test
+    fun `计划按文本铺开，不是一行转义 JSON`() {
+        val plan = "# 计划\n\n第一段\n第二段"
+        val body = bodyOf("""{"plan":"$plan","planFilePath":"C:\\plans\\x.md"}""")
+
+        assertEquals("计划内容", body.caption, "这一段的标题得说清它是什么")
+        assertTrue(body.text.startsWith("# 计划"), "正文该是计划原文：${body.text}")
+        // 真换行，不是字面 \n
+        assertTrue(body.text.contains("第一段\n第二段"), "换行没还原：${body.text}")
+        // 其余字段一个都不能藏
+        assertTrue(body.text.contains("planFilePath"), "其余参数被吞了：${body.text}")
+    }
+
+    @Test
+    fun `短入参走缩进 JSON`() {
+        // Bash 那种 command + description：没有"正文型"字段，照旧
+        val body = bodyOf("""{"command":"ls -la","description":"看看目录"}""")
+
+        assertEquals("原始输入", body.caption)
+        assertTrue(body.text.contains("\n"), "缩进 JSON 该是多行的：${body.text}")
+        assertTrue(body.text.contains("\"command\": \"ls -la\""), body.text)
+    }
+
+    @Test
+    fun `多行脚本也算正文`() {
+        // 长度不到 200 但带换行 —— 一行转义同样读不了
+        val body = bodyOf("""{"command":"set -e\ncd /tmp\necho hi","description":"跑一段"}""")
+
+        assertTrue(body.text.startsWith("set -e\ncd /tmp"), "多行命令该按文本铺开：${body.text}")
+    }
+
+    @Test
+    fun `长正文给更高的行数`() {
+        val long = bodyOf("""{"plan":"${"字".repeat(300)}"}""")
+        val short = bodyOf("""{"command":"ls"}""")
+
+        assertTrue(long.rows > short.rows, "计划框该给得更高：${long.rows} vs ${short.rows}")
+        assertTrue(long.maxHeight > short.maxHeight)
+    }
+
+    @Test
+    fun `没有其余参数时不拼那一段`() {
+        val body = bodyOf("""{"plan":"${"字".repeat(300)}"}""")
+
+        assertFalse(body.text.contains("其余参数"), body.text)
+    }
 }
