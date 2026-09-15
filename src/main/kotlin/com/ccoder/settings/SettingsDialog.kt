@@ -1,6 +1,7 @@
 package com.ccoder.settings
 
 import com.intellij.openapi.project.Project
+import java.nio.file.Path
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -46,6 +47,7 @@ fun showSettingsDialog(project: Project) {
         settings = ClaudeSettings.getInstance(project),
         profiles = ModelProfiles.getInstance(),
         presets = PromptPresets.getInstance(),
+        mcpStatus = McpStatus.getInstance(project),
     ).show()
 }
 
@@ -81,9 +83,17 @@ internal class SettingsDialog(
     private val settings: ClaudeSettings,
     private val profiles: ModelProfiles,
     private val presets: PromptPresets,
+    private val mcpStatus: McpStatus,
+    /**
+     * 项目根。默认取 [project] 的 basePath。
+     *
+     * 可注入是为了让渲染探针指定一个临时目录 —— 它的假 Project 是个
+     * 什么都返回 null 的代理，不给这一项就画不出"能编辑"的那一屏。
+     */
+    private val baseDir: Path? = project?.basePath?.let { Path.of(it) },
 ) : DialogWrapper(project) {
 
-    /** 五页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
+    /** 六页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
     internal val pages: List<SettingsPage> = run {
         val models = ModelProfilesPage(settings, profiles)
         listOf(
@@ -94,10 +104,18 @@ internal class SettingsDialog(
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——
             // 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了
             EnvironmentSettingsPage(settings) { models.refreshConflictWarning() },
+            // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
+            McpSettingsPage(baseDir, mcpStatus),
         )
     }
 
     private var current: SettingsPage = pages.first()
+
+    override fun dispose() {
+        // 先让各页退订，再交给平台 —— 反过来的话，退订时可能碰到的组件已经没了
+        pages.forEach { it.dispose() }
+        super.dispose()
+    }
 
     /**
      * 页宿主。切页只换它里面的东西，四个组件本身缓存着不重建。

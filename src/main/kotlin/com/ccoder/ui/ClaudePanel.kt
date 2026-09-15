@@ -19,6 +19,7 @@ import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
 import com.ccoder.settings.EffortSetting
+import com.ccoder.settings.McpStatus
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.ModelProfiles
 import com.ccoder.settings.PermissionModeSetting
@@ -677,6 +678,38 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
     }
 
+    /**
+     * 问一次各 MCP server 的实时状态，写进 [McpStatus] 让设置页右栏显示。
+     *
+     * 与 [requestContextUsage] 同一条：失败**不往转写区插错误** —— 读不到状态
+     * 不值得打断用户，但要留痕，否则"面板那一栏一直空着"无从查起。
+     *
+     * 它是**本地控制请求**（不产生模型调用），所以开会话时问一次、打开设置前
+     * 再问一次都不心疼。问两次是因为侧重点不同：开会话那次给页面一个底，
+     * 打开设置那次保证用户看到的是"此刻"。
+     */
+    private fun requestMcpStatus() {
+        val c = client ?: return
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeMcpServerStatus(reqId)) { outcome ->
+            // 回调在读取线程上，碰服务虽不碰 Swing，但下面会触发监听器去改界面
+            ApplicationManager.getApplication().invokeLater {
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val report = outcome.message as? SidecarMessage.McpServers
+                        if (report == null) {
+                            LOG.warn("MCP 状态返回了意外的消息")
+                        } else {
+                            McpStatus.getInstance(project).set(report.servers)
+                        }
+                    }
+
+                    is RequestOutcome.Failed -> LOG.warn("读取 MCP 状态失败：${outcome.reason}")
+                }
+            }
+        }
+    }
+
     /** 唯一的连接状态写入口。文字变了，卡上的点与色跟着变。 */
     private fun setConnection(text: String) {
         connectionText = text
@@ -963,6 +996,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 才生效，与标签那儿的即时手感是两套规矩。
      */
     private fun openModelSettings() {
+        // 先把 MCP 状态问一遍：右栏读的是 McpStatus 服务，不先问就显示上一次的
+        requestMcpStatus()
         showSettingsDialog(project)
         refreshModelLabel()
         applySavedSettingsToSession()
@@ -1893,6 +1928,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // 用量也问一次：恢复的会话在这里就能拿到真数（含分母），
                     // 新会话则拿到"0 + 窗口"，卡片不用先显示一轮的空白
                     requestContextUsage()
+                    // MCP 状态也问一次：设置页右栏读的是 McpStatus 服务，
+                    // 不先给个底的话，用户点开设置看到的永远是"还没拿到"
+                    requestMcpStatus()
 
                     val resuming = resumeTargetId
                     if (resuming != null) {
@@ -2106,6 +2144,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 is SidecarMessage.Exit -> {
                     setConnection("已结束")
                     ready = false
+                    // 会话没了，上一份 MCP 状态就不作数了 —— 留着的话，
+                    // 用户切到新会话后右栏还在显示上一个会话的 server，
+                    // 那比空着更糟：它看起来是"当前"的
+                    McpStatus.getInstance(project).clear()
                     setBusy(false)
                     refreshMainButton()
                 }

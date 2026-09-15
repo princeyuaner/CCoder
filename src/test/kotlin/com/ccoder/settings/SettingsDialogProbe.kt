@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.sidecar.McpServerStatus
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBPasswordField
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -15,6 +16,7 @@ import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import java.lang.reflect.Proxy
+import java.nio.file.Files
 import javax.imageio.ImageIO
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
@@ -327,6 +329,31 @@ class SettingsDialogProbe {
         page = "预置",
     )
 
+    /**
+     * MCP 页。**故意让左右两栏对不齐**：文件里有两条，会话里有三条
+     * （其中一条是用户全局配的、根本不在这个文件里）。
+     * 这正是这一页最需要让人看懂的事 —— 对不齐是正常的。
+     */
+    @Test
+    fun `把 MCP 页画成图片`() = render(
+        "build/probe/settings-mcp.png",
+        page = "MCP",
+        mcpFile = """
+            {
+              "mcpServers": {
+                "codegraph": { "command": "npx", "args": ["-y", "codegraph"] },
+                "项目内的": { "type": "sse", "url": "https://example.com/sse" }
+              }
+            }
+        """.trimIndent(),
+        mcpServers = listOf(
+            McpServerStatus("codegraph", "failed", "user", "MCP error -32000: Connection closed", emptyList()),
+            McpServerStatus("项目内的", "pending", "project", null, emptyList()),
+            McpServerStatus("我自己全局配的", "connected", "user", null, listOf("t1", "t2", "t3")),
+        ),
+        clicking = "codegraph",
+    )
+
     private fun render(
         path: String,
         profiles: List<ModelProfile> = emptyList(),
@@ -346,6 +373,10 @@ class SettingsDialogProbe {
         /** 停在哪个页签上。默认是「模型」—— 齿轮点开就落在那儿。 */
         page: String = "模型",
         presets: List<PromptPreset> = emptyList(),
+        /** 写进临时项目根的 `.mcp.json`。null = 那份文件不存在。 */
+        mcpFile: String? = null,
+        /** 会话里的实时状态。空 = 还没拿到过。 */
+        mcpServers: List<McpServerStatus> = emptyList(),
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -354,11 +385,18 @@ class SettingsDialogProbe {
                 select(selected)
             }
             val settings = settingsWith(envOverrides, claudePath, model, extraDirs, permissionMode)
+            // 一个临时项目根：MCP 页要往它下面写 `.mcp.json`。
+            // 用真目录而不是假的 —— 这一页的读写路径本身就是被测对象
+            val base = Files.createTempDirectory("ccoder-settings-probe")
+            mcpFile?.let { Files.writeString(base.resolve(".mcp.json"), it) }
+            val mcpStatus = McpStatus().apply { if (mcpServers.isNotEmpty()) set(mcpServers) }
             val dialog = SettingsDialog(
                 fakeProject(),
                 settings,
                 service,
                 PromptPresets().apply { presets.forEach { upsert(it) } },
+                mcpStatus,
+                base,
             )
 
             // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()
@@ -443,7 +481,7 @@ class SettingsDialogSaveTest {
         lateinit var service: ModelProfiles
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
-            dialog = SettingsDialog(fakeProject(), settingsWith(), service, PromptPresets())
+            dialog = SettingsDialog(fakeProject(), settingsWith(), service, PromptPresets(), McpStatus())
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }
         return dialog to service

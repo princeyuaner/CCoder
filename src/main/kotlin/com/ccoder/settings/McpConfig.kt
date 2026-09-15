@@ -125,6 +125,39 @@ private fun parseMcpServer(name: String, obj: JsonObject): McpServer? {
 
 // ---- 本文件私有的 JSON 取值辅助（仓库里已有三份同样的，各自私有）----
 
+// ---- 界面上那两栏多行文本的转换（纯函数，单测直接打）----
+//
+// 用多行文本而不是表格：表格在 240px 宽的栏里要三列才放得下（键、值、删），
+// 而这两栏的内容通常只有两三行。代价是用户得知道格式 —— 所以页面上有提示语。
+
+/** 一行一条参数，空行丢掉。 */
+fun argsOf(text: String): MutableList<String> =
+    text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+
+fun textOfArgs(args: List<String>): String = args.joinToString("\n")
+
+/**
+ * 一行一条 `KEY=VALUE`，**没有等号的行丢掉**。
+ *
+ * 丢掉而不是当成"值是空"：用户多半是在打字中间态（`FOO` 还没敲完等号），
+ * 当成键会凭空多出一条空值记录。与 `EnvironmentSettingsPage.readPairs` 同一条规矩。
+ */
+fun pairsOf(text: String): MutableMap<String, String> {
+    val out = linkedMapOf<String, String>()
+    text.lineSequence().forEach { line ->
+        val trimmed = line.trim()
+        val at = trimmed.indexOf('=')
+        if (at > 0) {
+            val key = trimmed.substring(0, at).trim()
+            if (key.isNotEmpty()) out[key] = trimmed.substring(at + 1).trim()
+        }
+    }
+    return out
+}
+
+fun textOfPairs(pairs: Map<String, String>): String =
+    pairs.entries.joinToString("\n") { (k, v) -> "$k=$v" }
+
 private fun JsonObject.str(key: String): String? =
     get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
 

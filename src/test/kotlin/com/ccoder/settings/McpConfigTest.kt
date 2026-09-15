@@ -144,4 +144,32 @@ class McpConfigTest {
         assertTrue(config.servers.isEmpty())
         assertTrue(config.preserved.isEmpty())
     }
+
+    // ---- 界面上那两栏多行文本的转换 ----
+
+    @Test
+    fun `多行文本与列表互转，空行去掉`() {
+        assertEquals(listOf("a", "b"), argsOf("a\n\n  b  \n"))
+        assertEquals("a\nb", textOfArgs(listOf("a", "b")))
+    }
+
+    @Test
+    fun `没有等号的行丢掉，不当成空值`() {
+        // 用户多半正打在中间态（`FOO` 还没敲完等号），当成键会凭空多出一条空值记录
+        val pairs = pairsOf("A=1\nFOO\nB=2\n=3")
+
+        assertEquals(mapOf("A" to "1", "B" to "2"), pairs)
+    }
+
+    @Test
+    fun `键值对只切第一个等号 —— 值里可能有等号`() {
+        assertEquals(mapOf("TOKEN" to "a=b=c"), pairsOf("TOKEN=a=b=c"))
+    }
+
+    @Test
+    fun `键值对转回文本是稳定的`() {
+        val pairs = linkedMapOf("A" to "1", "B" to "2")
+        assertEquals("A=1\nB=2", textOfPairs(pairs))
+        assertEquals(pairs, pairsOf(textOfPairs(pairs)))
+    }
 }
