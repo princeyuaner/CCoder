@@ -661,6 +661,7 @@ function fakeSessionApi({
   deleteFails = false,
   updateError = null,
   subagentError = null,
+  historyItems = null,
 } = {}) {
   const calls = [];
   return {
@@ -679,7 +680,7 @@ function fakeSessionApi({
       getSessionMessages: async (sid, opts) => {
         calls.push(['getSessionMessages', sid, opts]);
         if (historyError) throw new Error(historyError);
-        return [{ type: 'user', message: { role: 'user', content: '你好' } }];
+        return historyItems ?? [{ type: 'user', message: { role: 'user', content: '你好' } }];
       },
       // **位置参数**：SDK 的签名是 (sessionId, options)。签名写错了假实现
       // 照样"成功"，所以这里的形状必须和真的一模一样
@@ -813,6 +814,37 @@ test('loadHistory 把条目原样透传', () => {
     assert.equal(msg.items.length, 1);
     assert.equal(msg.items[0].type, 'user');
     assert.deepEqual(fa.calls[0], ['getSessionMessages', 'sess-1', { dir: '/proj' }]);
+  });
+});
+
+test('loadHistory 里超预算的图会被裁掉，并在那条消息里说明', () => {
+  // 预算在 history-images.js：从**最新**的往回数。CLI 把图原样存着（完整
+  // base64），不裁的话一个用过两周的会话就是几十 MB 的一行 JSON
+  const img = (n) => ({
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(n) },
+  });
+  const out = [];
+  const fa = fakeSessionApi({
+    historyItems: [
+      { type: 'user', message: { role: 'user', content: [img(7 * 1024 * 1024), { type: 'text', text: '早的' }] } },
+      { type: 'user', message: { role: 'user', content: [img(1024), { type: 'text', text: '晚的' }] } },
+    ],
+  });
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r2', method: 'loadHistory', params: { dir: '/proj', sessionId: 'sess-1' } });
+
+  return tick().then(() => {
+    const items = out.find((m) => m.type === 'history').items;
+    const types = (i) => i.map((b) => b.type);
+    assert.deepEqual(types(items[0].message.content), ['text', 'text'], '7M 那张超出预算，丢掉');
+    assert.match(items[0].message.content[1].text, /更早的 1 张图已省略/);
+    assert.deepEqual(types(items[1].message.content), ['image', 'text'], '最新的那张必须留下');
   });
 });
 
