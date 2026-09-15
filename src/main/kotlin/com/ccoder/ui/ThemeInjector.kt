@@ -24,6 +24,8 @@ data class ThemeColors(
     val diffAddFg: Color,
     /** 标题行上 `−1`、以及"失败"标记的颜色。 */
     val diffDelFg: Color,
+    /** 思考正文的颜色：浅黄，但由文本色混出，随主题自动变（见 [PlatformTheme]）。 */
+    val thinkingFg: Color,
     val fontUi: Font,
     val fontMono: Font,
 )
@@ -56,6 +58,7 @@ object ThemeInjector {
         append(" --diff-del-bg: ${colors.diffDelBg.hex()};")
         append(" --diff-add-fg: ${colors.diffAddFg.hex()};")
         append(" --diff-del-fg: ${colors.diffDelFg.hex()};")
+        append(" --thinking-fg: ${colors.thinkingFg.hex()};")
         append(" --font-ui: ${colors.fontUi.css()};")
         append(" --font-mono: ${colors.fontMono.css()};")
         append(" }")
@@ -116,6 +119,7 @@ object PlatformTheme {
             diffDelBg = mix(bg, Color(0xE0, 0x54, 0x54), 0.16),
             diffAddFg = mix(text, Color(0x4C, 0xAF, 0x50), 0.60),
             diffDelFg = mix(text, Color(0xE0, 0x54, 0x54), 0.60),
+            thinkingFg = mix(text, THINK_FG, 0.70),
             fontUi = UIUtil.getLabelFont(),
             fontMono = EditorColorsManager.getInstance().globalScheme
                 .getFont(EditorFontType.PLAIN),
@@ -152,4 +156,14 @@ object PlatformTheme {
     }
 
     private const val SURFACE_MIN_DISTANCE = 24
+
+    /**
+     * 思考正文的黄。
+     *
+     * **不写死在 CSS 里**：浅色主题下浅黄压白底等于看不见。所以与 diff 那两套
+     * 颜色同一个做法 —— 从**文本色**混出来：深色主题下是浅黄，浅色主题下自动
+     * 变成橄榄金。混 0.70 是在深色主题下量过的：约 6.1:1，比正文还清楚一点，
+     * 又明显区别于正文的灰白。
+     */
+    private val THINK_FG = Color(0xE5, 0xC0, 0x7B)
 }

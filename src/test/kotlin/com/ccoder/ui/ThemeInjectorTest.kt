@@ -21,6 +21,7 @@ class ThemeInjectorTest {
         diffDelBg = Color(0x33222A),
         diffAddFg = Color(0x5FAD65),
         diffDelFg = Color(0xDB5C5C),
+        thinkingFg = Color(0xD8BE8E),
         fontUi = Font("JetBrains Sans", Font.PLAIN, 13),
         fontMono = Font("JetBrains Mono", Font.PLAIN, 13),
     )
@@ -40,6 +41,7 @@ class ThemeInjectorTest {
             "--bg", "--text", "--text-dim", "--border", "--accent",
             "--surface", "--code-bg", "--error-bg",
             "--diff-add-bg", "--diff-del-bg", "--diff-add-fg", "--diff-del-fg",
+            "--thinking-fg",
             "--font-ui", "--font-mono",
         )) {
             assertTrue(css.contains("$name:"), "缺少变量 $name")
