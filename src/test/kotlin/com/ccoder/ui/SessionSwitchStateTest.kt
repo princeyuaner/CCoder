@@ -80,9 +80,13 @@ class SessionSwitchStateTest {
         SessionInfo("s1", summary, firstPrompt, 0L)
 
     @Test
-    fun `标题三级降级`() {
-        assertEquals("这是摘要", sessionTitle(info(summary = "这是摘要", firstPrompt = "首问")))
-        assertEquals("首问", sessionTitle(info(summary = "  ", firstPrompt = "首问")))
+    fun `标题三级降级 —— 自己说的第一句优先于 CLI 的摘要`() {
+        // 2026-09-15 用户要求把顺序改成 firstPrompt 优先。summary 是 CLI 给的、
+        // 可能随会话内容变化 —— 那样名字会飘，认不出是哪条会话；
+        // 自己说的第一句是稳的，也与 titleFromFirstMessage 那条规矩一致
+        assertEquals("首问", sessionTitle(info(summary = "这是摘要", firstPrompt = "首问")))
+        // 没有第一句时才轮到摘要
+        assertEquals("这是摘要", sessionTitle(info(summary = "这是摘要", firstPrompt = "  ")))
         assertEquals("（无标题）", sessionTitle(info(summary = "", firstPrompt = null)))
     }
 
@@ -257,8 +261,8 @@ class SessionSwitchStateTest {
         // 标签的显示规则是"有标题显示标题，没有显示斜体「新会话」"。
         // 这里若给「（无标题）」，打开一个无标题的会话会把标签写成一个
         // 看起来像真标题的东西 —— 那是列表行的占位，不是标签的
-        assertEquals("这是摘要", sessionLabelTitle(info(summary = "这是摘要", firstPrompt = "首问")))
-        assertEquals("首问", sessionLabelTitle(info(summary = "  ", firstPrompt = "首问")))
+        assertEquals("首问", sessionLabelTitle(info(summary = "这是摘要", firstPrompt = "首问")))
+        assertEquals("这是摘要", sessionLabelTitle(info(summary = "这是摘要", firstPrompt = "  ")))
         assertNull(sessionLabelTitle(info(summary = "", firstPrompt = null)))
     }
 

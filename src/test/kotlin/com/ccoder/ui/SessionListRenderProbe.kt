@@ -124,7 +124,10 @@ class SessionListRenderProbe {
         tagged: Boolean = false,
     ) {
         val sessions = listOf(
-            SessionInfo("s1", "还可以做什么功能", null, now - 30_000),
+            // s1 **两句都有**：显示的是自己说的第一句（firstPrompt 优先于 summary，
+            // 2026-09-15 改的顺序）。这一条是那张图上唯一能看出该规则的样本 ——
+            // 其余都只有一句，改前改后长得一样
+            SessionInfo("s1", "还可以做什么功能", "这是什么项目", now - 30_000),
             // 这一条是全列表最长的标题 —— 挤掉时间的嫌疑就落在它身上
             SessionInfo("s2", "PyCharm插件调用Claude Code", null, now - 3_600_000),
             SessionInfo("s3", null, "你好", now - 90_000_000),

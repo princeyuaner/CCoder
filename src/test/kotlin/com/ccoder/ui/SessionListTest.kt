@@ -79,10 +79,26 @@ class SessionListTest {
     // ---- 内容 ----
 
     @Test
-    fun `标题缺失时回退到首个提问`() {
+    fun `自己说的第一句优先于 CLI 的摘要`() {
         val texts = textsIn(buildSessionList(sessions, "s1", SwitchBlock.None) {})
-        assertTrue(texts.any { it.contains("PyCharm插件调用Claude Code") })
-        assertTrue(texts.any { it.contains("你好") }, "s3 没有 summary，该退回 firstPrompt")
+
+        // s1 两句都有（summary=还可以做什么功能 / firstPrompt=这是什么项目）：
+        // 显示的是**自己的第一句**。summary 是 CLI 给的、会随会话内容变化，
+        // 拿它当名字会飘（2026-09-15 用户要求改的顺序）
+        assertTrue(texts.any { it.contains("这是什么项目") }, "s1 该显示自己的第一句")
+        assertFalse(texts.any { it.contains("还可以做什么功能") }, "s1 不该显示 CLI 的摘要")
+
+        // 反方向也要兜住：没有第一句时才轮到摘要（s2 的 firstPrompt 是 null）
+        assertTrue(texts.any { it.contains("PyCharm插件调用Claude Code") }, "s2 该退回摘要")
+    }
+
+    @Test
+    fun `两句都没有时给占位，不留空白行`() {
+        val bare = listOf(SessionInfo("s9", null, null, 0L))
+
+        val texts = textsIn(buildSessionList(bare, "s9", SwitchBlock.None) {})
+
+        assertTrue(texts.any { it.contains("（无标题）") }, "空白行看起来像渲染坏了")
     }
 
     @Test
@@ -128,7 +144,7 @@ class SessionListTest {
         val picked = mutableListOf<String>()
         val list = buildSessionList(sessions, "s1", SwitchBlock.None) { picked += it.sessionId }
         val row = list.components.filterIsInstance<JComponent>()[0]
-        val title = textsAndComponents(row).first { it.text.contains("还可以做什么功能") }
+        val title = textsAndComponents(row).first { it.text.contains("这是什么项目") }
 
         click(title)
 
@@ -345,13 +361,14 @@ class SessionListTest {
     fun `标题优先用用户自己起的名字`() {
         // 改完名回到列表还显示那句自动摘要的话，改名就白改了
         assertEquals("我的名字", sessionLabelTitle(sessions[0].copy(customTitle = "我的名字")))
-        assertEquals("还可以做什么功能", sessionLabelTitle(sessions[0]), "没改过名就还是摘要")
+        // 没改过名时用**自己说的第一句**，不是 CLI 的摘要（2026-09-15 改的顺序）
+        assertEquals("这是什么项目", sessionLabelTitle(sessions[0]), "没改过名时该用自己的第一句")
     }
 
     @Test
     fun `双击标题就地改名，双击处换成输入框`() {
         val list = buildSessionList(sessions, currentSessionId = null, block = SwitchBlock.None)
-        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
 
         doubleClick(title)
 
@@ -359,14 +376,14 @@ class SessionListTest {
             jTextFieldsIn(list).isNotEmpty(),
             "双击之后应该有一个输入框接住输入",
         )
-        assertEquals("还可以做什么功能", jTextFieldsIn(list).first().text, "预填原来的名字")
+        assertEquals("这是什么项目", jTextFieldsIn(list).first().text, "预填原来的名字")
     }
 
     @Test
     fun `单击标题不会进改名 —— 那一下是切换会话`() {
         var picked: String? = null
         val list = buildSessionList(sessions, currentSessionId = null, block = SwitchBlock.None) { picked = it.sessionId }
-        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
 
         click(title)
 
@@ -380,7 +397,7 @@ class SessionListTest {
         val list = buildSessionList(
             sessions, currentSessionId = null, block = SwitchBlock.PermissionPending,
         )
-        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
 
         doubleClick(title)
 
@@ -394,7 +411,7 @@ class SessionListTest {
             sessions, currentSessionId = null, block = SwitchBlock.None,
             onRename = { s, t -> renamed = s.sessionId to t },
         )
-        val title = textsAndComponents(list).first { it.text == "还可以做什么功能" }
+        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
         doubleClick(title)
 
         val field = jTextFieldsIn(list).first().apply { text = "新名字" }
@@ -410,7 +427,7 @@ class SessionListTest {
             sessions, currentSessionId = null, block = SwitchBlock.None,
             onRename = { s, t -> renamed = s.sessionId to t },
         )
-        doubleClick(textsAndComponents(list).first { it.text == "还可以做什么功能" })
+        doubleClick(textsAndComponents(list).first { it.text == "这是什么项目" })
 
         jTextFieldsIn(list).first().postActionEvent()   // 原样回车
 

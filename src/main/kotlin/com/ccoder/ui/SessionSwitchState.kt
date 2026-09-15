@@ -83,7 +83,7 @@ internal fun titleSnippet(text: String): String {
 }
 
 /**
- * 列表行的标题。summary 优先，退回 firstPrompt，都没有给占位。
+ * 列表行的标题。firstPrompt 优先，退回 summary，都没有给占位。
  *
  * 空白行看起来像渲染坏了，不如直说。列表行与删除确认语共用这一个 ——
  * 两处各写一遍，改一处漏一处，确认语里说的名字就会和那一行显示的不是同一个。
@@ -94,8 +94,15 @@ internal fun sessionTitle(session: SessionInfo): String =
 /**
  * 会话标签上的名字：有标题给标题，没有给 null。
  *
+ * 顺序是 **customTitle > firstPrompt > summary**（2026-09-15 用户要求）。
+ *
  * **用户自己起的名字压过一切** —— 改名之后回到列表还显示那句自动摘要，
  * 那个改名就白改了。
+ *
+ * 自动那一路**自己说的第一句优先**，与 [titleFromFirstMessage] 是同一条规矩
+ * （用户当时的原话：「会话的标题应该用聊天的第一个字」）。而 `summary` 是
+ * **CLI 给的**、并且可能随着会话内容变化 —— 那样名字会飘，认不出是哪条会话。
+ * 自己说的第一句是稳的。
  *
  * 与 [sessionTitle] 分开，是因为"没有标题"在两处的含义不同：列表行需要一个
  * 占位（空白行看起来像渲染坏了），标签需要的是 null —— 它显示的是斜体的
@@ -104,8 +111,8 @@ internal fun sessionTitle(session: SessionInfo): String =
  */
 internal fun sessionLabelTitle(session: SessionInfo): String? =
     session.customTitle?.takeIf { it.isNotBlank() }?.let(::titleSnippet)
-        ?: session.summary?.takeIf { it.isNotBlank() }?.let(::titleSnippet)
         ?: session.firstPrompt?.takeIf { it.isNotBlank() }?.let(::titleSnippet)
+        ?: session.summary?.takeIf { it.isNotBlank() }?.let(::titleSnippet)
 
 /**
  * 刚发出去的那条消息要不要认成会话标题。null = 不认。
