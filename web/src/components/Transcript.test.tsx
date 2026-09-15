@@ -319,9 +319,24 @@ describe('Transcript 滚动跟随', () => {
     view.rerender(<Transcript state={state(first, second)} />)
 
     expect(m.top()).toBe(200)
-    // 按钮出现是"暂停已被登记"的可观察证据。没有这一条，本用例在完全未实现时
-    // 也会通过 —— "不移动视口"与"什么都不做"无法区分。
+    // `data-new` 是"暂停已被登记"的可观察证据：它只在 layout effect 的暂停分支里
+    // 被置起。**不能拿"按钮在不在"当证据** —— 滚上去之后按钮本来就会在
+    // （2026-09-15 改），那时本用例在完全未实现时也会通过："不移动视口"与
+    // "什么都不做"分不开。
+    expect(screen.getByTestId('jump-to-bottom')).toHaveAttribute('data-new', 'true')
+  })
+
+  it('滚上去但一条新内容都没来时，按钮也在（滚上去就是想回来）', () => {
+    // 2026-09-15 用户报"回到底部的按钮现在怎么不显示了"——旧条件是
+    // `!stick && hasNewWhilePaused`，所以"答完之后往上翻旧内容"时它不出现，
+    // 而那正是用户最想点它的时候。
+    const { el, m } = setup(first)
+
+    m.setTop(200)
+    fireEvent.scroll(el)
+
     expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+    expect(screen.getByTestId('jump-to-bottom')).toHaveAttribute('data-new', 'false')
   })
 
   it('用户滚回底部附近时跟随自动恢复', () => {
@@ -338,21 +353,22 @@ describe('Transcript 滚动跟随', () => {
     expect(m.top()).toBe(1200)
   })
 
-  it('暂停期间到达新内容时浮出「回到底部」，点击后恢复跟随并滚到底', async () => {
+  it('暂停期间到达新内容时按钮上加小圆点，点击后恢复跟随并滚到底', async () => {
     const user = userEvent.setup()
     const { view, el, m } = setup(first)
 
     m.setTop(200)
     fireEvent.scroll(el)
 
-    // 暂停但还没有新内容 —— 按钮不出现
-    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+    // 暂停但还没有新内容 —— 按钮就在了（滚上去就该点得到），只是没有小圆点
+    expect(screen.getByTestId('jump-to-bottom')).toHaveAttribute('data-new', 'false')
 
     m.growTo(1400)
     view.rerender(<Transcript state={state(first, second)} />)
 
-    // 有新内容仍未打扰视口，但按钮浮出
+    // 有新内容仍未打扰视口，小圆点出现
     expect(m.top()).toBe(200)
+    expect(screen.getByTestId('jump-to-bottom')).toHaveAttribute('data-new', 'true')
     await user.click(screen.getByTestId('jump-to-bottom'))
 
     expect(m.top()).toBe(1400)

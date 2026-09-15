@@ -105,6 +105,19 @@ body {
   border-color: var(--accent, #4a88c7);
 }
 
+/* 暂停期间又来了新内容：按钮上多一个小圆点。
+   按钮本身只要离开底部就在（2026-09-15 改），所以圆点承担的才是"有新东西"。
+   颜色用主题的强调色，不写死。 */
+.jump-to-bottom__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent, #4a88c7);
+  vertical-align: 1px;
+}
+
 /* ---- 气泡（设计文档 §4.2）---- */
 
 .row {

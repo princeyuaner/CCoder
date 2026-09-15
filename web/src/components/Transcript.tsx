@@ -234,14 +234,24 @@ export function Transcript({ state }: { state: TranscriptState }) {
         )}
       </div>
 
-      {!stick && hasNewWhilePaused && (
+      {/* 只要离开底部就浮出来 —— 用户滚上去多半就是想回来，那时按钮必须点得到
+          （2026-09-15 用户报"回到底部的按钮现在怎么不显示了"：原来的条件是
+          `!stick && hasNewWhilePaused`，滚上去但没新内容时它按设计不出现）。
+
+          这期间**又来了新内容**的话多一个小圆点。它同时是"暂停已被登记"的精确
+          证据：`data-new` 只在那个 layout effect 的暂停分支里被置起，单测盯它
+          （见 Transcript.test.tsx）—— 否则"不移动视口"与"什么都没做"分不开。 */}
+      {!stick && (
         <button
           type="button"
           className="jump-to-bottom"
           data-testid="jump-to-bottom"
+          data-new={hasNewWhilePaused}
+          aria-label={hasNewWhilePaused ? '回到底部（有新内容）' : '回到底部'}
           onClick={jumpToBottom}
         >
           回到底部
+          {hasNewWhilePaused && <span className="jump-to-bottom__dot" aria-hidden="true" />}
         </button>
       )}
     </div>
