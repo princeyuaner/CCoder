@@ -19,7 +19,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
-    <h3>0.2.14</h3>
+    <h3>0.2.15</h3>
     <ul>
       <li>Preset prompts: save your own reusable prompts in Settings, then type / in the input box to pick one. The "预设" (Presets) group is listed first.</li>
       <li>MCP panel: read and edit the project-level .mcp.json. The right-hand column shows the connection status and the error reason of every server in the current session.</li>
@@ -27,6 +27,7 @@
       <li>Session list: sessions are named after your own first message (the CLI's auto-summary takes a back seat), and the list is now flush with the panel's left edge.</li>
       <li>While Claude writes a file, the status card now says what it is writing. It used to stay silent for 3.6 seconds, which looked like a hang.</li>
       <li>Diffs are no longer drawn on the tool card itself. They appear when the card is expanded.</li>
+      <li>Thinking text is now light yellow. It used to be dimmed twice over and was hard to read.</li>
     </ul>
 
     <h4>中文</h4>
@@ -37,6 +38,7 @@
       <li>会话列表：名字改用你自己说的第一句（CLI 的自动摘要退居其次），并一律贴面板左边缘。</li>
       <li>让 Claude 写文件的那几秒，状态卡提前说明在写什么。此前会静默 3.6 秒，看着像卡住。</li>
       <li>工具卡上的 diff 不再直接铺在卡面上，展开才画。</li>
+      <li>思考正文改成浅黄，从此前偏淡、看不清的状态调亮。</li>
     </ul>
     ]]></change-notes>
 
