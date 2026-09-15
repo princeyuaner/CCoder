@@ -552,13 +552,22 @@ body {
 }
 
 /* 转圈。工具卡片的"进行中"与思考块的"思考中"共用 —— 两处要表达的是同一件事：
-   它还在动。inline-block 是为了让它也能用在非 flex 的标题里（折叠块的标题）。 */
+   它还在动。inline-block 是为了让它也能用在非 flex 的标题里（折叠块的标题）。
+ *
+ * **尺寸与轨道是 2026-09-15 调过的**：用户先后报了两处"转圈不明显"（先等待中的
+ * 思考，再工具调用），两处用的是同一个圈。原来 12px、1.5px 边，轨道用 --border
+ * —— 那几乎与背景同色，屏幕上只剩一小段很淡的弧在动。现在 14px、2px 边，轨道
+ * --text-dim（一圈看得见的底环），转动的头仍是 --accent。
+ *
+ * ⚠ 14px 不是随便定的：状态位的勾、叉、⊘ 也是 14px（见下面三条）。四个尺寸必须
+ * 一致 —— 工具跑完时圈会换成勾，不一样大标题就会左右跳一下（.tool__status 那条
+ * 注释说的就是这件事）。 */
 .spin {
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  border: 1.5px solid var(--border, #393b40);
+  border: 2px solid var(--text-dim, #8c8c8c);
   border-top-color: var(--accent, #548af7);
   animation: spin 0.8s linear infinite;
 }
@@ -569,9 +578,11 @@ body {
   }
 }
 
+/* ⚠ 下面这四个尺寸必须与 .spin 一致（都是 14px）：状态位的图形是替换关系，
+   差 1px 就会让标题在工具跑完的那一刻左右跳一下 */
 .tool__check {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 .tool__check path {
@@ -586,8 +597,8 @@ body {
  * 线条细（1.6），因为它不是错；这个是实实在在的失败，红且实（2.0）。
  * 红色用 --diff-del-fg —— 与卡片上那个 `−1` 同一个红。 */
 .tool__x {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 .tool__x line {
@@ -598,8 +609,8 @@ body {
 }
 
 .tool__abort {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   opacity: 0.55;
 }
 
@@ -612,8 +623,10 @@ body {
 
 .tool__time {
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
-  color: var(--text-dim, #8c8c8c);
+  font-size: 11px;
+  /* 2026-09-15：原来是 10px 的 --text-dim —— 比标题更小、还是那口灰，
+     用户报"工具调用里的转圈和时间显示也不明显"。时间是要读的信息，提到正文色。 */
+  color: var(--text, #dcdcdc);
   /* 等宽数字：9s 跳到 10s 时不让标题抖一下 */
   font-variant-numeric: tabular-nums;
 }
@@ -648,12 +661,8 @@ body {
 .live-think__spin {
   margin-right: 5px;
   vertical-align: -3px;
-  width: 14px;
-  height: 14px;
-  border-width: 2px;
-  /* 轨道换成 --text-dim：从"几乎看不见"变成一圈看得见的底环 */
-  border-color: var(--text-dim, #8c8c8c);
-  /* 转动的头用思考块自己的浅黄 —— 这一小块整体就成了"等待中"的信号 */
+  /* 尺寸与轨道都在 .spin 里（两处共用同一套）；这里只换"转动的头"的颜色 ——
+     用思考块自己的浅黄，于是这一小块整体成了"等待中"的信号 */
   border-top-color: var(--thinking-fg, #d7ba7d);
 }
 
