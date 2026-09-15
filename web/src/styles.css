@@ -332,6 +332,40 @@ body {
   font-size: 9px;
 }
 
+/* 工具徽标的色调。图形用 currentColor 画，所以色号只在这一处给。
+ *
+ * 按**类别**分（读 / 写 / 跑 / 联网 / 任务 / 提问），不按工具分 —— 十几个工具
+ * 各一个色就是彩虹，而"蓝=读、绿=写、琥珀=跑"扫一眼就能归类。
+ *
+ * 蓝与绿取自主题（与产品强调色、diff 的绿同一支）；琥珀与青是固定值：
+ * New UI 的注入变量里没有这两支，而它们都是中间调，深浅主题下都读得出来。
+ * 认不出的工具（MCP 那些）退回次要色 —— 它显示的是首字母，不该抢眼。
+ */
+.tool__badge--read  { color: var(--accent, #548af7); }
+.tool__badge--write { color: var(--diff-add-fg, #5fad65); }
+.tool__badge--run   { color: #d9a343; }
+.tool__badge--net   { color: #3fa7c4; }
+.tool__badge--task  { color: #a06bd4; }
+.tool__badge--ask   { color: var(--accent, #548af7); }
+.tool__badge--other { color: var(--text-dim, #8c8c8c); }
+
+/* 有色调时边框跟着走 —— 15px 的小方块里，边框是唯一能把颜色放大的地方。
+   描边用同色但压淡一档：和图形一样重的话，方块会变成一块实心色斑 */
+.tool__badge[class*='tool__badge--'] {
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+/* 徽标里的图形。尺寸按 12×12 的模子画好再缩到这里 */
+.tool__glyph {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .tool__name {
   flex: 0 0 auto;
   font-family: var(--font-mono, monospace);

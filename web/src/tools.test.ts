@@ -6,6 +6,7 @@ import {
   toolFile,
   toolParams,
   toolTitle,
+  toolBadgeOf,
 } from './tools'
 
 /**
@@ -207,5 +208,45 @@ describe('toolDelta', () => {
 
   it('其他工具没有这个概念', () => {
     expect(toolDelta('Bash', JSON.stringify({ command: 'ls' }))).toBeNull()
+  })
+})
+
+describe('toolBadgeOf', () => {
+  it('Bash 是终端图形，归"跑"那一档', () => {
+    expect(toolBadgeOf('Bash')).toEqual({ glyph: 'terminal', tone: 'run' })
+  })
+
+  it('读类：Read 稿纸、Glob 星号、Grep 放大镜 —— 同一个色调', () => {
+    // 三个形状各说各的"怎么找的"，颜色则把"都是读"这件事说出来
+    expect(toolBadgeOf('Read')).toEqual({ glyph: 'doc', tone: 'read' })
+    expect(toolBadgeOf('Glob')).toEqual({ glyph: 'asterisk', tone: 'read' })
+    expect(toolBadgeOf('Grep')).toEqual({ glyph: 'search', tone: 'read' })
+  })
+
+  it('写类：Write 是新建、Edit 与 MultiEdit 是铅笔', () => {
+    expect(toolBadgeOf('Write')).toEqual({ glyph: 'newfile', tone: 'write' })
+    expect(toolBadgeOf('Edit')).toEqual({ glyph: 'pencil', tone: 'write' })
+    expect(toolBadgeOf('MultiEdit')).toEqual({ glyph: 'pencil', tone: 'write' })
+    expect(toolBadgeOf('NotebookEdit')).toEqual({ glyph: 'pencil', tone: 'write' })
+  })
+
+  it('任务与提问各归各的档', () => {
+    expect(toolBadgeOf('Task')).toEqual({ glyph: 'agent', tone: 'task' })
+    expect(toolBadgeOf('TodoWrite')).toEqual({ glyph: 'checklist', tone: 'task' })
+    expect(toolBadgeOf('TaskCreate')).toEqual({ glyph: 'checklist', tone: 'task' })
+    expect(toolBadgeOf('AskUserQuestion')).toEqual({ glyph: 'bubble', tone: 'ask' })
+  })
+
+  it('联网那两条都走地球', () => {
+    expect(toolBadgeOf('WebFetch')).toEqual({ glyph: 'globe', tone: 'net' })
+    expect(toolBadgeOf('WebSearch')).toEqual({ glyph: 'globe', tone: 'net' })
+  })
+
+  it('认不出的给 null —— 卡片退回工具名首字母', () => {
+    // MCP 工具的名字本身带着信息（哪个 server、哪个 tool），
+    // 硬塞一个"未知"图形反而把那点信息盖掉了
+    expect(toolBadgeOf('mcp__foo__bar')).toBeNull()
+    expect(toolBadgeOf('SomeFutureTool')).toBeNull()
+    expect(toolBadgeOf('')).toBeNull()
   })
 })

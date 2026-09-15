@@ -147,7 +147,12 @@ function buildPage(scenario) {
     const file = i % 2 === 0
     d.innerHTML = '<div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
       '<span class="tool__chevron is-open">▸</span>' +
-      '<span class="tool__badge">B</span>' +
+      // 徽标从"首字母"换成了图形 + 色调（2026-09-15），这里照抄 ToolCallBlock
+      // 的新结构 —— 它对几何没有影响（仍是固定的 15px 方块），但探针既然
+      // 号称"DOM 结构照抄"，就不能留着一个已经不存在的结构
+      '<span class="tool__badge tool__badge--run">' +
+      '<svg class="tool__glyph" viewBox="0 0 12 12">' +
+      '<path d="M2.6 3.2 L5.4 5.6 L2.6 8"/><path d="M6.4 8.4 h3.2"/></svg></span>' +
       '<span class="tool__name">Bash</span>' +
       (file
         ? '<button type="button" class="tool__title tool__file">' +

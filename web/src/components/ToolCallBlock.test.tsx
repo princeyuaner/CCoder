@@ -357,3 +357,34 @@ describe('工具状态', () => {
     }
   })
 })
+
+// 徽标：从"工具名首字母"换成"图形 + 类别色调"（2026-09-15 用户要求）。
+// 字母只区分"名字不同"，图形才区分"这事是干嘛的"。
+describe('工具徽标', () => {
+  it('认得出的工具画图形，并带上类别色调', () => {
+    render(<ToolCallBlock item={use('Bash', { command: 'ls' })} />)
+
+    expect(screen.getByTestId('tool-icon-terminal')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-badge')).toHaveClass('tool__badge--run')
+  })
+
+  it('读类与写类分属两个色调 —— 同一排卡片扫一眼能归类', () => {
+    const { unmount } = render(<ToolCallBlock item={use('Read', { file_path: '/a/B.kt' })} />)
+    expect(screen.getByTestId('tool-icon-doc')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-badge')).toHaveClass('tool__badge--read')
+    unmount()
+
+    render(<ToolCallBlock item={use('Edit', { file_path: '/a/B.kt' })} />)
+    expect(screen.getByTestId('tool-icon-pencil')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-badge')).toHaveClass('tool__badge--write')
+  })
+
+  it('认不出的工具退回首字母，且不带任何色调类', () => {
+    // MCP 工具的名字本身带着信息，不该被一个"未知"图形盖掉
+    render(<ToolCallBlock item={use('mcp__foo__bar', { query: 'x' })} />)
+
+    const badge = screen.getByTestId('tool-badge')
+    expect(badge).toHaveTextContent('M')
+    expect(badge.className).toBe('tool__badge')
+  })
+})

@@ -212,3 +212,97 @@ export function toolDelta(name: string, input: string): ToolDelta | null {
     del: diff.filter((line) => line.kind === 'del').length,
   }
 }
+
+/**
+ * 工具卡片左上角那个徽标画什么 —— 图形 + 色调。
+ *
+ * 从前那里是**工具名的首字母**（Bash→B、Read→R）。字母的毛病是它只区分"名字
+ * 不同"，不区分"这事是干嘛的"：一张卡扫过去，B、R、E、G 四个字母没有任何
+ * 共同语言，眼睛每次都得重新认。换成图形之后，"读 / 写 / 跑 / 联网 / 子任务"
+ * 是五个一眼能分开的形状（2026-09-15 用户要求）。
+ *
+ * 颜色按**类别**给，不按工具给：十几个工具各一个色会变成彩虹，
+ * 而"读蓝 / 写绿 / 跑琥珀"这种分法扫一眼就能归类（见 styles.css 的
+ * `.tool__badge--*`）。配色本身不进这个文件 —— 它是展示层的事。
+ */
+export type ToolGlyph =
+  /** 终端提示符：跑命令 */
+  | 'terminal'
+  /** 文稿：读文件 */
+  | 'doc'
+  /** 铅笔：改文件 */
+  | 'pencil'
+  /** 文稿 + 加号：新建文件 */
+  | 'newfile'
+  /** 星号：按模式找文件 */
+  | 'asterisk'
+  /** 放大镜：搜内容 */
+  | 'search'
+  /** 地球：联网 */
+  | 'globe'
+  /** 清单：任务 */
+  | 'checklist'
+  /** 小人：子代理 */
+  | 'agent'
+  /** 对话气泡：问用户 */
+  | 'bubble'
+
+export type ToolTone = 'read' | 'write' | 'run' | 'net' | 'task' | 'ask' | 'other'
+
+export interface ToolBadge {
+  glyph: ToolGlyph
+  tone: ToolTone
+}
+
+/**
+ * 工具名 → 徽标。**认不出的给 null**，卡片退回"首字母"那个老样子。
+ *
+ * 退回而不是硬塞一个通用图形：MCP 工具（`mcp__server__tool`）的名字本身
+ * 就带着信息，给它一个"未知"图形反而把那点信息盖掉了。
+ */
+const TOOL_GLYPHS: Record<string, ToolGlyph> = {
+  Bash: 'terminal',
+
+  Read: 'doc',
+  NotebookRead: 'doc',
+
+  Write: 'newfile',
+
+  Edit: 'pencil',
+  MultiEdit: 'pencil',
+  NotebookEdit: 'pencil',
+
+  Glob: 'asterisk',
+  Grep: 'search',
+
+  WebFetch: 'globe',
+  WebSearch: 'globe',
+
+  Task: 'agent',
+
+  TodoWrite: 'checklist',
+  TaskCreate: 'checklist',
+  TaskUpdate: 'checklist',
+  TaskList: 'checklist',
+
+  AskUserQuestion: 'bubble',
+}
+
+/** 图形 → 色调。一个图形只属于一个类别，所以色调从这里推，不另记一张表。 */
+const GLYPH_TONES: Record<ToolGlyph, ToolTone> = {
+  terminal: 'run',
+  doc: 'read',
+  asterisk: 'read',
+  search: 'read',
+  pencil: 'write',
+  newfile: 'write',
+  globe: 'net',
+  checklist: 'task',
+  agent: 'task',
+  bubble: 'ask',
+}
+
+export function toolBadgeOf(name: string): ToolBadge | null {
+  const glyph = TOOL_GLYPHS[name]
+  return glyph ? { glyph, tone: GLYPH_TONES[glyph] } : null
+}

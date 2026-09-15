@@ -1,9 +1,18 @@
-import { memo, useMemo, useState, type KeyboardEvent } from 'react'
+import { memo, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
 import { toolStateOf } from '../toolStatus'
-import { toolCommand, toolDelta, toolDiff, toolFile, toolParams, toolTitle } from '../tools'
+import {
+  toolBadgeOf,
+  toolCommand,
+  toolDelta,
+  toolDiff,
+  toolFile,
+  toolParams,
+  toolTitle,
+  type ToolGlyph,
+} from '../tools'
 
 /**
  * 一次工具调用。设计稿见 docs/design/transcript-tools.html 方案乙。
@@ -28,6 +37,116 @@ interface Props {
   result?: ToolResultItem
   /** 回合已结束（它之后再出现过 result 事件）—— 用来把等不到结果的卡片收尾。 */
   turnEnded?: boolean
+}
+
+/**
+ * 徽标里那个 12px 的图形。**用 currentColor 画** —— 色调只由外层那条
+ * `.tool__badge--<类别>` 给，这个文件里一个色号都不写。
+ *
+ * 笔画粗细与右上角那两个自绘按钮同一档（1.5），尺寸与四个状态位（✓ ✗ ⊘ 转圈）
+ * 一致：一排卡片扫过去，粗细细看不能有第二种。
+ */
+function BadgeGlyph({ glyph }: { glyph: ToolGlyph }) {
+  const svg = (children: ReactNode) => (
+    <svg
+      className="tool__glyph"
+      data-testid={`tool-icon-${glyph}`}
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+
+  switch (glyph) {
+    // 终端提示符 ❯_：跑命令
+    case 'terminal':
+      return svg(
+        <>
+          <path d="M2.6 3.2 L5.4 5.6 L2.6 8" />
+          <path d="M6.4 8.4 h3.2" />
+        </>,
+      )
+    // 一页稿纸：读文件
+    case 'doc':
+      return svg(
+        <>
+          <path d="M3.4 2.2 h3.2 l2 2 v5.6 h-5.2 z" />
+          <path d="M5.2 6.4 h2.4" />
+          <path d="M5.2 8.2 h2.4" />
+        </>,
+      )
+    // 铅笔：改文件
+    case 'pencil':
+      return svg(
+        <>
+          <path d="M2.8 9.2 l.5-2.1 4-4 a1.2 1.2 0 0 1 1.7 1.7 l-4 4 z" />
+          <path d="M6.6 3.7 l1.7 1.7" />
+        </>,
+      )
+    // 稿纸 + 加号：新建文件
+    case 'newfile':
+      return svg(
+        <>
+          <path d="M3.4 2.2 h3 l1.8 1.8 v3.4" />
+          <path d="M3.4 2.2 v7.6 h2.4" />
+          <path d="M7.4 8.4 h3.2" />
+          <path d="M9 6.8 v3.2" />
+        </>,
+      )
+    // 一个星号：按模式找文件
+    case 'asterisk':
+      return svg(
+        <>
+          <path d="M6 2.4 v6.4" />
+          <path d="M3.2 4 l5.6 3.2" />
+          <path d="M8.8 4 l-5.6 3.2" />
+        </>,
+      )
+    // 放大镜：搜内容
+    case 'search':
+      return svg(
+        <>
+          <circle cx="5.2" cy="5.2" r="2.6" />
+          <path d="M7.2 7.2 l2.2 2.2" />
+        </>,
+      )
+    // 地球：联网
+    case 'globe':
+      return svg(
+        <>
+          <circle cx="6" cy="6" r="3.6" />
+          <ellipse cx="6" cy="6" rx="1.6" ry="3.6" />
+          <path d="M2.4 6 h7.2" />
+        </>,
+      )
+    // 清单：任务
+    case 'checklist':
+      return svg(
+        <>
+          <rect x="2.4" y="2.8" width="7.2" height="6.4" rx="1.4" />
+          <path d="M4.4 6.1 l1.3 1.3 2.1-2.4" />
+        </>,
+      )
+    // 两个小人：子代理
+    case 'agent':
+      return svg(
+        <>
+          <circle cx="4.4" cy="4.2" r="1.5" />
+          <path d="M2.2 9.4 a2.6 2.6 0 0 1 4.4 0" />
+          <circle cx="8.5" cy="5" r="1.2" />
+          <path d="M7.5 9.4 a2.1 2.1 0 0 1 2.9 0" />
+        </>,
+      )
+    // 对话气泡：问用户
+    case 'bubble':
+      return svg(
+        <>
+          <rect x="2.2" y="2.6" width="7.6" height="5.4" rx="1.8" />
+          <path d="M4.6 8 v1.9 l1.7-1.9" />
+        </>,
+      )
+  }
 }
 
 function outputLines(text: string): string[] {
@@ -70,8 +189,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   // 从 item.input 派生的一切：只随参数变。六个函数各自 JSON.parse 一遍参数，
   // Write/Edit 还要按行切出 diff —— 卡片因任何原因重渲染（结果到达、收起展开）
   // 都重算一遍是纯浪费
-  const { title, delta, diff, file, command } = useMemo(
+  const { badge, title, delta, diff, file, command } = useMemo(
     () => ({
+      // 认不出的工具给 null —— 卡面退回工具名首字母（见 tools.ts 的 toolBadgeOf）
+      badge: toolBadgeOf(item.name),
       title: toolTitle(item.name, item.input),
       delta: toolDelta(item.name, item.input),
       diff: toolDiff(item.name, item.input),
@@ -127,7 +248,12 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         onKeyDown={onHeadKeyDown}
       >
         <span className={`tool__chevron${open ? ' is-open' : ''}`}>▸</span>
-        <span className="tool__badge">{item.name.slice(0, 1).toUpperCase()}</span>
+        <span
+          className={`tool__badge${badge ? ` tool__badge--${badge.tone}` : ''}`}
+          data-testid="tool-badge"
+        >
+          {badge ? <BadgeGlyph glyph={badge.glyph} /> : item.name.slice(0, 1).toUpperCase()}
+        </span>
         <span className="tool__name">{item.name}</span>
         {title !== '' &&
           (file ? (
