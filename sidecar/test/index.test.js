@@ -16,7 +16,9 @@ function fakeSessionFactory({ setModeError = null } = {}) {
       const s = {
         opts,
         sent: [],
-        send(t) { this.sent.push(t); },
+        // 图单独记一份：sent 保持"只装文字"，既有断言一个都不用改
+        sentImages: [],
+        send(t, images = []) { this.sent.push(t); this.sentImages.push(images); },
         interrupt: async () => { calls.push(['interrupt']); },
         setPermissionMode: async (m) => {
           calls.push(['setPermissionMode', m]);
@@ -65,6 +67,46 @@ test('未 start 就 send 时排队，start 后补发', () => {
   d.handle({ id: '3', method: 'send', params: { text: 'late' } });
 
   assert.deepEqual(s.sent, ['early', 'late'], '排队的消息必须在 start 后按序补发');
+});
+
+test('图片透传给会话', () => {
+  // 贴图的整条路：Kotlin 编好 base64 → 这一层原样送到会话 → session.js 拼 content blocks。
+  // 中间这一层最容易被写成"只转发 text"（改 preStartQueue 时尤其），所以单独钉一条
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
+  d.handle(START);
+  const img = { mediaType: 'image/png', data: 'AAAABBBB' };
+
+  d.handle({ id: '2', method: 'send', params: { text: '看这张', images: [img] } });
+
+  const s = d.getSession();
+  assert.deepEqual(s.sentImages.at(-1), [img], '图片没送到会话，界面上的图会静默消失');
+});
+
+test('未 start 时的图跟着消息一起补发', () => {
+  // 计划里点名的那个坑：preStartQueue 从"存字符串"改成"存对象"，
+  // 补发那一侧漏改一处，就成了"ready 之前发的图被悄悄丢掉"
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
+  const img = { mediaType: 'image/jpeg', data: 'ZZZZ' };
+
+  d.handle({ id: '1', method: 'send', params: { text: '早发的', images: [img] } });
+  const s = d.handle(START);
+
+  assert.deepEqual(s.sent, ['早发的']);
+  assert.deepEqual(s.sentImages.at(-1), [img], '补发时把图落下了');
+});
+
+test('没图时传的是空数组，不是 undefined', () => {
+  // session.js 的签名是 send(text, images = [])，这里显式传空数组是为了让
+  // "有图/没图"在日志里一眼可辨
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
+  d.handle(START);
+
+  d.handle({ id: '2', method: 'send', params: { text: '光文字' } });
+
+  assert.deepEqual(d.getSession().sentImages.at(-1), []);
 });
 
 test('重复 start 被拒绝但不崩溃', () => {

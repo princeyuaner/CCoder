@@ -232,6 +232,15 @@ data class StartParams(
     val resumeSessionId: String? = null,
 )
 
+/**
+ * 要发出去的一张图，base64 已经编好。
+ *
+ * 为什么不在这一层直接用 `AttachedImage`（UI 侧那个）：那边揣着 `BufferedImage`
+ * 缩略图，是**界面**的东西。协议层只该认识"一个 mediaType 加一串 base64"——
+ * 这样它既能被单测直接构造，也不必为了改缩略图尺寸而重新编译协议。
+ */
+data class OutgoingImage(val mediaType: String, val data: String)
+
 object Protocol {
 
     /**
@@ -518,8 +527,23 @@ object Protocol {
         return line(id, "start", p)
     }
 
-    fun encodeSend(id: String, text: String): String =
-        line(id, "send", JsonObject().apply { addProperty("text", text) })
+    fun encodeSend(id: String, text: String, images: List<OutgoingImage> = emptyList()): String =
+        line(id, "send", JsonObject().apply {
+            addProperty("text", text)
+            // **没图时一个字段都不加**：报文与从前一字不差（测试里钉着）。
+            // 这一条不是洁癖 —— 排队/补发那条路上有旧版本的侧车可能还在跑，
+            // 多出来的键在老侧车那边是会被忽略，但"行为不变"要能**被证明**
+            if (images.isNotEmpty()) {
+                add("images", JsonArray().apply {
+                    images.forEach { img ->
+                        add(JsonObject().apply {
+                            addProperty("mediaType", img.mediaType)
+                            addProperty("data", img.data)
+                        })
+                    }
+                })
+            }
+        })
 
     fun encodeSimple(id: String, method: String): String =
         line(id, method, JsonObject())

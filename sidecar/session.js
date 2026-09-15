@@ -152,11 +152,31 @@ export function createSession({
   }
 
   return {
-    send(text) {
+    /**
+     * 发一条用户消息。[images] 是 `[{ mediaType, data }]`，data 为 base64。
+     *
+     * **没有图时 content 仍是字符串** —— 与从前一字不差，那条路不必重验一遍
+     * （测试里钉着这一条）。
+     *
+     * 有图时按 Messages API 的形状拼数组，且**图排在文字前面**：让模型先看图、
+     * 再读要求。反过来写模型会先按文字猜一遍，遇到"这张图哪里不对"这种问题时
+     * 猜错之后很难自己纠回来。
+     */
+    send(text, images = []) {
       if (stopped) return;
+      const content = images.length > 0
+        ? [
+            ...images.map((img) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: img.mediaType, data: img.data },
+            })),
+            // 纯图消息（没打字）就只剩图 —— 效果图上就是这个用法
+            ...(text ? [{ type: 'text', text }] : []),
+          ]
+        : text;
       queue.push({
         type: 'user',
-        message: { role: 'user', content: text },
+        message: { role: 'user', content },
         parent_tool_use_id: null,
       });
       notifyInput?.('go');

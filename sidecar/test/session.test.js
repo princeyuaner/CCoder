@@ -48,6 +48,71 @@ test('send 的内容以 SDKUserMessage 形状进入输入流', async () => {
   assert.equal(value.parent_tool_use_id, null);
 });
 
+// ---- 贴图（2026-09-15）----
+//
+// 形状来自 sdk.d.ts:5464（SDKUserMessage.message 就是 Messages API 的 MessageParam，
+// content 可以是字符串或 content blocks 数组），而图这个 block 的具体写法与
+// "这条链路收不收图"是两件事 —— 后者由 tools/probe-image.mjs 实测钉住。
+
+test('带图时 content 是数组，且图排在文字前面', async () => {
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('这张图哪里不对', [{ mediaType: 'image/png', data: 'AAAA' }]);
+
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+
+  assert.ok(Array.isArray(value.message.content), '有图时必须拼成 content 数组');
+  assert.deepEqual(value.message.content[0], {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
+  });
+  assert.deepEqual(
+    value.message.content[1],
+    { type: 'text', text: '这张图哪里不对' },
+    '文字必须在图后面：先看图再读要求',
+  );
+});
+
+test('多张图按序全进 content', async () => {
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('两张', [
+    { mediaType: 'image/png', data: 'A' },
+    { mediaType: 'image/jpeg', data: 'B' },
+  ]);
+
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+  const images = value.message.content.filter((b) => b.type === 'image');
+
+  assert.equal(images.length, 2);
+  assert.equal(images[1].source.media_type, 'image/jpeg');
+});
+
+test('纯图消息只剩图 —— 不发一个空的 text 块', async () => {
+  // 截一张图直接发（没打字）是常见用法；空的 text block 有些网关会当成非法参数
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('', [{ mediaType: 'image/png', data: 'A' }]);
+
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+
+  assert.deepEqual(value.message.content.map((b) => b.type), ['image']);
+});
+
+test('显式传空数组也走字符串那条老路', async () => {
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  s.send('只有字', []);
+
+  const iter = q.calls.prompts[0][Symbol.asyncIterator]();
+  const { value } = await iter.next();
+
+  assert.equal(value.message.content, '只有字', '没图时 content 必须是字符串，与从前一字不差');
+});
+
 test('多条 send 按序进入输入流', async () => {
   const q = fakeQuery();
   const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });

@@ -156,17 +156,19 @@ export function createDispatcher({
         }
         session = created;
         out({ type: 'ready', sessionId: params.sessionId ?? null, model: params.model ?? null });
-        for (const text of preStartQueue.splice(0)) session.send(text);
+        // 补发时**图和文字一起**带过去 —— 排队的那条里可能就贴着截图
+        for (const item of preStartQueue.splice(0)) session.send(item.text, item.images);
         return session;
       }
 
       case 'send': {
         if (!session) {
-          // 排队而非丢弃 —— 用户可能抢在 ready 之前就发了消息
-          preStartQueue.push(params.text ?? '');
+          // 排队而非丢弃 —— 用户可能抢在 ready 之前就发了消息。
+          // 存**对象**而不是字符串：截图也得跟着一起等（2026-09-15 贴图）
+          preStartQueue.push({ text: params.text ?? '', images: params.images ?? [] });
           return session;
         }
-        session.send(params.text ?? '');
+        session.send(params.text ?? '', params.images ?? []);
         return session;
       }
 

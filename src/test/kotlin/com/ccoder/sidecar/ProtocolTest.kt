@@ -399,6 +399,39 @@ class ProtocolTest {
         )
     }
 
+    // ---- 贴图（2026-09-15）----
+
+    @Test
+    fun `没图时 send 的报文里没有 images 键`() {
+        // 向后兼容要能被**证明**，不是"应该没问题"：没图那条路上的报文字节
+        // 与贴图之前完全一致（排队/补发那条路上可能还跑着旧侧车）
+        val params = JsonParser.parseString(Protocol.encodeSend("r", "只有字").trim())
+            .asJsonObject.getAsJsonObject("params")
+
+        assertEquals("只有字", params.get("text").asString)
+        assertFalse(params.has("images"), "没图还带 images 键，老那条路就不算没变")
+    }
+
+    @Test
+    fun `有图时 images 是 mediaType 与 base64 的数组`() {
+        val images = JsonParser.parseString(
+            Protocol.encodeSend("r", "看这张", listOf(OutgoingImage("image/png", "AAAA"))).trim()
+        ).asJsonObject.getAsJsonObject("params").getAsJsonArray("images")
+
+        assertEquals(1, images.size())
+        assertEquals("image/png", images[0].asJsonObject.get("mediaType").asString)
+        assertEquals("AAAA", images[0].asJsonObject.get("data").asString)
+    }
+
+    @Test
+    fun `图里的换行不会把一行撑成两行`() {
+        // base64 正常是单行，但这条契约（一行一条 NDJSON）值得直接钉住：
+        // 破了就是侧车那边 JSON 解析失败、消息整条消失
+        val line = Protocol.encodeSend("r", "", listOf(OutgoingImage("image/png", "AA\nBB")))
+
+        assertEquals(1, line.trimEnd('\n').lines().size)
+    }
+
     @Test
     fun `encodeSimple 产出无参数的方法调用`() {
         val line = Protocol.encodeSimple("r", "interrupt")
