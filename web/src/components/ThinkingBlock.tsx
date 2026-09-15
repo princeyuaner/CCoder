@@ -10,7 +10,7 @@ import { Collapsible } from './Collapsible'
  */
 export function ThinkingBlock({ text }: { text: string }) {
   return (
-    <Collapsible defaultOpen title="思考过程" dim>
+    <Collapsible defaultOpen title="思考过程">
       <div className="thinking-text">{text}</div>
     </Collapsible>
   )
@@ -32,7 +32,6 @@ export function LiveThinkingBlock({ text }: { text: string }) {
   return (
     <div data-testid="live-thinking">
       <Collapsible
-        dim
         defaultOpen
         title={
           <>

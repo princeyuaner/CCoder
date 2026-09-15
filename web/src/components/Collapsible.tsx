@@ -4,16 +4,15 @@ interface Props {
   /** 标题可以是节点：进行中的思考要在标题里放转圈和秒数。 */
   title: ReactNode
   defaultOpen?: boolean
-  dim?: boolean
   children: ReactNode
 }
 
 /** 真折叠组件。第一版里的是个假的——只加了 ▸ 前缀，点了没反应。 */
-export function Collapsible({ title, defaultOpen = false, dim = false, children }: Props) {
+export function Collapsible({ title, defaultOpen = false, children }: Props) {
   const [open, setOpen] = useState(defaultOpen)
 
   return (
-    <div className={`collapsible${dim ? ' collapsible--dim' : ''}`}>
+    <div className="collapsible">
       <button
         type="button"
         className="collapsible__head"

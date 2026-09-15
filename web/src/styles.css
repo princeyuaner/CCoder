@@ -268,9 +268,12 @@ body {
   padding-left: 8px;
 }
 
-.collapsible--dim {
-  opacity: 0.75;
-}
+/*
+ * 这里原本有一条 `.collapsible--dim { opacity: 0.75 }`，2026-09-15 删掉：
+ * 它和正文自己的 `--text-dim` 叠成**两层变暗**，把思考正文压到 2.5:1
+ * （算过：--text-dim 本身 3.26:1，再乘 0.75），用户反馈"看不清"。
+ * 要淡就淡一层 —— 见下面 .thinking-text 的说明。
+ */
 
 .collapsible__head {
   background: none;
@@ -305,8 +308,19 @@ body {
   animation: fade-in 160ms ease-out;
 }
 
+/*
+ * 思考正文。
+ *
+ * **用正文字色，不用 --text-dim**（2026-09-15 用户报"思考的输出颜色太浅了，
+ * 看不清"）。量过：--text-dim（Darcula 下 #8c8c8c 压在面板色上）只有 3.26:1，
+ * 而它原先还要再乘一层 .collapsible--dim 的 0.75 —— 叠起来 2.5:1，远低于
+ * WCAG 正文门槛的 4.5:1。--text-dim 是"非活动文字"的定位：用在时间戳、徽标
+ * 这类**标签**上没问题，用在成段的思考正文上就是看不清。
+ *
+ * 斜体留着：除块标题与左边框之外，它是"这是思考"的唯一视觉标记。
+ */
 .thinking-text {
-  color: var(--text-dim, #8c8c8c);
+  color: var(--text, #dcdcdc);
   font-style: italic;
   white-space: pre-wrap;
 }
