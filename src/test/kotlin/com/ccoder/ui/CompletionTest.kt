@@ -64,6 +64,32 @@ class CompletionTest {
         assertNull(completionQuery("", -5))
     }
 
+    // ---- 符号（`#`，2026-09-15）----
+
+    @Test
+    fun `井号只在词边界触发`() {
+        assertEquals(CompletionQuery(Trigger.Symbol, "Foo", 0), q("#Foo"))
+        assertEquals(CompletionQuery(Trigger.Symbol, "Composer", 3), q("看看 #Composer"))
+        assertEquals(CompletionQuery(Trigger.Symbol, "Foo", 9), q("/compact #Foo"), "命令的参数里也能引用符号")
+    }
+
+    @Test
+    fun `不是词边界的井号不触发 —— 锚点、参数、C 的前缀里都有它`() {
+        assertNull(q("a#b"))
+        assertNull(q("page.html#section"))
+    }
+
+    @Test
+    fun `井号后面打了空格就收`() {
+        assertNull(q("#Foo 这是正文"))
+    }
+
+    @Test
+    fun `井号与 at 各判各的 —— 畸形输入由先判的 at 吃掉`() {
+        assertEquals(CompletionQuery(Trigger.File, "Foo#bar", 0), q("@Foo#bar"))
+        assertEquals(CompletionQuery(Trigger.Symbol, "Foo@bar", 0), q("#Foo@bar"))
+    }
+
     // ---- 过滤 ----
 
     private val compact = CompletionItem("compact", "compact", "压缩上下文")

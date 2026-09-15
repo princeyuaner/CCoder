@@ -59,6 +59,43 @@ class CompletionRenderProbe {
             ) + commands().take(3),
         )
 
+    /**
+     * 符号组：行型是「名字 · 相对路径」，这张图要看三件事 ——
+     *
+     *  1. 名字长短不一时，` · ` 那一列会不会显得参差；
+     *  2. 深路径会不会把宽度撑爆（弹层宽度是定死的，`setResizable(false)`）；
+     *  3. 同名不同文件的那两行，一眼分不分得开。
+     */
+    @Test
+    fun `符号组（名字 · 路径）画成图片`() = render(
+        "build/completion-probe-symbols.png",
+        symbolCandidates(
+            listOf(
+                symbol("parse_config", "src/app/config.py", 24..27),
+                symbol("Parser", "src/app/parse/parser.py", 1..40),
+                symbol("parse", "src/app/parse/__init__.py", 1..3),
+                symbol("parse_all", "src/app/parse/batch.py", 12..30),
+                symbol("parse_raw", "tests/fixtures/legacy/parse_raw.py", 5..19),
+                symbol("parse_stream", "src/app/parse/streaming/reader.py", 88..140),
+                symbol("parse_stream", "src/app/parse/streaming/writer.py", 7..12),
+                symbol("parseWithConfigAndOverridesForTests", "tests/app/parse_test.py", 3..9),
+            ),
+        ),
+    )
+
+    /**
+     * 状态行：一个候选都没有时弹层里唯一的那一行（正在搜 / 搜不成）。
+     *
+     * 要看的正是它**空得可不可疑** —— 这一行是"它还在动"的全部线索。
+     */
+    @Test
+    fun `符号搜索中的状态行画成图片`() =
+        render("build/completion-probe-symbol-status.png", emptyList(), status = "正在搜索符号…")
+
+    /** 弹层里只用到名字与路径；code 进的是记号与展开，不影响这张图。 */
+    private fun symbol(name: String, path: String, lines: IntRange) =
+        SymbolHit(name, path, lines, code = "# 略", fileTypeName = "Python")
+
     /** 数据取自实测：`brainstorming` 那条是本例里最长的真实描述。 */
     private fun commands() = listOf(
         CompletionItem("compact", "compact", "参数 <optional custom summarization instructions>", group = GROUP_OTHER),
@@ -95,9 +132,9 @@ class CompletionRenderProbe {
         "src/test/kotlin/com/ccoder/ui/CompletionTest.kt",
     ).map { CompletionItem(it, it) }
 
-    private fun render(path: String, items: List<CompletionItem>) {
+    private fun render(path: String, items: List<CompletionItem>, status: String? = null) {
         SwingUtilities.invokeAndWait {
-            val content = buildCompletionList(items, selected = 1)
+            val content = buildCompletionList(items, selected = 1, status = status)
             val bg: Color = UIUtil.getPanelBackground()
 
             val outer = JPanel(BorderLayout()).apply {

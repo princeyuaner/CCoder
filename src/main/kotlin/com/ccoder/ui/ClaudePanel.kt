@@ -29,9 +29,12 @@ import com.ccoder.settings.displayName
 import com.ccoder.settings.showSettingsDialog
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
@@ -415,6 +418,34 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private var projectFiles: List<String>? = null
 
+    /**
+     * 符号名的**全量枚举结果**（`#` 那条路），比 [projectFiles] 活得更久。
+     *
+     * **为什么不跟着弹层一起清**：PyCharm 里那个符号贡献者只提供了"全量吐名字"的口子
+     * （没有前缀收窄，见 `SymbolLookup.kt` 的文件头），一次枚举就是整个项目的符号 ——
+     * 而它与**查询无关**。每关一次层就重来一遍，等于每次"没匹配上"都让用户多等一次全量扫描。
+     * 清它的地方只有一处：输入框里连 `#` 查询都没有了（见 [refreshCompletion]）。
+     */
+    private var symbolNamesCache: List<String>? = null
+
+    /** 在飞的符号搜索作废用的代数：每次发起 +1，关层也 +1（Esc 之后回来的结果不许再开层）。 */
+    private var symbolSearchId = 0
+
+    /** 符号搜索还在飞。弹层里这时挂一行"正在搜索符号…" —— 不许看起来像卡住。 */
+    private var symbolSearching = false
+
+    /** 符号搜索本身失败的原因。非空时必须显示出来（不静默）。 */
+    private var symbolFailure: String? = null
+
+    /**
+     * 弹层里那行说明（**不是候选**）。两种情况：
+     *  - 光打了一个触发字符（"再打一个字找文件 / 找符号"）—— 见 [showHint]
+     *  - 索引还在建（符号那条）—— 见 [SymbolSearchResult.status]
+     *
+     * 都不是失败，不弹气球；[completionStatus] 按优先级把它排给弹层。
+     */
+    private var completionHint: String? = null
+
     /** 采纳时的程序化改写会触发文档监听，用它挡掉自引发的重算。 */
     private var suppressCompletion = false
 
@@ -460,11 +491,17 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 // 补全开着时，上下键与 Enter/Tab/Esc 归补全。
                 // **只在真开着时短路** —— 关着的时候 Enter 该不该发送
                 // 仍然是 isSendKey 的事，那个函数一行都不改
+                //
+                // 2026-09-15（符号那条路）：弹层有时**只有一行状态**、一个候选都没有
+                // （正在搜、或者搜索本身失败了）。那时上下键与回车**不接管** ——
+                // 屏幕上根本没有可选的东西，把它们吃掉就成了"按了没反应"，
+                // 而回车在这个输入框里是有分量的键（发送/排队）。Esc 例外：任何时候都该能关掉
                 if (completion.isOpen) {
+                    val haveRows = completionItems.isNotEmpty()
                     when (completionKey(e.keyCode)) {
-                        CompletionKey.Up -> { e.consume(); moveCompletion(-1); return }
-                        CompletionKey.Down -> { e.consume(); moveCompletion(1); return }
-                        CompletionKey.Accept -> { e.consume(); acceptCompletion(); return }
+                        CompletionKey.Up -> if (haveRows) { e.consume(); moveCompletion(-1); return }
+                        CompletionKey.Down -> if (haveRows) { e.consume(); moveCompletion(1); return }
+                        CompletionKey.Accept -> if (haveRows) { e.consume(); acceptCompletion(); return }
                         CompletionKey.Dismiss -> { e.consume(); closeCompletion(); return }
                         CompletionKey.Ignore -> Unit
                     }
@@ -2605,35 +2642,182 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun refreshCompletion() {
         if (suppressCompletion) return
         val q = completionQuery(input.text, input.caretPosition)
-        if (q == null) return closeCompletion()
+        if (q == null) {
+            // `#` 查询整个没了（退格掉、或者光标挪开）：符号名缓存这时才该丢。
+            // 它是**全量枚举**的结果、与查询无关（见字段上的说明），
+            // 所以只在"这一轮引用结束了"时重来一遍 —— 不跟着弹层开关走
+            symbolNamesCache = null
+            return closeCompletion()
+        }
 
-        val filtered = visibleCandidates(
-            when (q.trigger) {
-                // 预设排在最前：打 `/` 的人多半想找的是自己那几条常用说法。
-                // **必须整组连续** —— 分组标题只在换组时插一条（CompletionPopup），
-                // 把预设和命令交叉排会画出一串重复的标题
-                Trigger.Command ->
-                    filterCandidates(
-                        promptCandidates(promptPresets()) +
-                            commandCandidates(commandList, sendableNames),
-                        q.query,
+        when (q.trigger) {
+            // 符号那条是**异步**的（要查索引、还要解析 PSI），形状与下面两条不一样：
+            // 它自己管开层与关层，见 refreshSymbolCompletion
+            Trigger.Symbol -> refreshSymbolCompletion(q)
+
+            // 预设排在最前：打 `/` 的人多半想找的是自己那几条常用说法。
+            // **必须整组连续** —— 分组标题只在换组时插一条（CompletionPopup），
+            // 把预设和命令交叉排会画出一串重复的标题
+            Trigger.Command -> openCompletion(
+                q,
+                filterCandidates(
+                    promptCandidates(promptPresets()) +
+                        commandCandidates(commandList, sendableNames),
+                    q.query,
+                ),
+            )
+
+            // 索引期间不查文件候选：[collectProjectFiles] 走 ProjectFileIndex，
+            // dumb 态下那套 API 会抛 IndexNotReadyException。命令那条不碰索引，
+            // 照常给。面板本身是 DumbAware（见 ClaudeToolWindowFactory），
+            // 所以这里必须自己挡 —— 平台不会再替我们兜底了
+            Trigger.File ->
+                if (q.query.isEmpty()) {
+                    // 光打一个 `@`：**不列候选**（那会闪一屏，`@` 从上线起就是这规矩），
+                    // 但也不再什么都不显示 —— 用户 2026-09-15 报"输入 @ 和 # 都没反应"，
+                    // 卡的就是这一步：他以为功能坏了，其实只是还差一个字
+                    showHint(q, HINT_FILE)
+                } else {
+                    openCompletion(
+                        q,
+                        if (DumbService.getInstance(project).isDumb) emptyList()
+                        else fileCandidates(allProjectFiles(), q.query),
                     )
+                }
+        }
+    }
 
-                // 索引期间不查文件候选：[collectProjectFiles] 走 ProjectFileIndex，
-                // dumb 态下那套 API 会抛 IndexNotReadyException。命令那条不碰索引，
-                // 照常给。面板本身是 DumbAware（见 ClaudeToolWindowFactory），
-                // 所以这里必须自己挡 —— 平台不会再替我们兜底了
-                Trigger.File ->
-                    if (DumbService.getInstance(project).isDumb) emptyList()
-                    else fileCandidates(allProjectFiles(), q.query)
-            }
-        )
+    /**
+     * 光打一个触发字符时的那行提示（**不是候选**）。
+     *
+     * 与"`@` 不能一打就闪一屏"那条规则不冲突：这里一行候选都不列，只说明下一步该干什么。
+     */
+    private fun showHint(q: CompletionQuery, text: String) {
+        symbolSearching = false
+        symbolFailure = null
+        completionHint = text
+        completionQuery = q
+        completionItems = emptyList()
+        completionIndex = 0
+        showCompletion()
+    }
+
+    /** 同步那两条的收尾：截到弹层行数、空则关层、否则开层。 */
+    private fun openCompletion(q: CompletionQuery, candidates: List<CompletionItem>) {
+        val filtered = visibleCandidates(candidates)
         if (filtered.isEmpty()) return closeCompletion()
 
+        symbolSearching = false
+        symbolFailure = null
+        completionHint = null
         completionQuery = q
         completionItems = filtered
         completionIndex = 0
         showCompletion()
+    }
+
+    /**
+     * `#` 那条路：**异步**。
+     *
+     * 另外两条用的都是手上现成的数据（命令列表、项目文件），这一条要查平台的符号索引、
+     * 还要把命中的名字解析成 PSI 元素 —— 两者都会阻塞 EDT，而 EDT 一卡，用户看到的就是
+     * "打字打不动"。所以查在池线程 + 读操作里做，结果回 EDT 时才开层。
+     *
+     * 期间弹层里挂一行「正在搜索符号…」（见 [completionStatus]）：一个字都不显示的话，
+     * 第一次敲 `#`（要付一次全量枚举，见 [symbolNamesCache]）看起来就像没反应。
+     */
+    private fun refreshSymbolCompletion(q: CompletionQuery) {
+        if (q.query.isEmpty()) {
+            // 光打一个 `#` 不查（与 `@` 一致：不能一打符号就闪一屏）。
+            // 已经在显示的那批先别关 —— 退格到这一步的人多半还要再打一个字符；
+            // 一行都没有时就给那行提示（用户 2026-09-15 卡在的正是这一步）
+            if (completionItems.isEmpty()) showHint(q, HINT_SYMBOL)
+            return
+        }
+
+        symbolSearchId++
+        symbolSearching = true
+        symbolFailure = null
+        completionHint = null
+        // 查询词此刻就记下：结果回来时要靠代数比对（用户可能已经改了前缀）
+        completionQuery = q
+        // 手上已经有行就先留着（用户正在继续打字）—— 新结果到了整批换掉，别闪
+        if (completionItems.isEmpty()) showCompletion()
+
+        val id = symbolSearchId
+        val prefix = q.query
+        val cached = symbolNamesCache
+        val project = this.project
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val result = runCatching {
+                // 索引与 PSI 都必须在读操作里、且**不在 EDT 上**碰（见 SymbolLookup.kt 的文件头）
+                ReadAction.compute<SymbolSearchResult, Exception> {
+                    searchSymbols(project, prefix, cached)
+                }
+            }.getOrElse {
+                LOG.warn("符号：搜索抛错", it)
+                SymbolSearchResult(
+                    hits = emptyList(),
+                    names = null,
+                    matched = 0,
+                    failure = "符号搜索没跑成（${it.javaClass.simpleName}）",
+                )
+            }
+            ApplicationManager.getApplication().invokeLater { onSymbolSearched(id, result) }
+        }
+    }
+
+    /**
+     * 搜索结果回 EDT。
+     *
+     * 第一件事是**比对代数**：用户接着打字、或者按了 Esc 让层关掉，这次的结果就作废了 ——
+     * 不比对的话，Esc 之后弹层会自己长回来（[closeCompletion] 也 +1，正是为了这个）。
+     */
+    private fun onSymbolSearched(id: Int, result: SymbolSearchResult) {
+        if (id != symbolSearchId) return
+        symbolSearching = false
+        symbolFailure = result.failure
+        completionHint = result.status
+        result.names?.let { symbolNamesCache = it }
+
+        val items = symbolCandidates(result.hits)
+        if (items.isNotEmpty()) {
+            completionItems = visibleCandidates(items)
+            completionIndex = 0
+            showCompletion()
+            return
+        }
+
+        val failure = result.failure
+        if (failure != null || result.status != null) {
+            // 搜不成、"名字找到了、一个都解析不出来"、或者索引还在建：
+            // 层里留着那句话（气球只给真失败）。安静地关掉的话，
+            // 用户看到的是"这个符号不存在" —— 那是另一回事
+            completionItems = emptyList()
+            showCompletion()
+            if (failure != null) notifySymbolFailure(failure)
+            return
+        }
+
+        // 真的没有这个名字：安静地不弹，与 `@` 一致（宁缺勿错）
+        closeCompletion()
+    }
+
+    /** 符号这条路失败时说的那句话。**非粘性**气球：这是"这一次没成"，不是待办。 */
+    private fun notifySymbolFailure(reason: String) {
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup("CCoder")
+            .createNotification("符号引用没成", reason, NotificationType.WARNING)
+            .notify(project)
+    }
+
+    /** 弹层里那一行状态。有候选时不挂 —— 那时它是噪音。 */
+    private fun completionStatus(): String? = when {
+        completionItems.isNotEmpty() -> null
+        symbolFailure != null -> symbolFailure
+        completionHint != null -> completionHint
+        symbolSearching -> "正在搜索符号…"
+        else -> null
     }
 
     /** 全部项目文件，按弹层生命周期缓存，见 [projectFiles]。 */
@@ -2653,7 +2837,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val caret = caretRect()
         // modelToView2D 在没有布局时返回 null（面板还没显示），此时不弹
         if (caret == null) return closeCompletion()
-        completion.show(input, caret, completionItems, completionIndex)
+        // 状态行只在"一行候选都没有"时挂（符号那条路：正在搜 / 搜不成）
+        completion.show(input, caret, completionItems, completionIndex, completionStatus())
     }
 
     /**
@@ -2684,6 +2869,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         } finally {
             suppressCompletion = false
         }
+
+        // 符号：记号与源码**同一刻**记住。与 addSnippetToComposer 同一条规矩 ——
+        // "屏幕上写的是哪个符号"与"发出去的是哪段代码"由同一个构造点产出，不可能对不上。
+        // 解析结果跟着候选一路走到这里，所以这一步没有额外等待，也不会失败
+        item.symbol?.let { snippetRefs.remember(item.insert, symbolSnippet(it)) }
+
         closeCompletion()
     }
 
@@ -2694,6 +2885,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         completionIndex = 0
         // 关层即丢缓存：下次打开能看到这一轮新建的文件
         projectFiles = null
+        // 符号：在飞的结果一律作废（Esc 之后弹层不许自己长回来），
+        // 但**名字缓存留着** —— 它是全量枚举的结果，清它的地方只有一处：
+        // 查询整个消失了（见 refreshCompletion）
+        symbolSearchId++
+        symbolSearching = false
+        symbolFailure = null
+        completionHint = null
     }
 
     /** 会话就绪后拉一次命令列表。取不到就保持空 —— 补全靠不到它照常工作。 */
@@ -2953,6 +3151,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private companion object {
         const val TOOL_WINDOW_ID = "CCoder"
+
+        /**
+         * 光打一个触发字符时那行提示的文案。
+         *
+         * 2026-09-15 用户报"输入 @ 和 # 都没反应" —— 卡的就是"还差一个字"这件事，
+         * 而当时屏幕上什么提示都没有（`@` 不能一打就闪一屏那条规则的另一面）。
+         */
+        const val HINT_FILE = "再打一个字找文件"
+        const val HINT_SYMBOL = "再打一个字找符号"
 
         /** 一屏够看了。不做翻页 —— 实测本机 19 条会话。 */
         const val SESSION_LIST_LIMIT = 50

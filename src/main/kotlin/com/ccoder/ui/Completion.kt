@@ -21,12 +21,22 @@ internal data class CompletionItem(
      * 给 true 时 [applyCompletion] 原样写入 [insert] —— 不加触发字符、不加尾随空格。
      */
     val verbatim: Boolean = false,
+    /**
+     * 符号引用（`#`）解析好的那份数据；别的触发字符下为 null。
+     *
+     * **记号本身不够**：写进输入框的是一行记号（[insert]），而发送时要展开成
+     * "路径:行范围 + 代码块" —— 那一段在采纳时就得按 token 文本记进
+     * [SnippetRefs]。所以解析结果要跟着候选一起走，不能在采纳时再去解析一遍
+     * （那时用户已经在等光标落位了）。
+     */
+    val symbol: SymbolHit? = null,
 )
 
 /** 触发补全的字符。 */
 internal enum class Trigger(val char: Char) {
     Command('/'),
     File('@'),
+    Symbol('#'),
 }
 
 /**
@@ -47,10 +57,11 @@ internal enum class CompletionKey { Up, Down, Accept, Dismiss, Ignore }
 /**
  * 光标处该不该弹补全。不弹返回 null。
  *
- * 两条触发规则（设计稿 §3.1）：
+ * 三条触发规则（设计稿 §3.1；`#` 见 2026-09-15 那份符号引用设计稿 §1.2）：
  *  - `/` **只在消息开头**。`C:/Users`、`1/2`、`and/or` 里都有斜杠，
  *    任何位置都弹的话正常打字会被一直打断。
  *  - `@` **只在词边界**。`foo@bar.com` 的 `@` 前面是字母，不算。
+ *  - `#` **与 `@` 同一条规则**：`a#b`（C 的前缀、标签、URL 片段）不该弹。
  *
  * 还有一条共同的：**打了空格就收**。`/compact 自定义说明` 的参数、
  * `@path` 后面接的话，都不再是候选的一部分。
@@ -70,6 +81,17 @@ internal fun completionQuery(text: String, caret: Int): CompletionQuery? {
         val body = before.substring(atIndex + 1)
         if (boundary && body.none { it.isWhitespace() }) {
             return CompletionQuery(Trigger.File, body, atIndex)
+        }
+    }
+
+    // 符号：与 `@` 同一套边界规则。排在 `@` 之后 —— 畸形输入（`#Foo@bar`）
+    // 由先判的那个吃掉，与 `@` 今天的行为一致，不另立一套优先级。
+    val hashIndex = before.lastIndexOf('#')
+    if (hashIndex >= 0) {
+        val boundary = hashIndex == 0 || before[hashIndex - 1].isWhitespace()
+        val body = before.substring(hashIndex + 1)
+        if (boundary && body.none { it.isWhitespace() }) {
+            return CompletionQuery(Trigger.Symbol, body, hashIndex)
         }
     }
 
@@ -126,6 +148,9 @@ internal fun completionKey(keyCode: Int): CompletionKey = when (keyCode) {
  *
  * 文件多写一个尾随空格（`@路径 ` 之后接着打字），命令不写 —— 命令后面
  * 要么是参数要么就该直接回车，多一个空格是噪音。
+ *
+ * 符号引用走 [CompletionItem.verbatim]：写进去的是**整行记号**（`⟦名字 · 路径 12-18 · 7 行⟧`），
+ * 没有"触发字符"这一回事，也不该多一个尾随空格（记号与后面的字之间由用户自己决定要不要空格）。
  */
 internal fun applyCompletion(
     text: String,

@@ -34,6 +34,21 @@ class ComposerReferencesTest {
     }
 
     @Test
+    fun `符号记号也走同一套尖括号 —— 加这一种记号没动这里一个字`() {
+        val hit = SymbolHit("Foo.bar", "src/a/Foo.kt", 12..18, "fun bar() {}", "Kotlin")
+        val token = symbolToken(hit)
+        val text = "$token 这个能不能简化一下？"
+
+        // 认得出（输入框里给记号上底色靠的就是它）
+        assertEquals(listOf(0..token.length - 1), refRanges(text))
+        // 展开得出（发送时把记号换成源码）
+        assertEquals(
+            "${symbolSnippet(hit)} 这个能不能简化一下？",
+            refs(token to symbolSnippet(hit)).expand(text),
+        )
+    }
+
+    @Test
     fun `记号里带完整相对路径，不是文件名`() {
         // 只写文件名的话，`src/a/X.kt` 与 `test/b/X.kt` 会长得一模一样 ——
         // 而展开表是按记号文本索引的，那两份快照就会互相顶掉、喂错内容

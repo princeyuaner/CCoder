@@ -32,6 +32,44 @@ private fun lineNumberOf(text: CharSequence, offset: Int): Int {
 }
 
 /**
+ * 取整行的原文：**含首行行首的缩进，不含末行行尾的换行**。
+ *
+ * 符号引用要用它，而不是直接用 PSI 元素的 `text`（2026-09-15，设计 agent 指出的坑）：
+ * 一个 Python 方法在 PSI 里的范围从 `def` 那个词开始，**行首缩进不在范围里** ——
+ * 照它发出去，模型的到就是"顶层 def"，而原文里它是缩在类里的。发出去的必须是能跑的那段。
+ *
+ * 行号与正文都出自同一份文本，所以 `path:12-18` 与代码块永远对得上。
+ * [lines] 越界时给空串 / 截到文本末尾，不抛 —— 它跑在"用户正在打字"的路径上。
+ */
+internal fun linesText(text: CharSequence, lines: IntRange): String {
+    val first = lines.first.coerceAtLeast(1)
+    val last = lines.last.coerceAtLeast(first)
+
+    var line = 1
+    var lineStart = 0
+    var start = -1
+    var end = -1
+
+    var i = 0
+    while (i <= text.length) {
+        if (i == text.length || text[i] == '\n') {
+            if (line == first) start = lineStart
+            if (line == last) {
+                end = i
+                break
+            }
+            line++
+            lineStart = i + 1
+        }
+        i++
+    }
+
+    if (start < 0) return ""
+    if (end < 0) end = text.length
+    return text.substring(start, end)
+}
+
+/**
  * 发送时**真正发出去**的那段（路径 + 围栏 + 代码全文）。
  *
  * 2026-09-14 起它不再出现在输入框里 —— 输入框里放的是一行记号（[refToken]），

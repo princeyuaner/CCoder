@@ -46,6 +46,27 @@ class AddSelectionToChatTest {
         assertEquals(3..3, selectionLineRange(text, 8, 11))
     }
 
+    // ---- 取整行原文（符号引用走这条）----
+
+    @Test
+    fun `取整行：首行的缩进留在里面，末行的换行不留`() {
+        // 一个方法在 PSI 里的范围从 def 那个词开始 —— 行首那四个空格不在范围里。
+        // 直接发 PSI 的 text，模型收到的是"顶层 def"，而原文里它缩在类里
+        val src = "class A:\n    def f(self):\n        return 1\n\nx = 1\n"
+        assertEquals("    def f(self):\n        return 1", linesText(src, 2..3))
+    }
+
+    @Test
+    fun `取整行：单行与末行没有换行时都要取得对`() {
+        assertEquals("x = 1", linesText("x = 1\n", 1..1))
+        assertEquals("c", linesText("a\nb\nc", 3..3))
+    }
+
+    @Test
+    fun `取整行：行号越界给空串，不抛`() {
+        assertEquals("", linesText("a\n", 9..9), "它跑在用户正在打字的路径上")
+    }
+
     // ---- 片段格式 ----
 
     @Test

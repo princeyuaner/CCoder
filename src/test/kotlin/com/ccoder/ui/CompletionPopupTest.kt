@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
+import java.awt.FontMetrics
+import java.awt.image.BufferedImage
 import javax.swing.JLabel
 
 /**
@@ -53,6 +55,83 @@ class CompletionPopupTest {
         val list = buildCompletionList(listOf(CompletionItem("x", "x")), selected = 0)
         assertFalse(textsOf(list).contains(GROUP_OTHER))
         assertFalse(textsOf(list).contains(GROUP_PLUGIN))
+    }
+
+    // ---- 塞不下时怎么让位（只有符号行是两段）----
+
+    private fun metrics(): FontMetrics =
+        BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB).createGraphics().getFontMetrics(JLabel().font)
+
+    private fun symbolRow(name: String, path: String) =
+        symbolCandidates(listOf(SymbolHit(name, path, 1..2, "x", "Python"))).single()
+
+    @Test
+    fun `放得下就一个字不动`() {
+        val row = symbolRow("parse", "a/b.py")
+
+        assertEquals(completionRowText(row), rowTextFor(row, metrics(), maxWidth = 1000))
+    }
+
+    @Test
+    fun `放不下时先让路径，留下的是文件名那一头`() {
+        // 探针图上坏过：容器从尾部裁，长名字那行被裁成 `tests/ap…` —— 文件名没了
+        val row = symbolRow("parse", "src/app/parse/streaming/reader.py")
+
+        val text = rowTextFor(row, metrics(), maxWidth = 200)
+
+        assertTrue(text.startsWith("parse$ROW_SEPARATOR"), "名字一个字都不该动：$text")
+        assertTrue(text.endsWith("reader.py"), "文件名必须留着：$text")
+        assertTrue(metrics().stringWidth(text) <= 200, "让完还得放得下：$text")
+    }
+
+    @Test
+    fun `名字太长挤到文件名时，砍的是名字`() {
+        // 探针图上先坏成 `…/_test.py`（把文件名切了一半）—— 名字截一半还认得出，
+        // 文件名没了就什么都不知道了
+        val row = symbolRow("parseWithConfigAndOverridesForTests", "tests/app/parse_test.py")
+
+        val text = rowTextFor(row, metrics(), maxWidth = 200)
+
+        assertTrue(metrics().stringWidth(text) <= 200, "还是得放得下：$text")
+        assertTrue(text.endsWith("parse_test.py"), "文件名必须完整：$text")
+        val keptName = text.substringBefore("…").removeSuffix(ROW_SEPARATOR.trimEnd()).trimEnd()
+        assertTrue(keptName.isNotEmpty() && row.display.startsWith(keptName), "该在名字上收口：$text")
+    }
+
+    @Test
+    fun `窄到放不下任何名字时，也不留空白`() {
+        val row = symbolRow("parseWithConfigAndOverridesForTests", "tests/app/parse_test.py")
+
+        assertTrue(rowTextFor(row, metrics(), maxWidth = 12).isNotEmpty())
+    }
+
+    @Test
+    fun `非符号行不动它 —— 另外三组的观感是另一回事`() {
+        val item = CompletionItem("src/main/kotlin/A.kt", "src/main/kotlin/A.kt")
+
+        assertEquals(completionRowText(item), rowTextFor(item, metrics(), maxWidth = 20))
+    }
+
+    // ---- 状态行（符号那条路：正在搜 / 搜不成）----
+
+    @Test
+    fun `一个候选都没有时，状态行才出现`() {
+        val list = buildCompletionList(emptyList(), selected = 0, status = "正在搜索符号…")
+
+        assertEquals(listOf("正在搜索符号…"), textsOf(list))
+    }
+
+    @Test
+    fun `有候选时不挂状态行 —— 那时它是噪音`() {
+        val list = buildCompletionList(listOf(builtin), selected = 0, status = "正在搜索符号…")
+
+        assertFalse(textsOf(list).contains("正在搜索符号…"))
+        assertEquals(1, rowsOf(list).size)
+    }
+
+    @Test
+    fun `不传状态时一行都不多`() {
+        assertEquals(emptyList<String>(), textsOf(buildCompletionList(emptyList(), selected = 0)))
     }
 
     @Test
