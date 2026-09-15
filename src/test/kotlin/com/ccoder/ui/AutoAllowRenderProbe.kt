@@ -34,7 +34,9 @@ class AutoAllowRenderProbe {
                 """{"command":"npm test","description":"跑一遍单元测试"}"""
             ).asJsonObject,
             title = "Claude 想运行 npm test",
-            displayName = "允许",
+            // 照真机：CLI 对内置工具给的 displayName 就是工具名本身
+            // （2026-09-15 用户看到的按钮上写着「Bash」，见 PermissionOptions.allowLabel）
+            displayName = "Bash",
             description = "在工作目录下执行命令",
             blockedPath = null,
             decisionReason = null,

@@ -47,9 +47,7 @@ class PermissionCard(
         addActionListener { onDecide(deniedByUser()) }
     }
 
-    private val allowButton = JButton(
-        permission.displayName?.takeIf { it.isNotBlank() } ?: "允许"
-    ).apply {
+    private val allowButton = JButton(PermissionOptions.allowLabel(permission)).apply {
         addActionListener {
             onDecide(PermissionDecision(allow = true, updatedPermissions = null, message = null))
         }

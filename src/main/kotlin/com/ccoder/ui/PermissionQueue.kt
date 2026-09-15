@@ -127,4 +127,21 @@ object PermissionOptions {
         p.title?.takeIf { it.isNotBlank() }
             ?: p.displayName?.takeIf { it.isNotBlank() }
             ?: p.toolName
+
+    /**
+     * 「允许」那颗按钮上写什么。
+     *
+     * sdk.d.ts:234-238 说 displayName 是"给按钮用的动作短语"（例子是 `"Read file"`），
+     * 所以原先直接拿它当按钮文案。但 2026-09-15 用户看到的按钮上写着**「Bash」** ——
+     * CLI 对内置工具给的就是工具名本身，于是那颗按钮读起来像"点它就运行 Bash"，
+     * 而不是"允许这一次"。（同一天 AutoAllowRenderProbe 与 PermissionCardTest 的
+     * 夹具里都写着 `displayName = "允许"`，所以两处都没能发现 —— 夹具比现实好看。）
+     *
+     * 规则：displayName 只有**确实在描述动作**（与工具名不同）时才用它。这样 MCP
+     * 工具那种 `_meta['anthropic/permissionDisplay'].displayName` 的价值留着，
+     * 而退化成工具名的情况回落到「允许」。
+     */
+    fun allowLabel(p: SidecarMessage.Permission): String =
+        p.displayName?.takeIf { it.isNotBlank() && !it.equals(p.toolName, ignoreCase = true) }
+            ?: "允许"
 }
