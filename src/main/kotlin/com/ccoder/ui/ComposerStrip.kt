@@ -61,26 +61,28 @@ internal fun popupAnchorY(
 }
 
 /**
- * 浮层该出现在哪个 x（屏幕坐标）：**居中于面板**，再钳进屏幕。
+ * 浮层该出现在哪个 x（屏幕坐标）：**贴面板左边缘**，再钳进屏幕。
  *
- * 为什么不沿用"左边缘对齐锚点"：会话列表的锚点是**右对齐**的会话标签 ——
- * 标题短时它缩到最右，弹层左边缘跟着跑过去，整块溢出到面板外面。
- * X 方向原先**完全没有**边界钳制（Y 方向有 [popupAnchorY] 管上下）。
+ * 2026-09-15 按用户要求统一靠左。此前是两种行为混着：模型与会话那两个长列表
+ * **居中于面板**，权限 / 思考 / 详情贴着各自锚点的左边缘 —— 一列弹层点下来
+ * 横坐标每次都不一样；而居中那两个离自己的锚点最远（锚点在底部左侧，
+ * 弹层却从面板中间开始）。
  *
- * 基准取**面板**而不是屏幕：用户看到的是面板；以屏幕中线为准，面板在
- * 左半边时弹层会跟它脱开。
+ * 为什么贴**面板**而不是贴锚点：会话列表的锚点是**右对齐**的会话标签，
+ * 标题短时标签缩到最右，弹层跟着跑过去会整块溢出面板。贴面板把两件事一起解了。
+ *
+ * 基准取面板而不是屏幕：用户看到的是面板；以屏幕中线为准，面板在左半边时
+ * 弹层会跟它脱开。
  */
-internal fun popupCenteredX(
+internal fun popupLeftX(
     panelLeft: Int,
-    panelWidth: Int,
     popupWidth: Int,
     screenLeft: Int,
     screenRight: Int,
 ): Int {
-    val centered = panelLeft + (panelWidth - popupWidth) / 2
     // 浮层比屏幕还宽时区间会反过来，coerceIn 遇空区间会抛 —— 先保证 lo <= hi
     val lo = screenLeft
     val hi = maxOf(lo, screenRight - popupWidth)
-    return centered.coerceIn(lo, hi)
+    return panelLeft.coerceIn(lo, hi)
 }
 

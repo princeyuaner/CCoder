@@ -901,11 +901,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun showTogglePopup(
         anchor: JComponent,
         content: JComponent,
-        // centerOverPanel 排在 onClosed **前面**：Kotlin 的尾随 lambda 绑的是
-        // 最后一个参数，加在后面的话三个既有调用点的 lambda 会静默改绑。
-        // 与 buildSessionList 的 onDelete 是同一个坑（那次两边都是 Function1，
-        // 编译器逮不住，一路红到冒烟）
-        centerOverPanel: Boolean = false,
         onClosed: () -> Unit,
     ): JBPopup {
         val popup = JBPopupFactory.getInstance()
@@ -922,7 +917,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 override fun onClosed(event: LightweightWindowEvent) = onClosed()
             }
         )
-        showAboveOrBelow(popup, anchor, centerOverPanel)
+        showAboveOrBelow(popup, anchor)
         return popup
     }
 
@@ -930,7 +925,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 锚点都在工具窗口底部，向下弹必然出屏，所以位置得自己算。
      * 见 [popupAnchorY]。
      */
-    private fun showAboveOrBelow(popup: JBPopup, anchor: JComponent, centerOverPanel: Boolean = false) {
+    private fun showAboveOrBelow(popup: JBPopup, anchor: JComponent) {
         if (!anchor.isShowing) return
         val at = anchor.locationOnScreen
         val screen = anchor.graphicsConfiguration?.bounds ?: Rectangle(0, 0, 1920, 1080)
@@ -943,21 +938,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             gap = JBUI.scale(4),
         )
 
-        // 横向：默认贴着锚点的左边缘；会话列表要**居中于面板**，
-        // 因为它的锚点是右对齐的标签，标题短时标签缩到最右，
-        // 弹层会跟着整块溢出面板（见 popupCenteredX）
-        val x = if (centerOverPanel) {
-            val panelAt = locationOnScreen
-            popupCenteredX(
-                panelLeft = panelAt.x,
-                panelWidth = width,
-                popupWidth = popupWidthOf(popup.size, popup.content?.preferredSize),
-                screenLeft = screen.x,
-                screenRight = screen.x + screen.width,
-            )
-        } else {
-            at.x
-        }
+        // 横向：一律贴面板左边缘（见 [popupLeftX] 里那段 —— 此前是"两个长列表
+        // 居中于面板、其余贴各自锚点"两种行为混着，一列弹层点下来横坐标每次都不同）
+        val x = popupLeftX(
+            panelLeft = locationOnScreen.x,
+            popupWidth = popupWidthOf(popup.size, popup.content?.preferredSize),
+            screenLeft = screen.x,
+            screenRight = screen.x + screen.width,
+        )
 
         popup.showInScreenCoordinates(anchor, Point(x, y))
     }
@@ -1049,7 +1037,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 modelPopup = null
                 openModelSettings()
             },
-        ), centerOverPanel = true) { modelPopup = null }
+        )) { modelPopup = null }
     }
 
     /**
@@ -1220,7 +1208,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             switchToSession(picked)
         }
         // 居中于面板：锚点（会话标签）右对齐，标题短时弹层会跟着溢出到面板外
-        sessionPopup = showTogglePopup(sessionLabel, content, centerOverPanel = true) { sessionPopup = null }
+        sessionPopup = showTogglePopup(sessionLabel, content) { sessionPopup = null }
     }
 
     /** 按缓存的列表重画弹层。删除成功后用。浮层没开着就什么都不做。 */
