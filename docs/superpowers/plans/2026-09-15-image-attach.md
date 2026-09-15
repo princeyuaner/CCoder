@@ -241,8 +241,15 @@ ImageLightbox / session.js 的改动）里没有 TODO / FIXME / TBD / XXX / 待�
 
 ### 仍未做的（都不是漏，是划出去的）
 
-- **恢复历史会话时，历史里的图不显示**：历史条目只带回文本。SDK 的 history 里
-  有没有 image block 没验过，要做得先验一次。
+- **恢复历史会话时，历史里的图不显示** —— 但**不是**因为历史里没有。当天就验了
+  （`sidecar/tools/probe-history-image.mjs`，两条独立的路对上）：
+  `getSessionMessages` 回来的用户条目是 `image(base64, 188 字符) + text(…)`，
+  磁盘上那份 JSONL 里也确确实实有 `"type":"image"` 与完整 base64 —— 不是
+  `[Image #1]` 那种占位。**是我们这边丢的**：`MessageRenderer.renderPrompt` 只挑
+  `type == "text"` 的块。要做的话：让它把 image 块一起带出来（转成
+  `transcriptDataUrl` 那份小图，复用现成的那条路），`RenderItem.UserText` 与
+  转写区都已经支持了。**代价是历史载荷**：一条带 5 张 2MB 截图的历史，
+  history 那一行 JSON 就是十几 MB（图在 JSONL 里就是全尺寸的）。
 - **"在编辑器里打开这张图"**：设计稿里就写了不做（要落临时文件、还要管清理）。
 - **拖拽分支的 `isDrop == true` 测不到**：`TransferSupport.setDrop` 是包内可见，
   只有 AWT 自己在拖拽时会设。所以那两条规则抽成了纯函数 [attachImagesWanted] 单测，
