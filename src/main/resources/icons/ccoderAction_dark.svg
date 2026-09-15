@@ -1,0 +1,8 @@
+<!--
+  右键菜单里那三条动作的图标（16×16）。
+  与 ccoderToolWindow.svg 同一张脸（甲：小 C 套大 C），只是按菜单尺寸重画 ——
+  菜单项画的是 16×16，直接把 13 那份放大是虚的。
+-->
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <path d="M11.85 4.28 A5.3538461538461535 5.3538461538461535 0 1 0 11.85 11.72" fill="none" stroke="#F0883E" stroke-width="2.95" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.68 6.38 A2.3384615384615386 2.3384615384615386 0 1 0 9.68 9.62" fill="none" stroke="#F0883E" stroke-width="1.97" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

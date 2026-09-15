@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>CCoder 图标候选</title>
+<style>
+:root{--ui:-apple-system,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}
+[data-theme="dark"]{--bg:#161719;--fg:#e8eaed;--dim:#8b8f97;--card:#1c1e21;--line:#26282c;
+  --editor:#1e1f22;--panel:#2b2d30;--menu:#3c3f41;--border:#393b40}
+[data-theme="light"]{--bg:#f4f5f7;--fg:#1e1f22;--dim:#6c707e;--card:#fff;--line:#e0e2e7;
+  --editor:#fff;--panel:#f7f8fa;--menu:#fff;--border:#d1d3d9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:14px}
+.wrap{max-width:1100px;margin:0 auto;padding:34px 26px 90px}
+.mast{display:flex;justify-content:space-between;align-items:flex-end;gap:26px;
+  border-bottom:1px solid var(--line);padding-bottom:16px;flex-wrap:wrap}
+h1{font-size:26px;margin:0 0 6px}
+.lede{color:var(--dim);margin:0;max-width:62ch;font-size:13.5px}
+.toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.toggle button{font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 13px;
+  border:0;background:none;color:var(--dim);cursor:pointer}
+.toggle button[aria-pressed="true"]{background:var(--panel);color:var(--fg)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:18px;margin-top:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.tag{font-size:11px;letter-spacing:.14em;color:var(--dim)}
+.card h2{font-size:17px;margin:6px 0 4px}
+.card p{margin:0 0 12px;color:var(--dim);font-size:12.5px}
+.row{display:flex;align-items:center;gap:18px;background:var(--panel);border-radius:8px;
+  padding:10px 12px;margin-bottom:8px}
+.row.menu{background:var(--menu);border:1px solid var(--border);flex-direction:column;
+  align-items:stretch;gap:0;padding:6px 0}
+.mi{display:flex;align-items:center;gap:9px;padding:3px 12px;font-size:12.5px}
+.item{display:flex;flex-direction:column;align-items:center;gap:4px}
+.cap{font-size:10px;color:var(--dim);white-space:nowrap}
+.z{zoom:5}
+.strip{display:flex;flex-direction:column;align-items:center;justify-content:center;width:26px;
+  height:26px;border-radius:5px;background:rgba(84,138,247,.16)}
+img{display:block}
+.light-only,.dark-only{display:none}
+[data-theme="light"] .light-only{display:block}
+[data-theme="dark"] .dark-only{display:block}
+[data-theme="light"] .light-only.mi,[data-theme="dark"] .dark-only.mi{display:flex}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mast">
+    <div>
+      <h1>CCoder 图标 · 新一轮候选</h1>
+      <p class="lede">七个方向，每个都按<b>实寸</b>摆出来：侧边栏 13px、右键菜单 16px、插件图标 40px。
+        右上角切主题 —— 深浅两套是分开画的两份文件。<b>告诉我字母编号就行</b>（也可以说"甲但粗一点"这种）。</p>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center">
+      <div class="toggle" role="group" aria-label="配色">
+        <button id="c-blue" aria-pressed="true" onclick="setColor('')">蓝</button>
+        <button id="c-orange" aria-pressed="false" onclick="setColor('-o')">橙</button>
+      </div>
+      <div class="toggle" role="group">
+        <button id="b-dark" aria-pressed="true" onclick="setTheme('dark')">dark</button>
+        <button id="b-light" aria-pressed="false" onclick="setTheme('light')">light</button>
+      </div>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+const CANDIDATES = [
+  ['jia','甲','嵌套 · 细壳','大 C 套小 C，外面那圈细一些 —— 现在线上那版是粗壳（2.4 vs 3.2）'],
+  ['yi','乙','C + 圆点','一个粗 C，中心一个实心圆点 —— 最省笔画的一种"字母加一物"'],
+  ['bing','丙','C + 光标','C 的右下角跟一个光标块，读作 C▌（"敲到一半的 C"）'],
+  ['ding','丁','两段 C','一个环切成两段，左边留一道缝 —— 比整条弧轻，13px 下反而清楚'],
+  ['wu','戊','实心月牙','整个 C 是实心的（没有内轮廓），最重最醒目'],
+  ['ji','己','方 C','方角的 C，像一对括号的右半边 —— 比圆 C 更"代码"，轮廓也独特'],
+  ['geng','庚','C + 三点','C 里三个小点，把"对话"塞进字母里（13px 下三个点会并在一起，风险版）'],
+];
+let COLOR = '';
+const grid = document.getElementById('grid');
+function renderCards() {
+  grid.innerHTML = '';
+  for (const [key, letter, name, note] of CANDIDATES) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `
+    <p class="tag">方案 ${letter}</p>
+    <h2>${name}</h2>
+    <p>${note}</p>
+    <div class="row">
+      <div class="item"><div class="strip">
+        <img class="light-only" src="icons/${key}-13${COLOR}.svg?v=4" width="13">
+        <img class="dark-only" src="icons/${key}-13${COLOR}_dark.svg?v=4" width="13"></div>
+        <span class="cap">侧边栏 13</span></div>
+      <div class="item z">
+        <img class="light-only" src="icons/${key}-13${COLOR}.svg?v=4" width="13">
+        <img class="dark-only" src="icons/${key}-13${COLOR}_dark.svg?v=4" width="13"></div>
+      <div class="item">
+        <img class="light-only" src="icons/${key}-40${COLOR}.svg?v=4" width="40">
+        <img class="dark-only" src="icons/${key}-40${COLOR}_dark.svg?v=4" width="40"></div>
+      <div class="item">
+        <img class="light-only" src="icons/${key}-40${COLOR}.svg?v=4" width="16">
+        <img class="dark-only" src="icons/${key}-40${COLOR}_dark.svg?v=4" width="16"></div>
+      <span class="cap" style="margin-left:auto">13 实寸 · 5× · 40 · 列表 16</span>
+    </div>
+    <div class="row menu">
+      <div class="mi"><img class="light-only" src="icons/${key}-40${COLOR}.svg?v=4" width="16">
+        <img class="dark-only" src="icons/${key}-40${COLOR}_dark.svg?v=4" width="16">
+        <span>添加到 CCoder 聊天框</span></div>
+    </div>`;
+    grid.appendChild(el);
+  }
+}
+function setColor(suffix){
+  COLOR = suffix;
+  document.getElementById('c-blue').setAttribute('aria-pressed', String(suffix === ''));
+  document.getElementById('c-orange').setAttribute('aria-pressed', String(suffix !== ''));
+  renderCards();
+}
+if (location.hash.includes('light')) setTheme('light');
+if (location.hash.includes('orange')) COLOR = '-o';
+renderCards();
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('b-dark').setAttribute('aria-pressed', String(t==='dark'));
+  document.getElementById('b-light').setAttribute('aria-pressed', String(t==='light'));
+}
+</script>
+</body></html>

@@ -1,0 +1,13 @@
+<!--
+  插件图标（40×40，JetBrains 要求 40×40）。
+  方案「甲」：小 C 套大 C，只是这里带了**方块底** —— 插件列表里一排图标，
+  没有底的字母会显得轻，方块才有"这是一个产品"的分量（侧边栏那份不带底，
+  理由见 icons/ccoderToolWindow.svg）。
+
+  内圈画成方块色（镂空），外圈是白色。外圈笔画 6.0、内圈 4.0 ——
+  再粗一档里面那个小 C 就被吃掉了。
+-->
+<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+  <rect width="40" height="40" rx="9" fill="#F0883E"/>
+  <path d="M28.89 10.79 A12.8 12.8 0 1 0 28.89 29.21" fill="none" stroke="#FFFFFF" stroke-width="6.0" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.89 15.97 A5.6 5.6 0 1 0 23.89 24.03" fill="none" stroke="#F0883E" stroke-width="4.00" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

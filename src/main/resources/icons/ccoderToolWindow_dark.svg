@@ -1,0 +1,17 @@
+<!--
+  工具窗口的图标（13×13，侧边栏那个）。
+  方案「甲」：**大 C 套小 C，外壳细一档**（2026-09-15 用户从七个候选里选的）。
+
+  两处不是随手定的：
+  - **不带方块底**：13px 下每一像素都得用在笔画上，外面再套个方块等于把 C 压小一圈；
+  - **内圈与外壳同色**（橙），不是白色：白描边只在深色底上成立，而侧边栏与菜单
+    的背景是**主题**给的 —— 浅色主题下白内圈直接消失。同色之后，中间那道缝
+    是背景色透出来的，白底黑底都成立。
+
+  配色：浅色 #E8702A / 深色 #F0883E（深色那份提亮一档）。
+  注意它与产品强调色（Composer.focusColor() 那对 New UI 蓝）**不是同一支**了 ——
+  图标用橙是刻意的品牌色，界面里的蓝没动。
+-->
+<svg width="13" height="13" viewBox="0 0 13 13" xmlns="http://www.w3.org/2000/svg">
+  <path d="M9.63 3.48 A4.35 4.35 0 1 0 9.63 9.52" fill="none" stroke="#F0883E" stroke-width="2.40" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.87 5.18 A1.9 1.9 0 1 0 7.87 7.82" fill="none" stroke="#F0883E" stroke-width="1.60" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
