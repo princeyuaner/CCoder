@@ -72,7 +72,7 @@ class ComposerRenderProbe {
             val send = RoundSendButton().apply {
                 setState(mainButtonState(ready = true, busy = false, disconnected = false))
             }
-            val toolbar = buildComposerToolbar(model, modeLabel, effortLabel, send)
+            val toolbar = buildComposerToolbar(AttachButton(), model, modeLabel, effortLabel, send)
 
             val card = buildComposerCard(inputScroll, toolbar)
 

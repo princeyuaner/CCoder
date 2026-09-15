@@ -125,11 +125,12 @@ internal class RoundSendButton : JComponent() {
 }
 
 /**
- * 控件工具栏：左边状态（模型、权限模式、思考深度），右边发送键。
+ * 控件工具栏：最左是附件按钮，接着是状态区（模型、权限模式、思考深度），右边发送键。
  *
  * 左侧刻意留宽 —— 以后要加的模型切换等控件都往这儿添，不必再动结构。
  */
 internal fun buildComposerToolbar(
+    attach: JComponent,
     model: JComponent,
     mode: JComponent,
     effort: JComponent,
@@ -139,18 +140,22 @@ internal fun buildComposerToolbar(
         // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
         isOpaque = false
         border = JBUI.Borders.emptyTop(2)
-        add(buildStatusRow(model, mode, effort), BorderLayout.WEST)
+        add(buildToolbarLeft(attach, model, mode, effort), BorderLayout.WEST)
         add(send, BorderLayout.EAST)
     }
 
 /**
- * 工具栏左侧的状态区。
+ * 工具栏左侧：附件按钮 + 状态区。
  *
- * 这几个都是"现在是什么"的显示，不是按钮 —— 所以用安静的次要文字，
+ * 状态那三个是"现在是什么"的显示，不是按钮 —— 所以用安静的次要文字，
  * 让发送键保持唯一的视觉重点。（权限模式切到绕过时会自己跳成警示色，
  * 那是它应得的例外。）
+ *
+ * 附件按钮落在最左沿上：它是**动作**（点开选文件），不是状态，摆开头
+ * 与那把"添加上下文"的手势对齐，也不打断右边三个状态之间的等距。
  */
-internal fun buildStatusRow(
+internal fun buildToolbarLeft(
+    attach: JComponent,
     model: JComponent,
     mode: JComponent,
     effort: JComponent,
@@ -158,6 +163,8 @@ internal fun buildStatusRow(
     JPanel().apply {
         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
         isOpaque = false
+        add(attach)
+        add(javax.swing.Box.createHorizontalStrut(JBUI.scale(8)))
         add(model)
         add(javax.swing.Box.createHorizontalStrut(JBUI.scale(10)))
         add(mode)

@@ -140,6 +140,7 @@ class QueueStripRenderProbe {
             }
             // 忙闲跟着队列走：有条排着就说明正忙 —— 按钮那时该写「停止」
             val toolbar = buildComposerToolbar(
+                AttachButton(),
                 ModelLabel {}.apply { setProfile(ModelProfile(name = "Sonnet 4.5")) },
                 ModeLabel {}.apply { setMode(PermissionModeSetting.DEFAULT) },
                 EffortLabel {}.apply { setEffort(EffortSetting.HIGH) },

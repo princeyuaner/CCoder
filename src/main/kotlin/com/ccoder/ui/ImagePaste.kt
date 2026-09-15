@@ -231,6 +231,18 @@ private object EmptyDataContext : DataContext {
     override fun getData(dataId: String): Any? = null
 }
 
+/**
+ * 一个图片文件 → 一张待发的图。解不开（坏文件、PSD）或看名字就不是图就返回 null。
+ *
+ * **拖拽与附件按钮共用这一个**：两处各写一遍的话，"什么算图"迟早会分成两套判据
+ * （拖进来的认、选进来的不认，或者反过来）。
+ */
+internal fun imageFromFile(file: File): IncomingImage? {
+    if (!looksLikeImageFile(file.name)) return null
+    val img = runCatching { ImageIO.read(file) }.getOrNull() ?: return null
+    return IncomingImage(img, sourceBytes = file.length().toInt(), name = file.name)
+}
+
 /** 从一份 transferable 里把图抠出来。解不开的**跳过而不是抛** —— 拖进来一堆文件时不该整个失败。 */
 private fun readFromTransferable(transferable: Transferable): List<IncomingImage> {
     val out = mutableListOf<IncomingImage>()
@@ -250,9 +262,7 @@ private fun readFromTransferable(transferable: Transferable): List<IncomingImage
             transferable.getTransferData(DataFlavor.javaFileListFlavor)
         }.getOrNull() as? List<*>
         for (file in raw.orEmpty().filterIsInstance<File>()) {
-            if (!looksLikeImageFile(file.name)) continue
-            val img = runCatching { ImageIO.read(file) }.getOrNull() ?: continue
-            out += IncomingImage(img, sourceBytes = file.length().toInt(), name = file.name)
+            imageFromFile(file)?.let { out += it }
         }
     }
 

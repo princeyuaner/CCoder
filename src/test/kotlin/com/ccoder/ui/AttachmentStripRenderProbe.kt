@@ -90,6 +90,7 @@ class AttachmentStripRenderProbe {
                     viewport.isOpaque = false
                 }
                 val toolbar = buildComposerToolbar(
+                    AttachButton(),
                     ModelLabel {}.apply { setProfile(ModelProfile(name = "Sonnet 4.5")) },
                     ModeLabel {}.apply { setMode(PermissionModeSetting.DEFAULT) },
                     EffortLabel {}.apply { setEffort(EffortSetting.HIGH) },

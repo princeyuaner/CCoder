@@ -73,16 +73,19 @@ class ComposerToolbarTest {
     }
 
     @Test
-    fun `工具栏左侧是状态区，右侧是发送键`() {
+    fun `最左是附件按钮，中间是状态区，右侧是发送键`() {
+        val attach = AttachButton()
         val model = javax.swing.JLabel()
         val mode = ModeLabel {}
         val effort = EffortLabel {}
         val send = RoundSendButton()
 
-        val bar = buildComposerToolbar(model, mode, effort, send)
+        val bar = buildComposerToolbar(attach, model, mode, effort, send)
         val layout = bar.layout as java.awt.BorderLayout
         val west = layout.getLayoutComponent(java.awt.BorderLayout.WEST) as java.awt.Container
 
+        // 「左下角」那个位置由这一条钉住：附件按钮是左起第一个
+        assertSame(attach, west.components[0], "附件按钮该在最左")
         assertTrue(west.components.contains(model), "模型在左")
         assertTrue(west.components.contains(mode), "权限模式也在左")
         assertTrue(west.components.contains(effort), "思考深度也在左")

@@ -30,6 +30,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileChooser.FileChooser
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -53,6 +55,7 @@ import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
+import java.io.File
 import java.nio.file.Path
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -132,6 +135,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         styleComposerInput(this)
         caret = DefaultCaret().apply { updatePolicy = DefaultCaret.ALWAYS_UPDATE }
     }
+    /**
+     * 工具栏最左的附件按钮：点开选文件，加进输入框（分流见 [chooseFilesToAdd]）。
+     *
+     * 它**没有禁用态** —— 往输入框里添东西不依赖会话是否就绪，断了线也该能先攒着。
+     */
+    private val attachButton = AttachButton().apply { onClick = { chooseFilesToAdd() } }
+
     /** 发送与停止合一，显示什么由 [mainButtonState] 决定。 */
     private val sendButton = RoundSendButton().apply { onClick = { onMainButtonClick() } }
 
@@ -449,11 +459,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             viewport.isOpaque = false
         }
 
-        // 底部工具栏：模型、权限模式与思考深度在左、发送键在右
+        // 底部工具栏：附件按钮在最左，接着是模型、权限模式与思考深度，发送键在右
         refreshModeLabel()
         refreshModelLabel()
         refreshEffortLabel()
-        val composerToolbar = buildComposerToolbar(modelLabel, modeLabel, effortLabel, sendButton)
+        val composerToolbar =
+            buildComposerToolbar(attachButton, modelLabel, modeLabel, effortLabel, sendButton)
 
         // 四张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
@@ -2607,6 +2618,44 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         appendSnippet(input, text)
         ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.activate(null)
         input.requestFocusInWindow()
+    }
+
+    /**
+     * 附件按钮：选文件 → 加进输入框。
+     *
+     * 走的是**已经有的两条路**，不新造第三条（分流见 [splitChosenFiles]）：图片与
+     * 拖一张 `.png` 进来完全同路 —— 进附件带；其余照右键「加文件」的写法插一个
+     * `@相对路径`，内容由 CLI 自己展开。
+     *
+     * 图**读不出来时退回 `@` 引用**而不是默默丢掉：用户明明选了它，输入框里总得
+     * 留下点什么。真正的超限（>8MB）由 [addAttachment] 给一句人话。
+     */
+    private fun chooseFilesToAdd() {
+        val picked = FileChooser.chooseFiles(
+            FileChooserDescriptorFactory.createMultipleFilesNoJarsDescriptor(),
+            project,
+            null,
+        )
+        if (picked.isEmpty()) return
+
+        val chosen = splitChosenFiles(picked.map { it.path })
+        LOG.info(
+            "附件按钮：选了 ${picked.size} 个文件 —— 图 ${chosen.pictures.size} 张、" +
+                "@ 引用 ${chosen.mentions.size} 个",
+        )
+        if (chosen.mentions.isNotEmpty()) {
+            addToComposer(
+                chosen.mentions.joinToString(" ") { fileMention(mentionPathOf(project, it)) },
+            )
+        }
+        for (path in chosen.pictures) {
+            val image = imageFromFile(File(path))
+            if (image != null) {
+                addAttachment(image)
+            } else {
+                addToComposer(fileMention(mentionPathOf(project, path)))
+            }
+        }
     }
 
     /**

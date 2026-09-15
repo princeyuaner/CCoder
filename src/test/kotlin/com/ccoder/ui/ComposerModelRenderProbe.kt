@@ -190,7 +190,7 @@ class ComposerModelRenderProbe {
             add(
                 buildComposerCard(
                     inputScroll,
-                    buildComposerToolbar(modelLabel, modeLabel, effortLabel, send),
+                    buildComposerToolbar(AttachButton(), modelLabel, modeLabel, effortLabel, send),
                 ),
                 BorderLayout.NORTH,
             )
