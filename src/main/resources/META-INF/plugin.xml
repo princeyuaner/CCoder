@@ -1,11 +1,44 @@
 <idea-plugin>
     <id>com.ccoder.claudecode</id>
-    <name>CCoder</name>
-    <vendor>ccoder</vendor>
+    <!-- 名字的**真正来源**是 gradle.properties 的 pluginName（patchPluginXml 会拿它
+         覆盖这一行）。两处都写同样的值，免得看 plugin.xml 的人以为改这里就行。
+         括号是市场指南 ✅ 栏里点名允许的符号；带上 "Claude Code" 是为了能搜到
+         （2026-09-15，理由见 docs 里那次搜索实测）。 -->
+    <name>CCoder (Claude Code Assistant)</name>
+    <!-- 市场审核指南要"vendor 网站有效可访问、邮箱有效"。邮箱填了（git 里的提交邮箱）；
+         url 空着：没有主页也没有公开仓库（2026-09-15 确认），不编一个指到别人家的网址。
+         若审核因此打回，补一个 url="..." 即可。名字 ccoder 是插件页上显示的那个。 -->
+    <vendor email="594954848@qq.com">ccoder</vendor>
 
     <description><![CDATA[
-    Claude Code integration for PyCharm via the Claude Agent SDK.
+    Runs the Claude Code CLI inside a PyCharm tool window: ask against the project
+    you are already editing, see every file edit as a diff before it is applied,
+    and approve or deny the commands that touch your machine.
+
+    Requires the Claude Code CLI (claude) and Node.js installed on your machine.
     ]]></description>
+
+    <change-notes><![CDATA[
+    <h3>0.2.13</h3>
+    <ul>
+      <li>Preset prompts: save your own reusable prompts in Settings, then type / in the input box to pick one. The "预设" (Presets) group is listed first.</li>
+      <li>MCP panel: read and edit the project-level .mcp.json. The right-hand column shows the connection status and the error reason of every server in the current session.</li>
+      <li>Hooks panel: read and edit hooks in the project-level .claude/settings.json. Nothing else in that file is touched.</li>
+      <li>Session list: sessions are named after your own first message (the CLI's auto-summary takes a back seat), and the list is now flush with the panel's left edge.</li>
+      <li>While Claude writes a file, the status card now says what it is writing. It used to stay silent for 3.6 seconds, which looked like a hang.</li>
+      <li>Diffs are no longer drawn on the tool card itself. They appear when the card is expanded.</li>
+    </ul>
+
+    <h4>中文</h4>
+    <ul>
+      <li>预置 prompt：在设置里存几条自己的常用提示词，输入框打 / 就能选，「预设」分组排在最前。</li>
+      <li>MCP 面板：读写项目级 .mcp.json；右栏显示当前会话里每个 server 的连接状态与错误原因。</li>
+      <li>hooks 面板：读写项目级 .claude/settings.json 的 hooks。同文件里别的内容一个字节不动。</li>
+      <li>会话列表：名字改用你自己说的第一句（CLI 的自动摘要退居其次），并一律贴面板左边缘。</li>
+      <li>让 Claude 写文件的那几秒，状态卡提前说明在写什么。此前会静默 3.6 秒，看着像卡住。</li>
+      <li>工具卡上的 diff 不再直接铺在卡面上，展开才画。</li>
+    </ul>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <!-- 转写区用内嵌浏览器渲染。该别名自 2025.3.1 起稳定。 -->
