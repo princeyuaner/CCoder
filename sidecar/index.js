@@ -15,6 +15,7 @@ import {
   getSubagentMessages as sdkGetSubagentMessages,
 } from '@anthropic-ai/claude-agent-sdk';
 import { NdjsonDecoder, encodeNdjson, parseLine } from './ndjson.js';
+import { capHistoryImages } from './history-images.js';
 import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
 
@@ -220,13 +221,19 @@ export function createDispatcher({
       case 'loadHistory': {
         const { dir, sessionId } = params;
         Promise.resolve(sessionApi.getSessionMessages(sessionId, { dir }))
-          .then((items) => out({
-            type: 'history',
-            id: msg.id,
-            sessionId,
-            // 条目原样透传：它们与流式事件同构，插件侧直接复用既有渲染管线
-            items: items ?? [],
-          }))
+          .then((items) => {
+            // 条目照原样透传（它们与流式事件同构，插件侧复用既有渲染管线），
+            // 只做一件事：**图按预算裁一裁**。整段历史是一条 JSON，CLI 又把图
+            // 原样存着（完整 base64），不裁的话一个用过两周的会话能推出几十 MB
+            // —— 见 history-images.js 里那份实测说明
+            const capped = capHistoryImages(items ?? []);
+            out({
+              type: 'history',
+              id: msg.id,
+              sessionId,
+              items: capped.items,
+            });
+          })
           .catch((err) => fail('LOAD_HISTORY_FAILED', String(err?.message ?? err), false));
         return session;
       }

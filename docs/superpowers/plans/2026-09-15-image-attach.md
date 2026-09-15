@@ -241,15 +241,7 @@ ImageLightbox / session.js 的改动）里没有 TODO / FIXME / TBD / XXX / 待�
 
 ### 仍未做的（都不是漏，是划出去的）
 
-- **恢复历史会话时，历史里的图不显示** —— 但**不是**因为历史里没有。当天就验了
-  （`sidecar/tools/probe-history-image.mjs`，两条独立的路对上）：
-  `getSessionMessages` 回来的用户条目是 `image(base64, 188 字符) + text(…)`，
-  磁盘上那份 JSONL 里也确确实实有 `"type":"image"` 与完整 base64 —— 不是
-  `[Image #1]` 那种占位。**是我们这边丢的**：`MessageRenderer.renderPrompt` 只挑
-  `type == "text"` 的块。要做的话：让它把 image 块一起带出来（转成
-  `transcriptDataUrl` 那份小图，复用现成的那条路），`RenderItem.UserText` 与
-  转写区都已经支持了。**代价是历史载荷**：一条带 5 张 2MB 截图的历史，
-  history 那一行 JSON 就是十几 MB（图在 JSONL 里就是全尺寸的）。
+- ~~**恢复历史会话时，历史里的图不显示**~~ —— **当天就补上了**，见下面《补的一处》。
 - **"在编辑器里打开这张图"**：设计稿里就写了不做（要落临时文件、还要管清理）。
 - **拖拽分支的 `isDrop == true` 测不到**：`TransferSupport.setDrop` 是包内可见，
   只有 AWT 自己在拖拽时会设。所以那两条规则抽成了纯函数 [attachImagesWanted] 单测，
@@ -263,3 +255,27 @@ ImageLightbox / session.js 的改动）里没有 TODO / FIXME / TBD / XXX / 待�
 `sidecar/tools/probe-image.mjs` 两次都答对（第二次把颜色换到另一边问的，不是猜的）。
 但网关是第三方的，哪天开始不认 image block，错误会原样出现在转写区 ——
 那条路不会静默丢图。
+
+### 补的一处：恢复会话时把历史里的图也画出来（当天下午）
+
+起因：上面把"历史里的图不显示"写成了"划出去的"，但**先验了一下**（用户要求），
+结论是那句写反了 —— 历史里**有**图（`probe-history-image.mjs`，两条路一致），
+是我们只挑 text 块。于是补上：
+
+1. **侧车先裁一刀**（新模块 `history-images.js`）：预算 6M 字符 base64，
+   **从最新的一条往回数**，装不下的丢掉并在那条消息末尾补一句
+   「（这一条里更早的 N 张图已省略）」。为什么在这层裁：`loadHistory` 是整段
+   **一次性**推回来的，只有在传输层裁才真的省下内存与解析时间 —— 到了 Kotlin
+   那边再裁，几十 MB 已经进过了。
+2. **Kotlin 把图带出来**：`renderPrompt` 从 `String?` 变成
+   `HistoryPrompt(text, images)?`，图走 `transcriptDataUrl`（与贴图那条路
+   同一个缩放口径：长边 ≤900 的 JPEG）。认不出的块（坏 base64、url 形式的
+   source）**跳过而不是整条丢** —— 一条坏图不该让这次恢复少掉一整句话。
+3. **回放的映射挪到池线程**：一张 1568px 截图解码+缩放+重编码约 100ms，八张
+   就是一秒 —— 这一段以前整段跑在 EDT 上（现象是"恢复会话时界面卡一下"）。
+   `MessageRenderer` 是纯的，整段映射可以搬走，只有推 JCEF 那一步回 EDT。
+   连带把 `nextMessageId` 加了锁：它现在可能同时被池线程（回放）和 EDT
+   （会话还在吐新事件）碰，撞出重复 id 就是 React key 冲突。
+
+测试：侧车 +7（预算、从新往旧、说明文案、工具结果不算数、坏形状不炸），
+Kotlin +5（图与文字一起取出、纯图提问、坏图跳过、url 形状跳过、tool_result 里的图不算）。

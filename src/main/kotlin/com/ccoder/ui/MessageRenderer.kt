@@ -82,7 +82,7 @@ object MessageRenderer {
     }
 
     /**
-     * 从一条**历史**消息里取出"真实提问"的文本。
+     * 历史里的一条提问。正文 + 图。
      *
      * **只供回放路径调用。** live 路径下用户气泡是 `sendCurrentInput()` 直接
      * 推的，这里再产一次就会变成两条 —— 所以刻意不并进 [renderEvent]。
@@ -90,15 +90,21 @@ object MessageRenderer {
      * 必须过滤工具结果：实测最大会话的 247 条 user 消息里，236 条是工具结果，
      * 真实提问只有 11 条。全渲染出来会把转写区淹掉。
      *
-     * @return 提问文本；不是提问（工具结果、畸形、空白）时返回 null
+     * [images] 是**给转写区看的那份**（data URL，长边 ≤900 的 JPEG）：CLI 把图
+     * 原尺寸存进 JSONL（实测见 `sidecar/tools/probe-history-image.mjs`），
+     * 原样推给 JCEF 太重 —— 缩放口径与贴图那条路完全一致，用的是同一个
+     * [transcriptDataUrl]。
      */
-    fun renderPrompt(item: JsonObject): String? {
+    internal data class HistoryPrompt(val text: String, val images: List<String>)
+
+    internal fun renderPrompt(item: JsonObject): HistoryPrompt? {
         if (item.str("type") != "user") return null
         val content = item.obj("message")?.get("content") ?: return null
 
         // 形式一：纯文本提问
         if (content.isJsonPrimitive && content.asJsonPrimitive.isString) {
-            return content.asString.takeIf { it.isNotBlank() }
+            val text = content.asString.takeIf { it.isNotBlank() } ?: return null
+            return HistoryPrompt(text, emptyList())
         }
         if (!content.isJsonArray) return null
 
@@ -113,8 +119,25 @@ object MessageRenderer {
             .mapNotNull { it.str("text") }
             .joinToString("\n")
             .trim()
+        val images = blocks
+            .filter { it.str("type") == "image" }
+            .mapNotNull { historyImage(it) }
 
-        return text.takeIf { it.isNotEmpty() }
+        // 一个字没有、图也没有 —— 不是提问（空的 text 块、认不出的块都落这里）
+        if (text.isEmpty() && images.isEmpty()) return null
+        return HistoryPrompt(text, images)
+    }
+
+    /**
+     * 历史里的 image 块 → 转写区那份。认不出的（缺 source/data、base64 坏掉）
+     * 返回 null：**一条坏图不该让整段历史回放不了**。
+     */
+    private fun historyImage(block: JsonObject): String? {
+        val source = block.obj("source") ?: return null
+        if (source.str("type") != "base64") return null
+        val data = source.str("data") ?: return null
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(data) }.getOrNull() ?: return null
+        return transcriptDataUrl(bytes).takeIf { it.isNotEmpty() }
     }
 
     private fun renderEvent(event: JsonObject): List<RenderItem> =

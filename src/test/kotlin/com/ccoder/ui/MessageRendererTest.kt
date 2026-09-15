@@ -301,7 +301,7 @@ class MessageRendererTest {
 
     @Test
     fun `纯文本提问被取出`() {
-        val text = prompt("""{"type":"user","message":{"role":"user","content":"这是什么项目"}}""")
+        val text = prompt("""{"type":"user","message":{"role":"user","content":"这是什么项目"}}""")?.text
         assertEquals("这是什么项目", text)
     }
 
@@ -321,7 +321,7 @@ class MessageRendererTest {
             """{"type":"user","message":{"role":"user","content":[
                 {"type":"text","text":"第一段"},
                 {"type":"text","text":"第二段"}]}}"""
-        )
+        )?.text
         assertEquals("第一段\n第二段", text)
     }
 
@@ -341,6 +341,81 @@ class MessageRendererTest {
     fun `空白提问返回 null`() {
         assertNull(prompt("""{"type":"user","message":{"role":"user","content":"   "}}"""))
         assertNull(prompt("""{"type":"user","message":{"role":"user","content":[]}}"""))
+    }
+
+    // ---- 历史里的图（2026-09-15）----
+    //
+    // 实测（sidecar/tools/probe-history-image.mjs）：CLI 把用户发过的图**原样**
+    // 存进 JSONL —— 完整 base64，不是 `[Image #1]` 占位。所以在恢复会话时
+    // 那几张图是拿得到的，之前不显示是这里只挑 text 块。
+
+    /** 一张真的小图，base64 之后塞进历史条目里。 */
+    private fun pngBase64(): String {
+        val img = java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val out = java.io.ByteArrayOutputStream()
+        javax.imageio.ImageIO.write(img, "png", out)
+        return java.util.Base64.getEncoder().encodeToString(out.toByteArray())
+    }
+
+    @Test
+    fun `带图的历史提问：文字与图一起取出来`() {
+        val json = """{"type":"user","message":{"role":"user","content":[
+            {"type":"image","source":{"type":"base64","media_type":"image/png","data":"${pngBase64()}"}},
+            {"type":"text","text":"这张图哪里不对"}]}}"""
+
+        val got = prompt(json)
+
+        assertEquals("这张图哪里不对", got?.text)
+        assertEquals(1, got?.images?.size)
+        assertTrue(
+            got!!.images[0].startsWith("data:image/jpeg;base64,"),
+            "给转写区的那份要是能直接塞进 img.src 的 data URL：${got.images[0].take(30)}",
+        )
+    }
+
+    @Test
+    fun `纯图提问也回得来 —— 一个字都没打的那种`() {
+        val json = """{"type":"user","message":{"role":"user","content":[
+            {"type":"image","source":{"type":"base64","media_type":"image/png","data":"${pngBase64()}"}}]}}"""
+
+        val got = prompt(json)
+
+        assertEquals("", got?.text)
+        assertEquals(1, got?.images?.size)
+    }
+
+    @Test
+    fun `图坏掉时不整条丢 —— 文字还得留给人看`() {
+        // 一条坏图不该让这次恢复少掉一整句话
+        val json = """{"type":"user","message":{"role":"user","content":[
+            {"type":"image","source":{"type":"base64","media_type":"image/png","data":"不是base64"}},
+            {"type":"text","text":"这句话必须在"}]}}"""
+
+        val got = prompt(json)
+
+        assertEquals("这句话必须在", got?.text)
+        assertTrue(got!!.images.isEmpty(), "解不开的图跳过，不该跟着文字一起没")
+    }
+
+    @Test
+    fun `认不出的 image 形状也跳过`() {
+        // 将来 SDK 换成 URL 形式的图（source.type = "url"）时走这条路
+        val json = """{"type":"user","message":{"role":"user","content":[
+            {"type":"image","source":{"type":"url","url":"https://example.com/a.png"}},
+            {"type":"text","text":"看这个链接"}]}}"""
+
+        assertEquals("看这个链接", prompt(json)?.text)
+        assertTrue(prompt(json)!!.images.isEmpty())
+    }
+
+    @Test
+    fun `工具结果里的图不算提问里的图`() {
+        // 那条路上的图属于工具卡片，本来就整条丢（见 renderToolResults）
+        val json = """{"type":"user","message":{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"t1","content":[
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":"${pngBase64()}"}}]}]}}"""
+
+        assertNull(prompt(json))
     }
 
     @Test

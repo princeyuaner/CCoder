@@ -287,6 +287,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var idCounter = 0L
     private var messageCounter = 0L
 
+    /** 护着 [messageCounter]：回放那条路在池线程上取号（见 nextMessageId）。 */
+    private val messageIdLock = Any()
+
     /**
      * 会话代次。每次 [startSession] 递增。
      *
@@ -1346,26 +1349,43 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 先试 [MessageRenderer.renderPrompt]（提问），再走 [MessageRenderer.render]
      * （其余）。顺序不能反：`render` 对 `type:"user"` 一律返回空，所以两条路
      * 不会重复产出。
+     *
+     * ## 映射在**池线程**上做，推送回 EDT
+     *
+     * 历史里的图要解码、缩放、重编码（一张 1568px 的截图约 100ms，见
+     * [transcriptDataUrl]），八张就是一秒。这一段以前整段跑在 EDT 上 ——
+     * 现象是"恢复会话时界面卡住一下"。`MessageRenderer` 是纯的，整段映射可以
+     * 搬走；只有推 JCEF 那一步必须回到 EDT（它碰浏览器）。
+     *
+     * 顺序也保住了：ops 是先攒好再按原顺序推的，不 interleave。
      */
     private fun replayItems(items: List<JsonObject>) {
-        var rendered = 0
-        for (item in items) {
-            MessageRenderer.renderPrompt(item)?.let {
-                pushOp(toOp(RenderItem.UserText(it)))
-                rendered++
+        ApplicationManager.getApplication().executeOnPooledThread {
+            var rendered = 0
+            val ops = mutableListOf<TranscriptOp>()
+            for (item in items) {
+                MessageRenderer.renderPrompt(item)?.let {
+                    ops += toOp(RenderItem.UserText(it.text, it.images))
+                    rendered++
+                }
+                val rest = MessageRenderer.render(SidecarMessage.Event(item))
+                rest.forEach { ops += toOp(it) }
+                rendered += rest.size
             }
-            val rest = MessageRenderer.render(SidecarMessage.Event(item))
-            rest.forEach { pushOp(toOp(it)) }
-            rendered += rest.size
+            ApplicationManager.getApplication().invokeLater {
+                ops.forEach { pushOp(it) }
+
+                // 用量不在这里补 —— `ready` 那一拍已经问过 CLI 了（实测它一条消息
+                // 都没发就能答，而且把这份历史算了进去）。再推一遍只会多一个会漂的数据源
+
+                resumeTargetId = null
+                setBusy(false)
+                setConnection("已连接")
+                pushOp(
+                    toOp(RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示"))
+                )
+            }
         }
-
-        // 用量不在这里补 —— `ready` 那一拍已经问过 CLI 了（实测它一条消息都没发
-        // 就能答，而且把这份历史算了进去）。这里再推一遍只会多一个会漂的数据源
-
-        resumeTargetId = null
-        setBusy(false)
-        setConnection("已连接")
-        pushOp(toOp(RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示")))
     }
 
     /**
@@ -2592,7 +2612,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     private fun nextId(): String = "req-${idCounter++}"
 
-    private fun nextMessageId(): String = "m${messageCounter++}"
+    /**
+     * 渲染用的消息号。
+     *
+     * **加锁**：回放的映射跑在池线程上（见 [replayItems]），而它一边跑、会话一边
+     * 可能吐新事件 —— 两个线程同时 `++` 会撞出重复的 id，而 id 是 React 的 key，
+     * 重复的 key 会让某个气泡渲染错位（那种 bug 找起来很费劲，而这里一行就防住）。
+     */
+    private fun nextMessageId(): String = synchronized(messageIdLock) { "m${messageCounter++}" }
 
     private companion object {
         const val TOOL_WINDOW_ID = "CCoder"
