@@ -136,6 +136,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         caret = DefaultCaret().apply { updatePolicy = DefaultCaret.ALWAYS_UPDATE }
     }
     /**
+     * ↑/↓ 翻已发送的历史（行为照 shell：没发出去的那半句会被存成草稿，↓ 走到底
+     * 就还回来）。
+     *
+     * 只活在内存里 —— 面板关掉就没了；跨重启的那份该由设置来管，不混进这里。
+     */
+    private val inputHistory = InputHistory()
+
+    /**
      * 工具栏最左的附件按钮：点开选文件，加进输入框（分流见 [chooseFilesToAdd]）。
      *
      * 它**没有禁用态** —— 往输入框里添东西不依赖会话是否就绪，断了线也该能先攒着。
@@ -425,6 +433,27 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         CompletionKey.Accept -> { e.consume(); acceptCompletion(); return }
                         CompletionKey.Dismiss -> { e.consume(); closeCompletion(); return }
                         CompletionKey.Ignore -> Unit
+                    }
+                }
+
+                // ↑/↓ 翻历史输入（2026-09-15）。**只在光标贴到首行/末行时才接管** ——
+                // 光标夹在中间时那两下是正常的光标移动，抢了就成了"上下键失灵"。
+                // 补全开着时上面已经短路了，所以这两件事不会打架
+                if (!e.isShiftDown && !e.isControlDown && !e.isAltDown) {
+                    val recalled = when {
+                        e.keyCode == KeyEvent.VK_UP && onFirstLine(input.text, input.caretPosition) ->
+                            inputHistory.prev(input.text)
+
+                        e.keyCode == KeyEvent.VK_DOWN && onLastLine(input.text, input.caretPosition) ->
+                            inputHistory.next()
+
+                        else -> null
+                    }
+                    if (recalled != null) {
+                        e.consume()
+                        input.text = recalled
+                        input.caretPosition = recalled.length
+                        return
                     }
                 }
 
@@ -2494,6 +2523,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 用户敲进去的原样。标题取的是**它**，不是下面展开后的文本 ——
         // 展开会把记号变成一大段代码，拿它当标题就成了「```kotlin …」
         val typed = input.text.trim()
+
+        // ↑/↓ 的历史记的是**用户敲的那份**：展开后的全文（可能几百行代码）塞回
+        // 输入框就没法用了。代价是带片段记号的那句再发一次时，记号只是一行字面
+        // 文本（见 InputHistory 顶上那条说明）
+        inputHistory.remember(typed)
 
         // 记号在这一刻展开：输入框里只是「一行记号」，发出去的是路径 + 围栏 + 代码全文。
         // 展开放在**清空输入框之前**，而清空之后表也一起清掉 —— 记号已经不在文本里了，
