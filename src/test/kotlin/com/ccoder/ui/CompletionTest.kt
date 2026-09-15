@@ -166,4 +166,15 @@ class CompletionTest {
         )
         assertEquals("/compact", text)
     }
+
+    @Test
+    fun `原样插入的候选不拼触发字符、也不加尾随空格`() {
+        // 预置 prompt 走的正是这条：要写进输入框的是 prompt 正文，不是「/正文」
+        val (text, caret) = applyCompletion(
+            "/写测试", 4, completionQuery("/写测试", 4)!!,
+            CompletionItem("写测试", "给这段代码补单测", verbatim = true),
+        )
+        assertEquals("给这段代码补单测", text)
+        assertEquals(text.length, caret)
+    }
 }

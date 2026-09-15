@@ -22,6 +22,8 @@ import com.ccoder.settings.EffortSetting
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.ModelProfiles
 import com.ccoder.settings.PermissionModeSetting
+import com.ccoder.settings.PromptPreset
+import com.ccoder.settings.PromptPresets
 import com.ccoder.settings.displayName
 import com.ccoder.settings.showSettingsDialog
 import com.google.gson.JsonArray
@@ -2395,8 +2397,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         val filtered = visibleCandidates(
             when (q.trigger) {
+                // 预设排在最前：打 `/` 的人多半想找的是自己那几条常用说法。
+                // **必须整组连续** —— 分组标题只在换组时插一条（CompletionPopup），
+                // 把预设和命令交叉排会画出一串重复的标题
                 Trigger.Command ->
-                    filterCandidates(commandCandidates(commandList, sendableNames), q.query)
+                    filterCandidates(
+                        promptCandidates(promptPresets()) +
+                            commandCandidates(commandList, sendableNames),
+                        q.query,
+                    )
 
                 // 索引期间不查文件候选：[collectProjectFiles] 走 ProjectFileIndex，
                 // dumb 态下那套 API 会抛 IndexNotReadyException。命令那条不碰索引，
@@ -2418,6 +2427,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 全部项目文件，按弹层生命周期缓存，见 [projectFiles]。 */
     private fun allProjectFiles(): List<String> =
         projectFiles ?: collectProjectFiles(project).also { projectFiles = it }
+
+    /**
+     * 预置 prompt **现取现用，不缓存**。
+     *
+     * 它和命令列表不是一回事：命令来自会话（会话一停 `sendableNames` 就清空、
+     * 补全也关掉），而预设来自设置 —— 用户刚加的那条应当立刻能补全出来，
+     * 且**不跟着会话一起消失**。现取恰好把这两条都变成"不用维护"。
+     */
+    private fun promptPresets(): List<PromptPreset> = PromptPresets.getInstance().presets()
 
     private fun showCompletion() {
         val caret = caretRect()

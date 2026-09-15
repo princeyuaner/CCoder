@@ -14,6 +14,13 @@ internal data class CompletionItem(
     val aliases: List<String> = emptyList(),
     /** 分组标题；null = 不分组。 */
     val group: String? = null,
+    /**
+     * 这一项插入的是**一整段文本**，而不是"命令名 / 文件路径"。
+     *
+     * 预置 prompt 就是这种：它要写进输入框的是 prompt 正文，不是 `/正文`。
+     * 给 true 时 [applyCompletion] 原样写入 [insert] —— 不加触发字符、不加尾随空格。
+     */
+    val verbatim: Boolean = false,
 )
 
 /** 触发补全的字符。 */
@@ -129,6 +136,11 @@ internal fun applyCompletion(
     val at = caret.coerceIn(0, text.length)
     val head = text.substring(0, q.start)
     val tail = text.substring(at)
-    val written = q.trigger.char + item.insert + if (q.trigger == Trigger.File) " " else ""
+    val written = if (item.verbatim) {
+        // 预置 prompt 这一类：写进去的是整段文本，没有"触发字符"这回事
+        item.insert
+    } else {
+        q.trigger.char + item.insert + if (q.trigger == Trigger.File) " " else ""
+    }
     return (head + written + tail) to (head.length + written.length)
 }
