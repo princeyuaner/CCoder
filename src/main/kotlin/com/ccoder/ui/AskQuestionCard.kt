@@ -79,8 +79,14 @@ internal class AskQuestionCard(
             BorderFactory.createLineBorder(ACCENT, 1),
             JBUI.Borders.empty(9, 11),
         )
-        background = CARD_BG
-        isOpaque = true
+        // **不铺底**：让对话框自己的底色透上来（2026-09-15 用户报"弹框有黄色
+        // 背景，好丑"）。原先铺的是一层琥珀。"要你处理"的信号留给那圈琥珀描边
+        // 与选项高亮。
+        //
+        // 用 isOpaque=false 而不是"铺成面板色"：真实 IDE 里对话框的底色未必等于
+        // UIUtil.getPanelBackground()（StatusCardView 那边实测踩过这个坑），
+        // 铺错了就会在框里显出一块颜色不一样的方块。
+        isOpaque = false
 
         val body = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -365,7 +371,6 @@ internal class AskQuestionCard(
 
     private companion object {
         val ACCENT = JBColor(0xFFA000, 0xFFB74D)
-        val CARD_BG = JBColor(0xFFF8E1, 0x3E2C1C)
 
         /** 输入框装在 wrapper 里，靠它把 wrapper 和 field 关联起来。 */
         const val FIELD_KEY = "ccoder.ask.customField"

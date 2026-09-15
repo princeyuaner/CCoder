@@ -58,8 +58,10 @@ class PermissionCard(
             BorderFactory.createLineBorder(ACCENT, 1),
             JBUI.Borders.empty(8),
         )
-        background = CARD_BG
-        isOpaque = true
+        // 与 AskQuestionCard 同一处改动（2026-09-15）：去掉那层琥珀底，只留描边，
+        // 并且是"透出父容器"而不是"铺面板色"。两张卡是一套视觉语言，改一张留一张
+        // 会更怪。
+        isOpaque = false
 
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -179,6 +181,5 @@ class PermissionCard(
         // 与权限模式标签共用 —— 两者说的是同一件事（"这里要留意"），
         // 各存一份迟早会漂移
         val WARN = warningColor()
-        val CARD_BG = JBColor(0xFFF8E1, 0x3E2C1C)
     }
 }
