@@ -8,7 +8,8 @@ the commands that touch your machine.
 
 - Chat with Claude Code in a tool window, against the project you have open
 - Every file edit shown as a diff; commands that touch your machine wait for your approval
-- Reference files and editor selections with `@`
+- Reference files and editor selections with `@`, and project symbols (classes, functions) with `#`
+- The empty input box spells out what the three triggers do (`@ 文件 · # 符号 · / 命令`)
 - Session list — resume, rename, delete; sessions are named after your first message
 - Preset prompts — save your own and pick them with `/`
 - MCP servers and hooks — edit the project-level `.mcp.json` and `.claude/settings.json`
@@ -64,6 +65,9 @@ MIT — see [LICENSE](LICENSE).
 
 在 PyCharm 的工具窗口里跑 Claude Code：就着你正在编辑的项目提问，每次改文件都先给你看
 diff，会动你机器的命令由你放行或拒绝。
+
+输入框里打 `@` 引用文件、打 `#` 引用项目里的类与函数（采纳后是一行记号，发送时才展开成
+代码块）、打 `/` 看命令；空着的时候输入框自己写着这三条。
 
 需要自备 **Claude Code CLI（`claude`）** 和 **Node.js** —— CLI 不随插件分发，用的是你
 已经装好的那份。
