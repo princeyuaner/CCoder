@@ -45,7 +45,7 @@ const Item = memo(function Item({
       // 用户输入不走 Markdown：用户敲的 * 不该被当成语法
       return (
         <div className="entry">
-          <UserBubble text={item.text} />
+          <UserBubble text={item.text} images={item.images} />
           <Timestamp ts={item.ts} />
         </div>
       )

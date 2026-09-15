@@ -10,7 +10,17 @@ sealed interface TranscriptItem {
     val id: String
     val ts: Long
 
-    data class User(override val id: String, override val ts: Long, val text: String) : TranscriptItem
+    /**
+     * 用户发的一条。[images] 是**给转写区看的**那份图（data URL，长边 ≤900 的 JPEG），
+     * 不是发给模型的原图 —— 两者的用途不同：一个给人认，一个给模型读。
+     * 空列表 = 纯文字那条路，与从前一字不差。
+     */
+    data class User(
+        override val id: String,
+        override val ts: Long,
+        val text: String,
+        val images: List<String> = emptyList(),
+    ) : TranscriptItem
 
     data class Assistant(override val id: String, override val ts: Long, val text: String) : TranscriptItem
 

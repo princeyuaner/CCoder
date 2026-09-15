@@ -7,7 +7,13 @@ interface Base {
   ts: number
 }
 
-export interface UserItem extends Base { kind: 'user'; text: string }
+/**
+ * 用户发的一条。
+ *
+ * `images` 是**给眼睛看的那份**（data URL，长边 ≤900 的 JPEG）—— 发给模型的
+ * 是原图，尺寸和它不一样。空/缺省 = 纯文字，与从前一字不差。
+ */
+export interface UserItem extends Base { kind: 'user'; text: string; images?: string[] }
 export interface AssistantItem extends Base { kind: 'assistant'; text: string }
 export interface ThinkingItem extends Base { kind: 'thinking'; text: string }
 export interface ErrorItem extends Base { kind: 'error'; text: string }

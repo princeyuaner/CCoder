@@ -2098,7 +2098,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val now = { System.currentTimeMillis() }
         return when (item) {
             is RenderItem.UserText ->
-                TranscriptOp.Append(TranscriptItem.User(nextMessageId(), now(), item.text))
+                TranscriptOp.Append(
+                    TranscriptItem.User(nextMessageId(), now(), item.text, item.images)
+                )
 
             // 最终消息是权威版本，用它收尾进行中的气泡
             is RenderItem.AssistantText -> TranscriptOp.FinalizeDelta("assistant", item.text)
@@ -2461,13 +2463,17 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         //
         // 未就绪时 busy 恒为 false（mainButtonState 那时给的是「启动中…」，
         // fail 与 onSidecarDied 都会 setBusy(false)），所以与下面那条路不会同时命中。
+        // 转写区那条带的是**给人看的**那份图（data URL，见 transcriptDataUrl）
+        val forTranscript = images.map { it.transcriptDataUrl }
+
         if (busy) {
             queue.enqueue(text, typed, images)
             refreshQueueStrip()
             return
         }
 
-        pushOp(toOp(RenderItem.UserText(text)))
+        // 排队那条也要带图：补发时 pushOp 用的是它的 images，不是这里的 forTranscript
+        pushOp(toOp(RenderItem.UserText(text, forTranscript)))
 
         if (!ready) {
             // 会话还没就绪。可能是 fatal 断开后残留的进程，先清干净再起一个，
@@ -2526,7 +2532,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 先重画再发：sendNow 里的 setBusy(true) 会连带刷按钮，
         // 而按钮的文案里带着队列条数 —— 顺序反了它会拿着旧数字去刷
         refreshQueueStrip()
-        pushOp(toOp(RenderItem.UserText(next.text)))
+        pushOp(toOp(RenderItem.UserText(next.text, next.images.map { it.transcriptDataUrl })))
         sendNow(next.text, next.typed, next.images)
     }
 

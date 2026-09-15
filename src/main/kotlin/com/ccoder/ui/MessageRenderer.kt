@@ -7,7 +7,11 @@ import com.google.gson.JsonObject
 
 /** 消息流中的一项。渲染层的输入，与 Swing 解耦以便测试。 */
 sealed interface RenderItem {
-    data class UserText(val text: String) : RenderItem
+    /**
+     * 用户发出去的一条。[images] 是给转写区看的 data URL（见 [TranscriptItem.User]）——
+     * 就绪前的暂存、排队后的补发都靠它把图一起带过去。
+     */
+    data class UserText(val text: String, val images: List<String> = emptyList()) : RenderItem
     data class AssistantText(val text: String) : RenderItem
 
     /** 逐 token 增量。面板把它累积到"进行中"的气泡里。 */

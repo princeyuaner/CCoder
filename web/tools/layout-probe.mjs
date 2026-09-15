@@ -109,8 +109,18 @@ function buildPage(scenario) {
   // 宽度是"谁在说话"的分栏手段
   const u = document.createElement('div')
   u.className = 'entry'
+  // 再加一条**带图**的用户消息（贴图那条路）：缩略图是定宽 150 的 flex 行，
+  // 窄栏里两张就该换行而不是把气泡撑破 —— 这条由下面的 imagesOverflow 守着。
+  // 图用 1×1 的 data URL：这里量的是布局，不是画质
+  const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
   u.innerHTML = '<div class="row row--user">' +
-    '<div class="bubble bubble--user"><div class="bubble__text">' + LONG + '</div></div></div>'
+    '<div class="bubble bubble--user"><div class="bubble__text">' + LONG + '</div></div></div>' +
+    '<div class="row row--user">' +
+    '<div class="bubble bubble--user" id="u-img">' +
+    '<div class="bubble__images">' +
+    '<button type="button" class="bubble__image"><img src="' + PIXEL + '"></button>' +
+    '<button type="button" class="bubble__image"><img src="' + PIXEL + '"></button>' +
+    '</div><div class="bubble__text">这两张你看下</div></div></div>'
   t.appendChild(u)
   for (let i = 0; i < S.thinking; i++) {
     const d = document.createElement('div')
@@ -196,6 +206,13 @@ function buildPage(scenario) {
   const rowW = widthOf('.row')
   const bubbleW = widthOf('.bubble')
   const userW = widthOf('.bubble--user')
+  // 带图那条气泡：缩略图定宽 150，两张排不下就该换行，**不许**把气泡撑破
+  const imgBubble = document.getElementById('u-img')
+  const imagesOverflow = imgBubble ? imgBubble.scrollWidth - imgBubble.clientWidth : -1
+  const thumbW = (() => {
+    const el = t.querySelector('.bubble__image img')
+    return el ? Math.round(el.getBoundingClientRect().width) : -1
+  })()
   // 两种标题的**计算样式**必须一致：可点的那半是个 <button>，而按钮不继承
   // 字体与颜色 —— 少写一条就会在同一个卡面上出现"另一种字体、更暗一档"
   // 的文件名，缩略图里根本看不出来
@@ -228,6 +245,8 @@ function buildPage(scenario) {
     bubbleW: bubbleW,
     rowW: rowW,
     userW: userW,
+    imagesOverflow: imagesOverflow,
+    thumbW: thumbW,
     titleStyle: styleOf('.tool__title:not(.tool__file)'),
     fileStyle: styleOf('.tool__file'),
     // 能不能点不该靠悬停才发现 —— 静止态就得有下划线
@@ -312,6 +331,15 @@ for (const scenario of SCENARIOS) {
       '助手侧铺满不等于全铺满，用户气泡的 85% 要留着',
     )
   }
+  // 带图的气泡：定宽缩略图排不下要换行，不许把气泡横向撑破
+  if (m.imagesOverflow > 1) {
+    problems.push(
+      `带图的气泡比内容宽 ${m.imagesOverflow}px —— 缩略图那一排没有换行（flex-wrap 掉了？）`,
+    )
+  }
+  if (m.thumbW !== -1 && m.thumbW !== 150) {
+    problems.push(`缩略图宽 ${m.thumbW} ≠ 150 —— 尺寸被别处的规则改掉了`)
+  }
   if (m.fileDecoration !== 'underline') {
     problems.push(
       `可点文件名没有下划线（text-decoration-line=${m.fileDecoration}）——` +
@@ -333,6 +361,7 @@ for (const scenario of SCENARIOS) {
     ` note=${m.note} status=${m.status} clipped=${m.clipped}` +
     ` headOverflow=${m.headOverflow}` +
     ` bubbleW=${m.bubbleW}/${m.rowW} userW=${m.userW}` +
+    ` thumbW=${m.thumbW} imagesOverflow=${m.imagesOverflow}` +
     ` scrollH=${m.scrollH} clientH=${m.clientH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)

@@ -158,4 +158,29 @@ class AttachedImageTest {
 
         assertEquals("bug.png", a?.name)
     }
+
+    // ---- 给转写区的那份（2026-09-15）----
+
+    @Test
+    fun `转写区那份是缩过的 data URL，不是原图`() {
+        // 计划里点名要量的一步：原图几 MB，而它要过一趟 JCEF 的 executeJavaScript、
+        // 还要常驻页面内存。这张**压不动的噪声图**是最坏情况
+        val attachment = prepareAttachment(noisy(3000, 2000), index = 0)!!
+        val url = attachment.transcriptDataUrl
+
+        assertTrue(url.startsWith("data:image/jpeg;base64,"), "给的必须是能直接塞进 img.src 的：${url.take(30)}")
+        val bytes = java.util.Base64.getDecoder().decode(url.substringAfter(','))
+        assertTrue(bytes.size < 400_000, "一份 ${bytes.size} 字节，过桥太重了")
+
+        val decoded = ImageIO.read(bytes.inputStream())
+        assertTrue(maxOf(decoded.width, decoded.height) <= TRANSCRIPT_EDGE)
+    }
+
+    @Test
+    fun `一份原图只编一次 —— 转写区那份在粘贴那一刻就做好了`() {
+        // 发送是热路径：那时再解码+缩放会在按回车的一瞬间卡一下（四张图几百毫秒）
+        val a = prepareAttachment(solid(2000, 1200), index = 0)!!
+
+        assertTrue(a.transcriptDataUrl.isNotEmpty(), "没做的话字段是空的，转写区就没图可画")
+    }
 }

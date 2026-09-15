@@ -77,6 +77,11 @@ object TranscriptOpCodec {
             is TranscriptItem.User -> {
                 obj.addProperty("kind", "user")
                 obj.addProperty("text", item.text)
+                // **没图时一个字段都不加**：纯文字那条路上的报文与从前一字不差
+                // （既有的编解码测试也就不用改）
+                if (item.images.isNotEmpty()) {
+                    obj.add("images", JsonArray().apply { item.images.forEach { add(it) } })
+                }
             }
 
             is TranscriptItem.Assistant -> {

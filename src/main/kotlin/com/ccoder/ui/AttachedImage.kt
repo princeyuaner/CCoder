@@ -45,6 +45,14 @@ internal const val MAX_PAYLOAD_BYTES = 5_242_880
 /** CLI 的 targetRawSize：PNG 超过它就转 JPEG，省下来的是用户的钱。 */
 private const val RAW_TARGET_BYTES = 3_936_216
 
+/**
+ * 推给转写区那份图的长边（见 [transcriptDataUrl]）。
+ *
+ * 900 是"点开放大看得清"与"过 JCEF 桥别太沉"之间的折中：面板也就 420px 宽，
+ * 900 在放大浮层里已经比屏幕还宽了。
+ */
+internal const val TRANSCRIPT_EDGE = 900
+
 /** JPEG 质量。与 CLI 自己那一档（`Aw = 85`）对齐，别自创一个数。 */
 private const val JPEG_QUALITY = 0.85f
 
@@ -71,11 +79,31 @@ internal class AttachedImage(
     val bytes: ByteArray,
     val thumb: BufferedImage,
     val name: String,
+    /** 给转写区看的那份（data URL）。发给 Claude 的不是它，见 [transcriptDataUrl]。 */
+    val transcriptDataUrl: String = "",
 ) {
     val base64: String = Base64.getEncoder().encodeToString(bytes)
 
     /** 过桥时的实际体积（JSON 里放的就是这个字符串）。 */
     val payloadBytes: Int get() = base64.length
+}
+
+/**
+ * 推给转写区的那份图（data URL）。
+ *
+ * **不是原图**：原图可能 3MB，而这一份要过一趟 JCEF 的 `executeJavaScript`、
+ * 还要常驻页面内存（排版探针里量过：一张 3000px 的截图原样推过去，光字符串
+ * 就是几 MB）。长边缩到 [TRANSCRIPT_EDGE] 就够点开放大看了。
+ * **发给 CLI 的仍是原尺寸那份** —— 这一份只给眼睛。
+ *
+ * 用 JPEG 而不是 PNG：这一份的任务是"认出是哪张、点开看得清"，截图的文字在
+ * 900px 缩到面板宽度之后，q85 的振铃看不出来，而体积差好几倍。
+ */
+internal fun transcriptDataUrl(bytes: ByteArray, maxEdge: Int = TRANSCRIPT_EDGE): String {
+    val decoded = runCatching { ImageIO.read(bytes.inputStream()) }.getOrNull() ?: return ""
+    val scaled = fitToLimit(decoded, maxEdge)
+    val jpeg = encode(toRgb(scaled), "jpeg", JPEG_QUALITY)
+    return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg)
 }
 
 /**
@@ -153,6 +181,9 @@ internal fun prepareAttachment(
                 bytes = bytes,
                 thumb = thumbOf(scaled),
                 name = name ?: imageName(index, mediaType),
+                // 给转写区的那份在**这一刻**做掉：发送是热路径，那时再解码+缩放
+                // 会在按回车的一瞬间卡一下（四张图能到几百毫秒）
+                transcriptDataUrl = transcriptDataUrl(bytes),
             )
         }
         edge = edge * 2 / 3

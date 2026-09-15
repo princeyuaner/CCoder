@@ -178,6 +178,82 @@ body {
   white-space: pre-wrap;
 }
 
+/* ---- 气泡里的图（贴图，2026-09-15）----
+ *
+ * 等大是刻意的：`object-fit: cover` 把横竖不一的截图裁成同一块 150×104 ——
+ * 参差不齐的一排会把气泡撑得很难看，而缩略图的职责是"认出是哪张"。
+ * 完整的图在点开的那层浮层里（见 .lightbox）。
+ */
+.bubble__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* 图在文字上方时要留一口气；只有图没有字时不留（不然是凭空多出来的下边距） */
+.bubble__images + .bubble__text {
+  margin-top: 5px;
+}
+
+.bubble__image {
+  padding: 0;
+  border: 1px solid var(--border, #393b40);
+  border-radius: 5px;
+  overflow: hidden;
+  background: none;
+  cursor: pointer;
+  /* 行内元素默认会带出名下那条缝（基线对齐），line-height: 0 是对症的写法 */
+  line-height: 0;
+}
+
+.bubble__image:hover {
+  border-color: var(--accent, #548af7);
+}
+
+.bubble__image:focus-visible {
+  outline: 1px solid var(--accent, #548af7);
+  outline-offset: 1px;
+}
+
+.bubble__image img {
+  display: block;
+  width: 150px;
+  height: 104px;
+  object-fit: cover;
+}
+
+/* ---- 放大浮层 ----
+ *
+ * `position: fixed` —— 所以它可以住在气泡里，DOM 位置不影响它盖住整个面板，
+ * 也就不必为它引一套 portal。 */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.lightbox__img {
+  max-width: 100%;
+  max-height: calc(100% - 40px);
+  border: 1px solid var(--border, #393b40);
+  border-radius: 6px;
+  /* 点图不该关掉浮层（见 ImageLightbox），但拖选也不该选中它 */
+  user-select: none;
+}
+
+.lightbox__hint {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #b9bec7;
+}
+
 .timestamp {
   font-size: 11px;
   color: var(--text-dim, #8c8c8c);

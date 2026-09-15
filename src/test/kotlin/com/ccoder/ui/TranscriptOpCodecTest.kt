@@ -86,4 +86,32 @@ class TranscriptOpCodecTest {
 
         assertTrue(!call.contains("\n") && !call.contains("\r"), "调用必须单行：$call")
     }
+
+    // ---- 贴图（2026-09-15）----
+
+    @Test
+    fun `用户项带图时 images 是 data URL 数组`() {
+        val item = TranscriptItem.User(
+            id = "m1",
+            ts = 1,
+            text = "看这张",
+            images = listOf("data:image/jpeg;base64,AAAA", "data:image/jpeg;base64,BBBB"),
+        )
+        val json = JsonParser.parseString(TranscriptOpCodec.encodeBatch(listOf(TranscriptOp.Append(item))))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertEquals("user", json.get("kind").asString)
+        val images = json.getAsJsonArray("images")
+        assertEquals(2, images.size())
+        assertEquals("data:image/jpeg;base64,AAAA", images[0].asString)
+    }
+
+    @Test
+    fun `没图时一个字段都不加 —— 纯文字那条路一字不变`() {
+        val json = JsonParser.parseString(
+            TranscriptOpCodec.encodeBatch(listOf(TranscriptOp.Append(TranscriptItem.User("m1", 1, "只有字"))))
+        ).asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        assertTrue(!json.has("images"), "没图还带 images 键，那个报文就不算没变")
+    }
 }
