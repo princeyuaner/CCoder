@@ -1,9 +1,11 @@
 package com.ccoder.ui
 
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import com.intellij.util.ui.JBUI
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.Container
@@ -11,6 +13,7 @@ import java.awt.Cursor
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.LookAndFeel
 import javax.swing.SwingUtilities
 
 /**
@@ -20,8 +23,32 @@ import javax.swing.SwingUtilities
  * "眼睛看得出来、单测看不懂"的那一类 —— 所以这里不测好看，只测**可测的那几件**：
  * 顺序、间距、以及"有没有藏起来的边距"（当初间隔变大，根子正是那个）。
  * 好不好看交给 [TopRowRenderProbe] 出图，人看一眼。
+ *
+ * ## 整个类跑在真机 LAF 下（2026-09-15 加）
+ *
+ * 前四轮"间隔还是宽"之所以一直没被这里挡住，是因为这些用例跑在测试 JVM 默认的
+ * Metal LAF 下 —— 那里按钮首选宽就是图标宽，怎么量都是对的。**真机是 New UI**，
+ * 它给所有 `JButton` 兜了一个 72px 的最小宽度：盒子被撑到 72px、图标居中，
+ * 中间白出 62px，而上面这些断言一条都不会红。
+ * 详见 [IdeLaf]（那里有 Metal / New UI 的对照表）。
  */
 class TopRowTest {
+
+    companion object {
+        private var previous: LookAndFeel? = null
+
+        @JvmStatic
+        @BeforeAll
+        fun useRealLaf() {
+            previous = IdeLaf.install()
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun restoreLaf() {
+            IdeLaf.restore(previous)
+        }
+    }
 
     private class Laid(
         val row: JPanel,
@@ -84,6 +111,9 @@ class TopRowTest {
 
     @Test
     fun `两个按钮之间只隔 TOP_ROW_GAP`() {
+        // 量的是**盒子**之间。所以它单独并不能保证"眼睛看到的就是 TOP_ROW_GAP"——
+        // 盒子被 LAF 撑宽时它照样绿（撑宽的是盒子内部）。下面那条
+        // `按钮盒子就是图标盒子` 才是配对的另一半
         val r = laidOut()
 
         assertEquals(TOP_ROW_GAP, r.gear.x - (r.plus.x + r.plus.width))
@@ -186,6 +216,26 @@ class TopRowTest {
             val before = b.preferredSize.width
             b.font = b.font.deriveFont(b.font.size2D + 8f)
             assertEquals(before, b.preferredSize.width, "$name 的宽度跟着字体变了")
+        }
+    }
+
+    @Test
+    fun `按钮盒子就是图标盒子 —— New UI 的 72px 最小宽度不许插进来`() {
+        // 2026-09-15 用户报「上门那个「＋」离齿轮隔着老远」的真正根子：New UI 给
+        // **每一个 JButton** 兜了 72px 的最小宽度，两个图标于是各坐在一个 72px 宽的
+        // 透明盒子里居中 —— 屏幕上中间白出 62px。前四轮改的都是"图标之间的白"
+        // （内边距、字形盒、间距常量），颗粒度根本不对：改多少轮，这 72px 都在。
+        //
+        // 这条断言只在 New UI 下有意义（Metal 里本来就是 12），而整个类正跑在
+        // New UI 下（见类注释）。把 TopRowIconButton 里那三个尺寸覆写拿掉，它当场红。
+        val r = laidOut()
+
+        for ((name, b) in listOf("齿轮" to r.gear, "「＋」" to r.plus)) {
+            assertEquals(
+                b.icon.iconWidth,
+                b.preferredSize.width,
+                "$name 的盒子不等于图标 —— LAF 的最小宽度又插进来了",
+            )
         }
     }
 }

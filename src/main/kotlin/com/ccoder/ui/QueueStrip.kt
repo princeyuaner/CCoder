@@ -73,7 +73,9 @@ internal fun queueLineText(model: QueueStripModel): String =
 internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel() {
 
     private val head = JButton()
-    private val headRemove = JButton("✕")
+    // 用 [LinkButton] 而不是 JButton：它只管字宽，而 New UI 给所有 JButton 兜了
+    // 72px 最小宽度 —— 不钉的话 ✕ 会浮在离右边缘 35px 的地方（见 LinkButton）
+    private val headRemove = LinkButton("✕")
     private val body = JPanel()
 
     private var model: QueueStripModel? = null
@@ -184,7 +186,7 @@ internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel(
             BorderLayout.CENTER,
         )
         add(
-            JButton("✕").apply {
+            LinkButton("✕").apply {
                 // 自绘外观：默认按钮的边框与底色在这条安静的带子上太抢眼
                 isContentAreaFilled = false
                 isBorderPainted = false

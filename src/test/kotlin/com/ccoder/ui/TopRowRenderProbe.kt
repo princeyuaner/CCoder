@@ -29,6 +29,16 @@ import javax.swing.SwingUtilities
  * 画的是 [buildTopRow] **本身**，不是画一份长得像的 —— 探针与真界面分叉的话，
  * 它好看也没用。
  *
+ * ## 2026-09-15：这张图骗了两天，所以换成真机 LAF 画
+ *
+ * 它一直在测试 JVM 默认的 **Metal** 下渲染 —— 那里按钮首选宽就是图标宽，图上两个
+ * 图标是挨着的；而真机（New UI）给每个 `JButton` 兜了 72px 最小宽度，两个图标
+ * 各自坐在 72px 宽的透明盒子里居中，中间白出 **62px**。四轮候选图看起来都对，
+ * 用户屏幕上却一直"隔着老远"，就是在这里分叉的。
+ *
+ * 现在一律用 [IdeLaf]（New UI 深色 = 用户那台的样子，另出一张浅色）。**图的背景
+ * 因此是深色的** —— 这不是渲染坏了，那才是真机。
+ *
  * 产物在 `build/top-row-probe*.png`（3 倍画，因为字形小，原尺寸看不准）。
  */
 class TopRowRenderProbe {
@@ -78,32 +88,35 @@ class TopRowRenderProbe {
     }
 
     private fun render(path: String, title: String?, enabled: Boolean) {
-        SwingUtilities.invokeAndWait {
-            val sessionLabel = SessionLabel {}.apply { setTitle(title, enabled = enabled) }
-            val newButton = SessionNewButton {}.apply {
-                setBlock(if (enabled) SwitchBlock.None else SwitchBlock.TurnRunning)
+        // 先换 LAF、后建组件：组件在**建的那一刻**取 UI 委托（见 IdeLaf）
+        IdeLaf.withRealLaf {
+            SwingUtilities.invokeAndWait {
+                val sessionLabel = SessionLabel {}.apply { setTitle(title, enabled = enabled) }
+                val newButton = SessionNewButton {}.apply {
+                    setBlock(if (enabled) SwitchBlock.None else SwitchBlock.TurnRunning)
+                }
+
+                val top = buildTopRow(sessionLabel, settingsGearButton {}, newButton)
+
+                val outer = JPanel(BorderLayout()).apply {
+                    isOpaque = true
+                    background = UIUtil.getPanelBackground()
+                    add(top, BorderLayout.NORTH)
+                }
+
+                val w = 420
+                val h = outer.preferredSize.height
+                outer.setSize(w, h)
+                layoutAll(outer)
+
+                val s = 3.0
+                val img = BufferedImage((w * s).toInt(), (h * s).toInt(), BufferedImage.TYPE_INT_RGB)
+                val g = img.createGraphics()
+                g.scale(s, s)
+                outer.paint(g)
+                g.dispose()
+                ImageIO.write(img, "png", File(path))
             }
-
-            val top = buildTopRow(sessionLabel, settingsGearButton {}, newButton)
-
-            val outer = JPanel(BorderLayout()).apply {
-                isOpaque = true
-                background = UIUtil.getPanelBackground()
-                add(top, BorderLayout.NORTH)
-            }
-
-            val w = 420
-            val h = outer.preferredSize.height
-            outer.setSize(w, h)
-            layoutAll(outer)
-
-            val s = 3.0
-            val img = BufferedImage((w * s).toInt(), (h * s).toInt(), BufferedImage.TYPE_INT_RGB)
-            val g = img.createGraphics()
-            g.scale(s, s)
-            outer.paint(g)
-            g.dispose()
-            ImageIO.write(img, "png", File(path))
         }
     }
 

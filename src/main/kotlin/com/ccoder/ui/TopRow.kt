@@ -7,6 +7,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -30,7 +31,7 @@ import kotlin.math.sin
  * `gear.x - (plus.x + plus.width) == TOP_ROW_GAP` 量的就是用户眼睛看到的那一段。
  * **想再调，只改这一个数**；别在按钮内边距或别处再添白。
  *
- * ## 这段间距改过四次，每次的教训都不一样
+ * ## 这段间距改过五次，每次的教训都不一样
  *
  * - **2026-09-14**：用户说"间隔太大"。那 6px 不是这里给的 —— 两个按钮各自
  *   默认边框带着 3px 内边距，边框画都不画（`isBorderPainted = false`），
@@ -43,10 +44,16 @@ import kotlin.math.sin
  *   画成了「…」。探头图上看得清清楚楚，可惜当时只量了数字没看图。
  * - **自绘落地之后**：用户仍说"宽" —— 自绘确实把字体那层不可控的白拿掉了，
  *   可按钮自己还留着 1px 横向内边距**×2**，加上这 2px，墨迹之间仍是 4px。
- *   于是把内边距也归零：白只剩这一处出处，从 4 收到 **2**（量过 0/1/2/3/4
- *   五张候选：0 两个图形粘成一团，1 偏挤，2 还认得出是并排的两个图标）。
+ *   于是把内边距也归零，白只剩这一处出处，落到 **2**。
+ * - **2026-09-15 傍晚**：前面四轮改的是一个**根本没在屏幕上生效**的数 —— New UI
+ *   给所有 `JButton` 兜了 72px 最小宽度，图标各自在 72px 的透明盒子里居中，
+ *   真机看到的一直是 62px（见 [TopRowIconButton]）。把盒子钉死在图标上之后，
+ *   用户**第一次真的看到 2px**，说"改为 6px"。
+ *
+ * 也就是说：**前四轮"太宽/太窄"的反馈都是在看那 62px**，只有最后这一次
+ * （6px）是看过真实间距之后给的判断。再要调仍然只改这一个数。
  */
-internal val TOP_ROW_GAP: Int = JBUI.scale(2)
+internal val TOP_ROW_GAP: Int = JBUI.scale(6)
 
 /** 图标盒边长。与字体无关 —— 它就是个固定的框。 */
 private const val ICON_SIDE = 12
@@ -171,6 +178,24 @@ internal class TopRowIcon(private val glyph: TopRowGlyph) : Icon {
  *
  * 3px 是平台边框给的，不同 LAF、不同缩放下未必是这个数，所以**读出来再用**，
  * 不写死。
+ *
+ * ## 尺寸为什么必须自己钉死（2026-09-15 第五轮，也是前四轮全部落空的原因）
+ *
+ * New UI 的 LAF 给**每一个 `JButton`** 兜了一个 72px 的最小宽度。前四轮改的都是
+ * "图标之间的白"（内边距、字形盒、间距常量），而这 72px 是**盒子的最小宽度** ——
+ * 改多少轮都没用：两个图标各自待在一个 72px 宽的透明盒子里居中，屏幕上就是
+ * **中间空着 62px**。用户量的那个数（＋ 的墨迹 1763..1774、⚙ 的 1837..1848）
+ * 只有按"盒子 72px、图标居中"才解释得通。
+ *
+ * 量出来的对照表（测试侧 `IdeLaf` 的注释里也抄了一份）：
+ *
+ * | LAF | 本类的 preferred.width |
+ * |---|---|
+ * | Metal（**测试 JVM 默认**） | 12 |
+ * | Darcula / IntelliJ（New UI = 真机） | **72** |
+ *
+ * 所以前四轮的探头图一直是 2px、全绿，而真机是 62px —— **探头跑在一个哪个 IDE
+ * 都不用的 LAF 下**。现在探针与几何单测都改用真机那一套（测试侧 `IdeLaf`）。
  */
 internal open class TopRowIconButton(glyph: TopRowGlyph) : JButton() {
 
@@ -187,6 +212,24 @@ internal open class TopRowIconButton(glyph: TopRowGlyph) : JButton() {
         // 横向 0：按钮的左右边界就落在图标墨迹上，图标之间的白只剩 TOP_ROW_GAP
         border = JBUI.Borders.empty(vPad, 0)
     }
+
+    /**
+     * 宽度就是图标宽度 —— **LAF 说什么都不算**。
+     *
+     * 不覆盖的话 New UI 会给它 72px（见类注释那张表），而图标是画满整格的，
+     * 于是两个图标之间白出 62px。横向内边距已经是 0，所以这里只要把宽度钉在
+     * 图标上就行；高度仍按内边距给足，那是**可点区域**，不能一起削掉。
+     */
+    override fun getPreferredSize(): Dimension {
+        val glyphIcon = icon ?: return super.getPreferredSize()
+        return Dimension(glyphIcon.iconWidth, glyphIcon.iconHeight + insets.top + insets.bottom)
+    }
+
+    /** 最小 = 首选：被挤也不缩，两个图标才始终一样宽。 */
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    /** 最大 = 首选：BoxLayout 里有富余时不许把它拉宽 —— 拉宽就是把图标推离邻居。 */
+    override fun getMaximumSize(): Dimension = preferredSize
 }
 
 /**

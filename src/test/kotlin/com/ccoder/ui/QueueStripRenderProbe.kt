@@ -61,6 +61,19 @@ class QueueStripRenderProbe {
         queued: List<Pair<String, String>>,
         expanded: Boolean = false,
     ) {
+        // 真机 LAF（New UI）下画。跑在测试 JVM 默认的 Metal 下画出来的按钮宽度、
+        // 边框、颜色都跟用户屏幕上不是一回事 —— 顶行那两个图标就是这么被骗了两天
+        // （见 [IdeLaf]）。图因此是**深色**的，那才是真机。
+        IdeLaf.withRealLaf {
+            renderIn(path, queued, expanded)
+        }
+    }
+
+    private fun renderIn(
+        path: String,
+        queued: List<Pair<String, String>>,
+        expanded: Boolean = false,
+    ) {
         SwingUtilities.invokeAndWait {
             val queue = SendQueue().apply {
                 for ((text, typed) in queued) enqueue(text, typed)
