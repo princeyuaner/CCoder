@@ -1,5 +1,8 @@
 package com.ccoder.ui
 
+import com.intellij.ide.PasteProvider
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.ide.CopyPasteManager
@@ -65,7 +68,12 @@ internal fun installImagePaste(
         return
     }
     area.transferHandler = ImagePasteHandler(fallback, onImages)
-    LOG.info("贴图已接线：默认处理器是 ${fallback.javaClass.name}")
+    // 还有第二条路：**平台的粘贴**（见 imagePasteProvider）。IDE 里 Ctrl+V 根本不
+    // 走 Swing 的 TransferHandler —— keymap 把 `$Paste` 交给平台的 paste action，
+    // 而按平台自己的实现，它是从数据上下文里取 PasteProvider 再调。两条都接上，
+    // 谁先到都能用（TransferHandler 那条还兼着拖拽）
+    (area as? ComposerTextArea)?.pasteProvider = imagePasteProvider(onImages)
+    LOG.info("贴图已接线：默认处理器是 ${fallback.javaClass.name}，平台 PasteProvider 也挂上了")
 }
 
 /**
@@ -146,6 +154,71 @@ private fun platformClipboard(): Transferable? {
     return runCatching { app.getService(CopyPasteManager::class.java).getContents() }
         .onFailure { LOG.warn("贴图：读平台剪贴板失败", it) }
         .getOrNull()
+}
+
+/**
+ * 回答平台的 `PlatformDataKeys.PASTE`。
+ *
+ * **只在"剪贴板里是图、而且没有文字"时才接管** —— 其余一律返回 null，让平台自己
+ * 那个 provider 去处理。这样文字粘贴一个字都没变，也就不用把那套逻辑（选区替换、
+ * 撤销栈）重写一遍。规则与 TransferHandler 那条路是同一条（见 [attachImagesWanted]）。
+ */
+internal fun imagePasteData(dataId: String, provider: PasteProvider?): Any? =
+    if (provider != null && PlatformDataKeys.PASTE_PROVIDER.`is`(dataId) && provider.isPastePossible(EmptyDataContext)) {
+        provider
+    } else {
+        null
+    }
+
+/**
+ * 真正干活的 provider。挂在输入框上（它实现 [DataProvider]）。
+ *
+ * [clipboardHasImageOnly] 抽成参数只为可测：真机上这个是拿 [CopyPasteManager] 问的，
+ * 而单测里没有 Application。
+ */
+internal fun imagePasteProvider(
+    attach: (List<IncomingImage>) -> Unit,
+    clipboardHasImageOnly: () -> Boolean = ::clipboardImageOnly,
+): PasteProvider = object : PasteProvider {
+    override fun isPastePossible(dataContext: DataContext): Boolean = clipboardHasImageOnly()
+
+    override fun isPasteEnabled(dataContext: DataContext): Boolean = clipboardHasImageOnly()
+
+    override fun performPaste(dataContext: DataContext) {
+        val images = readImagesFromPlatformClipboard()
+        LOG.info("贴图：平台的粘贴链上接手了 ${images.size} 张")
+        if (images.isNotEmpty()) attach(images)
+    }
+}
+
+/**
+ * 剪贴板里是不是"只有图"（有图、没有文字）。
+ *
+ * 拿不到 Application（无头单测）或剪贴板不可用时按 false 处理 —— 也就是不接管，
+ * 与"没有图"同一个待遇。
+ */
+internal fun clipboardImageOnly(): Boolean {
+    val app = ApplicationManager.getApplication() ?: return false
+    return runCatching {
+        val cp = app.getService(CopyPasteManager::class.java)
+        cp.areDataFlavorsAvailable(DataFlavor.imageFlavor) &&
+            !cp.areDataFlavorsAvailable(DataFlavor.stringFlavor)
+    }.onFailure { LOG.warn("贴图：问平台剪贴板失败", it) }.getOrDefault(false)
+}
+
+/** 从平台剪贴板读图。读不到就是空列表，不抛。 */
+internal fun readImagesFromPlatformClipboard(): List<IncomingImage> {
+    val app = ApplicationManager.getApplication() ?: return emptyList()
+    val image = runCatching {
+        app.getService(CopyPasteManager::class.java).getContents<Image>(DataFlavor.imageFlavor)
+    }.onFailure { LOG.warn("贴图：读平台剪贴板失败", it) }.getOrNull() ?: return emptyList()
+    LOG.info("贴图：从平台剪贴板读到了 ${image.getWidth(null)}x${image.getHeight(null)}")
+    return listOf(IncomingImage(toBuffered(image), sourceBytes = 0, name = null))
+}
+
+/** 一个空的 DataContext：`isPastePossible` 用不上它，但签名要。 */
+private object EmptyDataContext : DataContext {
+    override fun getData(dataId: String): Any? = null
 }
 
 /** 从一份 transferable 里把图抠出来。解不开的**跳过而不是抛** —— 拖进来一堆文件时不该整个失败。 */

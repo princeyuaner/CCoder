@@ -1,9 +1,12 @@
 package com.ccoder.ui
 
+import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
@@ -198,6 +201,38 @@ class ImagePasteTest {
                 "装完之后处理器应该是我们的",
             )
         }
+    }
+
+    // ---- 平台的粘贴（IDE 里 Ctrl+V 真正走的那条）----
+
+    @Test
+    fun `只在剪贴板里只有图时回答平台的 PASTE —— 文字粘贴一个字不变`() {
+        // IDE 里 Ctrl+V 走的是平台的 `$Paste` action，它从数据上下文里取
+        // PasteProvider。**只有"有图、没文字"时才回答**：其余一律返回 null，
+        // 平台自己那个 provider 接着处理 —— 不这么做的话，文字粘贴就得我们
+        // 自己重写一遍（选区替换、撤销栈），那是另一个量级的坑。
+        val key = PlatformDataKeys.PASTE_PROVIDER.name
+        val hasImage = imagePasteProvider({}, clipboardHasImageOnly = { true })
+        val noImage = imagePasteProvider({}, clipboardHasImageOnly = { false })
+
+        assertSame(hasImage, imagePasteData(key, hasImage))
+        assertNull(imagePasteData(key, noImage), "没有图还抢 Ctrl+V 会挡住文字粘贴")
+        assertNull(imagePasteData("别的 key", hasImage), "只回答 PASTE 这一个 key")
+        assertNull(imagePasteData(key, null), "没挂 provider 的组件不该被当成有")
+    }
+
+    @Test
+    fun `输入框在有图时把 PASTE 交给我们的 provider`() {
+        // 组件级：平台构建数据上下文时会问焦点组件，输入框要实现 DataProvider
+        val area = ComposerTextArea(1, 20)
+        val provider = imagePasteProvider({}, clipboardHasImageOnly = { true })
+
+        assertNull(area.getData(PlatformDataKeys.PASTE_PROVIDER.name), "没挂之前不回答")
+
+        area.pasteProvider = provider
+
+        assertSame(provider, area.getData(PlatformDataKeys.PASTE_PROVIDER.name))
+        assertNull(area.getData("别的 key"))
     }
 
     @Test

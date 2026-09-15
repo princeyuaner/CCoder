@@ -1,5 +1,8 @@
 package com.ccoder.ui
 
+import com.intellij.ide.PasteProvider
+import com.intellij.openapi.actionSystem.DataProvider
+
 import com.ccoder.settings.SendShortcut
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
@@ -36,7 +39,22 @@ internal const val COMPOSER_MIN_ROWS = 1
  * 返回 false），把它放进滚动面板后，拖高输入区只会多出一片空白 ——
  * 输入框本身纹丝不动，看起来像"拖了没用"。
  */
-internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols) {
+internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), DataProvider {
+
+    /**
+     * Ctrl+V 的接管口（见 [imagePasteProvider]）。
+     *
+     * **为什么需要它**：IDE 里 Ctrl+V 走的是平台的 `$Paste` action，而那个 action
+     * 是从**数据上下文**里取 [PasteProvider] 再调的 —— Swing 的 `TransferHandler`
+     * 那条路在 IDE 里根本不会被执行（2026-09-15 实测：处理器装上了，一次都没被调到）。
+     * 输入框实现 [DataProvider] 之后，平台构建上下文时会来问它。
+     *
+     * 只在"剪贴板里只有图"时回答（见 [imagePasteData]），其余交回平台。
+     */
+    var pasteProvider: PasteProvider? = null
+
+    override fun getData(dataId: String): Any? = imagePasteData(dataId, pasteProvider)
+
     override fun getScrollableTracksViewportHeight(): Boolean = true
 }
 
