@@ -55,20 +55,49 @@ class PendingPermissionStatusBar(private val project: Project) :
     }
 
     override fun getText(): String {
-        val count = PendingPermissionCount.getInstance(project).count
-        return if (count > 0) "Claude 待确认：$count" else ""
+        val service = PendingPermissionCount.getInstance(project)
+        return statusBarText(service.count, service.askSuspended)
     }
 
     override fun getAlignment(): Float = 0f
 
-    override fun getTooltipText(): String =
-        "有 ${PendingPermissionCount.getInstance(project).count} 个授权请求在等待处理，点击前往"
+    override fun getTooltipText(): String {
+        val service = PendingPermissionCount.getInstance(project)
+        return statusBarTooltip(service.count, service.askSuspended)
+    }
 
     override fun getClickConsumer(): Consumer<MouseEvent> = Consumer {
-        ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show()
+        val service = PendingPermissionCount.getInstance(project)
+        val restore = service.restoreAsk
+        // 挂起提问优先：这一行此刻说的是"有提问待回答"，点它却去开工具窗口
+        // 就牛头不对马嘴了 —— 用户要找的是他刚才收起来的那个框。
+        if (service.askSuspended && restore != null) restore()
+        else ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show()
     }
 
     private companion object {
         const val TOOL_WINDOW_ID = "CCoder"
     }
+}
+
+/**
+ * 状态栏那一行字。纯函数，好单测 —— 组件本身要真实 Project 才活得起来。
+ *
+ * 挂起提问**优先于计数**：被最小化的那条提问本来就计在 [pending] 里（提问也走
+ * PermissionQueue），但"待确认：1"说不清点下去会发生什么。
+ */
+internal fun statusBarText(pending: Int, askSuspended: Boolean): String = when {
+    askSuspended -> "Claude 有提问待回答"
+    pending > 0 -> "Claude 待确认：$pending"
+    else -> ""
+}
+
+/**
+ * 悬停说明。口径要准：队列里既有授权请求也有提问，只说"授权请求"是错的
+ * （2026-09-15 之前就是这么写的，提问混在里面）。
+ */
+internal fun statusBarTooltip(pending: Int, askSuspended: Boolean): String = when {
+    askSuspended -> "有一个提问被最小化，等着你回答 —— 点一下回到那个框"
+    pending > 0 -> "有 $pending 个请求在等待处理（授权 / 提问），点击前往"
+    else -> ""
 }

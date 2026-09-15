@@ -45,17 +45,7 @@ private fun fakeProject(): Project =
         }
     } as Project
 
-private fun labelsIn(root: Container): List<JLabel> {
-    val out = mutableListOf<JLabel>()
-    fun walk(c: Container) {
-        for (child in c.components) {
-            if (child is JLabel) out += child
-            if (child is Container) walk(child)
-        }
-    }
-    walk(root)
-    return out
-}
+
 
 /**
  * 多题提问的弹窗序列。
@@ -94,6 +84,7 @@ class AskSequenceTest {
     private fun sequence(
         defer: ((() -> Unit)) -> Unit = { it() },
         onPresent: (AskQuestionDialog) -> Unit = {},
+        onSuspendChange: (Boolean) -> Unit = {},
     ) = AskSequence(
         project = fakeProject(),
         request = request,
@@ -104,11 +95,12 @@ class AskSequenceTest {
             onPresent(dialog)
         },
         defer = defer,
+        onSuspendChange = onSuspendChange,
     )
 
+    /** 选项可能渲染成标签（芯片、按钮）也可能是会换行的文本块 —— 见 TextLookup.kt。 */
     private fun clickOption(dialog: AskQuestionDialog, text: String) {
-        val target = labelsIn(dialog.card).firstOrNull { it.text.contains(text) }
-            ?: fail("找不到「$text」，树里有：${labelsIn(dialog.card).map { it.text }}")
+        val target = componentWithText(dialog.card, text)
         target.dispatchEvent(
             MouseEvent(
                 target, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
@@ -153,7 +145,7 @@ class AskSequenceTest {
         assertFalse(first.isOpen, "上一个框必须已经关掉")
         assertTrue(second.isOpen)
         assertEquals(1, seq.flow.index)
-        assertTrue(labelsIn(second.card).any { it.text.contains("热切要不要写回长期设置？") })
+        assertTrue(textsIn(second.card).any { it.contains("热切要不要写回长期设置？") })
     }
 
     @Test
@@ -266,5 +258,118 @@ class AskSequenceTest {
         advance(presented[0], "审查当前 diff")
 
         assertEquals(null, nested, "弹新框的时候上一个还开着 —— 嵌套模态框")
+    }
+
+    // ---- 最小化：先去看代码，回来接着答（2026-09-15 用户报的那条）----
+    //
+    // 形态是"关掉框、但不结束这条提问"：序列挂起，恢复时用同一个 flow 重开一题。
+    // 这里盯三件事：收起来之后什么都不拒绝、回来时答案还在、终止路径能把挂起清掉。
+
+    @Test
+    fun `最小化把框收起来，但什么都不拒绝`() = onEdt {
+        val suspended = mutableListOf<Boolean>()
+        val seq = sequence(onSuspendChange = { suspended += it })
+        seq.start()
+        val first = presented[0]
+
+        first.card.minimizeButton.doClick()
+
+        assertFalse(first.isOpen, "框该收起来")
+        assertTrue(seq.suspended)
+        assertEquals(listOf(true), suspended, "状态变化要通知出去 —— 状态栏靠它")
+        assertEquals(0, denied, "最小化不是拒绝")
+        assertEquals(0, submitted.size, "也没有提交任何答案")
+        assertEquals(1, presented.size, "不该顺手弹下一题 —— 序列挂起了")
+    }
+
+    @Test
+    fun `恢复回到同一题，答案还在`() = onEdt {
+        val seq = sequence()
+        seq.start()
+        clickOption(presented[0], "继续未提交的改动")
+
+        presented[0].card.minimizeButton.doClick()
+        seq.restore()
+
+        assertEquals(2, presented.size, "该重开一个框")
+        assertTrue(presented[1].isOpen)
+        assertFalse(seq.suspended, "恢复之后不再是挂起态")
+        assertTrue(
+            seq.flow.current.isSelected("继续未提交的改动"),
+            "最小化前选的那一项该还在",
+        )
+        assertTrue(presented[1].card !== presented[0].card, "是重开的新卡片（旧的已经关掉了）")
+    }
+
+    @Test
+    fun `挂起在哪一题，回来就还在哪一题`() = onEdt {
+        val seq = sequence()
+        seq.start()
+        val second = advance(presented[0], "审查当前 diff")
+
+        second.card.minimizeButton.doClick()
+        seq.restore()
+
+        assertEquals(1, seq.flow.index, "回来时该还在第二题")
+        assertTrue(
+            textsIn(presented.last().card).any { it.contains("热切要不要写回长期设置？") },
+            "重开的该是第二题",
+        )
+    }
+
+    @Test
+    fun `没挂起时恢复什么都不做`() = onEdt {
+        // 状态栏那一下可能来两次（点了两下、或恢复后又被点）。第二次必须无害
+        val seq = sequence()
+        seq.start()
+
+        seq.restore()
+
+        assertEquals(1, presented.size, "没挂起时恢复不该弹框")
+    }
+
+    @Test
+    fun `最小化之后接着作答，答案是完整的`() = onEdt {
+        val seq = sequence()
+        seq.start()
+        clickOption(presented[0], "继续未提交的改动")
+        presented[0].card.minimizeButton.doClick()
+
+        seq.restore()
+        clickOption(presented.last(), "审查当前 diff") // 单选：顶掉最小化之前那个
+        presented.last().card.submitButton.doClick()
+        clickOption(presented.last(), "写回设置")
+        presented.last().card.submitButton.doClick()
+
+        assertEquals(1, submitted.size)
+        assertEquals(listOf("审查当前 diff"), submitted[0]["你希望我接下来做什么？"])
+        assertEquals(listOf("写回设置"), submitted[0]["热切要不要写回长期设置？"])
+    }
+
+    @Test
+    fun `终止路径把挂起也清掉`() = onEdt {
+        // 不清的话状态栏会一直写着"有提问待回答"，点下去却什么都没有 ——
+        // 那比没有这个入口更糟
+        val suspended = mutableListOf<Boolean>()
+        val seq = sequence(onSuspendChange = { suspended += it })
+        seq.start()
+        presented[0].card.minimizeButton.doClick()
+
+        seq.closeSilently()
+
+        assertFalse(seq.suspended)
+        assertEquals(listOf(true, false), suspended, "挂起与解除都要通知")
+    }
+
+    @Test
+    fun `终止之后恢复不弹框`() = onEdt {
+        val seq = sequence()
+        seq.start()
+        presented[0].card.minimizeButton.doClick()
+        seq.closeSilently()
+
+        seq.restore()
+
+        assertEquals(1, presented.size, "已经终止了，恢复不该再弹")
     }
 }

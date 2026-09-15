@@ -2322,6 +2322,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 )
             },
             onDeny = { decide(perm, deniedByUser()) },
+            // 最小化/恢复都要让状态栏跟着变 —— 那儿是"回来的路"（见 updateStatusBar）
+            onSuspendChange = { updateStatusBar() },
         )
         askSequence = sequence
         showModal { if (askSequence === sequence) sequence.start() }
@@ -2409,16 +2411,52 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 待决数量变化时同步状态栏（spec §6.3 的第一道补偿）。
      *
      * 推给服务而非直接操作组件——平台会按需创建/销毁状态栏组件。
+     *
+     * **挂起提问也在这里同步**：状态永远由 [askSequence] 说了算，于是
+     * "答完了 / 拒了 / 会话停了 / 框被终止路径关掉"这些路径只要走到这儿，
+     * 状态栏就不会留下一个点下去什么都不发生的入口。
      */
     private fun updateStatusBar() {
-        runCatching { PendingPermissionCount.getInstance(project).set(permissionQueue.totalPending) }
+        runCatching {
+            val service = PendingPermissionCount.getInstance(project)
+            service.set(permissionQueue.totalPending)
+            val suspended = askSequence?.suspended == true
+            val seq = askSequence
+            service.setSuspended(
+                suspended = suspended,
+                restore = if (suspended && seq != null) {
+                    { showModal { restoreAsk(seq) } }
+                } else {
+                    null
+                },
+            )
+        }
         // 权限队列变化同样影响忙闲 —— 「＋」得跟着
         newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))
+    }
+
+    /**
+     * 从状态栏回到那个被最小化的提问。
+     *
+     * 身份比对同 [openPermissionDialog] 那两处：用户点状态栏的这一拍里，那个序列
+     * 可能已经被拒掉/终止掉了（他可能刚点了「停止」，或 sidecar 退了），
+     * 那时再弹回来就是朝一个已经不存在的请求说话。
+     *
+     * 调用方负责排在"没有模态框"的那一拍上（[showModal]）—— 理由同 [AskSequence.restore]。
+     */
+    private fun restoreAsk(seq: AskSequence) {
+        if (askSequence !== seq) return
+        seq.restore()
     }
 
     // 说明：spec §6.3 原本那两条补偿（粘性通知、待决超时提醒）随"非模态卡片"
     // 一起退休了（2026-09-14 改成模态框）。留着状态栏计数就够：框会自己弹出来，
     // 而"弹出来还被忽略"这件事在模态形态下不存在。
+    //
+    // 2026-09-15 用户报"想看看代码再来回答"→ 加了提问框的最小化（见 AskSequence.minimize）。
+    // 那是**用户主动**把框挪开的，于是"被忽略"这件事重新出现了一次 —— 补偿就是上面
+    // 这条状态栏：挂起期间它一直写着"有提问待回答"。与 §6.3 不冲突：模态框对**没被
+    // 挪开**的那些请求仍然不需要补偿。
 
     // ---- 输入 ----
 

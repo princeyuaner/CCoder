@@ -48,9 +48,31 @@ class AskQuestionRenderProbe {
     @Test
     fun `把第二题作答中的样子画成图片`() = render("build/ask-card-picked.png", index = 1, picked = true)
 
+    /**
+     * 长题干 + 长说明。
+     *
+     * 2026-09-15 用户报"问题描述过长没有换行，会导致整个弹框很宽"—— 这张图就是
+     * 那条的现场：改之前它会一路拉宽，改之后该在卡片宽度里折行。
+     */
+    @Test
+    fun `把长题干的样子画成图片`() = render("build/ask-card-long.png", index = 0, picked = false, req = longTexts)
+
+    private val longTexts = askRequestOf(
+        JsonParser.parseString(
+            """
+            {"questions":[
+              {"question":"${"长题干".repeat(40)}","header":"长题干","options":[
+                {"label":"继续未提交的改动","description":"${"这段说明也长得必须折行。".repeat(20)}"},
+                {"label":"审查当前 diff","description":"短说明。"}
+              ]}
+            ]}
+            """
+        ).asJsonObject
+    )!!
+
     /** 推到第 index 题：前面每题随便答一个，只是为了走得过去。 */
-    private fun flowAt(index: Int): AskFlow {
-        val flow = AskFlow(request)
+    private fun flowAt(index: Int, req: AskRequest = request): AskFlow {
+        val flow = AskFlow(req)
         while (flow.index < index) {
             flow.current.toggle(flow.question.options.first().label)
             flow.submitCurrent()
@@ -58,15 +80,16 @@ class AskQuestionRenderProbe {
         return flow
     }
 
-    private fun render(path: String, index: Int, picked: Boolean) {
+    private fun render(path: String, index: Int, picked: Boolean, req: AskRequest = request) {
         SwingUtilities.invokeAndWait {
-            val flow = flowAt(index)
+            val flow = flowAt(index, req)
             val card = AskQuestionCard(
                 flow,
                 onSubmit = {},
                 onAdvance = {},
                 onBack = {},
                 onDeny = {},
+                onMinimize = {},
             )
             val outer = javax.swing.JPanel(BorderLayout()).apply {
                 border = JBUI.Borders.empty(10)
@@ -106,6 +129,14 @@ class AskQuestionRenderProbe {
             outer.paint(g)
             g.dispose()
             ImageIO.write(img, "png", File(path))
+
+            // 顺手把宽度印出来。**图会骗人，数不会** —— 2026-09-15 追那个"弹框
+            // 被长题干撑宽"的问题时，看图看了半天，最后还是靠量数定的案。
+            val widest = textComponentsIn(card).maxOfOrNull { it.width } ?: 0
+            println(
+                "[ask-probe] $path 卡片首选宽=${card.preferredSize.width} " +
+                    "最小宽=${card.minimumSize.width} 树里最宽文本=$widest",
+            )
         }
     }
 
@@ -122,22 +153,9 @@ class AskQuestionRenderProbe {
         return out
     }
 
-    private fun labelsIn(root: Container): List<JLabel> {
-        val out = mutableListOf<JLabel>()
-        fun walk(c: Container) {
-            for (child in c.components) {
-                if (child is JLabel) out += child
-                if (child is Container) walk(child)
-            }
-        }
-        walk(root)
-        return out
-    }
-
-    /** 按包含找标签再合成一次点击 —— 和真实路径同一条。 */
+    /** 按包含找文本组件再合成一次点击 —— 和真实路径同一条（见 TextLookup.kt）。 */
     private fun clickOption(card: AskQuestionCard, text: String) {
-        val target = labelsIn(card).firstOrNull { it.text.contains(text) }
-            ?: error("找不到「$text」，树里有：${labelsIn(card).map { it.text }}")
+        val target = componentWithText(card, text)
         target.dispatchEvent(
             MouseEvent(
                 target, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),

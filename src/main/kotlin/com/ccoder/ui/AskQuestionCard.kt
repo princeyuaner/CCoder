@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -61,12 +62,24 @@ internal class AskQuestionCard(
     private val onAdvance: () -> Unit,
     private val onBack: () -> Unit,
     private val onDeny: () -> Unit,
+    private val onMinimize: () -> Unit,
 ) : JPanel(BorderLayout()) {
 
     /** 「下一题」或者「提交」，看这是不是最后一题。 */
     internal val submitButton = JButton(if (flow.isLast) SUBMIT_LABEL else NEXT_LABEL)
 
     internal val denyButton = JButton(DENY_LABEL)
+
+    /**
+     * 「最小化」：先把这个框收起来，去代码里看一眼再回来答。
+     *
+     * 它是第三条路 —— 与「拒绝」和右上角那个 X 都不同：请求仍留在队列里等着
+     * （[ClaudePanel] 那边计数不减、`cancelAll` 仍能作废它），Claude 也仍在等。
+     * 回来的路在状态栏（见 AskSequence 的挂起状态）。
+     */
+    internal val minimizeButton = JButton(MINIMIZE_LABEL).apply {
+        toolTipText = MINIMIZE_TOOLTIP
+    }
 
     /** 只有第二题起才有它 —— 第一题上没有"上一题"可回。 */
     internal val backButton = JButton(BACK_LABEL)
@@ -144,7 +157,7 @@ internal class AskQuestionCard(
             header.add(vStrut(4))
         }
 
-        header.add(JBLabel(qs.question.question).apply {
+        header.add(WrapText(qs.question.question) { QUESTION_TEXT_WIDTH }.apply {
             font = base.deriveFont(Font.BOLD)
             alignmentX = LEFT_ALIGNMENT
         })
@@ -202,8 +215,8 @@ internal class AskQuestionCard(
             preferredSize = Dimension(fm.stringWidth("✓"), fm.height)
         }
 
-        val label = JLabel(opt.label).apply { font = base }
-        val desc = JLabel(opt.description).apply {
+        val label = WrapText(opt.label) { OPTION_TEXT_WIDTH }.apply { font = base }
+        val desc = WrapText(opt.description) { OPTION_TEXT_WIDTH }.apply {
             foreground = UIUtil.getInactiveTextColor()
             font = base.deriveFont(base.size2D - 1f)
             isVisible = opt.description.isNotBlank()
@@ -348,26 +361,57 @@ internal class AskQuestionCard(
         return Dimension(CARD_WIDTH, natural.height)
     }
 
-    private fun buildActions(): JComponent = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
-        isOpaque = false
+    /**
+     * 宽度也写死 —— **这一条才是"弹框被撑宽"的真正闸门**。
+     *
+     * 只钉 `getPreferredSize()` 是不够的：对话框 `pack()` 顶不过子项累出来的
+     * **最小**宽度，子项说"我最窄也要 800"，窗口就真会变成 800。2026-09-15
+     * 用户报的"描述过长没有换行，导致整个弹框很宽"就是这条：长题干是个
+     * 不换行的 `JLabel`，最小宽度跟着文本一路涨。
+     *
+     * 高度不写死（同 preferred）：选中「其它…」会长出一个输入框。
+     * 同源先例见 StatusCardView.getMinimumSize 的注释。
+     */
+    override fun getMinimumSize(): Dimension =
+        Dimension(CARD_WIDTH, super.getMinimumSize().height)
 
-        // 不设 mnemonic —— 助记符就是键盘捷径，而这是不可逆动作（同 PermissionCard 规则②）
-        denyButton.addActionListener { onDeny() }
+    /**
+     * 按钮行：**「最小化」在左，其余靠右**。
+     *
+     * 左右分开不是排版偏好。「最小化」是可逆的、安全的（框还在，只是收起来，
+     * 答案一个字不丢），右边那三颗都会把这条提问**结束掉**（答完 / 整条拒绝）。
+     * 安全的那颗离危险的那几颗远一点。
+     */
+    private fun buildActions(): JComponent {
+        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+            isOpaque = false
 
-        submitButton.addActionListener {
-            // 第二道闸：按钮灰着时点不动，但"少答一题就提交"的代价是替用户答了，
-            // 所以这条判断不能只写在界面上
-            if (!flow.canAdvance) return@addActionListener
-            if (flow.submitCurrent()) onSubmit(flow.picked()) else onAdvance()
-        }
+            // 不设 mnemonic —— 助记符就是键盘捷径，而这是不可逆动作（同 PermissionCard 规则②）
+            denyButton.addActionListener { onDeny() }
 
-        if (flow.index > 0) {
-            backButton.addActionListener { if (flow.back()) onBack() }
-            add(backButton)
-        }
-        add(denyButton)
-        add(submitButton)
-    }.leftAligned()
+            submitButton.addActionListener {
+                // 第二道闸：按钮灰着时点不动，但"少答一题就提交"的代价是替用户答了，
+                // 所以这条判断不能只写在界面上
+                if (!flow.canAdvance) return@addActionListener
+                if (flow.submitCurrent()) onSubmit(flow.picked()) else onAdvance()
+            }
+
+            if (flow.index > 0) {
+                backButton.addActionListener { if (flow.back()) onBack() }
+                add(backButton)
+            }
+            add(denyButton)
+            add(submitButton)
+        }.leftAligned()
+
+        minimizeButton.addActionListener { onMinimize() }
+
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(minimizeButton, BorderLayout.WEST)
+            add(right, BorderLayout.EAST)
+        }.leftAligned()
+    }
 
     private companion object {
         val ACCENT = JBColor(0xFFA000, 0xFFB74D)
@@ -390,6 +434,18 @@ internal const val DENY_LABEL = "拒绝"
 internal const val BACK_LABEL = "← 上一题"
 
 /**
+ * 「最小化」：先把框收起来，去代码里看一眼再回来答。
+ *
+ * 文案叫「最小化」而不是「稍后回答」：后者听着像"这件事可以先拖着"，而这条
+ * 提问仍占着队列、Claude 仍在等 —— 它只是从眼前挪开了（见 [AskSequence.minimize]）。
+ */
+internal const val MINIMIZE_LABEL = "最小化"
+
+/** 悬停说明。「答案不会丢」是这颗按钮唯一需要讲清楚的事。 */
+internal const val MINIMIZE_TOOLTIP =
+    "先收起来，去代码里看一眼；答案不会丢 —— 从状态栏「Claude 有提问待回答」回到这里"
+
+/**
  * 塞进竖直 `BoxLayout` 之前先左对齐。
  *
  * `BoxLayout` **不是**各摆各的：它取所有子项里 `alignmentX × 宽度` 的最大值
@@ -407,3 +463,62 @@ private fun <T : JComponent> T.leftAligned(): T =
 /** 竖直间距。带左对齐 —— 见 [leftAligned]。 */
 private fun vStrut(height: Int): JComponent =
     (Box.createVerticalStrut(JBUI.scale(height)) as JComponent).leftAligned()
+
+/**
+ * 题干能用的宽度：卡片宽减去卡片自己的左右内边距（描边 1 + `empty(9, 11)`）。
+ */
+private val QUESTION_TEXT_WIDTH: Int get() = CARD_WIDTH - JBUI.scale(24)
+
+/**
+ * 选项的标题/说明能用的宽度：再减掉选项行的内边距（`empty(7, 9)` ×2）
+ * 与左边那一格勾（约 11px），末尾留几像素余量。
+ *
+ * 宁可给窄一点：窄了只是多折一行，宽了就会把卡片顶破。这条线的两个方向
+ * 后果不对称，所以往安全的那边留。
+ */
+private val OPTION_TEXT_WIDTH: Int get() = CARD_WIDTH - JBUI.scale(64)
+
+/**
+ * 会换行的只读文本块。
+ *
+ * 题干、选项标题、选项说明原来都是 `JLabel`，而 **`JLabel` 从不换行**：
+ * 它报出来的宽度就是那一整行有多长。一条长题干于是把卡片、连同整个弹框一起
+ * 顶宽（2026-09-15 用户报"问题描述过长没有换行，会导致整个弹框很宽"）。
+ *
+ * 打开换行本身只要两行（`lineWrap` + `wrapStyleWord`，仓库里 PermissionCard /
+ * RunDetail / ClaudePanel 都是这个配方），真正要动脑筋的是**尺寸**：
+ * `JTextArea` 的首选/最小宽度同样是按最长那一行算的 —— 光打开换行，它照样
+ * 把框顶宽。所以这里把宽度覆写成"父容器给多宽我就用多宽"，高度按换行后的
+ * 行数自己算。
+ *
+ * 不走 HTML 定宽那条路（`SessionList` 里的写法）：题干是模型给的自由文本，
+ * 含 `<`、`&` 就得先转义，而这条链上的原则是**输入宽容** —— 少一个转义
+ * 就多一种坏渲染。
+ */
+private class WrapText(text: String, private val widthOf: () -> Int) : JBTextArea(text) {
+
+    init {
+        isEditable = false
+        // 卡片自己不铺底（见 AskQuestionCard 的注释），这段文字也不该铺
+        isOpaque = false
+        lineWrap = true
+        wrapStyleWord = true
+        border = JBUI.Borders.empty()
+        // 它是"一段文字"，不是"一个能编辑的地方"：不给焦点，免得点选项时
+        // 在说明里落下光标或选区 —— 点它等于点整行，那是选中，不是编辑
+        isFocusable = false
+    }
+
+    override fun getPreferredSize(): Dimension {
+        val w = widthOf()
+        // 先按目标宽度量一遍：不 setSize 的话，拿到的仍是"一行到底"的那个高度
+        setSize(w, Short.MAX_VALUE.toInt())
+        return Dimension(w, super.getPreferredSize().height)
+    }
+
+    /**
+     * 最小尺寸 = 首选尺寸。`BoxLayout` 只按这个下限去压，让它等于卡片宽度
+     * （而不是最长那行），是"弹框不再被撑宽"的最后一道。
+     */
+    override fun getMinimumSize(): Dimension = preferredSize
+}

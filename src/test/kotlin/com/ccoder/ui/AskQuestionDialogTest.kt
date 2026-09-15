@@ -63,6 +63,7 @@ class AskQuestionDialogTest {
             onAdvance = {},
             onBack = {},
             onDeny = {},
+            onMinimize = {},
         )
         return AskQuestionDialog(fakeProject(), card) { cancelled++ }
     }

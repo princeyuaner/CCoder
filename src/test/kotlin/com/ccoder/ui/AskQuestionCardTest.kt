@@ -69,7 +69,8 @@ class AskQuestionCardTest {
         onAdvance: () -> Unit = {},
         onBack: () -> Unit = {},
         onDeny: () -> Unit = {},
-    ) = AskQuestionCard(flow, onSubmit, onAdvance, onBack, onDeny)
+        onMinimize: () -> Unit = {},
+    ) = AskQuestionCard(flow, onSubmit, onAdvance, onBack, onDeny, onMinimize)
 
     /** 自绘的选项行认的是合成 MouseEvent。 */
     private fun click(c: Component) {
@@ -110,17 +111,13 @@ class AskQuestionCardTest {
     }
 
     /** 当前这一题里按文本找选项（一题一个框，所以不用 occurrence 了）。 */
-    private fun clickOption(c: AskQuestionCard, text: String) {
-        val target = allLabels(c).firstOrNull { it.text.contains(text) }
-            ?: error("找不到「$text」，树里有：${allLabels(c).map { it.text }}")
-        click(target)
-    }
+    private fun clickOption(c: AskQuestionCard, text: String) = click(componentWithText(c, text))
 
     // ---- 一次只画一题 ----
 
     @Test
     fun `只画当前这道题的题干与选项`() {
-        val texts = allLabels(card()).map { it.text }.joinToString("\n")
+        val texts = textsIn(card()).joinToString("\n")
 
         assertTrue(texts.contains("你希望我接下来做什么？"), texts)
         assertTrue(texts.contains("继续未提交的改动"), texts)
@@ -135,7 +132,7 @@ class AskQuestionCardTest {
 
     @Test
     fun `推进到第二题时画的是第二题`() {
-        val texts = allLabels(card(flowAt(1))).map { it.text }.joinToString("\n")
+        val texts = textsIn(card(flowAt(1))).joinToString("\n")
 
         assertTrue(texts.contains("热切要不要写回长期设置？"), texts)
         assertFalse(texts.contains("你希望我接下来做什么？"), texts)
@@ -143,23 +140,23 @@ class AskQuestionCardTest {
 
     @Test
     fun `多题时顶栏说清第几题`() {
-        val first = allLabels(card(flowAt(0))).map { it.text }
+        val first = textsIn(card(flowAt(0)))
         assertTrue(first.any { it.contains("第 1 / 2 题") }, "少了进度：$first")
 
-        val second = allLabels(card(flowAt(1))).map { it.text }
+        val second = textsIn(card(flowAt(1)))
         assertTrue(second.any { it.contains("第 2 / 2 题") }, "少了进度：$second")
     }
 
     @Test
     fun `一题的问卷不写第几题`() {
-        val texts = allLabels(card(flowAt(0, oneQuestion))).map { it.text }
+        val texts = textsIn(card(flowAt(0, oneQuestion)))
         assertTrue(texts.none { it.contains("/ 1 题") }, "一题还写进度就是噪音：$texts")
     }
 
     @Test
     fun `「其它…」由界面自己补上`() {
         // SDK 要求宿主提供它（sdk-tools.d.ts:1070 的 options 注释）
-        val texts = allLabels(card()).map { it.text }
+        val texts = textsIn(card())
         assertEquals(1, texts.count { it.contains(OTHER_LABEL) }, "当前题该有一个：$texts")
     }
 
@@ -221,28 +218,98 @@ class AskQuestionCardTest {
         layOut(c, 430)
 
         val chip = allLabels(c).first { it.text == "要做什么" }
-        val question = allLabels(c).first { it.text.contains("你希望我接下来做什么") }
+        val question = componentWithText(c, "你希望我接下来做什么")
 
         assertTrue(chip.x < 30, "芯片被推到了 x=${chip.x}")
         assertTrue(question.x < 30, "题目被推到了 x=${question.x}")
     }
 
     @Test
-    fun `选中之后标签不会被压窄到显示省略号`() {
+    fun `选中前后那一行文本的宽度不变`() {
         // 渲染出来看到的是「✓ 审查当前 …」—— 少了一个字，还被加了省略号。
         // 根因是布局拿的还是选中**之前**的宽度（选中时前面多了个 ✓）。
         //
-        // getText() 这时仍然是完整的（截断只发生在绘制时），所以只能比宽度：
-        // 标签拿到手的宽度小于它需要的宽度，就会画成省略号
+        // 2026-09-15 之后文本会换行，省略号这个症状从结构上不会再有（宽不够就折行），
+        // 但那条不变式还在：**点一下不该让这一行重排**。所以这里盯宽度本身，
+        // 顺带盯它有没有拿到自己要的宽度（拿不到就说明它被挤了）。
         val c = card()
         layOut(c, 430)
+        val before = componentWithText(c, "审查当前 diff").width
+
         clickOption(c, "审查当前 diff")
         layOut(c, 430)
 
-        val label = allLabels(c).first { it.text.contains("审查当前 diff") }
+        val after = componentWithText(c, "审查当前 diff")
+        assertEquals(before, after.width, "选中之后这一行重排了")
         assertTrue(
-            label.width >= label.preferredSize.width,
-            "标签宽 ${label.width}，但需要 ${label.preferredSize.width} —— 会被截成省略号：${label.text}",
+            after.width >= after.preferredSize.width,
+            "文本宽 ${after.width}，但需要 ${after.preferredSize.width} —— 它被挤了",
+        )
+    }
+
+    // ---- 长文本：换行，而不是把弹框撑宽（2026-09-15 用户报的那条）----
+
+    /** 一条长到必须折行的题干 + 一段长说明。 */
+    private val longTexts = request(
+        """
+        {"questions":[
+          {"question":"${"长题干".repeat(60)}","header":"长题干","options":[
+            {"label":"选项一","description":"${"这段说明也长得必须折行。".repeat(30)}"},
+            {"label":"选项二","description":"短说明。"}
+          ]}
+        ]}
+        """
+    )
+
+    @Test
+    fun `长题干不会把卡片撑宽`() {
+        // 对话框 `pack()` 看的是**最小**宽度 —— 只钉 preferred 不够，
+        // 这正是当初被撑宽的根子（见 AskQuestionCard.getMinimumSize 的注释）
+        val c = card(flowAt(0, longTexts))
+
+        assertEquals(CARD_WIDTH, c.preferredSize.width, "首选宽度该钉在卡片宽度")
+        assertTrue(
+            c.minimumSize.width <= CARD_WIDTH,
+            "最小宽度 ${c.minimumSize.width} 会把弹框顶宽",
+        )
+    }
+
+    @Test
+    fun `长题干真的折行了，而不是被裁掉`() {
+        // 只断言"不宽"是不够的：把长文本裁掉的实现也能过上面那条。
+        // 真折行 = 它拿到的高度大于一行的高度。
+        val c = card(flowAt(0, longTexts))
+        layOut(c, CARD_WIDTH)
+
+        val question = componentWithText(c, "长题干")
+        val oneLine = question.getFontMetrics(question.font).height
+        assertTrue(
+            question.height > oneLine,
+            "题干只拿到 ${question.height}px（一行 $oneLine px）—— 没有折行",
+        )
+    }
+
+    @Test
+    fun `长说明也折行`() {
+        val c = card(flowAt(0, longTexts))
+        layOut(c, CARD_WIDTH)
+
+        val desc = componentWithText(c, "这段说明也长得必须折行。")
+        val oneLine = desc.getFontMetrics(desc.font).height
+        assertTrue(desc.height > oneLine, "说明只拿到 ${desc.height}px —— 没有折行")
+    }
+
+    @Test
+    fun `布局之后没有任何文本宽过卡片`() {
+        // 折行 + 最小宽度两道都上了，这条是它们的结果：整棵树里没有任何东西
+        // 需要比卡片更宽 —— 也就是弹框不会被撑宽。
+        val c = card(flowAt(0, longTexts))
+        layOut(c, CARD_WIDTH)
+
+        val tooWide = textComponentsIn(c).filter { it.width > c.width }
+        assertTrue(
+            tooWide.isEmpty(),
+            "这些文本宽过卡片：${tooWide.map { "${textOf(it)?.take(8)}宽${it.width}" }}",
         )
     }
 
