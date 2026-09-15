@@ -21,7 +21,7 @@ class ThemeInjectorTest {
         diffDelBg = Color(0x33222A),
         diffAddFg = Color(0x5FAD65),
         diffDelFg = Color(0xDB5C5C),
-        thinkingFg = Color(0xD8BE8E),
+        thinkingFg = Color(0xEC, 0xDD, 0xB4),
         fontUi = Font("JetBrains Sans", Font.PLAIN, 13),
         fontMono = Font("JetBrains Mono", Font.PLAIN, 13),
     )

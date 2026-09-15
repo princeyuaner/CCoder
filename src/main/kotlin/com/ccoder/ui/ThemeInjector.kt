@@ -119,7 +119,7 @@ object PlatformTheme {
             diffDelBg = mix(bg, Color(0xE0, 0x54, 0x54), 0.16),
             diffAddFg = mix(text, Color(0x4C, 0xAF, 0x50), 0.60),
             diffDelFg = mix(text, Color(0xE0, 0x54, 0x54), 0.60),
-            thinkingFg = mix(text, THINK_FG, 0.70),
+            thinkingFg = mix(text, THINK_FG, 0.85),
             fontUi = UIUtil.getLabelFont(),
             fontMono = EditorColorsManager.getInstance().globalScheme
                 .getFont(EditorFontType.PLAIN),
@@ -158,12 +158,15 @@ object PlatformTheme {
     private const val SURFACE_MIN_DISTANCE = 24
 
     /**
-     * 思考正文的黄。
+     * 思考正文的黄（奶油黄）。
      *
      * **不写死在 CSS 里**：浅色主题下浅黄压白底等于看不见。所以与 diff 那两套
-     * 颜色同一个做法 —— 从**文本色**混出来：深色主题下是浅黄，浅色主题下自动
-     * 变成橄榄金。混 0.70 是在深色主题下量过的：约 6.1:1，比正文还清楚一点，
-     * 又明显区别于正文的灰白。
+     * 颜色同一个做法 —— 从**文本色**混出来。
+     *
+     * 2026-09-15 调过一次：用户报"颜色太深"，换成更亮的奶油黄，混入比例也从
+     * 0.70 提到 0.85。深色主题下现在是 `#ecddb4`（面板色上约 8:1）—— 比正文的
+     * 灰白（约 5.4:1）还亮，所以思考会比正文更抢眼。觉得过头就把比例调回 0.75
+     * 左右。浅色主题下是 `#d5c69d`。
      */
-    private val THINK_FG = Color(0xE5, 0xC0, 0x7B)
+    private val THINK_FG = Color(0xF5, 0xE3, 0xB3)
 }
