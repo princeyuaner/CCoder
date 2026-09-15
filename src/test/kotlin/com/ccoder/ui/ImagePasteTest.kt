@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
@@ -172,6 +173,31 @@ class ImagePasteTest {
 
         assertEquals(0, got.size)
         assertEquals(1, recorder.imports, "解不开就当它不是图，让默认行为去处理")
+    }
+
+    @Test
+    fun `接线之后 Ctrl+V 那条路真的会走到我们 —— actionMap 里的 paste 得是 TransferHandler 的`() {
+        // 2026-09-15 真机上"按 Ctrl+V 什么都没发生"，排查时先确认的就是这条：
+        // JTextComponent.paste() 的实现是 invokeAction("paste", TransferHandler.getPasteAction())
+        // —— 也就是说 actionMap 里那个 "paste" 必须是 TransferHandler 的 action，
+        // 我们的处理器才会被调；被换成别人的，处理器再对也没用。
+        // 所以这条盯的是**平台/LAF 的接线**，不是我们的逻辑。
+        IdeLaf.withRealLaf {
+            val area = JBTextArea()
+            installImagePaste(area) {}
+
+            val paste = area.actionMap.get("paste")
+            assertNotNull(paste, "actionMap 里没有 paste —— Ctrl+V 这条路断了")
+            assertEquals(
+                javax.swing.TransferHandler.getPasteAction().javaClass,
+                paste.javaClass,
+                "paste 被别人换掉了：${paste.javaClass.name}",
+            )
+            assertTrue(
+                area.transferHandler is TransferHandler,
+                "装完之后处理器应该是我们的",
+            )
+        }
     }
 
     @Test

@@ -1,5 +1,8 @@
 package com.ccoder.ui
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.ide.CopyPasteManager
 import java.awt.Image
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
@@ -7,6 +10,7 @@ import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 import javax.swing.TransferHandler
+import javax.swing.TransferHandler.TransferSupport
 import javax.swing.text.JTextComponent
 import kotlin.math.max
 
@@ -55,8 +59,13 @@ internal fun installImagePaste(
     area: JTextComponent,
     onImages: (List<IncomingImage>) -> Unit,
 ) {
-    val fallback = area.transferHandler ?: return
+    val fallback = area.transferHandler
+    if (fallback == null) {
+        LOG.warn("输入框没有默认的 TransferHandler —— 贴图不接（保住文字粘贴更要紧）")
+        return
+    }
     area.transferHandler = ImagePasteHandler(fallback, onImages)
+    LOG.info("贴图已接线：默认处理器是 ${fallback.javaClass.name}")
 }
 
 /**
@@ -65,23 +74,39 @@ internal fun installImagePaste(
  * `canImport` 的两条路要一起看：我们的判定说"不接"时，**不能**直接返回 false ——
  * 那会让这一次粘贴彻底没反应（TransferHandler 只有一个，没有"下一个"）。
  * 必须转交给原来那个。
+ *
+ * ## 每一条分支都要留话（2026-09-15 的教训）
+ *
+ * 第一版这里三处静默返回（装不上、判定不接、读不出来），结果真机上"按 Ctrl+V
+ * 什么都没发生"，而**日志里一个字都没有** —— 只能靠一个独立 Swing 小程序对着
+ * 真剪贴板复现才定位到。贴图这条路的每一步现在都留 INFO/WARN。
  */
 private class ImagePasteHandler(
     private val fallback: TransferHandler,
     private val onImages: (List<IncomingImage>) -> Unit,
 ) : TransferHandler() {
 
-    override fun canImport(support: TransferSupport): Boolean =
-        attachImagesWanted(support.dataFlavors.toList(), support.isDrop) ||
-            fallback.canImport(support)
+    override fun canImport(support: TransferSupport): Boolean {
+        val flavors = imageSource(support)?.transferDataFlavors?.toList() ?: emptyList()
+        val want = attachImagesWanted(flavors, support.isDrop)
+        // 拖拽时这个方法会被调很多次，只记"要接"和"粘贴"这两种有信息量的
+        if (want || !support.isDrop) {
+            LOG.info("贴图判定：isDrop=${support.isDrop} → ${if (want) "接图" else "交回默认"}（$flavors）")
+        }
+        return want || fallback.canImport(support)
+    }
 
     override fun importData(support: TransferSupport): Boolean {
-        if (attachImagesWanted(support.dataFlavors.toList(), support.isDrop)) {
-            val images = readImages(support.transferable)
+        val source = imageSource(support)
+        val flavors = source?.transferDataFlavors?.toList() ?: emptyList()
+        if (attachImagesWanted(flavors, support.isDrop)) {
+            val images = source?.let { readFromTransferable(it) } ?: emptyList()
+            LOG.info("贴图读取：拿到 ${images.size} 张（isDrop=${support.isDrop}）")
             if (images.isNotEmpty()) {
                 onImages(images)
                 return true
             }
+            LOG.warn("贴图：判定该接图却一张都没读到 —— 交回默认处理器")
         }
         // 认得出是文件但解不出图（.psd、坏文件）也走这里 —— 与"不是图片"一个待遇：
         // 让默认行为去处理，用户至少能看到路径进来了
@@ -89,13 +114,52 @@ private class ImagePasteHandler(
     }
 }
 
-/** 从传输里把图抠出来。解不开的**跳过而不是抛** —— 拖进来一堆文件时不该整个失败。 */
-private fun readImages(transferable: Transferable): List<IncomingImage> {
+/**
+ * 这次传输该读哪一份数据。
+ *
+ * **粘贴时以平台剪贴板为准**（[CopyPasteManager]），不用 Swing 递进来的那份。
+ * 2026-09-15 复现出来的坑：剪贴板是"延迟渲染"的时候，递给 importData 的那份
+ * transferable **第一次问它有哪些 flavor 会什么都说没有**，再问一次才补齐 ——
+ * 同一个进程里两次调用的差别仅此而已（换了个顺序打印就复现不出来了）。
+ * 而判定只有一次机会：判成"不是图"就静默交回默认处理器，用户看到的就是
+ * "按 Ctrl+V 什么都没发生"。
+ *
+ * 平台那个 facade 自带重试与缓存（`ClipboardSynchronizer`），是 IntelliJ 里读
+ * 剪贴板的正路。拿不到 Application（无头单测）时退回 Swing 那份。
+ *
+ * 拖拽不走剪贴板 —— 数据就在这次传输里，用它自己的那份。
+ */
+private fun imageSource(support: TransferSupport): Transferable? {
+    if (support.isDrop) return support.transferable
+    return platformClipboard() ?: support.transferable
+}
+
+/**
+ * 平台剪贴板那份 transferable。
+ *
+ * **整个包在 runCatching 里**：无头环境（单测、某些远程开发场景）摸剪贴板会抛
+ * HeadlessException，而这里是 EDT 上的粘贴流程 —— 抛出去就是一个 IDE 报错弹窗。
+ * 读不到就是"这次没图"，不是错误。
+ */
+private fun platformClipboard(): Transferable? {
+    val app = ApplicationManager.getApplication() ?: return null
+    return runCatching { app.getService(CopyPasteManager::class.java).getContents() }
+        .onFailure { LOG.warn("贴图：读平台剪贴板失败", it) }
+        .getOrNull()
+}
+
+/** 从一份 transferable 里把图抠出来。解不开的**跳过而不是抛** —— 拖进来一堆文件时不该整个失败。 */
+private fun readFromTransferable(transferable: Transferable): List<IncomingImage> {
     val out = mutableListOf<IncomingImage>()
 
     if (transferable.isDataFlavorSupported(DataFlavor.imageFlavor)) {
-        val raw = runCatching { transferable.getTransferData(DataFlavor.imageFlavor) }.getOrNull()
+        // 失败要留话：第一版这里是静默的 runCatching，真机上出问题时无从下手
+        val raw = runCatching { transferable.getTransferData(DataFlavor.imageFlavor) }
+            .onFailure { LOG.warn("贴图：imageFlavor 认，但读不出来", it) }
+            .getOrNull()
         (raw as? Image)?.let { out += IncomingImage(toBuffered(it), sourceBytes = 0, name = null) }
+    } else {
+        LOG.info("贴图：这份 transferable 不认 imageFlavor（flavors=${transferable.transferDataFlavors.toList()}）")
     }
 
     if (transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
@@ -111,6 +175,8 @@ private fun readImages(transferable: Transferable): List<IncomingImage> {
 
     return out
 }
+
+private val LOG = Logger.getInstance("com.ccoder.ui.ImagePaste")
 
 /** 剪贴板上的东西可能是任何 `Image` 实现；统一成 [BufferedImage]，不然没法缩放与编码。 */
 private fun toBuffered(image: Image): BufferedImage {

@@ -2440,8 +2440,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 看起来就是坏了（静默失败比多一行字严重）。
      */
     private fun addAttachment(incoming: IncomingImage) {
+        LOG.info(
+            "贴图：收到一张（${incoming.image.width}x${incoming.image.height}，" +
+                "${incoming.sourceBytes} 字节，名字=${incoming.name ?: "（剪贴板来的）"}）"
+        )
         val reason = imageRejectReason(incoming.sourceBytes)
         if (reason != null) {
+            LOG.info("贴图：没收下 —— $reason")
             attachments.reject(reason)
             return
         }
@@ -2452,9 +2457,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             name = incoming.name,
         )
         if (prepared == null) {
+            LOG.warn("贴图：缩不到能发的大小，放弃")
             attachments.reject("这张图压不小，换个更小的试试")
         } else {
-            attachments.add(prepared)
+            val ok = attachments.add(prepared)
+            LOG.info("贴图：进附件带 ${if (ok) "成功" else "被上限挡下"}，现在带上有 ${attachments.images.size} 张")
         }
     }
 
