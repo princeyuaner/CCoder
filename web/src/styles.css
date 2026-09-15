@@ -608,7 +608,10 @@ body {
 /* 一个**一直在转**的圈和 160ms 的淡入不是一回事：前庭敏感的用户对这个
    尤其难受。系统里开了"减少动态效果"就把它停下来（改成静止的灰环）。 */
 @media (prefers-reduced-motion: reduce) {
-  .spin {
+  /* `.spin.live-think__spin` 写成两个类是有意的：`.live-think__spin` 的规则
+     在文件里更靠后，单靠 `.spin` 会被它盖掉，减速动画这条就失效了 */
+  .spin,
+  .spin.live-think__spin {
     animation: none;
     border-top-color: var(--text-dim, #8c8c8c);
   }
@@ -620,16 +623,34 @@ body {
  * 决策价值低于正文；但"它在动"这件事必须让人看见 —— 实测 29% 的思考块
  * 跑过 5 秒，而在这之前屏幕是静止的。
  */
+/*
+ * 等待时这两样要**一眼看得见**（2026-09-15 用户报"转圈和秒数显示不明显"）。
+ *
+ * 旧的圈是 12px、1.5px 边，轨道用 --border —— 那几乎和背景同色，于是屏幕上
+ * 只剩一小段很淡的弧在动；秒数是 10px 的 --text-dim，跟标题一个灰。
+ *
+ * 只改 `.live-think__*`，**不动通用的 .spin**：工具卡片的转圈是同一个类，
+ * 那边的观感没被投诉过。
+ */
 .live-think__spin {
   margin-right: 5px;
-  vertical-align: -2px;
+  vertical-align: -3px;
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  /* 轨道换成 --text-dim：从"几乎看不见"变成一圈看得见的底环 */
+  border-color: var(--text-dim, #8c8c8c);
+  /* 转动的头用思考块自己的浅黄 —— 这一小块整体就成了"等待中"的信号 */
+  border-top-color: var(--thinking-fg, #d7ba7d);
 }
 
 .live-think__time {
   margin-left: 6px;
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  /* 从标题继承来的 --text-dim 太淡，秒数也要看得见 */
+  color: var(--thinking-fg, #d7ba7d);
 }
 
 .tool__body {
