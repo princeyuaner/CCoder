@@ -187,7 +187,9 @@ describe('ToolCallBlock', () => {
     expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
   })
 
-  it('失败的结果自动展开并标出来 —— 不能让人点开去找', () => {
+  it('失败也收着，卡面上只多一个红 ✗', async () => {
+    // 2026-09-15 按用户要求改的：原先失败会自动弹开，现在不弹 ——
+    // 「这次没成」红 ✗ 已经说完了，输出是细节，想看的人自己点开
     render(
       <ToolCallBlock
         item={use('Bash', { command: 'gradlew test' })}
@@ -195,7 +197,11 @@ describe('ToolCallBlock', () => {
       />,
     )
 
-    expect(screen.getByText('失败')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-failed')).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
+
+    // 收着不等于藏起来：点开照样看得到失败原因
+    await userEvent.click(header())
     expect(screen.getByTestId('tool-output')).toHaveTextContent('3 tests failed')
   })
 
@@ -225,15 +231,17 @@ describe('ToolCallBlock', () => {
     expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
   })
 
-  it('结果晚到且是失败时，卡片自己弹开', () => {
+  it('结果晚到且是失败时，卡片也不自己弹开', () => {
     // live 路径下结果本来就比调用晚到（是另一条消息）。
-    // 失败的卡片若还收着，等于没显示
+    // 「结果没到 → 失败」这一下不许动开合状态：用户收起过的卡片不能被
+    // 一条迟到的失败结果顶开，否则是替人做决定
     const item = use('Bash', { command: 'gradlew test' })
     const { rerender } = render(<ToolCallBlock item={item} />)
     expect(header()).toBeInTheDocument()
 
     rerender(<ToolCallBlock item={item} result={result('3 tests failed', true)} />)
-    expect(screen.getByTestId('tool-output')).toHaveTextContent('3 tests failed')
+    expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
+    expect(screen.getByTestId('tool-failed')).toBeInTheDocument()
   })
 
   it('认不出的工具展开后给参数原文', async () => {
@@ -266,10 +274,15 @@ describe('工具状态', () => {
     expect(screen.queryByTestId('tool-running')).not.toBeInTheDocument()
   })
 
-  it('失败不打勾，保留「失败」徽标', () => {
+  it('失败不打勾，改打一个红 ✗', () => {
     render(<ToolCallBlock item={use('Bash', { command: 'gradlew test' })} result={result('boom', true)} />)
     expect(screen.queryByTestId('tool-done')).not.toBeInTheDocument()
-    expect(screen.getByText('失败')).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-running')).not.toBeInTheDocument()
+    // 与"已中断"的 ⊘ 一眼分得开：那是灰的，这是红的（样式见 styles.css）
+    expect(screen.getByTestId('tool-failed')).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-aborted')).not.toBeInTheDocument()
+    // 一串徽标里"失败"两个字读不出来就等于没有，✗ 得有名字
+    expect(screen.getByTestId('tool-failed')).toHaveAccessibleName('失败')
   })
 
   it('回合已结束仍未等到结果 → 标为已中断，不许再转圈', () => {

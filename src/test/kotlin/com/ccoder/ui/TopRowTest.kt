@@ -3,6 +3,7 @@ package com.ccoder.ui
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.Container
@@ -101,12 +102,15 @@ class TopRowTest {
     }
 
     @Test
-    fun `按钮自己不带任何横向内边距`() {
+    fun `横向内边距只剩图标那一点，不是 LAF 默认的那一圈`() {
+        // 2026-09-14 那次"间隔太大"，6px 里有一半是**按钮默认边框**的横向内边距
+        // （边框画都不画，内边距却占着）。现在留的是自绘图标的那一点，
+        // 比 LAF 默认小得多 —— 这条钉的是"别又长回去"
         val r = laidOut()
 
         for ((name, b) in listOf("齿轮" to r.gear, "「＋」" to r.plus)) {
-            assertEquals(0, b.insets.left, "$name 左边还留着内边距")
-            assertEquals(0, b.insets.right, "$name 右边还留着内边距")
+            assertTrue(b.insets.left <= JBUI.scale(2), "$name 左边内边距又长回去了：${b.insets.left}")
+            assertTrue(b.insets.right <= JBUI.scale(2), "$name 右边内边距又长回去了：${b.insets.right}")
         }
     }
 
@@ -169,6 +173,20 @@ class TopRowTest {
             "两个按钮被压缩了 —— 那样它们就不一样宽了",
         )
         assertEquals(260 - r.row.insets.right, r.rightOf(r.gear))
+    }
+
+    @Test
+    fun `图标按钮的宽度与字体无关 —— 图形是自绘的，没有字形盒`() {
+        // 这条是 2026-09-15 那次事故的教训：间距一度想靠"按墨迹裁按钮宽度"
+        // 来收，结果 JButton 的判据是**文字排版宽度**而不是墨迹，裁过头之后
+        // 它把「＋」画成了「…」（探头图上看得清清楚楚）。
+        // 现在图形是自绘的，字号怎么变都不该影响按钮宽度 —— 变了就说明
+        // 又有人在量字形了
+        for ((name, b) in listOf("齿轮" to settingsGearButton {}, "＋" to SessionNewButton {})) {
+            val before = b.preferredSize.width
+            b.font = b.font.deriveFont(b.font.size2D + 8f)
+            assertEquals(before, b.preferredSize.width, "$name 的宽度跟着字体变了")
+        }
     }
 }
 

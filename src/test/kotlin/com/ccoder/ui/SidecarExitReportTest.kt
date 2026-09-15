@@ -17,7 +17,7 @@ class SidecarExitReportTest {
 
     @Test
     fun `没有 stderr 时明说没留下线索`() {
-        // 不能只报一句"进程已退出"就完事 —— 那和卡在「正在启动…」一样无从下手
+        // 不能只报一句"进程已退出"就完事 —— 那和卡在「启动中…」一样无从下手
         val text = sidecarExitReport(SidecarExit(1, emptyList()))
 
         assertTrue(text.contains("没有留下任何错误信息"), text)

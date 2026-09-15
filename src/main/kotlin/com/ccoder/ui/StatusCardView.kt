@@ -32,7 +32,7 @@ import javax.swing.SwingConstants
 private const val CARD_ARC = 9
 
 /**
- * 卡片左上角那个图标。四张卡各一个。
+ * 卡片左上角那个图标。一排卡各一个。
  *
  * **自绘，不用平台图标**（[CardIconView] 里有详细理由）。
  */
@@ -44,7 +44,7 @@ internal enum class CardIcon { Link, Context, Tasks, Agents }
  * ## 两行居中
  *
  * 图标 + 标签一行、值一行，两行都水平居中。改版前是四层（标签 / 值 / 副值 /
- * 指示器）各自靠左或靠右，四张卡里三种对齐、三种字号，整排 80px 高。
+ * 指示器）各自靠左或靠右，那一排里三种对齐、三种字号，整排 80px 高。
  * 副值（`12.3k / 200k`）让出去挂 tooltip，卡面才收得下来。
  *
  * ## 收边为什么用"透明描边"而不是"不设 border"

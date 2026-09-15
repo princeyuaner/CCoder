@@ -5,6 +5,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Container
+import java.awt.Rectangle
+import java.awt.image.BufferedImage
+import javax.swing.JPanel
+import javax.swing.SwingUtilities
 
 /**
  * 输入框的外观。
@@ -93,4 +100,138 @@ class ComposerInputTest {
 
         assertFalse(area.isOpaque, "输入框不该自己填底")
     }
+
+    // ---- 底色铺多宽（用户报过："背景充满了整个聊天框"）----
+
+    @Test
+    fun `底色只铺在记号自己那一段上，不铺满整行`() {
+        // 曾经铺满整行的原因：painter 拿到的 `bounds` 是 Swing 给的**整行**
+        // （实测 392px），而字形只占 179px。
+        //
+        // 这里量的是**像素**，而且期望值来自字体自己量的字宽 —— 与实现无关：
+        // 拿 `refRects` 反推的话，同一处算错两边会一起错，断言就成了摆设
+        val area = laidOut(width = 420)
+        val token = refToken("sidecar/session.js", 24..27)
+        onEdt {
+            area.text = token
+            applyRefHighlights(area)
+        }
+
+        val painted = paintedSpan(area, refBackground)
+        val glyph = onEdtGet { area.getFontMetrics(area.font).stringWidth(token) }
+
+        assertTrue(painted.width > 0, "一层底色都没画出来")
+        assertTrue(
+            painted.width <= glyph + 3,
+            "底色比字形宽：${painted.width}px vs ${glyph}px —— 又铺到整行去了",
+        )
+        assertTrue(
+            painted.width >= glyph - 3,
+            "底色比字形窄：${painted.width}px vs ${glyph}px —— 记号像是被切掉一截",
+        )
+    }
+
+    @Test
+    fun `记号被折行时，每一块都落在自己那一行里`() {
+        // 记号里放的是**完整相对路径**（同名文件得区分得开），长路径会折成两行 ——
+        // 折行时 painter 会被叫多次，每一块都必须在自己在的那一行上，不能跨行糊成一片
+        val area = laidOut(width = 200)
+        val long = refToken("src/main/kotlin/com/ccoder/ui/ComposerReferences.kt", 24..27)
+
+        val rects = onEdtGet {
+            area.text = long
+            refRects(area, 0, area.text.length)
+        }
+
+        assertTrue(rects.size >= 2, "这么长的记号该折行了，实际只量到 ${rects.size} 块")
+        assertEquals(rects.size, rects.map { it.y }.distinct().size, "有两个块落在了同一行上")
+        // 每一块都不许超出输入框自己的宽度
+        for (r in rects) {
+            assertTrue(r.x + r.width <= area.width, "有一块超出了输入框：$r")
+        }
+    }
+
+    @Test
+    fun `量不出位置时什么都不画，不抛异常`() {
+        // 文本正在变、组件还没排版时 modelToView 拿不到位置 —— 绘制这一层
+        // 不该因此把整个界面炸掉
+        val area = JBTextArea(3, 40).apply { text = refToken("a/B.kt", 1..2) }
+
+        val rects = onEdtGet { refRects(area, 0, 3) }
+
+        assertTrue(rects.isEmpty(), "没排版也量出了东西：$rects")
+    }
+
+    // ---- 排版与取色的工具 ----
+
+    /** 按真实宽度排好版（不挂窗口），底色画在哪儿才有意义。 */
+    private fun laidOut(width: Int, rows: Int = 1): JBTextArea {
+        lateinit var area: JBTextArea
+        onEdt {
+            area = JBTextArea(rows, 40).apply {
+                lineWrap = true
+                wrapStyleWord = true
+                styleComposerInput(this)
+            }
+            val holder = JPanel(BorderLayout()).apply { add(area) }
+            holder.setSize(width, 160)
+            layoutAll(holder)
+        }
+        return area
+    }
+
+    /** 把组件画到一张白底图上，量出 [color] 那些像素占的那一块。 */
+    private fun paintedSpan(area: JBTextArea, color: Color): Rectangle {
+        lateinit var box: Rectangle
+        onEdt {
+            val img = BufferedImage(area.width, area.height, BufferedImage.TYPE_INT_RGB)
+            val g = img.createGraphics()
+            g.color = Color.WHITE
+            g.fillRect(0, 0, img.width, img.height)
+            area.paint(g)
+            g.dispose()
+
+            val want = color.rgb
+            var minX = Int.MAX_VALUE
+            var maxX = -1
+            var minY = Int.MAX_VALUE
+            var maxY = -1
+            for (y in 0 until img.height) {
+                for (x in 0 until img.width) {
+                    if (img.getRGB(x, y) == want) {
+                        minX = minOf(minX, x); maxX = maxOf(maxX, x)
+                        minY = minOf(minY, y); maxY = maxOf(maxY, y)
+                    }
+                }
+            }
+            box = if (maxX < 0) Rectangle() else Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1)
+        }
+        return box
+    }
+
+    private fun layoutAll(c: Container) {
+        c.doLayout()
+        for (child in c.components) if (child is Container) layoutAll(child)
+    }
+}
+
+/** 在 EDT 上跑一段，并拆掉 `invokeAndWait` 那层包装 —— 否则断言失败只剩一句 InvocationTargetException。 */
+private fun onEdt(block: () -> Unit) {
+    var thrown: Throwable? = null
+    SwingUtilities.invokeAndWait {
+        try {
+            block()
+        } catch (t: Throwable) {
+            thrown = t
+        }
+    }
+    thrown?.let { throw it }
+}
+
+/** 同上，但要带一个值出来。名字刻意不同：重载一对 `onEdt` 时，返回 Unit 的写法会撞上歧义。 */
+private fun <T> onEdtGet(block: () -> T): T {
+    var result: T? = null
+    onEdt { result = block() }
+    @Suppress("UNCHECKED_CAST")
+    return result as T
 }

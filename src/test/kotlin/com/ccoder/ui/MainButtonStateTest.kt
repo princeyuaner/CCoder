@@ -63,4 +63,19 @@ class MainButtonStateTest {
         val s = mainButtonState(ready = false, busy = true, disconnected = false)
         assertEquals(MainAction.Interrupt, s.action)
     }
+
+    @Test
+    fun `忙且队列非空时，停止的文案说清会清掉几条`() {
+        // 点下去排队的一起没（spec §5.4）。文案不说，那两条就是无声消失的
+        val s = mainButtonState(ready = true, busy = true, disconnected = false, queued = 2)
+        assertEquals("停止（并清掉 2 条排队）", s.text)
+        assertEquals(MainAction.Interrupt, s.action)
+        assertTrue(s.enabled)
+    }
+
+    @Test
+    fun `队列为空时文案与从前一字不差`() {
+        val s = mainButtonState(ready = true, busy = true, disconnected = false, queued = 0)
+        assertEquals("停止", s.text)
+    }
 }

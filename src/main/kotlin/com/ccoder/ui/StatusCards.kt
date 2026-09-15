@@ -72,8 +72,8 @@ private fun quietCard(label: String) =
  */
 internal fun connectionTone(status: String): Tone = when (status) {
     "已连接" -> Tone.Ok
-    "正在启动…", "正在载入…" -> Tone.Warn
-    "启动失败", "会话已断开", "恢复失败" -> Tone.Danger
+    "启动中…", "载入中…" -> Tone.Warn
+    "启动失败", "已断开", "恢复失败" -> Tone.Danger
     else -> Tone.Idle
 }
 
@@ -81,7 +81,7 @@ internal fun connectionTone(status: String): Tone = when (status) {
  * 连接卡**永远不空闲** —— "未连接"是一种状态，不是"没数据"。
  *
  * 色调由 [connectionTone] 决定，界面把它画在**图标**上（2026-09-14 改版：
- * 原来那个前置状态点并进了图标，四张卡因此统一成"图标 + 标签 / 值"两行）。
+ * 原来那个前置状态点并进了图标，一排卡因此统一成"图标 + 标签 / 值"两行）。
  */
 internal fun connectionCardOf(status: String) = StatusCardModel(
     label = "连接",
@@ -92,7 +92,7 @@ internal fun connectionCardOf(status: String) = StatusCardModel(
 /**
  * 连接卡在"正在做事"时的样子。
  *
- * 色调统一 Warn：与"正在启动…""正在载入…"同一族 —— 它们都是**过渡态**，
+ * 色调统一 Warn：与"启动中…""载入中…"同一族 —— 它们都是**过渡态**，
  * 而绿色只留给"已连接"这种安定状态。
  */
 internal fun activityCardOf(activity: String) = StatusCardModel(

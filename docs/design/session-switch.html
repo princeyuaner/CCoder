@@ -254,6 +254,14 @@ td code { font-family: var(--mono); font-size: 12px; background: var(--code); pa
       <span class="tag">状态 · 01</span>
       <h2>新会话</h2>
       <p class="thesis">还没起过会话，或者刚点了「新会话」。没有 summary 可显示，所以用斜体占位而不是留空。</p>
+      <p class="thesis" style="border-left:3px solid var(--warn); padding-left:10px">
+        <b>2026-09-15 追记：</b>这个占位现在**只到第一条消息发出去为止**。
+        用户原话「会话的标题应该用聊天的第一个字」—— 在此之前它一直是斜体的
+        「新会话」，聊一小时也还是它（那是当初刻意定的，怕把 session id 写上去
+        像一串对不上号的 UUID）。现在第一条消息一发出去，标题就变成
+        <b>它的开头</b>（压成一行、截到 24 个字，见 <code>titleSnippet</code>）；
+        斜杠命令不算。斜体占位留给"还没说过话"的那一段。
+      </p>
       <div class="states">
         <div class="tw">
           <div class="status-row">

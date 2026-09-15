@@ -159,7 +159,7 @@ class SidecarProcessTest {
     fun `子进程自行退出时回调带上退出码与 stderr`(@TempDir tmp: Path) {
         // 2026-09-13 的现场：package.json 被写坏，node 报 ERR_INVALID_PACKAGE_CONFIG
         // 后立刻退出。ProcessBuilder.start() 对"建得起来、随即就死"不抛异常，
-        // 于是没有任何一条路会把这件事告诉界面 —— 面板停在「正在启动…」，
+        // 于是没有任何一条路会把这件事告诉界面 —— 面板停在「启动中…」，
         // 按钮禁用，用户只能重启 IDE。stderr 里那条报错是唯一的线索。
         writeScript(
             tmp,

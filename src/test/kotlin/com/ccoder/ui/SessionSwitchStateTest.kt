@@ -86,6 +86,84 @@ class SessionSwitchStateTest {
         assertEquals("（无标题）", sessionTitle(info(summary = "", firstPrompt = null)))
     }
 
+    // ---- 标题就是一段文本的开头（2026-09-15 用户要求）----
+
+    @Test
+    fun `标题取开头，超长的截断`() {
+        val long = "帮我把设置界面重新设计一下，出几个网页方案给我选择，顺便把那个空栏删掉"
+
+        val snippet = titleSnippet(long)
+
+        assertEquals(SESSION_TITLE_MAX + 1, snippet.length, "截断后应当是 N 个字 + 一个省略号")
+        assertTrue(snippet.startsWith("帮我把设置界面重新设计一下"), "实际：$snippet")
+        assertTrue(snippet.endsWith("…"), "截断了却没有省略号，看着像本来就短")
+    }
+
+    @Test
+    fun `够短的标题一个字不动`() {
+        assertEquals("改个按钮", titleSnippet("改个按钮"))
+    }
+
+    /**
+     * **换行必须压成空格。**
+     *
+     * 第一条消息经常是多行贴进来的，而顶上那个标签只有一行 ——
+     * 不压的话换行符会把它撑成两行，把「＋」和齿轮挤出去。
+     */
+    @Test
+    fun `多行的第一条消息压成一行`() {
+        val typed = "看下这个报错\n\n  Caused by: java.lang.NullPointerException\n  at Foo.kt:12  "
+
+        val snippet = titleSnippet(typed)
+
+        assertFalse(snippet.contains("\n"), "标题里还有换行：$snippet")
+        assertFalse(snippet.contains("  "), "空白没合干净：$snippet")
+        assertTrue(snippet.startsWith("看下这个报错 Caused by"), "实际：$snippet")
+    }
+
+    @Test
+    fun `全是空白时给空串，不给 null`() {
+        assertEquals("", titleSnippet("   \n\t  "))
+    }
+
+    /** 用户自己起的名字也走同一条规则 —— 截断的规则只有一个。 */
+    @Test
+    fun `自己起的名字太长也截断`() {
+        val long = "一二三四五六七八九十一二三四五六七八九十一二三四五"
+        val title = sessionLabelTitle(
+            SessionInfo("s1", null, "首问", 0L, customTitle = long)
+        )
+
+        assertEquals(SESSION_TITLE_MAX + 1, title?.length)
+    }
+
+    // ---- 刚发出去的那条要不要认成标题 ----
+
+    @Test
+    fun `全新会话的第一条消息就是标题`() {
+        assertEquals("帮我看看这个", titleFromFirstMessage("帮我看看这个", current = null))
+    }
+
+    @Test
+    fun `已经有标题了就不再改`() {
+        assertNull(
+            titleFromFirstMessage("第二条消息", current = "第一条消息"),
+            "标题被第二条消息顶掉了 —— 会话标题应当是最初那条",
+        )
+    }
+
+    /**
+     * 斜杠命令不算标题。
+     *
+     * 否则新会话的第一件事如果是 `/clear` 或 `/help`，顶上就挂着一个
+     * 对不上号的 `/help` —— 而那根本不是聊天内容。
+     */
+    @Test
+    fun `斜杠命令不当标题`() {
+        assertNull(titleFromFirstMessage("/clear", current = null))
+        assertNull(titleFromFirstMessage("/help", current = null))
+    }
+
     @Test
     fun `删普通会话时确认语点出是哪一个`() {
         val prompt = deleteConfirmPrompt(info(summary = "这是什么项目"), isCurrent = false)

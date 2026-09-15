@@ -124,13 +124,16 @@ function buildPage(scenario) {
     d.textContent = '系统提示 ' + i
     t.appendChild(d)
   }
-  // 状态位三种形态轮着来 —— 它们的宽度必须一致，切换时不能让标题左右抖
-  // （设计稿 tool-progress.html 细节①）
+  // 状态位四种形态轮着来 —— 它们的宽度必须一致，切换时不能让标题左右抖
+  // （设计稿 tool-progress.html 细节①）。红 ✗ 是 2026-09-15 加的失败态
   const STATUS = [
     '<span class="tool__status"><span class="spin"></span>' +
       '<span class="tool__time">12s</span></span>',
     '<span class="tool__status"><svg class="tool__check" viewBox="0 0 16 16">' +
       '<path d="M3.5 8.5l3 3 6.5-7.5"/></svg></span>',
+    '<span class="tool__status"><svg class="tool__x" viewBox="0 0 16 16">' +
+      '<line x1="4.6" y1="4.6" x2="11.4" y2="11.4"/>' +
+      '<line x1="11.4" y1="4.6" x2="4.6" y2="11.4"/></svg></span>',
     '<span class="tool__status"><svg class="tool__abort" viewBox="0 0 16 16">' +
       '<circle cx="8" cy="8" r="6.2"/><line x1="4.4" y1="4.4" x2="11.6" y2="11.6"/></svg></span>',
   ]

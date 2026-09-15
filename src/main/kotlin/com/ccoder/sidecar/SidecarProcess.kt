@@ -29,7 +29,7 @@ data class SidecarExit(val code: Int, val stderr: List<String>)
  * @param onExit 进程**自己**退出时回调（主动 [shutdown] 不算）。
  *   不传就没人知道进程死了 —— 2026-09-13 就是这样：`package.json` 被写坏，
  *   node 启动即崩，而 [ProcessBuilder.start] 对"建得起来、随即就死"不抛异常，
- *   于是界面停在「正在启动…」，按钮禁用，用户只能重启 IDE。
+ *   于是界面停在「启动中…」，按钮禁用，用户只能重启 IDE。
  */
 class SidecarProcess(
     private val sidecarDir: Path,

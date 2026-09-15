@@ -14,12 +14,12 @@ class StatusCardsTest {
     @Test
     fun `连接状态八种文字各自的色调`() {
         assertEquals(Tone.Ok, connectionCardOf("已连接").tone)
-        assertEquals(Tone.Warn, connectionCardOf("正在启动…").tone)
-        assertEquals(Tone.Warn, connectionCardOf("正在载入…").tone)
+        assertEquals(Tone.Warn, connectionCardOf("启动中…").tone)
+        assertEquals(Tone.Warn, connectionCardOf("载入中…").tone)
         assertEquals(Tone.Idle, connectionCardOf("未连接").tone)
-        assertEquals(Tone.Idle, connectionCardOf("会话已结束").tone)
+        assertEquals(Tone.Idle, connectionCardOf("已结束").tone)
         assertEquals(Tone.Danger, connectionCardOf("启动失败").tone)
-        assertEquals(Tone.Danger, connectionCardOf("会话已断开").tone)
+        assertEquals(Tone.Danger, connectionCardOf("已断开").tone)
         assertEquals(Tone.Danger, connectionCardOf("恢复失败").tone)
     }
 
@@ -40,7 +40,7 @@ class StatusCardsTest {
     fun `忙时这张卡改说在干什么，色调统一成过渡态`() {
         // 用户原话：「我希望能实时显示当前在做什么，比如思考中，编辑文件，运行指令等等」。
         // 色调走 Warn 而不是 Ok —— 它是**过渡态**，绿色只留给"已连接"这种安定状态，
-        // 与"正在启动…""正在载入…"同一族
+        // 与"启动中…""载入中…"同一族
         val card = activityCardOf(ACTIVITY_THINKING)
 
         assertEquals("连接", card.label, "格子身份不变，变的只是值")

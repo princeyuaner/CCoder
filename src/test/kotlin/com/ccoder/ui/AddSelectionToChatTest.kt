@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 /**
@@ -105,22 +106,48 @@ class AddSelectionToChatTest {
     }
 
     @Test
-    fun `已有内容时追加在下方，中间隔一个空行`() {
-        // 追加不覆盖：这个动作是用来攒上下文的
+    fun `已有内容时接在后面，只隔一个空格`() {
+        // 追加不覆盖：这个动作是用来攒上下文的。
+        // **不另起一行** —— 2026-09-15 用户要求：「跟文字一样跟随在后面」
         val area = area("先看这段")
 
         appendSnippet(area, "片段")
 
-        assertEquals("先看这段\n\n片段", area.text)
+        assertEquals("先看这段 片段", area.text)
     }
 
     @Test
-    fun `已有内容以换行结尾时不产生多余空行`() {
-        val area = area("先看这段\n\n")
+    fun `记号后面加文件是同一行 —— 用户报的就是这个`() {
+        val token = refToken("a/B.kt", 24..27)
+        val area = area(token)
 
-        appendSnippet(area, "片段")
+        appendSnippet(area, fileMention("sidecar/session.js"))
 
-        assertEquals("先看这段\n\n片段", area.text)
+        assertEquals("$token @sidecar/session.js ", area.text)
+        assertFalse(area.text.contains("\n"), "不该多出换行：${area.text}")
+    }
+
+    @Test
+    fun `用户自己敲的回车留着`() {
+        // 他在「看下这个」后面按了回车，就该从新的一行接着写，
+        // 而不是把他敲的换行吃掉、挤回上一行
+        val area = area("看下这个\n")
+
+        appendSnippet(area, "@a.kt ")
+
+        assertEquals("看下这个\n@a.kt ", area.text)
+    }
+
+    @Test
+    fun `连着加两个文件不会攒出两个空格`() {
+        // 文件引用自己带一个尾随空格（CLI 认的就是这个形状），
+        // 再加一个分隔空格就成了两个 —— 看着像手滑
+        val area = area()
+
+        appendSnippet(area, fileMention("a.kt"))
+        appendSnippet(area, fileMention("b.kt"))
+
+        assertEquals("@a.kt @b.kt ", area.text)
     }
 
     @Test

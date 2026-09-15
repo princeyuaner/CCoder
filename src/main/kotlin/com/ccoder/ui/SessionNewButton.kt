@@ -1,7 +1,6 @@
 package com.ccoder.ui
 
 import com.intellij.util.ui.UIUtil
-import javax.swing.JButton
 
 /**
  * 顶部那一行的「＋」。
@@ -21,12 +20,12 @@ import javax.swing.JButton
  * 并把"先做什么"写进 tooltip。
  *
  * 只负责显示与点击；现在是不是忙、能不能点，由 [newSessionEnabled] 判定。
- * 造型与齿轮共用一份（[asTopRowIconButton]）—— 同一行里两个按钮得长得一样。
+ * 造型与齿轮共用一份（[TopRowIconButton]）—— 同一行里两个按钮得长得一样。
  */
-internal class SessionNewButton(private val onClick: () -> Unit) : JButton("＋") {
+internal class SessionNewButton(private val onClick: () -> Unit) :
+    TopRowIconButton(TopRowGlyph.Plus) {
 
     init {
-        asTopRowIconButton()
         addActionListener { onClick() }
         setBlock(SwitchBlock.None)
     }

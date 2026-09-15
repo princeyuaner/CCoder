@@ -46,6 +46,9 @@ class StatusCardsRowTest {
 
     @Test
     fun `四张卡等宽，总量不超出可用宽度`() {
+        // 等宽是这一行的规矩（GridLayout 强制等分，宽度与内容无关）。
+        // 420px 下每张约 101px，真实那一行 404px（面板 420 减两侧各 8px 边距）
+        // 下每张约 97px —— 下面那条"八种连接文字都放得下"就是量这个的
         val r = row()
         r.setSize(420, 60)
         layoutAll(r)
@@ -53,7 +56,7 @@ class StatusCardsRowTest {
         val widths = r.components.map { it.width }
         assertEquals(1, widths.distinct().size, "四张卡宽度不一致：$widths")
         assertTrue(widths.sum() <= 420, "总宽超出面板：${widths.sum()}")
-        assertTrue(widths.all { it > 80 }, "每张卡被压得太窄，内容会裁掉：$widths")
+        assertTrue(widths.all { it >= 80 }, "每张卡被压得太窄，内容会裁掉：$widths")
     }
 
     @Test
@@ -96,16 +99,19 @@ class StatusCardsRowTest {
     @Test
     fun `八种连接文字都放得下，不会被截断`() {
         // 每张卡在 404px 的一行里只有约 66px 可用（还要减掉状态点）。
-        // 放不下的字 JLabel 会自动打省略号 —— "正在载入…" 变成
-        // "正在载入…"，那是等装进 IDE 才看得见的错。
+        // 放不下的字 JLabel 会自动打省略号（"载入中…" 画成 "载入…"），
+        // 那是等装进 IDE 才看得见的错。
         //
-        // 这条不写的话，改文案的人不会知道他把哪个字挤掉了
+        // **2026-09-15 试加第五张卡时它当场红了**（每张只剩 58px），四条文案
+        // 因此收短成现在这样（会话已断开→已断开 等）。那张卡当天又撤了、
+        // 宽度还了回来，**文案没有改回去** —— 短的那版本身也更适合这么窄的格子。
+        // 这条不写的话，下次改文案的人不会知道他把哪个字挤掉了
         val r = configured()
         r.setSize(404, 100)
 
         listOf(
-            "未连接", "正在启动…", "已连接", "启动失败",
-            "会话已断开", "会话已结束", "正在载入…", "恢复失败",
+            "未连接", "启动中…", "已连接", "启动失败",
+            "已断开", "已结束", "载入中…", "恢复失败",
         ).forEach { text ->
             r.connection.setModel(connectionCardOf(text))
             layoutAll(r)

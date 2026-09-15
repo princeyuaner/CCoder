@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 输入区 · 排队输入（跑着的时候还能接着敲）</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm New UI 的真实主题变量，与
+   transcript-tools / tool-progress / permission-popup 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1340px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 66ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 7px 13px; border:0; background:none; color: var(--page-dim); cursor:pointer;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--page-fg); }
+
+.section-title { font-family: var(--serif); font-size: 27px; font-weight: 600; margin: 52px 0 0; letter-spacing:-.005em; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 22px 20px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; margin:0; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.card > p.note { color: var(--page-dim); margin: 0 0 16px; font-size: 13.5px; max-width: 62ch; }
+.cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; margin-top: 22px; }
+
+/* ---- 事实表 ---- */
+.facts { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap:14px; margin-top:20px; }
+.fact { border:1px solid var(--page-line); border-radius:11px; padding:14px 16px; background:var(--page-card); }
+.fact .n { font-family:var(--mono); font-size:11px; color:var(--accent); letter-spacing:.1em; }
+.fact h3 { margin:6px 0 6px; font-size:15px; font-weight:600; }
+.fact p { margin:0; color:var(--page-dim); font-size:13px; }
+.fact code { font-family:var(--mono); font-size:12px; background:var(--code); padding:1px 5px; border-radius:4px; color:var(--page-fg); }
+
+/* ---- 探针输出 ---- */
+.probe { margin-top:18px; border:1px solid var(--page-line); border-radius:11px; background:var(--editor); overflow:hidden; }
+.probe header { padding:9px 14px; border-bottom:1px solid var(--page-line); font-family:var(--mono); font-size:11px; color:var(--page-dim); letter-spacing:.08em; }
+.probe pre { margin:0; padding:14px; overflow-x:auto; font-family:var(--mono); font-size:11.5px; line-height:1.75; color:var(--text); }
+.probe .hl { color: var(--warn); }
+.probe .hit { color: var(--ok); }
+
+/* ---- 面板（模拟真实的 420px 转写区 + 输入卡）---- */
+.panel {
+  width: 420px; max-width:100%; background: var(--editor);
+  border:1px solid var(--border); border-radius: 9px; padding: 8px;
+  display:flex; flex-direction:column; gap:8px;
+}
+.panel-label { font-family:var(--mono); font-size:10.5px; color:var(--page-dim); letter-spacing:.1em; text-transform:uppercase; margin:0 0 8px; }
+
+.entry { display:flex; flex-direction:column; gap:3px; }
+.bubble { border-radius: 8px; padding: 6px 10px; font-size: 12.5px; line-height: 1.5; }
+.bubble--user { align-self:flex-end; max-width:85%; background: var(--accent-soft); color: var(--text); }
+.bubble--assistant { align-self:flex-start; max-width:92%; color: var(--text); }
+.bubble--queued {
+  align-self:flex-end; max-width:85%; color: var(--dim);
+  background: transparent; border: 1px dashed var(--dim);
+}
+.q-line { display:flex; align-items:center; gap:6px; }
+.q-tag {
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.06em;
+  border:1px solid var(--border); border-radius:4px; padding:0 4px; color:var(--dim);
+}
+.q-x { margin-left:auto; color:var(--dim); font-size:12px; }
+.q-hint { font-size:11px; color:var(--page-dim); }
+
+/* 工具卡片：类名与 web/src/styles.css 的 .tool* 一致 */
+.tool { border:1px solid var(--border); border-radius:7px; background:var(--panel); overflow:hidden; flex-shrink:0; }
+.tool__head {
+  display:flex; align-items:center; gap:6px; width:100%; padding:5px 8px;
+  background:none; border:none; font:inherit; font-size:12px;
+  color: var(--dim); cursor:pointer; text-align:left;
+}
+.tool__chevron { display:inline-block; flex:0 0 auto; font-size:10px; }
+.tool__badge {
+  flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
+  width:15px; height:15px; border-radius:4px; border:1px solid var(--border);
+  background: var(--code); font-family:var(--mono); font-size:9px;
+}
+.tool__name { flex:0 0 auto; font-family:var(--mono); font-size:11px; }
+.tool__title { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-family:var(--mono); font-size:11px; color: var(--text); }
+.spin {
+  flex:0 0 auto; width:11px; height:11px; border-radius:50%;
+  border:1.5px solid var(--border); border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- 输入卡（模拟 buildComposerCard）---- */
+.composer { border:1px solid var(--border); border-radius:9px; background:var(--panel); padding:8px 9px; display:flex; flex-direction:column; gap:8px; }
+.composer .typed { font-size:12.5px; color:var(--text); min-height:19px; }
+.composer .bar { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.composer .left { display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:10px; color:var(--dim); }
+.round { width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.round--stop { background: var(--accent); }
+.round--stop i { width:8px; height:8px; background:#fff; border-radius:1px; display:block; }
+.round--send { border:1px solid var(--border); }
+.round--send i { width:8px; height:8px; border-top:2px solid var(--dim); border-right:2px solid var(--dim); transform:rotate(-45deg); display:block; }
+.actions { display:flex; align-items:center; gap:7px; }
+
+/* ---- 细节表 ---- */
+table { border-collapse: collapse; width:100%; margin-top:16px; font-size:13.5px; }
+th, td { text-align:left; padding:11px 13px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+th { font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--page-dim); font-weight:500; }
+td code { font-family:var(--mono); font-size:12px; background:var(--code); padding:1px 5px; border-radius:4px; }
+/* 方案卡里那张两列表：第一列只有两个字，不给它 nowrap 会被压成竖排 */
+.card table th { white-space: nowrap; }
+.yes { color: var(--ok); font-weight:600; }
+.no { color: var(--danger); font-weight:600; }
+.mid { color: var(--warn); font-weight:600; }
+
+/* ---- 结论 ---- */
+.verdict { margin-top:56px; border:1px solid var(--accent); border-radius:14px; padding:24px 26px; background:var(--page-card); }
+.verdict h2 { font-family:var(--serif); font-size:26px; margin:0 0 12px; }
+.verdict p { margin:0 0 12px; color:var(--page-dim); max-width:76ch; }
+.verdict p b { color: var(--page-fg); }
+.ask { margin-top:18px; display:flex; flex-direction:column; gap:9px; }
+.ask div { display:flex; gap:11px; align-items:baseline; }
+.ask .n { font-family:var(--mono); font-size:11px; color:var(--accent); }
+.ask b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 输入区 · 设计稿</p>
+      <h1>排队输入：跑着的时候还能接着敲</h1>
+      <p class="lede">
+        它还在跑，你想起一句话要补 —— 今天按回车<b>什么都不会发生</b>。
+        下面是三套做法，以及六条<b>决定了它们差在哪</b>的事实（全部来自探针实测，
+        不是推断）。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">light</button>
+    </div>
+  </div>
+
+  <!-- ============ 事实 ============ -->
+  <h2 class="section-title">先说六条事实</h2>
+  <div class="facts">
+    <div class="fact">
+      <p class="n">01</p>
+      <h3>今天回车是被吞掉的</h3>
+      <p>
+        <code>ClaudePanel.kt:387</code> 那行 <code>if (busy) return</code> ——
+        回合进行中不发送，理由是"按钮那时是停止，发送键却另发一条会让两者语义打架"。
+        <b>功能的口子就这一处</b>：输入框本身没禁用，鼠标没有第二条路。
+      </p>
+    </div>
+    <div class="fact">
+      <p class="n">02</p>
+      <h3>CLI 自己就收，而且折进当前回合</h3>
+      <p>
+        A 跑着的时候推 B、C：<b>一个 result，一段回复</b>，里面答了
+        <code>A完成 / B-OK / C-OK</code>。不是"等这轮跑完再单起两轮"——
+        你补的话被当成<b>同一回合的追加指令</b>。
+      </p>
+    </div>
+    <div class="fact">
+      <p class="n">03</p>
+      <h3>顺序保得住</h3>
+      <p>B 在 C 前发，回答里 B-OK 也在 C-OK 前。没有乱序 —— 排队不需要我们做排序。</p>
+    </div>
+    <div class="fact">
+      <p class="n">04</p>
+      <h3>但一个回执都没有</h3>
+      <p>
+        事件流里没有任何"已收下 / 已折入"的信号；自己盖的 <code>uuid</code>
+        也不出现在 <code>result</code> 上（<code>uuid=-</code>）。
+        <b>界面上的"排队中"只能靠本地推断</b>，协议给不了。
+      </p>
+    </div>
+    <div class="fact">
+      <p class="n">05</p>
+      <h3>撤回：SDK 面上没有入口</h3>
+      <p>
+        <code>interrupt()</code> 返回 <code>undefined</code>（这个 CLI 的
+        <code>system/init</code> 上 <code>capabilities=null</code>，没有
+        <code>interrupt_receipt_v1</code>），拿不到 <code>still_queued</code>；
+        单条撤回的 <code>cancel_async_message</code> 也没被 SDK 暴露。
+      </p>
+    </div>
+    <div class="fact">
+      <p class="n">06</p>
+      <h3>打断不会清掉排队的</h3>
+      <p>
+        D 跑着时排 E，<b>打断 D 之后 E 照样跑了</b>（新的 init、E-OK、各自一个 result）。
+        所以"停止"必须自己定义对排队的处理 —— 否则用户点了停止，还会看见进度条又动起来。
+      </p>
+    </div>
+  </div>
+
+  <div class="probe">
+    <header>node sidecar/tools/probe-queue.mjs --interrupt · CLI 实测（2026-09-15）</header>
+<pre>=== 阶段 1：A 跑着的时候，先后推 B、C ===
+  +  1565ms &gt;&gt;&gt; 发送 B（带着 uuid client-B，此刻 A 还在跑）
+  +  2573ms &gt;&gt;&gt; 发送 C（uuid client-C）
+  + 15562ms EVENT user/ [...SLOW-DONE...]
+  + 16304ms EVENT assistant/ [text] <span class="hit">"A完成\n\nB-OK\n\nC-OK"</span>
+  + 16498ms EVENT result/success subtype=success turns=2 <span class="hl">uuid=-</span>
+  阶段 1 结果：收到 <span class="hit">1 个 result</span>   （B、C 没有各自成回合）
+
+=== 阶段 3：D 跑着的时候推 E，然后打断 ===
+  + 35106ms &gt;&gt;&gt; interrupt()
+  interrupt 回执：<span class="hl">undefined</span>
+  + 35119ms EVENT result/error_during_execution ...
+  + 35512ms EVENT system/init        ← 打断之后，E 自己起了一个回合
+  + 36711ms EVENT assistant/ [text] <span class="hl">"E-OK"</span>
+  + 36886ms EVENT result/success turns=1</pre>
+  </div>
+
+  <!-- ============ 三套做法 ============ -->
+  <h2 class="section-title">一、三套做法</h2>
+  <div class="cards">
+
+    <!-- 甲 -->
+    <div class="card">
+      <p class="tag">方案 甲</p>
+      <h2>照直透传</h2>
+      <p class="note">
+        删掉 <code>if (busy) return</code>，其余一个字不动。B、C 立刻进 CLI，
+        按终端里那套原生语义折进当前回合。
+      </p>
+      <p class="panel-label">转写区</p>
+      <div class="panel">
+        <div class="entry"><div class="bubble bubble--user">顺便把 README 里的版本号也改了</div></div>
+        <div class="tool">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">npm run build</span>
+            <span class="spin"></span>
+          </button>
+        </div>
+        <div class="entry"><div class="bubble bubble--user">等一下，先别动 README</div></div>
+      </div>
+      <table>
+        <tr><th>收益</th><td>改动最小（一行）。与终端里的手感<b>完全一致</b>。</td></tr>
+        <tr><th>代价</th><td>
+          两个用户气泡长得一模一样，<b>分不出哪条还在排队</b>；
+          撤回没有入口；「停止」之后排队的还会接着跑（事实 06），
+          看起来就是"停止没停干净"。
+        </td></tr>
+      </table>
+    </div>
+
+    <!-- 乙 -->
+    <div class="card">
+      <p class="tag">方案 乙 · 推荐</p>
+      <h2>插件侧排队</h2>
+      <p class="note">
+        忙时回车<b>只入队、不发送</b>：消息停在插件里，等这一回合的
+        <code>result</code> 到了再自动发出去。队列是我们自己的，于是
+        "排队中""撤销""停止时一起清掉"全都成立。
+      </p>
+      <p class="note" style="border-left:2px solid var(--page-line); padding-left:12px">
+        <b>落地后又改了一处</b>（2026-09-15，用户原话：「排队的信息大于 1 条应该
+        转成一个列表，点击后展开，不然太占用空间了」）：<b>一条</b>直接把内容写在
+        那一行上（<code>排队 1 · 正文 ✕</code>），<b>两条以上</b>收成一行
+        <code>排队 N ▸</code>、点开才是列表。下面这张 mockup 画的是改之前的样子。
+      </p>
+      <p class="panel-label">转写区</p>
+      <div class="panel">
+        <div class="entry"><div class="bubble bubble--user">顺便把 README 里的版本号也改了</div></div>
+        <div class="tool">
+          <button class="tool__head">
+            <span class="tool__chevron">▸</span><span class="tool__badge">B</span>
+            <span class="tool__name">Bash</span>
+            <span class="tool__title">npm run build</span>
+            <span class="spin"></span>
+          </button>
+        </div>
+        <div class="entry">
+          <div class="bubble bubble--queued">
+            <div class="q-line">
+              <span>等一下，先别动 README</span>
+              <span class="q-x">✕</span>
+            </div>
+            <div class="q-hint" style="margin-top:3px">排队中 · 这一回合跑完就发</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-label" style="margin-top:14px">输入卡</p>
+      <div class="composer">
+        <div class="typed">跑完把这几个测试补一下<span style="color:var(--dim)">▌</span></div>
+        <div class="bar">
+          <span class="left"><span>Bash</span><span>默认权限</span></span>
+          <span class="actions">
+            <span class="q-tag">排队 1</span>
+            <span class="round round--stop"><i></i></span>
+          </span>
+        </div>
+        <div class="q-hint">它在跑 —— 回车会把消息排进队列，不打断它</div>
+      </div>
+      <table>
+        <tr><th>收益</th><td>
+          <span class="yes">排队中看得见</span>（虚线气泡）、<span class="yes">能撤</span>（✕）、
+          <span class="yes">停止能停干净</span>（队列还没发出去，一起清）。
+        </td></tr>
+        <tr><th>代价</th><td>
+          比甲多一层状态：队列放哪、什么时候 flush、<code>result</code> 判据要准
+          （一次任务会有多个 result 吗？见待确认 ②）。
+          与终端手感有差异：你排的第二句<b>不会</b>再折进当前回合，而是各起一回合。
+        </td></tr>
+      </table>
+    </div>
+
+    <!-- 丙 -->
+    <div class="card">
+      <p class="tag">方案 丙</p>
+      <h2>乙 + 一个鼠标可达的键</h2>
+      <p class="note">
+        乙的规矩不变，只是"排队"这件事也要能用鼠标干 ——
+        停止键左边多一个发送键，忙时点它 = 入队。
+      </p>
+      <p class="panel-label">输入卡</p>
+      <div class="composer">
+        <div class="typed">跑完把这几个测试补一下<span style="color:var(--dim)">▌</span></div>
+        <div class="bar">
+          <span class="left"><span>Bash</span><span>默认权限</span></span>
+          <span class="actions">
+            <span class="q-tag">排队 1</span>
+            <span class="round round--send" title="排队发送"><i></i></span>
+            <span class="round round--stop"><i></i></span>
+          </span>
+        </div>
+      </div>
+      <table>
+        <tr><th>收益</th><td>
+          不用记住"忙时只能按回车"；排队条数就写在两个键中间。
+        </td></tr>
+        <tr><th>代价</th><td>
+          工具栏从"唯一一个主按钮"变成两个 —— 那是这个输入区一直在守的视觉规矩
+          （<code>buildStatusRow</code> 的注释里写着"让发送键保持唯一的视觉重点"）。
+          值不值，取决于你自己用鼠标还是键盘发消息。
+        </td></tr>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ============ 对比 ============ -->
+  <h2 class="section-title">二、逐条对比</h2>
+  <table>
+    <tr>
+      <th>问的事</th><th>甲 · 透传</th><th>乙 · 插件侧排队</th><th>丙 · 乙 + 按钮</th>
+    </tr>
+    <tr>
+      <td>忙时按回车</td>
+      <td>立刻发给 CLI，折进当前回合</td>
+      <td>入队，回合结束自动发</td>
+      <td>同乙</td>
+    </tr>
+    <tr>
+      <td>排队中看得见吗</td>
+      <td class="no">看不出</td>
+      <td class="yes">虚线气泡 + 工具栏计数</td>
+      <td class="yes">同乙</td>
+    </tr>
+    <tr>
+      <td>能撤回吗</td>
+      <td class="no">不能（事实 05）</td>
+      <td class="yes">能，✕ 一下</td>
+      <td class="yes">同乙</td>
+    </tr>
+    <tr>
+      <td>点停止之后，排队的</td>
+      <td class="no">照跑（事实 06）—— 看着像没停干净</td>
+      <td class="yes">一起清掉，气泡标「已取消」</td>
+      <td class="yes">同乙</td>
+    </tr>
+    <tr>
+      <td>与终端手感</td>
+      <td class="yes">一模一样</td>
+      <td class="mid">第二句各起一回合（终端是折进去）</td>
+      <td class="mid">同乙</td>
+    </tr>
+    <tr>
+      <td>协议 / sidecar 改动</td>
+      <td class="yes">零</td>
+      <td class="yes">零（<code>Protocol.encodeSend</code> 原样用）</td>
+      <td class="yes">零</td>
+    </tr>
+    <tr>
+      <td>Kotlin 改动</td>
+      <td>一行</td>
+      <td>队列 + 状态机 + 三处收尾（停止 / 断线 / 切会话）</td>
+      <td>乙 + 一个按钮与其状态</td>
+    </tr>
+  </table>
+
+  <!-- ============ 建议 ============ -->
+  <div class="verdict">
+    <h2>我建议：乙。丙 的那颗按钮先不做</h2>
+    <p>
+      <b>甲 的那一行改动看着最省事，但它把最难的三件事全留给了用户</b>：
+      哪条还在排队看不出来、撤不回来、点停止之后它还会自己跑起来。
+      最后那条尤其难受 —— 事实 06 说的不是极端情况，是<b>每次打断都会遇到</b>。
+    </p>
+    <p>
+      乙 之所以成立，是因为 <b>CLI 的队列不在我们手里，我们才需要自己拿一个</b>：
+      消息停在插件里，撤回和"停干净"就都是本地动作，不必求 SDK 给我们口子
+      （它也没给，见事实 05）。
+    </p>
+    <p>
+      丙 的那颗发送键是<b>可选的后续</b>：如果抬手流用了几天发现"忙时只会按回车"
+      不够用，再加它 —— 加它只动工具栏那一行，不推翻乙的任何一条规矩。
+    </p>
+
+    <div class="ask">
+      <div><span class="n">①</span><span><b>停止 = 连队列一起清</b>，气泡变灰写「已取消」而不是消失（转写区只追加，是我们一直在守的规矩）。</span></div>
+      <div><span class="n">②</span><span><b>flush 的判据用 <code>result</code></b>（现有代码里 <code>setBusy(false)</code> 就是它）。<b>待确认</b>：一个任务里会不会出现"中间 result"——若会，排队就得等真正的收尾那条。</span></div>
+      <div><span class="n">③</span><span><b>断线 / 切会话 / 重启</b>：队列跟着清，气泡标「已取消」。会话都换了，把上一段的指令发到新会话里是灾难。</span></div>
+      <div><span class="n">④</span><span><b>不做条数上限</b>：工具栏那个「排队 N」就是全部信息。要拦也是拦"排队里又发命令"这类越界情况（<code>/</code> 开头的照样排，不特殊对待）。</span></div>
+      <div><span class="n">⑤</span><span><b>等待期间输入框照旧可编辑、可补全、可按 ↑ 取历史</b> —— 排队的只是"发出去"这一步，不是输入区。</span></div>
+      <div><span class="n">⑥</span><span><b>待确认</b>：事实 05 里"没有 <code>interrupt_receipt_v1</code>"是<b>推</b>的 —— 探针读到的是 <code>system/init</code> 上 <code>capabilities</code> 这个字段为 <code>null</code>（字段名可能另有其名）。<b>实测到的只有 <code>interrupt()</code> 返回 <code>undefined</code> 这一条</b>。</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+// 截图/无 JS 环境下也能看：默认 dark 已在 raw 属性里
+</script>
+</body>
+</html>

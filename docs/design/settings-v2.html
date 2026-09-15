@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 设置对话框 · 重设计</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量。
+   与 model-settings.html / session-list-v2.html / permission-popup.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1460px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 74ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.lede code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+  transition: background .15s, color .15s;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.brief {
+  margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+  background: var(--page-card);
+}
+.brief.warn { border-left-color: var(--danger); }
+.brief.ok { border-left-color: var(--ok); }
+.brief h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief b { color: var(--page-fg); }
+.brief ul { margin: 6px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 5px; }
+.brief li b { color: var(--page-fg); }
+
+.grid { display:grid; grid-template-columns: 1fr; gap: 30px; margin-top: 34px; align-items:start; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 24px 24px 22px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.tag.ghost { color: var(--page-dim); }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 18px; max-width: 96ch; }
+.thesis b { color: var(--page-fg); }
+.thesis code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+
+.picked-note { margin: 22px 0 0; font-size: 12.5px; color: var(--page-dim); border-left: 3px solid var(--ok); padding: 8px 0 8px 12px; background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.picked-note b { color: var(--page-fg); }
+.picked-note code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+
+/* ============================================================
+   真机截图 —— 现状那一张不是重画的，是探针画出来的 PNG。
+   860×540 是 1:1，标号用绝对定位贴在上面（所以外面套一层横向滚动，
+   窄屏时图不会被压扁，标号也就不会漂）。
+   ============================================================ */
+.scroller { overflow-x:auto; border-radius:10px; }
+.shot { position:relative; width:860px; }
+.shot img { display:block; width:860px; height:540px; border-radius:10px; border:1px solid var(--page-line); }
+.mk {
+  position:absolute; width:21px; height:21px; margin:-10px 0 0 -10px; border-radius:50%;
+  background: var(--danger); color:#fff; font-family: var(--mono); font-size:11.5px; font-weight:600;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 26%, transparent), 0 2px 6px rgba(0,0,0,.45);
+}
+.caption { margin: 12px 0 0; font-size: 12px; color: var(--page-dim); }
+.caption code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; }
+
+ol.defects { margin: 4px 0 0; padding-left: 0; list-style:none; counter-reset: d; }
+ol.defects li { position:relative; padding-left: 34px; margin-bottom: 11px; font-size: 13.5px; color: var(--page-dim); }
+ol.defects li::before {
+  counter-increment: d; content: counter(d);
+  position:absolute; left:0; top:2px; width:21px; height:21px; border-radius:50%;
+  background: var(--danger); color:#fff; font-family: var(--mono); font-size:11.5px; font-weight:600;
+  display:flex; align-items:center; justify-content:center;
+}
+ol.defects li b { color: var(--page-fg); }
+ol.defects li code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+
+/* ============================================================
+   对话框模拟 —— 每一个都按**真实像素尺寸**画。
+   860×540 是 setSize() 里的那个数；不是"差不多就行"。
+   ============================================================ */
+.dlg {
+  width: 860px; max-width:100%; background: var(--panel); border:1px solid var(--border);
+  border-radius: 10px; overflow:hidden; display:flex; flex-direction:column;
+  box-shadow: 0 12px 40px rgba(0,0,0,.34);
+}
+[data-theme="light"] .dlg { box-shadow: 0 12px 40px rgba(0,0,0,.14); }
+.dlg-bar { display:flex; align-items:center; gap:7px; padding: 7px 12px; border-bottom:1px solid var(--border); background: var(--surface); font-size:12px; color: var(--text); }
+.dlg-bar .ttl { font-weight:500; }
+.dlg-bar .x { margin-left:auto; color: var(--dim); font-size:13px; cursor:pointer; }
+.dlg-body { display:flex; min-width:0; }
+.dlg-ft { display:flex; align-items:center; gap:8px; padding: 9px 14px; border-top:1px solid var(--border); background: var(--surface); }
+.dlg-ft .hint { color: var(--dim); font-size:11px; margin-right:auto; }
+
+/* 左栏：列表（方案 A/C 用） */
+.lcol { flex:0 0 auto; padding: 12px 12px 12px; display:flex; flex-direction:column; min-width:0; }
+.lcol .hd { display:flex; align-items:center; gap:8px; padding: 0 2px 9px; }
+.lcol .hd .t { font-size:12px; color: var(--text); font-weight:600; }
+.lcol .hd .n { font-family:var(--mono); font-size:10px; color: var(--dim); }
+.lcol .hd .plus { margin-left:auto; width:20px; height:20px; border-radius:5px; border:1px solid var(--border);
+                  display:flex; align-items:center; justify-content:center; color: var(--dim); font-size:13px; cursor:pointer; }
+.lrow { display:flex; align-items:center; gap:8px; padding: 7px 9px; border-radius:6px; font-size:12px; color: var(--text); cursor:pointer; }
+.lrow:hover { background: var(--hover); }
+.lrow.on { background: var(--accent-soft); }
+.lrow .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.pill { font-size:10px; padding:2px 7px; border-radius:8px; background: var(--accent-soft); color: var(--accent); flex:0 0 auto; letter-spacing:.02em; white-space:nowrap; }
+.pill.g { background: var(--code); color: var(--dim); }
+
+/* 右栏：表单 */
+.fcol { flex:1 1 auto; min-width:0; padding: 12px 18px; display:flex; flex-direction:column; }
+.grp { display:flex; align-items:center; gap:9px; margin: 15px 0 9px; }
+.grp.first { margin-top: 2px; }
+.grp .t { font-size:11px; color: var(--dim); letter-spacing:.1em; flex:0 0 auto; }
+.grp .ln { flex:1 1 auto; height:1px; background: var(--border-soft); }
+.field { margin-bottom: 9px; }
+.field label { display:block; font-size:11px; color: var(--dim); margin-bottom:4px; }
+.field .in {
+  display:flex; align-items:center; padding: 5px 8px; border:1px solid var(--border); border-radius:6px;
+  background: var(--editor); font-size:11.5px; color: var(--text); min-height: 27px;
+}
+.field .in.mono { font-family: var(--mono); font-size:11px; }
+.field .in.ph { color: var(--dim); }
+.field .in.focus { border-color: var(--accent); }
+.field .in .eye { margin-left:auto; color: var(--dim); font-size:12px; }
+.field .note { font-size:10.5px; color: var(--dim); margin-top:3px; }
+.two { display:grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+
+/* 模型 ID 那一族 */
+.mrow2 { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+.mrow2 .in { flex:1 1 auto; display:flex; align-items:center; padding:5px 8px; border:1px solid var(--border); border-radius:6px;
+             background: var(--editor); font-family:var(--mono); font-size:11px; color: var(--text); min-height:27px; }
+.mrow2 .x { color: var(--dim); font-size:12px; cursor:pointer; flex:0 0 auto; padding: 0 2px; }
+.mrow2 .x:hover { color: var(--danger); }
+
+.btn { padding: 5px 14px; border-radius:6px; font-size:11.5px; cursor:pointer; border:1px solid var(--border); background: var(--surface); color: var(--text); }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--dim); }
+.btn.dg { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 42%, var(--border)); background: transparent; }
+
+.add { display:flex; align-items:center; gap:6px; padding: 7px 10px; border:1px dashed var(--border); border-radius:7px;
+       font-size:11.5px; color: var(--dim); cursor:pointer; }
+.add:hover { color: var(--accent); border-color: var(--accent); }
+.add.sm { padding: 5px 9px; font-size:11px; display:inline-flex; }
+
+.spacer { flex:1 1 auto; }
+
+/* 页签（竖排 / 横排） */
+.tabs-v { flex:0 0 auto; background: var(--surface); border-right:1px solid var(--border); padding: 12px 8px; display:flex; flex-direction:column; }
+.tabs-v .t { padding: 6px 10px; border-radius:5px; font-size:12px; color: var(--dim); cursor:pointer; margin-bottom:2px; }
+.tabs-v .t.on { background: var(--accent-soft); color: var(--text); }
+
+/* 方案 B：卡片就地展开 */
+.pcard { border:1px solid var(--border); border-radius:9px; background: var(--surface); margin-bottom:8px; overflow:hidden; }
+.pcard.open { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.phead { display:flex; align-items:center; gap:9px; padding: 9px 11px; cursor:pointer; min-width:0; }
+.phead .nm { font-size:12.5px; color: var(--text); flex:0 0 auto; }
+.phead .ep { font-family: var(--mono); font-size:10.5px; color: var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.phead .r { margin-left:auto; display:flex; align-items:center; gap:8px; flex:0 0 auto; color: var(--dim); font-size:11px; }
+.pbody { padding: 2px 11px 12px; border-top:1px solid var(--border-soft); }
+.pfoot { display:flex; align-items:center; gap:10px; margin-top: 11px; padding-top: 11px; border-top:1px solid var(--border-soft); }
+.pfoot .r { margin-left:auto; display:flex; gap:8px; }
+
+/* 方案 B 的两列字段：标签在左、输入在右（2026-09-13 设计稿原本画的就是这个） */
+.frow { display:flex; align-items:flex-start; gap:12px; margin-bottom:9px; }
+.frow > label { flex:0 0 86px; padding-top:6px; font-size:11.5px; color: var(--dim); text-align:right; }
+.frow > .fx { flex:1 1 auto; min-width:0; }
+
+/* 代价表 / 推荐 / 对比表 */
+.cost { margin-top: 18px; padding-top: 15px; border-top:1px solid var(--page-line); display:grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size:12.5px; }
+.cost dt { color: var(--page-dim); font-family: var(--mono); font-size: 11px; letter-spacing:.06em; padding-top:2px; white-space:nowrap; }
+.cost dd { margin:0; color: var(--text); }
+.cost dd.bad { color: var(--danger); }
+.cost dd.good { color: var(--ok); }
+
+.verdict { margin-top: 46px; padding: 26px 28px; border:1px solid var(--page-line); border-radius: 14px; background: var(--page-card); border-left: 3px solid var(--ok); }
+.verdict h2 { font-family: var(--serif); font-size: 25px; margin: 0 0 12px; }
+.verdict p { color: var(--page-dim); margin: 0 0 10px; max-width: 84ch; }
+.verdict b { color: var(--page-fg); }
+.verdict code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.verdict ol { color: var(--page-dim); padding-left: 20px; margin: 0 0 10px; }
+.verdict li { margin-bottom: 7px; }
+.verdict li b { color: var(--page-fg); }
+
+table.cmp { width:100%; border-collapse: collapse; margin-top: 18px; font-size: 12.5px; }
+table.cmp th, table.cmp td { text-align:left; padding: 8px 10px; border-bottom:1px solid var(--page-line); vertical-align: top; }
+table.cmp th { color: var(--page-dim); font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:500; }
+table.cmp td:first-child { color: var(--text); }
+table.cmp td { color: var(--page-dim); }
+table.cmp td.y { color: var(--ok); }
+table.cmp td.n { color: var(--danger); }
+table.cmp code { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设置对话框 · 重设计</p>
+      <h1>设置界面重做</h1>
+      <p class="lede">
+        齿轮点开的那个「设置」对话框。它丑不丑先不争论 —— 下面第一张图是
+        <b>探针画出来的真机截图</b>，不是重画的。三个方案的差别不在配色，
+        在<b>这个对话框该有几个栏、左栏那 132px 拿来干嘛</b>。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <p class="picked-note">
+    <b>2026-09-15：</b>用户原话「设置界面太丑了，出几个网页方案给我选择」。本页只画不改 ——
+    选定之后照本仓库规矩走：改代码 → 跑探针<b>离屏出图看一眼</b> → 再收工。
+    注释里那条「单测看属性，看不出好不好看」的教训，就是这么来的。
+  </p>
+
+  <p class="picked-note">
+    <b>已选定（2026-09-15）：方案 C —— 四个页签，两处设置合成一处。</b>
+    当天落地：<code>SettingsDialog</code>（外壳 + 手写页签栏）+ <code>SettingsPage</code>
+    + 四个页类；<code>ModelProfilesDialog</code> 拆成外壳与 <code>ModelProfilesPage</code>；
+    <code>plugin.xml</code> 里那个 <code>projectConfigurable</code> 与
+    <code>ClaudeSettingsPanel.kt</code> 一并删掉（选了"直接删"）。
+    「权限模式」「思考深度」在对话框里改完会<b>立刻作用到正在跑的会话</b>——
+    那两条改动由 <code>ui/SettingsApply.kt</code> 判定，<code>ClaudePanel</code> 在关框后对账。
+    <br>
+    <b>落地时与图上有三处不同，都是看了图才发现该改的：</b>
+    ① 权限页多了一句<b>跟着下拉走的模式说明</b>（光有"仅规划""不询问"这种名字，
+    用户不知道选下去意味着什么）；② 环境页的两张表<b>没有用平台的
+    <code>ToolbarDecorator</code></b> —— 它构造时要 <code>ActionManager</code>，
+    而单测 JVM 里没有 Application，整页既跑不了用例也出不了图，改成手写的「＋ / －」；
+    ③ 「浏览…」也是手写的：平台那个 <code>TextFieldWithBrowseButton</code> 的
+    「…」是 <code>ExtendableTextField</code> 的内嵌扩展，离屏摆版时落在字段外面。
+    <br>
+    <b>页签栏 140px 是量出来的</b>，不是照着这张图抄的：对话框内容区左右各让出 12px
+    （平台的边框），页宿主实际只有 696 宽 —— 一开始按 720 算，表单栏压过列表栏 24px，
+    把列表右边那列「使用中」盖住了，而<b>单测全绿</b>。
+  </p>
+
+  <!-- ============================ 现状 ============================ -->
+  <div class="brief warn">
+    <h3>先说清楚"丑"在哪 —— 八处，每一处都能在图上找到</h3>
+    <p>
+      下面是当前代码（<code>ModelProfilesDialog.kt</code>）的<b>真实渲染</b>，
+      由 <code>ModelProfilesDialogProbe</code> 离屏画出，尺寸 1:1。
+    </p>
+  </div>
+
+  <div class="scroller" style="margin-top:18px">
+    <div class="shot">
+      <img src="settings-current.png" alt="当前设置对话框的真实渲染">
+      <span class="mk" style="left:66px;  top:200px">1</span>
+      <span class="mk" style="left:367px; top:117px">2</span>
+      <span class="mk" style="left:382px; top:300px">3</span>
+      <span class="mk" style="left:700px; top:208px">4</span>
+      <span class="mk" style="left:830px; top:287px">5</span>
+      <span class="mk" style="left:435px; top:377px">6</span>
+      <span class="mk" style="left:430px; top:452px">7</span>
+      <span class="mk" style="left:790px; top:521px">8</span>
+    </div>
+  </div>
+  <p class="caption">
+    重新出图：<code>PATH="/c/Program Files/nodejs:$PATH" ./gradlew test --tests 'com.ccoder.settings.ModelProfilesDialogProbe'</code>
+    → <code>build/probe/model-profiles-dialog.png</code>
+  </p>
+
+  <ol class="defects" style="margin-top:24px">
+    <li><b>左边那 132px 里只有一个「模型」</b>，下面是四百多像素的空白。<br>
+      这一栏是 2026-09-13 为「通用 / 权限 / 关于」三个页签留的位置，而那次明确说了"本版只做模型页"。
+      于是它现在既不导航、也不装饰，只是<b>每天占着六分之一块屏幕</b>。</li>
+    <li><b>「使用中」飘在中间栏的最右边</b>，离它修饰的那一行有 200px 远。它是个状态徽章，
+      长得却像一句浮在空中的灰字。</li>
+    <li><b>三栏之间没有任何分隔</b>（<code>x=382</code> 这条线上一条线都没有）—— 左中右糊成一片，
+      眼睛得自己找"哪里是新的一栏"。</li>
+    <li><b>五个字段平铺，没有分组</b>。名称 / Base URL / 认证方式 / API Key / 模型 ID
+      同样粗细、同样间距 —— 看不出前两个是"这条配置是谁"、后三个是"接到哪去"。</li>
+    <li><b>「模型 ID」的框比上面几个短一截</b>（右边给〔使用中〕留了 46px 固定位），
+      而末尾的 ✕ 太弱 —— 跟上次那个"看不见的删除按钮"是同一类毛病。</li>
+    <li><b>红色的「删除」孤零零一行</b>，无边框无图标，位置在表单中段 —— 看着像一条报错信息，
+      不像一个能点的东西。</li>
+    <li><b>footer 上方一百多像素全空</b>：540 的高度只用了 400。</li>
+    <li><b>「OK」「Cancel」是英文的</b>，整页中文就这俩不一致；
+      而且这个「取消」<b>什么都不回滚</b>（代码注释自己写着"用户会拿它当撤销用"）。</li>
+  </ol>
+
+  <div class="brief" style="margin-top:26px">
+    <h3>还有一处不是审美，是 bug —— 空态指着一个不存在的按钮</h3>
+    <p>
+      一条配置都没有时，表单区写的是<b>「选一条配置，或点「＋ 添加模型」」</b>。
+      可建整条配置的那个按钮叫<b>「＋ 添加配置」</b>（在左栏）；「＋ 添加模型」是进到表单里
+      给一条配置**添一行模型**用的 —— 空态下它根本不在屏幕上。
+      新用户照着这行字找按钮，找不到。
+    </p>
+  </div>
+
+  <div class="scroller" style="margin-top:14px">
+    <div class="shot" style="width:860px">
+      <img src="settings-current-empty.png" alt="当前设置对话框的空状态真实渲染" style="height:540px">
+    </div>
+  </div>
+  <p class="caption">空态的真机出图。<code>rebuildForm()</code> 里那句文案写错了按钮名 —— 一行就能修，跟选哪个方案无关。</p>
+
+  <div class="brief ok" style="margin-top:26px">
+    <h3>重设计不碰的东西（这几条是 spec 定的，三个方案都照旧）</h3>
+    <ul>
+      <li><b>字段顺序</b>：名称 → Base URL → <b>认证方式</b> → API Key → 模型 ID。
+        「认证方式」必须在密钥之前 —— 它决定密钥填的是哪一种（<code>2026-09-13-model-profiles-design.md §7</code>）。</li>
+      <li><b>改动即时保存</b>，没有待保存副本；<b>删配置要一并清密钥</b>。</li>
+      <li><b>密钥默认打码，失焦即恢复打码</b>，👁 只切换显示。</li>
+      <li><b>列表为空时行为与从前一字不差</b>（向后兼容的硬要求）。</li>
+    </ul>
+  </div>
+
+  <!-- ============================ 三个方案 ============================ -->
+  <div class="grid">
+
+    <!-- ---------------- 方案 A ---------------- -->
+    <div class="card" id="a">
+      <span class="tag">方案 A · 最小改动</span>
+      <h2>把那个空栏删掉，给表单分组</h2>
+      <p class="thesis">
+        交互<b>一个字节都不改</b>：还是点左边列表、右边改表单。改的只有三件事 ——
+        左栏不再假装自己是页签（改成"列表栏"，顶上一个小标题 + 一个 ＋）；
+        表单按语义分成三组；删除按钮像个按钮。<b>860×540 尺寸不变</b>，
+        省下来的 132px 全给表单，「模型 ID」那些框终于不用挤。
+      </p>
+
+      <div class="dlg">
+        <div class="dlg-bar"><span class="ttl">设置</span><span class="x">✕</span></div>
+        <div class="dlg-body" style="height:466px">
+
+          <!-- 左栏 268 -->
+          <div class="lcol" style="width:268px; border-right:1px solid var(--border)">
+            <div class="hd">
+              <span class="t">模型配置</span><span class="n">3</span>
+              <span class="plus" title="新建一条配置">＋</span>
+            </div>
+            <div class="lrow on"><span class="nm">DeepSeek</span><span class="pill" style="margin-left:auto">使用中</span></div>
+            <div class="lrow"><span class="nm">官方 Sonnet</span></div>
+            <div class="lrow"><span class="nm">中转 Opus</span></div>
+            <div class="spacer"></div>
+            <div class="add">＋ 添加配置</div>
+          </div>
+
+          <!-- 右栏 -->
+          <div class="fcol">
+            <div class="grp first"><span class="t">这条配置</span><span class="ln"></span></div>
+            <div class="field"><label>名称</label><div class="in focus">DeepSeek</div></div>
+
+            <div class="grp"><span class="t">接到哪</span><span class="ln"></span></div>
+            <div class="field"><label>Base URL</label>
+              <div class="in mono">https://api.deepseek.com/anthropic</div>
+              <div class="note">留空 = 官方端点（用 CLI 的登录态）</div>
+            </div>
+            <div class="two">
+              <div class="field"><label>认证方式</label><div class="in">Bearer <span style="margin-left:auto;color:var(--dim)">▾</span></div></div>
+              <div class="field"><label>API Key</label><div class="in"><span class="mono">••••••••••••••••</span><span class="eye">👁</span></div></div>
+            </div>
+
+            <div class="grp"><span class="t">能用哪些模型</span><span class="ln"></span></div>
+            <div class="mrow2"><div class="in">deepseek-flash[1m]</div><span class="pill">使用中</span><span class="x">✕</span></div>
+            <div class="mrow2"><div class="in">deepseek-v4-pro[1m]</div><span class="pill" style="visibility:hidden">使用中</span><span class="x">✕</span></div>
+            <div style="margin-top:6px"><span class="add sm">＋ 添加模型</span></div>
+
+            <div class="spacer"></div>
+            <div style="padding-top:12px; border-top:1px solid var(--border-soft)">
+              <span class="btn dg">删除这条配置</span>
+            </div>
+          </div>
+        </div>
+        <div class="dlg-ft">
+          <span class="hint">改动即时保存</span>
+          <span class="btn pri">完成</span>
+        </div>
+      </div>
+
+      <dl class="cost">
+        <dt>治好了</dt><dd class="good">①②③④⑤⑥⑦⑧ 全部</dd>
+        <dt>没动</dt><dd>列表 + 表单的主从交互；860×540；字段顺序；即时保存</dd>
+        <dt>代价</dt><dd>左栏那 132px 的页签位没了。真要加「通用 / 权限 / 关于」时，
+          走<b>顶部横排页签</b>（同样 40px 高，却省下 132px 宽）比竖排便宜 —— 所以这不是反悔，是换个更便宜的形状</dd>
+        <dt>改动量</dt><dd>（估）一个文件 + 探针；现有 6 条对话框用例基本不动</dd>
+        <dt>风险</dt><dd class="good">低 —— 没有状态机，没有新交互，"改坏了"只可能是画错，画错看得见</dd>
+      </dl>
+    </div>
+
+    <!-- ---------------- 方案 B ---------------- -->
+    <div class="card" id="b">
+      <span class="tag">方案 B · 换交互</span>
+      <h2>一栏到底，点开就地长成表单</h2>
+      <p class="thesis">
+        没有"左边选、右边改"这回事了。整页就是一列<b>配置卡片</b>：收起来是一行
+        （名字 + 端点 + 模型数 + 〔使用中〕），点一下<b>就地展开</b>成表单。
+        字段改成<b>标签在左、输入在右</b>的两列 —— 2026-09-13 那份设计稿原本画的就是这个，
+        实现时变成了"标签在上"。窗口也就不用 860 那么宽了，<b>720×580</b> 就够。
+      </p>
+
+      <div class="dlg" style="width:720px">
+        <div class="dlg-bar"><span class="ttl">设置</span><span class="x">✕</span></div>
+        <div class="dlg-body" style="flex-direction:column; height:507px; padding: 14px 18px; overflow:hidden">
+          <div style="display:flex; align-items:baseline; gap:9px; margin-bottom:10px">
+            <span style="font-size:12.5px; color:var(--text); font-weight:600">模型配置</span>
+            <span style="font-size:11px; color:var(--dim)">同一套端点与密钥的模型归一条配置</span>
+          </div>
+
+          <div class="pcard open">
+            <div class="phead">
+              <span class="nm">DeepSeek</span>
+              <span class="pill">使用中</span>
+              <span class="ep" style="margin-left:auto">api.deepseek.com/anthropic</span>
+              <span style="color:var(--dim); font-size:11px">收起 ▴</span>
+            </div>
+            <div class="pbody" style="padding-top:11px">
+              <div class="frow"><label>名称</label><div class="fx"><div class="in focus" style="display:flex;align-items:center;padding:5px 8px;border:1px solid var(--accent);border-radius:6px;background:var(--editor);font-size:11.5px;min-height:27px;color:var(--text)">DeepSeek</div></div></div>
+              <div class="frow"><label>Base URL</label><div class="fx"><div class="in mono" style="display:flex;align-items:center;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--editor);font-size:11px;min-height:27px;color:var(--text)">https://api.deepseek.com/anthropic</div></div></div>
+              <div class="frow"><label>认证方式</label><div class="fx"><div class="in" style="display:flex;align-items:center;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--editor);font-size:11.5px;min-height:27px;color:var(--text)">Bearer <span style="margin-left:auto;color:var(--dim)">▾</span></div></div></div>
+              <div class="frow"><label>API Key</label><div class="fx"><div class="in" style="display:flex;align-items:center;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--editor);font-size:11.5px;min-height:27px;color:var(--text)"><span class="mono">••••••••••••••••</span><span class="eye" style="margin-left:auto;color:var(--dim);font-size:12px">👁</span></div></div></div>
+
+              <div class="frow" style="margin-bottom:0"><label>模型</label>
+                <div class="fx">
+                  <div class="mrow2"><div class="in">deepseek-flash[1m]</div><span class="pill">使用中</span><span class="x">✕</span></div>
+                  <div class="mrow2"><div class="in">deepseek-v4-pro[1m]</div><span class="pill" style="visibility:hidden">使用中</span><span class="x">✕</span></div>
+                  <div style="display:flex; align-items:center; margin-top:7px">
+                    <span class="add sm">＋ 添加模型</span>
+                    <span class="btn dg" style="margin-left:auto">删除配置</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="phead">
+              <span class="nm">官方 Sonnet</span>
+              <span class="ep" style="margin-left:auto">api.anthropic-relay.internal.corp.example.com/anthropic</span>
+              <span class="pill g">1 个模型</span>
+              <span style="color:var(--dim); font-size:11px">展开 ▾</span>
+            </div>
+          </div>
+
+          <div class="pcard">
+            <div class="phead">
+              <span class="nm">中转 Opus</span>
+              <span class="ep" style="margin-left:auto">relay.example.com</span>
+              <span class="pill g">1 个模型</span>
+              <span style="color:var(--dim); font-size:11px">展开 ▾</span>
+            </div>
+          </div>
+
+          <div class="add" style="margin-top:2px">＋ 添加配置</div>
+        </div>
+        <div class="dlg-ft">
+          <span class="hint">改动即时保存</span>
+          <span class="btn pri">完成</span>
+        </div>
+      </div>
+
+      <dl class="cost">
+        <dt>治好了</dt><dd class="good">①③⑤⑥⑦⑧ —— ②④ 更是从根上不存在了（没有中间栏要分隔，也没有"平铺的五个字段"）</dd>
+        <dt>没动</dt><dd>字段顺序；即时保存；密钥打码；数据模型</dd>
+        <dt>代价</dt><dd class="bad">整条交互要重写：<code>listRow</code> / <code>rebuildForm</code> / <code>refresh</code> 三处的分工没了，
+          换成"哪张卡展开着"这一份状态。<code>ModelProfilesDialogSaveTest</code> 里那一堆
+          "点列表行"的辅助函数全得改</dd>
+        <dt>代价</dt><dd class="bad">配置一多就要滚，展开/收起会让下面的内容往下跳。</dd>
+        <dt>改动量</dt><dd>（估）比 A 多一倍；先要说服自己"卡里再套表单"不别扭</dd>
+        <dt>风险</dt><dd>中 —— 展开态 + 输入框 + 即时保存这三样凑一起，光标位置和重建时机的坑比 A 多</dd>
+      </dl>
+    </div>
+
+    <!-- ---------------- 方案 C ---------------- -->
+    <div class="card" id="c">
+      <span class="tag">方案 C · 产品级 —— 已选定</span>
+      <h2>把页签真的用起来 —— 两处设置合成一处</h2>
+      <p class="thesis">
+        左栏丑的根子是<b>它承诺了四个页签、只兑现了一个</b>。那就兑现：把
+        IDE 里那页 <code>Settings → Tools → CCoder</code>（claude 路径、权限模式、思考深度、
+        发送快捷键、额外目录、环境变量）搬进来，左栏变成真导航。
+        用户再也不用记<b>"哪项设置在哪个地方"</b> —— 现在这个问题的答案是"两个地方都有"。
+      </p>
+
+      <div class="dlg">
+        <div class="dlg-bar"><span class="ttl">设置</span><span class="x">✕</span></div>
+        <div class="dlg-body" style="height:487px">
+
+          <div class="tabs-v" style="width:140px">
+            <div class="t on">模型</div>
+            <div class="t">通用</div>
+            <div class="t">权限</div>
+            <div class="t">环境</div>
+          </div>
+
+          <div class="lcol" style="width:240px; border-right:1px solid var(--border)">
+            <div class="hd">
+              <span class="t">模型配置</span>
+              <span class="plus" title="新建一条配置">＋</span>
+            </div>
+            <div class="lrow on"><span class="nm">DeepSeek</span><span class="pill" style="margin-left:auto">使用中</span></div>
+            <div class="lrow"><span class="nm">官方 Sonnet</span></div>
+            <div class="lrow"><span class="nm">中转 Opus</span></div>
+            <div class="spacer"></div>
+            <div class="add">＋ 添加配置</div>
+          </div>
+
+          <div class="fcol" style="padding: 12px 16px">
+            <div class="grp first"><span class="t">这条配置</span><span class="ln"></span></div>
+            <div class="field"><label>名称</label><div class="in focus">DeepSeek</div></div>
+
+            <div class="grp"><span class="t">接到哪</span><span class="ln"></span></div>
+            <div class="field"><label>Base URL</label><div class="in mono">https://api.deepseek.com/anthropic</div></div>
+            <div class="two">
+              <div class="field"><label>认证方式</label><div class="in">Bearer <span style="margin-left:auto;color:var(--dim)">▾</span></div></div>
+              <div class="field"><label>API Key</label><div class="in"><span class="mono">••••••••••••••••</span><span class="eye">👁</span></div></div>
+            </div>
+
+            <div class="grp"><span class="t">能用哪些模型</span><span class="ln"></span></div>
+            <div class="mrow2"><div class="in">deepseek-flash[1m]</div><span class="pill">使用中</span><span class="x">✕</span></div>
+            <div class="mrow2"><div class="in">deepseek-v4-pro[1m]</div><span class="pill" style="visibility:hidden">使用中</span><span class="x">✕</span></div>
+            <div style="margin-top:6px"><span class="add sm">＋ 添加模型</span></div>
+
+            <div class="spacer"></div>
+            <div style="padding-top:10px; border-top:1px solid var(--border-soft)">
+              <span class="btn dg">删除这条配置</span>
+            </div>
+          </div>
+        </div>
+        <div class="dlg-ft">
+          <span class="hint">改动即时保存</span>
+          <span class="btn pri">完成</span>
+        </div>
+      </div>
+
+      <dl class="cost">
+        <dt>另外三页</dt>
+        <dd style="color:var(--page-dim)">
+          <b style="color:var(--text)">通用</b>：claude 可执行文件（带浏览按钮）· 发送快捷键 · 思考深度<br>
+          <b style="color:var(--text)">权限</b>：权限模式 + 「我明白风险」确认<br>
+          <b style="color:var(--text)">环境</b>：额外目录表 · 环境变量表 · 冲突提示<br>
+          <span style="font-size:11.5px">（这四页的内容不是新设计的 —— 就是 <code>ClaudeSettingsPanel</code> 现有的那六项，换个地方摆）</span>
+        </dd>
+        <dt>治好了</dt><dd class="good">①–⑧ 全部，而且①从"删掉空栏"变成"栏终于有内容"</dd>
+        <dt>多解决</dt><dd class="good">两处设置分散 —— 这是 A 和 B 都不碰的根</dd>
+        <dt>代价</dt><dd class="bad">得先决定 IDE 里那页怎么办（删掉？还是留一句"在 CCoder 面板里改"？）。
+          两边的读写通路不同：IDE 那页走 <code>Configurable.apply/reset</code>，这个对话框走"改一个字段立刻落库"，
+          合并时要统一成一种</dd>
+        <dt>已决定</dt><dd class="good"><b>2026-09-15：IDE 那页直接删掉</b>，保存语义统一成"即时保存"。
+          代价是 Ctrl+Alt+S 里搜不到 CCoder 了 —— 换取的是不再有两套会互相显示陈旧值的控件</dd>
+        <dt>改动量</dt><dd>（估）A 的三倍。而且<b>对话框会开始依赖 <code>ClaudeSettings</code></b> ——
+          现在它只碰 <code>ModelProfiles</code>，那份干净是它好测的原因之一（探针里那个假 Project 就是为它准备的）</dd>
+        <dt>风险</dt><dd class="bad">高 —— 真正的风险不在画图，在"两套保存语义合成一套"</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============================ 对比 ============================ -->
+  <div class="verdict">
+    <h2>怎么选</h2>
+    <p>
+      三个方案治的是<b>同一批毛病</b>，差别在<b>动到多深</b>。我的建议是 <b>A</b>，理由三条：
+    </p>
+    <ol>
+      <li><b>丑的八个来源，A 全治了，而且不动交互。</b>"点左边列表、右边改表单"是你已经批准的形态
+        （<code>2026-09-13-model-profiles-design.md</code> 选定方案 A），没必要为了好看把它换掉。</li>
+      <li><b>左栏那 132px 是给三个还没做的页签留的。</b>留着它一年，代价是每天都在的；
+        而真要加页签那天，<b>横排</b>页签同样 40px 高、却比竖排省 132px 宽。
+        所以砍掉不是反悔，是把"以后留位"换成更便宜的形状。</li>
+      <li><b>改动量最小 = 出错空间最小。</b>这个对话框的坑都在状态里（展开态、光标、重建时机），
+        A 一个新状态都不引入，B 和 C 各引入一批。</li>
+    </ol>
+    <p>
+      <b>什么时候该选 B：</b>如果你觉得"左边列表右边表单"本来就不对，
+      配置这东西就该像浏览器书签一样一列排下来 —— 那是产品判断，不是审美判断，
+      换过来的代价是重写交互层。
+    </p>
+    <p>
+      <b>什么时候该选 C：</b>如果"设置散在两个地方"这件事已经真的烦到你了。
+      C 是唯一能治这个根的方案，但它得先把 IDE 那页的去留定下来 —— <b>那是另一个决定</b>，
+      值得单独拿出来说，不该塞在"这个对话框好不好看"里顺带做掉。
+    </p>
+    <p>
+      <b>三案都有一个共用的零头</b>（现在就能修，不依赖选择）：空态那句
+      「点「＋ 添加模型」」写错了按钮名，应该是「＋ 添加配置」——
+      它现在指着一个屏幕上不存在的按钮。
+    </p>
+
+    <table class="cmp">
+      <thead>
+        <tr><th>　</th><th>A · 去页签两栏</th><th>B · 卡片展开</th><th>C · 真页签四页</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>窗口尺寸</td><td>860×540 不变</td><td>720×580（变窄）</td><td>860×560（略高）</td></tr>
+        <tr><td>页签位</td><td class="n">删掉</td><td class="n">不需要</td><td class="y">真的用起来</td></tr>
+        <tr><td>改交互</td><td class="y">否</td><td class="n">是</td><td>否（但改保存语义）</td></tr>
+        <tr><td>动 ClaudeSettings</td><td class="y">否</td><td class="y">否</td><td class="n">是</td></tr>
+        <tr><td>探针用例</td><td>加 2 张图</td><td>重写</td><td>重写 + 新页</td></tr>
+        <tr><td>改动量（估）</td><td class="y">1 个文件</td><td>重写两栏</td><td class="n">A 的三倍</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+</script>
+</body>
+</html>

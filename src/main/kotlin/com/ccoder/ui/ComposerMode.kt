@@ -113,16 +113,11 @@ internal fun modeColor(mode: PermissionModeSetting): Color =
 /**
  * 模式的一句话说明。
  *
- * 光有"仅规划""不询问"这种名字，用户不知道选下去意味着什么 —— 而这几个
- * 字改变的是 Claude 被允许做什么，值得说清楚。
+ * 2026-09-15 起这句话住在枚举上（[PermissionModeSetting.description]）——
+ * 设置对话框的「权限」页也要用它，而 `settings` 包不许反过来依赖 `ui`。
+ * 留这个名字是因为它在这儿读起来更顺，内容是**同一份**，不是抄一份。
  */
-internal fun modeDescription(mode: PermissionModeSetting): String = when (mode) {
-    PermissionModeSetting.DEFAULT -> "危险操作会先询问"
-    PermissionModeSetting.ACCEPT_EDITS -> "文件改动自动接受，其余仍询问"
-    PermissionModeSetting.PLAN -> "只读：只做计划，不执行工具"
-    PermissionModeSetting.DONT_ASK -> "不询问；未预先允许的一律拒绝"
-    PermissionModeSetting.BYPASS_PERMISSIONS -> "所有操作都不再询问"
-}
+internal fun modeDescription(mode: PermissionModeSetting): String = mode.description
 
 /**
  * 模式列表。当前项打勾。

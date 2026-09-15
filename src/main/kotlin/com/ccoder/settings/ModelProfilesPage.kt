@@ -1,9 +1,7 @@
 package com.ccoder.settings
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleListCellRenderer
@@ -36,7 +34,7 @@ private const val ECHO_MASKED = '•'
 internal const val MODEL_IDS_LABEL = "模型 ID（一行一个）"
 
 /**
- * 左栏那个新建按钮。与 [ADD_MODEL_LABEL] **必须不同名** ——
+ * 列表栏底部那个新建按钮。与 [ADD_MODEL_LABEL] **必须不同名** ——
  * 一个建配置、一个给配置添模型，同名叫人点错。
  */
 internal const val ADD_PROFILE_LABEL = "＋ 添加配置"
@@ -47,38 +45,50 @@ internal const val ADD_MODEL_LABEL = "＋ 添加模型"
 /** 哪一行在用。与左侧列表的〔使用中〕是同一句话，两个地方别写岔。 */
 internal const val IN_USE_LABEL = "使用中"
 
-/** 〔使用中〕占的宽度（三个汉字），按固定宽度留位 —— 见 [ModelProfilesDialog.modelIdRow]。 */
+/** 〔使用中〕占的宽度（三个汉字），按固定宽度留位 —— 见 [ModelProfilesPage.modelIdRow]。 */
 private const val IN_USE_WIDTH = 46
 
 /** 模型列表最多先长这么高（约四行），再多就滚。 */
 private const val MODEL_LIST_MAX_HEIGHT = 132
 
-/** 表单内容的宽度：440 的栏宽减去左右各 16 的内边距。量高度前要先喂它。 */
-private const val FORM_CONTENT_WIDTH = 408
+/** 列表栏宽度。它放 CENTER，所以这是"理想宽度"—— 页窄了它会自己收。 */
+internal const val MODEL_LIST_WIDTH = 240
 
-/** 打开设置对话框，停在「模型」页。 */
-fun showModelProfilesDialog(project: Project) {
-    ModelProfilesDialog(project, ModelProfiles.getInstance()).show()
-}
+/** 表单栏宽度。它放 EAST，是确定值，[FORM_CONTENT_WIDTH] 由它推出来。 */
+internal const val MODEL_FORM_WIDTH = PAGE_WIDTH - MODEL_LIST_WIDTH
+
+/** 表单栏左右内边距。 */
+private const val FORM_PADDING_H = 16
+
+/** 列表栏左右内边距。 */
+private const val LIST_PADDING_H = 12
 
 /**
- * 设置对话框（设计稿方案 A）。860×540，三栏：左页签 | 模型列表 | 编辑表单。
+ * 表单内容的宽度：栏宽减去左右内边距。量模型列表高度前要先喂它。
  *
- * **改动即时保存** —— 没有"应用"按钮，也没有"取消"回滚。所以字段的监听器
- * 直接写回 [ModelProfiles]，不攒 pending 副本：没有副本，就没有"忘了保存"。
- *
- * 它只读写配置，**不碰当前会话** —— 选中态改掉之后由 ClaudePanel 决定
- * 要不要重开会话。设置界面自己去动会话会把两处的生命周期缠在一起。
- *
- * [profiles] 由调用方传进来，而不是在这里 `ModelProfiles.getInstance()` ——
- * 同 [ClaudeSettings.toStartParams] 的理由：测试环境里没有 Application 服务，
- * 而对话框的渲染探针恰恰要在那种环境里跑。拿服务是入口 [showModelProfilesDialog]
- * 的事。
+ * 这个数**必须跟着栏宽走**（原来是 408 = 440 − 32，2026-09-15 三栏改四页签后
+ * 表单栏从 440 变成 480）。它是量"模型 ID"那个滚动框高度的喂入宽度，
+ * 不对的话列表高度与滚动条就会错 —— 而那个框的封顶高度是可滚与否的唯一判据。
  */
-internal class ModelProfilesDialog(
-    private val project: Project,
+internal const val FORM_CONTENT_WIDTH = MODEL_FORM_WIDTH - 2 * FORM_PADDING_H
+
+/**
+ * 模型配置页（设置对话框的「模型」页）。
+ *
+ * 内容是从原来的 `ModelProfilesDialog` **整块搬过来**的：列表栏 + 表单栏。
+ * 搬的时候刻意**不拆函数** —— `collect()` / `save()` / `applyAndRefresh()` 三者共享
+ * `name` / `url` / `secret` / `modelFields` / `currentField` 这五个闭包变量，那是刻意的：
+ * 增删模型那两个动作必须先 `collect()` 把已改过的文字收进来，否则"改完第 2 行、
+ * 再删第 1 行"会把第 2 行的修改一起丢掉（见 `collect` 上的注释）。
+ *
+ * 它只读写配置，**不碰当前会话** —— 选中态改掉之后由 ClaudePanel 决定要不要重开会话。
+ */
+internal class ModelProfilesPage(
+    private val settings: ClaudeSettings,
     private val profiles: ModelProfiles,
-) : DialogWrapper(true) {
+) : SettingsPage {
+
+    override val title: String = "模型"
 
     /** 当前正在编辑的副本。null = 一条都没选中。 */
     private var editing: ModelProfile? = null
@@ -86,63 +96,84 @@ internal class ModelProfilesDialog(
     private val listSlot = JPanel()
     private val formSlot = JPanel()
 
-    init {
-        title = "设置"
-        setSize(860, 540)
-        init()
+    /** 列表上方那条冲突警告的槽位。单独留一格是为了能**就地重算** —— 环境页改一个键，
+     *  这里要跟着变（见 [refreshConflictWarning]）。 */
+    private val conflictSlot = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
+    }
+
+    private var built: JComponent? = null
+
+    /** 装配一次就缓存住（见 [SettingsPage.component] 上那条：装两次监听器会弹两个文件框）。 */
+    override fun component(): JComponent = built ?: build().also {
+        built = it
+        refreshConflictWarning()
         refresh()
     }
 
-    override fun createCenterPanel(): JComponent = JPanel(BorderLayout()).apply {
-        add(tabsColumn(), BorderLayout.WEST)
-        add(listColumn(), BorderLayout.CENTER)
-        add(formColumn(), BorderLayout.EAST)
+    override fun reload() {
+        // 服务是唯一真相。`editing` 只在本次开框期间有意义（点出来的），
+        // 但那一份副本可能已经过期 —— 按 id 重新取一次。
+        editing = editing?.let { e -> profiles.profiles().firstOrNull { it.id == e.id } }
+        refreshConflictWarning()
+        refresh()
     }
 
     /**
-     * 底部左侧多一句「改动即时保存」（设计稿的 footer 就有）。
-     *
-     * **不是为了好看**：右边那对按钮里的「取消」在这页上**不回滚任何东西**，
-     * 不写清楚，用户会拿它当撤销用 —— 点完发现改过的还在，才知道被骗了。
-     * 所以这句必须贴着那两个按钮，放进表单里就没这个作用了。
+     * 重算列表上方那条冲突警告。**环境页改一个键就会调到这里** ——
+     * 不重算的话"刚加完键、切过来却没提示"看起来就像那个提示坏了。
      */
-    override fun createSouthPanel(): JComponent {
-        val base = super.createSouthPanel()
-        return JPanel(BorderLayout()).apply {
-            isOpaque = false
-            add(
-                JBLabel("改动即时保存").apply { foreground = UIUtil.getInactiveTextColor() },
-                BorderLayout.WEST,
+    internal fun refreshConflictWarning() {
+        conflictSlot.removeAll()
+        val keys = conflictingEnvKeys(settings.envOverrides)
+        if (keys.isNotEmpty()) {
+            // 它自己带下间距，不要再加 strut（见 wrappedHint 那条）
+            conflictSlot.add(
+                wrappedHint(
+                    conflictWarningText(keys),
+                    JBUI.scale(MODEL_LIST_WIDTH - 2 * LIST_PADDING_H),
+                )
             )
-            add(base, BorderLayout.CENTER)
         }
+        conflictSlot.revalidate()
+        conflictSlot.repaint()
+    }
+
+    private fun build(): JComponent = JPanel(BorderLayout()).apply {
+        // 表单栏放 EAST：`BorderLayout` 把多余宽度**全给 CENTER**，所以只有放
+        // WEST/EAST 的那一栏拿的是确定的首选宽度。表单栏**必须**确定 ——
+        // [FORM_CONTENT_WIDTH] 是量"模型 ID"那个滚动框高度的喂入宽度，它是个变量的话
+        // 列表高度就会随对话框宽度漂。列表栏放 CENTER 则更稳：页窄了它自己变窄，
+        // 而不是两栏重叠（2026-09-15 就踩过一次）
+        add(formColumn(), BorderLayout.EAST)
+        add(listColumn(), BorderLayout.CENTER)
     }
 
     /**
-     * 左栏 132px。
+     * 两栏整体重建。
      *
-     * 本版**只放「模型」一项** —— 不摆"通用/权限/关于"的空壳。空壳点不动，
-     * 用户会先以为是自己点错了，再以为是坏的（spec §7）。
+     * 列表和表单都很小（几条配置、五个字段），重建比增量同步可靠得多 ——
+     * 增量同步要处理"删掉当前项之后表单显示什么"这类边界，正是 bug 的温床。
      */
-    private fun tabsColumn(): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(10, 8)
-        preferredSize = Dimension(JBUI.scale(132), 0)
-        add(JBLabel("模型").apply {
-            border = JBUI.Borders.empty(6, 9)
-            foreground = UIUtil.getLabelForeground()
-        })
-        add(Box.createVerticalGlue())
+    private fun refresh() {
+        rebuildList()
+        rebuildForm()
     }
 
+    /**
+     * 列表栏。
+     *
+     * 顶上那条冲突警告（spec §6）放**列表上方**而不是表单里：冲突是整页的事，
+     * 与当前在编辑哪一条无关。没有冲突时槽位是空的 —— 一条"一切正常"的常驻提示
+     * 只会变成噪音。环境页顶部还有同一句话（见 [conflictWarningText]）。
+     */
     private fun listColumn(): JComponent = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(14, 12)
-        preferredSize = Dimension(JBUI.scale(250), 0)
-        conflictWarning()?.let {
-            add(it)
-            add(Box.createVerticalStrut(JBUI.scale(8)))
-        }
+        border = JBUI.Borders.empty(14, LIST_PADDING_H)
+        preferredSize = Dimension(JBUI.scale(MODEL_LIST_WIDTH), 0)
+        add(conflictSlot)
         add(listSlot.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
@@ -152,49 +183,14 @@ internal class ModelProfilesDialog(
         add(Box.createVerticalGlue())
     }
 
-    /**
-     * `envOverrides` 与模型配置抢同一批变量时的警告条（spec §6）。
-     *
-     * 没有冲突就返回 null —— 一条"一切正常"的常驻提示只会变成噪音。
-     * 放**列表上方**而不是表单里：冲突是整页的事，与当前在编辑哪一条无关。
-     */
-    private fun conflictWarning(): JComponent? {
-        val keys = conflictingEnvKeys(ClaudeSettings.getInstance(project).envOverrides)
-        if (keys.isEmpty()) return null
-
-        // 中栏放得下 226px（250 减左右各 12 的内边距），这句话却要 321px 起 —— 三把键
-        // 都在时更长。不折行就只剩半句：实测被裁在"会被选中"，而"的模型配置覆盖"
-        // 才是重点（说清谁会覆盖谁）。
-        val width = JBUI.scale(226)
-        val text = JBTextArea("设置里的 ${keys.joinToString("、")} 会被选中的模型配置覆盖").apply {
-            isEditable = false
-            isFocusable = false
-            isOpaque = false
-            lineWrap = true
-            wrapStyleWord = true
-            foreground = UIUtil.getInactiveTextColor()
-            border = JBUI.Borders.empty()
-            // JTextArea 默认是等宽体，跟同栏的列表项不像一家的
-            font = UIUtil.getLabelFont()
-            alignmentX = Component.LEFT_ALIGNMENT
-        }
-
-        // 折行后的高度只能自己量：宽度先喂进去，preferredSize 才按折行后的行数算。
-        // 这里封顶必须**等于**量出来的高度 —— 给 Int.MAX_VALUE 的话这条就成了中栏的
-        // 弹簧，实测吃掉 330px 把列表挤到垂直中间去（折行要的是宽度，不是高度）。
-        text.setSize(width, Int.MAX_VALUE)
-        text.maximumSize = Dimension(width, text.preferredSize.height)
-        return text
-    }
-
     private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = JBUI.Borders.empty(14, 16)
-        preferredSize = Dimension(JBUI.scale(440), 0)
+        border = JBUI.Borders.empty(14, FORM_PADDING_H)
+        preferredSize = Dimension(JBUI.scale(MODEL_FORM_WIDTH), 0)
         add(formSlot, BorderLayout.NORTH)
     }
 
     /**
-     * 左栏的「＋ 添加配置」：建一条空配置并立刻进入编辑。
+     * 列表栏的「＋ 添加配置」：建一条空配置并立刻进入编辑。
      *
      * 它建的是**配置**（端点 + 密钥 + 一族模型），不是单个模型 —— 所以文案不能
      * 写成「添加模型」：表单里那一栏也有个添加按钮，两个同名但干的事不同，
@@ -212,17 +208,6 @@ internal class ModelProfilesDialog(
                 refresh()
             }
         })
-    }
-
-    /**
-     * 两栏整体重建。
-     *
-     * 列表和表单都很小（几条配置、五个字段），重建比增量同步可靠得多 ——
-     * 增量同步要处理"删掉当前项之后表单显示什么"这类边界，正是 bug 的温床。
-     */
-    private fun refresh() {
-        rebuildList()
-        rebuildForm()
     }
 
     /**
@@ -257,7 +242,7 @@ internal class ModelProfilesDialog(
             // 放右边而不是名字前面：文字长短不一，前置标记会让名字各起一行
             if (inUse) {
                 add(
-                    JBLabel("使用中").apply { foreground = UIUtil.getInactiveTextColor() },
+                    JBLabel(IN_USE_LABEL).apply { foreground = UIUtil.getInactiveTextColor() },
                     BorderLayout.EAST,
                 )
             }
@@ -275,7 +260,7 @@ internal class ModelProfilesDialog(
     }
 
     /**
-     * 右栏表单。
+     * 表单栏。
      *
      * **字段顺序不能变**：名称 → Base URL → 认证方式 → API Key → 模型 ID。
      * 「认证方式」必须在密钥**之前** —— 它决定密钥填的是哪一种，
@@ -287,7 +272,10 @@ internal class ModelProfilesDialog(
 
         val p = editing
         if (p == null) {
-            formSlot.add(JBLabel("选一条配置，或点「＋ 添加模型」").apply {
+            // 空态指的是**列表栏**那个按钮。原来这里写的是「点「＋ 添加模型」」——
+            // 而「＋ 添加模型」在表单里、空态下根本不在屏幕上；建整条配置的那个叫
+            // 「＋ 添加配置」。新用户照着这行字找按钮是找不到的（2026-09-15 发现）。
+            formSlot.add(JBLabel("在左边选一条配置，或点「$ADD_PROFILE_LABEL」").apply {
                 foreground = UIUtil.getInactiveTextColor()
                 alignmentX = Component.LEFT_ALIGNMENT
             })
@@ -404,11 +392,11 @@ internal class ModelProfilesDialog(
         }
         authKind.addActionListener { save() }
 
-        formSlot.add(field("名称", name))
-        formSlot.add(field("Base URL", url))
-        formSlot.add(field("认证方式", authKind))
-        formSlot.add(field("API Key", secretField(secret)))
-        formSlot.add(field(MODEL_IDS_LABEL, modelListBox(modelRows)))
+        formSlot.add(labeledField("名称", name))
+        formSlot.add(labeledField("Base URL", url))
+        formSlot.add(labeledField("认证方式", authKind))
+        formSlot.add(labeledField("API Key", secretField(secret)))
+        formSlot.add(labeledField(MODEL_IDS_LABEL, modelListBox(modelRows)))
 
         // 删除放**底部左**，与"关闭"分开 —— 它和"保存这次编辑"不是一类动作
         formSlot.add(Box.createVerticalStrut(JBUI.scale(16)))
@@ -483,7 +471,7 @@ internal class ModelProfilesDialog(
      * 「模型 ID」那一栏的外框：定高 + 可滚。
      *
      * **必须封顶**：表单挂在 `BorderLayout.NORTH` 上，它自己不会滚，模型一多
-     * 就把整张表单顶出 540px 的对话框，底部那些字段直接看不见了。
+     * 就把整张表单顶出对话框，底部那些字段直接看不见了。
      *
      * 高度是量出来的（同 [conflictWarning] 的写法）：宽度先喂进去，再读
      * `preferredSize`。封顶必须**等于**量出来的那个值 —— 给 `Int.MAX_VALUE`
@@ -512,8 +500,8 @@ internal class ModelProfilesDialog(
     /**
      * 一个模型：可编辑的输入框 + 右边〔使用中〕与 ✕。
      *
-     * 〔使用中〕的位置**按固定宽度留出来**，不写就没有。三行模型里只有一行
-     * 在用，不留位的话 ✕ 会一行一个位置，看起来像没对齐 —— 同 `MARK` 那个
+     * 〔使用中〕的位置**按固定宽度留出来**，不写就没有。三行模型里只有一行在用，
+     * 不留位的话 ✕ 会一行一个位置，看起来像没对齐 —— 同 `MARK` 那个
      * "未选中也缩进"的道理。
      */
     private fun modelIdRow(field: JBTextField, inUse: Boolean, onRemove: () -> Unit): JComponent {
@@ -570,26 +558,14 @@ internal class ModelProfilesDialog(
                 override fun mouseClicked(e: MouseEvent) = onAdd()
             })
         }
-
-    /**
-     * 一个字段：上面标签、下面输入框。
-     *
-     * 三处 `alignmentX = LEFT_ALIGNMENT` 都是必需的，不是装饰：BoxLayout 在交叉轴上
-     * 按 alignmentX 摆放子件，而 JComponent 的默认值是**居中**（0.5）。不压到 0，
-     * 标签会各自居中、彼此错开 —— 实测"名称"在 x=31、"认证方式"在 x=202，
-     * 而输入框一律 x=0，整张表单看起来是歪的。
-     */
-    private fun field(label: String, input: JComponent): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        isOpaque = false
-        border = JBUI.Borders.emptyBottom(10)
-        alignmentX = Component.LEFT_ALIGNMENT
-        add(JBLabel(label).apply {
-            foreground = UIUtil.getInactiveTextColor()
-            border = JBUI.Borders.emptyBottom(4)
-            alignmentX = Component.LEFT_ALIGNMENT
-        })
-        input.alignmentX = Component.LEFT_ALIGNMENT
-        add(input)
-    }
 }
+
+/**
+ * 冲突警告那句话。模型页与环境页共用 —— 冲突就是同一件事，两个地方别写岔。
+ *
+ * 用 [wrappedHint] 而不是 `JBLabel`：这句话在三把键全被抢时要 321px 起，
+ * 而列表栏只放得下 216px。不折行就只剩半句 —— 实测被裁在"会被选中"，
+ * 而"的模型配置覆盖"才是重点（说清谁会覆盖谁）。
+ */
+internal fun conflictWarningText(keys: List<String>): String =
+    "设置里的 ${keys.joinToString("、")} 会被选中的模型配置覆盖"

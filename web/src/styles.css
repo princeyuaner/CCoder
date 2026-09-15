@@ -395,18 +395,9 @@ body {
   color: var(--diff-del-fg, #db5c5c);
 }
 
-.tool__fail {
-  flex: 0 0 auto;
-  padding: 0 5px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  color: var(--diff-del-fg, #db5c5c);
-  font-size: 10px;
-}
-
-/* ---- 状态位：进行中 / 完成 / 已中断（设计稿 tool-progress.html 方案丙）----
+/* ---- 状态位：进行中 / 完成 / 失败 / 已中断（设计稿 tool-progress.html 方案丙）----
  *
- * 钉在卡片头最右，两种图形的尺寸都是 12px —— 状态切换时标题不能左右抖一下。
+ * 钉在卡片头最右，四种图形的尺寸都是 12px —— 状态切换时标题不能左右抖一下。
  * 只有"进行中"那一格会多出秒数，宽度变化由可伸缩的 .tool__title 吸收。
  *
  * 绿色用的是 --diff-add-fg 而不是自造一个 --ok：Kotlin 注入的主题变量里只有
@@ -448,6 +439,21 @@ body {
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* 失败的红 ✗。与"已中断"的 ⊘ 刻意分开：那个说的是"没等到结果"，颜色是灰的、
+ * 线条细（1.6），因为它不是错；这个是实实在在的失败，红且实（2.0）。
+ * 红色用 --diff-del-fg —— 与卡片上那个 `−1` 同一个红。 */
+.tool__x {
+  width: 12px;
+  height: 12px;
+}
+
+.tool__x line {
+  fill: none;
+  stroke: var(--diff-del-fg, #db5c5c);
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .tool__abort {

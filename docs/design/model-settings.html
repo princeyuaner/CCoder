@@ -305,6 +305,16 @@ table.cmp td.n { color: var(--danger); }
       方案 A/B 是另起一套自己的 UI，<b>方案 C 是复用它</b> —— 齿轮只当做个快捷入口。
       这三条路的成本差着量级，选之前值得知道。
     </p>
+    <p style="color:var(--page-dim); border-left:3px solid var(--warn); padding-left:10px">
+      <b>2026-09-15 追记：这一段现在过时了。</b>后面那一轮（<code>settings-v2.html</code>）
+      选了<b>方案 C</b>，但"复用"走的是另一条路：设置全部搬进齿轮点开那个对话框，
+      变成四个真页签（模型 / 通用 / 权限 / 环境），<code>ClaudeSettingsPanel</code>
+      连同它的 <code>&lt;projectConfigurable&gt;</code> 注册<b>一起删掉了</b> ——
+      不再有两套会互相显示陈旧值的控件。<br>
+      代价要知道：<b>IDE Settings 的搜索框里再也搜不到 CCoder</b>，
+      唯一入口是工具窗口右上角那个齿轮（它不随忙闲置灰，所以"启动失败时进不去改
+      claudePath"这条链没断）。见 <code>2026-09-13-model-profiles-design.md §7</code> 顶上那段。
+    </p>
   </div>
 
   <div class="grid">

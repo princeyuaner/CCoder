@@ -12,10 +12,15 @@
     <depends>com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <projectConfigurable
-            id="com.ccoder.settings"
-            displayName="CCoder"
-            instance="com.ccoder.settings.ClaudeSettingsPanel"/>
+        <!--
+          设置**没有**注册在这里，是刻意的（2026-09-15 删掉了那个 projectConfigurable）。
+          全部设置都在工具窗口右上角那个齿轮里（`com.ccoder.settings.SettingsDialog`，
+          四个页签：模型 / 通用 / 权限 / 环境）—— 从前这里有一页 IDE 设置，
+          与对话框各管一半字段，用户得记"哪项在哪儿"。
+
+          代价知道：IDE Settings 的搜索框里再也搜不到 CCoder。而齿轮**不随忙闲置灰**，
+          所以"启动失败时进不去改 claudePath"这条链没断（见 ClaudePanel.settingsButton）。
+        -->
 
         <toolWindow
             id="CCoder"

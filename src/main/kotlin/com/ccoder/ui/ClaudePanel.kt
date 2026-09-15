@@ -22,7 +22,7 @@ import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.ModelProfiles
 import com.ccoder.settings.PermissionModeSetting
 import com.ccoder.settings.displayName
-import com.ccoder.settings.showModelProfilesDialog
+import com.ccoder.settings.showSettingsDialog
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.openapi.Disposable
@@ -227,10 +227,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /**
      * 右上角的齿轮。造型与「＋」共用一份（见 [settingsGearButton] 与
-     * [asTopRowIconButton]）—— 同一行里两个按钮，一个有边框一个没有会很扎眼。
+     * [TopRowIconButton]）—— 同一行里两个按钮，一个有边框一个没有会很扎眼。
      *
      * **不随忙闲置灰**：它开的是设置对话框，而对话框只读写配置、不碰会话
-     * （见 [showModelProfilesDialog]），会话进行中也该能开。
+     * （见 [showSettingsDialog]），会话进行中也该能开。
      */
     private val settingsButton = settingsGearButton { openModelSettings() }
 
@@ -315,6 +315,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 懒启动（spec §7.2）：第一次发消息才起 sidecar。 */
     private var pendingFirstMessage: String? = null
 
+    /**
+     * 上面那条的**原始输入**（没展开记号的版本），只用来认标题。
+     *
+     * 单独存一份是因为 `pendingFirstMessage` 是展开后的文本 —— 里面可能是一大段
+     * 代码围栏，拿它当标题会变成「```kotlin …」。
+     */
+    private var pendingFirstMessageTitle: String? = null
+
     // ---- 补全（设计稿 §3）----
 
     /** 命令显示信息，会话就绪后拉一次。 */
@@ -341,6 +349,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 这一回合是命令回合（发出去的消息以 `/` 开头）。 */
     private var lastSendWasCommand = false
+
+    /** 排队中的输入（spec §3）。忙时回车进这里，回合结束由 [flushQueue] 发出去。 */
+    private val queue = SendQueue()
+
+    /** 排队条本体。存成字段而不是现场 new —— 刷新时要直接够得着它。 */
+    private val queueStrip = QueueStrip { removeQueued(it) }
 
     init {
         // 补全：文本变了就重算候选。用文档监听而不是按键监听 ——
@@ -374,9 +388,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 // 哪个键算发送由设置决定（聊天惯例 / 编辑器惯例，见 SendShortcut）
                 val shortcut = ClaudeSettings.getInstance(project).sendShortcut
 
-                // 回合进行中不发送：那时按钮是"停止"，发送键却另发一条会让
-                // 两者语义打架（见 mainButtonState）
-                if (busy) return
+                // 忙时**不再拦在这里**（2026-09-15 改）。从前这里是 `if (busy) return`，
+                // 理由写在 mainButtonState 上："按钮那时是停止，发送键却另发一条会让
+                // 两者语义打架"。现在不打架了：回合进行中按回车是**排队**
+                // （分岔在 sendCurrentInput 里，spec §5.2）—— 而这一行拦在前头的话，
+                // 那句话永远进不了队，整个排队功能成了死代码。
                 if (isSendKey(e.keyCode, e.isShiftDown, e.isControlDown, shortcut)) {
                     e.consume()
                     sendCurrentInput()
@@ -416,10 +432,23 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
+            // **三个子项一律左对齐**（JLabel / JPanel 的默认是 0.5 = 居中）。
+            // BoxLayout 摆不拉伸的子项用的是"加权平均对齐点"，排队条为了铺满
+            // 整行把 max 宽度开到 Short.MAX_VALUE，那一个巨大的权重会把平均值
+            // 拖向它自己 —— 结果整条带子被推到中间去（2026-09-15 探头图里
+            // 抓到：414 宽的头里它待在 x=113、宽 301）。全设成 0 之后，
+            // 平均值恒为 0，各归各位。
+            alignmentX = LEFT_ALIGNMENT
+            statusCards.alignmentX = LEFT_ALIGNMENT
             add(statusCards)
             // 卡片与输入框之间留一口气。紧贴着看时，四张卡像是输入框的一部分
-            // （而且状态卡是"常驻控件"，不是输入区里的一行）
+            // （而且状态卡是"常驻控件"，不是输入区里的一行）。strut 宽 0，
+            // 不参与对齐的加权平均，不必管它
             add(Box.createVerticalStrut(JBUI.scale(7)))
+            // 排队条紧贴输入卡：它是"还没发出去的输入"，不是状态。
+            // **直接挂成子项**，不包一层：实测 BoxLayout 会跳过不可见的子项
+            // （空队列时这一行的高度一分不占）
+            add(queueStrip)
         }
 
         // 不再单独画顶边线：输入区现在是一张圆角卡片，它自己的上沿
@@ -503,7 +532,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     // ---- 主按钮（发送 / 停止合一）----
 
     private fun refreshMainButton() {
-        sendButton.setState(mainButtonState(ready, busy, disconnected))
+        sendButton.setState(mainButtonState(ready, busy, disconnected, queued = queue.size))
     }
 
     private fun onMainButtonClick() {
@@ -511,6 +540,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             // 只中断当前回合：会话与上下文都保留，可以接着聊。
             // 用 "stop" 会销毁整个会话（见 mainButtonState 的说明）
             MainAction.Interrupt -> {
+                // 排队的一起没：队列里的还没发出去，清掉是本地动作，不必等回执
+                // （SDK 那一侧本来也没有回执，spec §2 事实 05）
+                clearQueue()
                 // sidecar 收到 interrupt 会把挂起的 canUseTool 全部 deny 掉
                 // （session.js 的 denyAllPending），界面上那些框也得跟着消失 ——
                 // 否则屏幕上留着一个"点了也没人收"的模态框
@@ -847,10 +879,44 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 标签会把一条已经删掉的配置一直显示到面板生命周期结束：用户看到的是
      * "还在用它"，实际下次开会话会退回旧字段。控件撒谎比它不好用严重
      * （[currentMode] 那条同理）。
+     *
+     * 同理还有 [applySavedSettingsToSession]：那一页现在也能改权限模式与思考深度，
+     * 而这两项的活控制本来是输入框左下角的标签 —— 在设置里改完却要等下次开会话
+     * 才生效，与标签那儿的即时手感是两套规矩。
      */
     private fun openModelSettings() {
-        showModelProfilesDialog(project)
+        showSettingsDialog(project)
         refreshModelLabel()
+        applySavedSettingsToSession()
+    }
+
+    /**
+     * 关框之后，把「权限模式」「思考深度」推到**正在跑**的会话上。
+     *
+     * 设置对话框自己只写配置、不碰会话（那条分界从模型配置那一版起就没动过），
+     * 由这里对账 —— 它已经是"关框后拉回真相"的那一处（上面那句 `refreshModelLabel`）。
+     *
+     * 判定全在 [settingsApplyPlan] 里（可单测），这里只负责接线：
+     * **两条都走标签那几个既有出口**，于是"写回设置 + 发协议 + 更新标签"三件事
+     * 仍然只有一个出处。
+     *
+     * 时机必须在 `show()` **返回之后** —— 框还占着时推出去的那条提示会被压在模态框后面。
+     */
+    private fun applySavedSettingsToSession() {
+        val s = ClaudeSettings.getInstance(project)
+        val plan = settingsApplyPlan(
+            sessionReady = ready,
+            currentMode = currentMode,
+            currentEffort = currentEffort,
+            savedMode = s.permissionMode,
+            savedEffort = s.effort,
+        )
+        if (plan.deferred) {
+            pushOp(toOp(RenderItem.SystemNote("设置已保存；权限模式与思考深度要等下次建立会话时才生效")))
+            return
+        }
+        plan.permissionMode?.let { pickPermissionMode(it) }
+        plan.effort?.let { pickEffort(it) }
     }
 
     /** 点模型标签 → 弹切换列表；再点一次 → 收起。 */
@@ -1031,6 +1097,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val block = switchBlock(busy, permissionQueue.totalPending)
         val content = buildSessionList(
             sessions, currentSessionId, block,
+            // 弹层不比这一栏宽（宽高上限见 SessionList.kt 的文件头）。
+            // width 在还没排过版时是 0，那时让默认值兜底
+            maxWidth = if (width > 0) width else JBUI.scale(SESSION_LIST_WIDTH),
             onDelete = { s -> requestDeleteSession(s) },
             onRename = { s, title -> requestRenameSession(s.sessionId, title) },
             onTag = { s, tag -> requestTagSession(s.sessionId, tag) },
@@ -1225,7 +1294,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 清空转写区。Reset 是既有操作，Kotlin 编码与 React 消费都已实现
         // 并有测试（codec.test.ts「reset 清空全部」）
         pushOp(TranscriptOp.Reset)
-        setConnection("正在载入…")
+        setConnection("载入中…")
         // 回放期间不接受输入：否则历史与实时消息会交错（spec §10 的风险项）
         setBusy(true)
 
@@ -1358,6 +1427,22 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
+     * 把刚发出去的这条消息认成会话标题（用户 2026-09-15 的要求）。
+     *
+     * 改之前：**全新会话的标签一直是斜体的「新会话」**，聊一小时也还是它 ——
+     * 那是当初刻意定的（怕把 session id 写上去像一串对不上号的 UUID），
+     * 但结果是这条会话在界面上压根没有标题。
+     *
+     * 该不该认、认成什么，判定在 [titleFromFirstMessage] 里（可单测）；
+     * 这里只负责写回去 + 重画。
+     */
+    private fun adoptTitleFrom(typedText: String) {
+        val next = titleFromFirstMessage(typedText, currentSessionTitle) ?: return
+        currentSessionTitle = next
+        refreshSessionLabel(enabled = true)
+    }
+
+    /**
      * 标签的唯一出口。
      *
      * 它显示的是 [currentMode] 与 [autoAllow] 两个字段合起来的状态，所以只留
@@ -1457,7 +1542,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             fail("项目没有 basePath，无法确定工作目录。")
             return
         }
-        setConnection("正在启动…")
+        setConnection("启动中…")
         refreshMainButton() // ready 仍为 false → 按钮显示"启动中…"并禁用
         LOG.info("CCoder 会话启动：cwd=$base")
         val epoch = ++sessionEpoch
@@ -1616,6 +1701,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         permissionQueue.cancelAll()
         closeDecisionDialogs()
         updateStatusBar()
+        // 这一次不走 stopSession（那边会碰 client / proc，而它们已经死了），
+        // 所以在这里单独清一次
+        clearQueue()
 
         val detail = sidecarExitReport(exit)
 
@@ -1626,7 +1714,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             return
         }
 
-        setConnection("会话已断开")
+        setConnection("已断开")
         ready = false
         disconnected = true
         setBusy(false)
@@ -1684,6 +1772,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         proc?.shutdown()
         proc = null
         client = null
+        // 排队的是**上一个会话**的指令。会话都没了，把它们发出去是灾难 ——
+        // 这条路径覆盖了重启 / 新建 / 切会话 / dispose 全部四个入口
+        clearQueue()
         ready = false
     }
 
@@ -1722,6 +1813,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         // 补发窗口就绪前暂存的首条消息
                         pendingFirstMessage?.let { text ->
                             pendingFirstMessage = null
+                            // 暂存过的那条就是这条会话的第一条消息 —— 标题在这儿认
+                            // （上面那个 currentSessionTitle = null 刚把它清干净）
+                            adoptTitleFrom(pendingFirstMessageTitle ?: text)
+                            pendingFirstMessageTitle = null
                             client?.sendLine(Protocol.encodeSend(nextId(), text))
                             setBusy(true)
                         }
@@ -1761,6 +1856,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         // 屏幕上的表现是「思考走到一半突然停住，过一会儿一大段
                         // 一起冒出来」。2026-09-14 的日志里躺着 4685 条超时。
                         requestContextUsage()
+
+                        // **排在最后**：这一条的 result 已经把这一回合结掉了，
+                        // 用量读的是"刚才那一回合"的数。放前面会让用量请求
+                        // 与下一条消息抢同一根管子（2026-09-14 那次事故是反例）
+                        flushQueue()
                     }
                     // init 事件里那个 model **不再写进标签**：标签现在由
                     // refreshModelLabel 填，写的是用户选中的那条配置（spec §8）。
@@ -1778,10 +1878,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         // 真正的会话 id 只在这里。**不读 ready.sessionId** ——
                         // 那个回显的是请求参数，全新会话时是 null（spec §10）。
                         //
-                        // 只记 id，**不动标签**：全新会话的标签该保持斜体的「新会话」
-                        // （设计稿 A，也是 Task 11 冒烟 6 的验收条件）。
-                        // 把 id 前 8 位写上去的话，用户看到的是一串对不上号的 UUID ——
-                        // 列表里显示的是标题，不是 id。
+                        // 只记 id，**不拿它当标题**：把 id 前 8 位写上去的话，用户看到的
+                        // 是一串对不上号的 UUID —— 列表里显示的是标题，不是 id。
+                        // 标题由 [adoptTitleFrom] 在"第一条消息发出去"那一刻认
+                        // （2026-09-15 改：从前这里什么都不做，于是全新会话的标签
+                        // 一直是斜体的「新会话」，聊一小时也还是它）。
                         msg.event.str("session_id")?.let { sid ->
                             if (isSessionSwitch(currentSessionId, sid)) {
                                 // /clear：CLI 换了会话，进程不动（设计稿 §5.2）。
@@ -1792,6 +1893,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                                 currentSessionTitle = null
                                 refreshSessionLabel(enabled = true)
                                 refreshSessionList()
+                                // /clear 之后上下文也归零：不清的话这一格会一直
+                                // 挂着上一个对话的读数
+                                lastUsage = null
                                 pushOp(toOp(RenderItem.SystemNote("上下文已清空，这是一条新会话")))
                             }
                             // 当前会话指针以 init 里的 id 为准，**不以会话列表为准**
@@ -1810,7 +1914,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     pushOp(toOp(RenderItem.ErrorItem(failureHint(msg.code, msg.message))))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
-                        setConnection("会话已断开")
+                        setConnection("已断开")
                         ready = false
                         disconnected = true
                         setBusy(false)
@@ -1902,7 +2006,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 -> Unit
 
                 is SidecarMessage.Exit -> {
-                    setConnection("会话已结束")
+                    setConnection("已结束")
                     ready = false
                     setBusy(false)
                     refreshMainButton()
@@ -2284,13 +2388,30 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun sendCurrentInput() {
         if (input.text.isBlank()) return
 
+        // 用户敲进去的原样。标题取的是**它**，不是下面展开后的文本 ——
+        // 展开会把记号变成一大段代码，拿它当标题就成了「```kotlin …」
+        val typed = input.text.trim()
+
         // 记号在这一刻展开：输入框里只是「一行记号」，发出去的是路径 + 围栏 + 代码全文。
         // 展开放在**清空输入框之前**，而清空之后表也一起清掉 —— 记号已经不在文本里了，
         // 留着它只会随会话越攒越大
-        val text = snippetRefs.expand(input.text.trim())
+        val text = snippetRefs.expand(typed)
 
         input.text = ""
         snippetRefs.clear()
+
+        // 忙时入队（spec §5.2）—— 不回退成"什么都不做"：用户敲的这句话本来就该
+        // 有个去处。**不推转写区**：它还没发出去，而转写区是"跟模型说过什么"的
+        // 记录（spec §4）。发出去的那一刻才补一条 [RenderItem.UserText]。
+        //
+        // 未就绪时 busy 恒为 false（mainButtonState 那时给的是「启动中…」，
+        // fail 与 onSidecarDied 都会 setBusy(false)），所以与下面那条路不会同时命中。
+        if (busy) {
+            queue.enqueue(text, typed)
+            refreshQueueStrip()
+            return
+        }
+
         pushOp(toOp(RenderItem.UserText(text)))
 
         if (!ready) {
@@ -2302,19 +2423,75 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             // 消息暂存，就绪后由 Ready 分支补发 —— 若此处直接丢弃，
             // 用户点第一次"发送"时会看到消息出现却毫无反应。
             pendingFirstMessage = text
+            // 标题取用户敲的那份（见上面 typed），暂存着等 Ready 之后一起认
+            pendingFirstMessageTitle = typed
             refreshMainButton()
             startSession()
             return
         }
 
+        sendNow(text, typed)
+    }
+
+    /**
+     * 真正把一条消息发出去。**直接发与排队后发唯一的出口**（spec §5.1）。
+     *
+     * 这五步都必须发生在**发送那一刻**，不能提前到入队那一刻：
+     * - [adoptTitleFrom]：标题取用户敲的原样。排队时就认，等于让一条还没发出去、
+     *   还可能被撤掉的消息改掉会话标题
+     * - `lastSendWasCommand`：命令回合的判据是"发出去的是什么" ——
+     *   命令的空输出不该画气泡（设计稿 §5.1），实测 `result.local_command` 恒为 null
+     * - [setBusy] / [setActivity]：它们描述的是"现在在跑"，而排队中并没有在跑
+     *
+     * 标题必须**紧挨着发送**认下来，不能提前到上面：会话还没就绪时 startSession()
+     * 之后 Ready 分支会把标题清成 null，提前认的那一次会被它抹掉。
+     */
+    private fun sendNow(text: String, typed: String) {
+        adoptTitleFrom(typed)
         client?.sendLine(Protocol.encodeSend(nextId(), text))
-        // 记住这一回合是不是命令 —— 命令的空输出不该画气泡（设计稿 §5.1）。
-        // 判据只能用"发出去的是什么"：实测 result.local_command 恒为 null
         lastSendWasCommand = text.startsWith("/")
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
         // 第一口 token 可能要等几秒，这期间卡上写"已连接"是句假话
         setActivity(ACTIVITY_WAITING)
+    }
+
+    /**
+     * 回合结束，把队首发出去。**一次只发一条**（spec §5.3）——
+     * 它的 result 到了再发下一条：顺序天然正确，也不会两条挤进同一回合。
+     */
+    private fun flushQueue() {
+        val next = queue.peek() ?: return
+        queue.remove(next)
+        // 先重画再发：sendNow 里的 setBusy(true) 会连带刷按钮，
+        // 而按钮的文案里带着队列条数 —— 顺序反了它会拿着旧数字去刷
+        refreshQueueStrip()
+        pushOp(toOp(RenderItem.UserText(next.text)))
+        sendNow(next.text, next.typed)
+    }
+
+    /** ✕ 撤回单条。撤掉的那条从没进过转写区，所以它不留痕迹（spec §5.4）。 */
+    private fun removeQueued(item: QueuedInput) {
+        if (queue.remove(item)) refreshQueueStrip()
+    }
+
+    /**
+     * 清空队列（停止 / 断线 / 切会话 / 重启）。
+     *
+     * **这是唯一的清空出口**：漏一条路，上一段会话排着的指令就会被发进新会话里。
+     */
+    private fun clearQueue() {
+        if (queue.drain().isEmpty()) return
+        refreshQueueStrip()
+    }
+
+    /**
+     * 排队条的唯一写入口。顺带刷按钮 —— 它的文案里有"会清掉几条"。
+     */
+    private fun refreshQueueStrip() {
+        // 可见性跟着模型走，由 QueueStrip 自己收边（见那里的说明）
+        queueStrip.setModel(queueStripModel(queue))
+        refreshMainButton()
     }
 
     /**

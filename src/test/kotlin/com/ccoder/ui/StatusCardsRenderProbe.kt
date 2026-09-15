@@ -33,12 +33,12 @@ class StatusCardsRenderProbe {
      * **最长的那条连接文字**单独出一张。
      *
      * 每张卡在 420px 里只有约 81px，减掉状态点只剩 70px —— 而
-     * "正在载入…"有七个字。这条不单独看的话，"放不下被截成
+     * "载入中…"有七个字。这条不单独看的话，"放不下被截成
      * 正在载入…"要等装到 IDE 里才发现。
      */
     @Test
     fun `把最长的连接文字画成图片`() =
-        render("build/status-cards-probe-longstatus.png", busy = true, connectionText = "正在载入…")
+        render("build/status-cards-probe-longstatus.png", busy = true, connectionText = "载入中…")
 
     /**
      * **还没测到用量**那一版单独出一张。
@@ -80,7 +80,7 @@ class StatusCardsRenderProbe {
                     if (activity != null) {
                         activityCardOf(activity)
                     } else {
-                        connectionCardOf(connectionText ?: if (busy) "已连接" else "会话已断开")
+                        connectionCardOf(connectionText ?: if (busy) "已连接" else "已断开")
                     }
                 )
                 context.setModel(

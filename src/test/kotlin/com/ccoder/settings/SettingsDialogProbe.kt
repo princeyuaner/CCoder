@@ -16,6 +16,7 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.lang.reflect.Proxy
 import javax.imageio.ImageIO
+import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -39,24 +40,44 @@ private class MemoryStore(private val seed: Map<String, String> = emptyMap()) : 
 }
 
 /**
- * 一个只应答 `getService` 的 Project 替身。
+ * 一个只应答 `isDisposed` 的 Project 替身。
  *
- * 对话框问 Project 的只有一句：`ClaudeSettings` 的 `envOverrides`。测试 JVM 里
- * 没有 IDE，起不了真的 Project，而为了这一句去 mock 七十个方法不值当。
+ * 2026-09-15 之前这里还得应答 `getService` —— 那时对话框自己去
+ * `ClaudeSettings.getInstance(project)` 捞设置。改成**由调用方注入**之后，
+ * Project 只剩一个身份，服务全部从参数进来：探针于是能精确控制七个字段的初值，
+ * 而不是被一个"每次都新建"的替身糊弄。
+ *
+ * `isDisposed` 是给 `DialogWrapper(project)` 那条路准备的：代理的 `else -> null`
+ * 落在 boolean 返回类型上会直接 NPE。
  */
-private fun fakeProject(envOverrides: Map<String, String> = emptyMap()): Project =
+private fun fakeProject(): Project =
     Proxy.newProxyInstance(
         Project::class.java.classLoader,
         arrayOf(Project::class.java),
     ) { _, method, _ ->
         when (method.name) {
-            "getService" -> ClaudeSettings().apply { this.envOverrides = envOverrides.toMutableMap() }
+            "isDisposed" -> false
             "toString" -> "probe project"
             "hashCode" -> 0
             "equals" -> false
             else -> null
         }
     } as Project
+
+/** 一份可以随便写的设置。放进来的值就是探针里那几个字段的初值。 */
+private fun settingsWith(
+    envOverrides: Map<String, String> = emptyMap(),
+    claudePath: String = "",
+    model: String = "",
+    extraDirs: List<String> = emptyList(),
+    permissionMode: PermissionModeSetting = PermissionModeSetting.DEFAULT,
+): ClaudeSettings = ClaudeSettings().apply {
+    this.claudePath = claudePath
+    this.model = model
+    this.envOverrides = envOverrides.toMutableMap()
+    this.extraDirs = extraDirs.toMutableList()
+    this.permissionMode = permissionMode
+}
 
 /** 离屏组件收不到真事件，直接喊监听器 —— 走的是组件上真挂的那个。 */
 private fun clickOn(target: Component) {
@@ -88,7 +109,16 @@ private fun inputOf(root: Container, label: String): JComponent {
     return panel.components.filterIsInstance<JComponent>().first { it !== lab }
 }
 
+/**
+ * 摆版。**`invalidate()` 不能少** —— 这一条是 2026-09-15 补上的。
+ *
+ * 未上屏的层级里 `revalidate()` 不会往上传播，`BoxLayout` 把尺寸算在容器的
+ * `layoutSerial` 上、缓存不作废，于是量到的是**旧高度**。四页签之前这个探针
+ * 没撞上（一次装完就画），切页之后它是最容易出的事 —— 症状是"新挂上去的页
+ * 在 PNG 上是空的"，而单测全绿。同 `AskQuestionRenderProbe.layOutAll`。
+ */
 private fun layoutAll(c: Container) {
+    c.invalidate()
     c.doLayout()
     for (child in c.components) {
         if (child is Container) layoutAll(child)
@@ -109,16 +139,17 @@ private fun writePng(c: Container, w: Int, h: Int, path: String) {
  * 渲染探针：把设置对话框离屏画成 PNG，好让人眼看一眼。
  *
  * 没有断言，也不该有 —— 单测钉得住"字段顺序对不对""有没有写回 ModelProfiles"，
- * 钉不住"860px 里 Base URL 折没折行""左页签只放一项空不空"。而后者正是选方案 A
- * 的**全部理由**，不该只靠信念。要断言的看下面那个类。
+ * 钉不住"860px 里 Base URL 折没折行""两栏是不是叠上了"。而后者只有看图才知道：
+ * 2026-09-15 那天就是靠它看出**底部一颗按钮都没画**（`closeAction` 声明在 `init`
+ * 之后，那一刻还是 null）和表单栏压过列表栏 24px —— 两处单测都是绿的。
  *
- * 对话框是**真的**：`ModelProfilesDialog` 的实例、`createCenterPanel()` 的产物、
+ * 对话框是**真的**：`SettingsDialog` 的实例、`createCenterPanel()` 的产物、
  * 连"点列表行"都走真实的 `mouseClicked` 监听器，不是照着布局重画一份。
  * 唯一替身是 Project（测试 JVM 里起不了真的）。
  *
  * 产物在 `build/probe/model-profiles-dialog*.png`。改了设置页的观感就跑一下看一眼。
  */
-class ModelProfilesDialogProbe {
+class SettingsDialogProbe {
 
     /** 设计稿里的三条，外加一条超长 Base URL —— 折行只在最长的那条上才看得见。 */
     private val deepseek = ModelProfile(
@@ -211,14 +242,88 @@ class ModelProfilesDialogProbe {
         clicking = "DeepSeek",
     )
 
+    // ---- 另外三页（2026-09-15 四页签）----
+
+    /**
+     * 通用页。四项都填上东西 —— 空着的话「浏览」按钮、下拉的宽度对不对都看不出来。
+     */
+    @Test
+    fun `把通用页画成图片`() = render(
+        "build/probe/settings-general.png",
+        claudePath = "C:\\Users\\CY\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\claude.exe",
+        model = "claude-sonnet-5",
+        page = "通用",
+    )
+
+    /** 权限页。默认停在「标准」上 —— 这也是新用户点开看到的那一眼。 */
+    @Test
+    fun `把权限页画成图片`() = render(
+        "build/probe/settings-permission.png",
+        page = "权限",
+    )
+
+    /**
+     * 停在**需要确认**的那个模式上。
+     *
+     * 为什么非要有这一张：那个「我明白风险」的复选框只在绕过模式下**才存在**，
+     * 而"它到底出没出来、出来了会不会把说明挤掉"只有图上看得见。
+     */
+    @Test
+    fun `把需要确认的权限画成图片`() = render(
+        "build/probe/settings-permission-bypass.png",
+        permissionMode = PermissionModeSetting.BYPASS_PERMISSIONS,
+        page = "权限",
+    )
+
+    /**
+     * **选了绕过、但还没勾确认**的那一帧。
+     *
+     * 这一帧是新来的：即时保存之后，选中绕过会被立刻降级，而下拉**留在绕过上**
+     * （拉回去就等于把复选框也藏了，用户再没地方勾）。于是"下拉说绕过、实际跑标准"
+     * 这个中间状态真实存在 —— 全靠那行说明把话说清，值不值得信得看一眼。
+     */
+    @Test
+    fun `把还没确认的绕过权限画成图片`() = render(
+        "build/probe/settings-permission-unconfirmed.png",
+        permissionMode = PermissionModeSetting.BYPASS_PERMISSIONS,
+        pickMode = PermissionModeSetting.BYPASS_PERMISSIONS,
+        uncheckOptIn = true,
+        page = "权限",
+    )
+
+    /**
+     * 环境页。两张表都填了几行、并且**故意留一把会被配置覆盖的键** ——
+     * 顶部那句冲突提示与表的行高，只有这张图上看得出来。
+     */
+    @Test
+    fun `把环境页画成图片`() = render(
+        "build/probe/settings-environment.png",
+        envOverrides = mapOf(
+            "ANTHROPIC_BASE_URL" to "https://old.example.com",
+            "MY_OWN_VAR" to "keep-me",
+        ),
+        extraDirs = listOf("D:\\shared-libs", "C:\\Users\\CY\\notes"),
+        page = "环境",
+    )
+
     private fun render(
         path: String,
-        profiles: List<ModelProfile>,
+        profiles: List<ModelProfile> = emptyList(),
         secrets: Map<String, String> = emptyMap(),
         envOverrides: Map<String, String> = emptyMap(),
+        claudePath: String = "",
+        model: String = "",
+        extraDirs: List<String> = emptyList(),
+        permissionMode: PermissionModeSetting = PermissionModeSetting.DEFAULT,
+        /** 进框之后在权限页的下拉里再选一次。用来画"选了但还没确认"那一帧。 */
+        pickMode: PermissionModeSetting? = null,
+        /** 把「我明白风险」那个勾去掉 —— `reload()` 会照 settings 勾上，得手动反悔一次。 */
+        uncheckOptIn: Boolean = false,
         selected: String? = null,
         clicking: String? = null,
         revealSecret: Boolean = false,
+        /** 停在哪个页签上。默认是「模型」—— 齿轮点开就落在那儿。 */
+        page: String = "模型",
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -226,7 +331,25 @@ class ModelProfilesDialogProbe {
                 profiles.forEach { upsert(it) }
                 select(selected)
             }
-            val dialog = ModelProfilesDialog(fakeProject(envOverrides), service)
+            val settings = settingsWith(envOverrides, claudePath, model, extraDirs, permissionMode)
+            val dialog = SettingsDialog(fakeProject(), settings, service)
+
+            // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()
+            if (page != "模型") clickTab(dialog.contentPanel, page)
+            // 注意：这一段本来就跑在 EDT 上（render 整个包在 invokeAndWait 里），
+            // 里面**不能**再 invokeAndWait —— 会抛 "Cannot call invokeAndWait from
+            // the event dispatcher thread"，看起来像探针坏了，其实是自己套自己
+            if (uncheckOptIn) {
+                val box = findFirst(dialog.contentPanel) { it is JCheckBox } as? JCheckBox
+                    ?: error("找不到那个风险确认框")
+                // doClick 而不是 isSelected=false：只有前者会发 ActionEvent（挂在它上面）
+                box.doClick()
+            }
+            if (pickMode != null) {
+                val combo = findFirst(dialog.contentPanel) { it is JComboBox<*> } as? JComboBox<Any>
+                    ?: error("权限页没有下拉框")
+                combo.selectedItem = pickMode
+            }
 
             // 点列表行走的是真的监听器：不是照着布局重画，是让对话框自己把表单填起来
             clicking?.let { clickRow(dialog.contentPanel, it) }
@@ -236,16 +359,22 @@ class ModelProfilesDialogProbe {
                 clickOn(eye)
             }
 
-            val w = 860
-            val h = 540
+            val w = DIALOG_WIDTH
+            val h = DIALOG_HEIGHT
             val pane = dialog.contentPane ?: dialog.contentPanel
             pane.setSize(w, h)
             layoutAll(pane)
 
-            // 首选尺寸是给报告用的：三栏加起来够不够 860，打字看宽度就知道
+            // 首选尺寸是给报告用的：几栏加起来够不够 860，打字看宽度就知道
             println("probe: $path 内容区首选尺寸 ${dialog.contentPanel.preferredSize.width} x ${dialog.contentPanel.preferredSize.height}")
             writePng(pane, w, h, path)
         }
+    }
+
+    /** 点页签。监听器挂在页签那个 JBLabel 上，所以直接喊它。 */
+    private fun clickTab(root: Container, title: String) {
+        val label = findLabel(root, title) ?: error("页签栏里找不到「$title」")
+        clickOn(label)
     }
 
     private fun clickRow(root: Container, displayName: String) {
@@ -267,7 +396,7 @@ class ModelProfilesDialogProbe {
  * 「认证方式」那个下拉与密钥框的打码也归这里 —— 两者都是"控件状态 → 落盘/显示"
  * 这类单看代码看不出对错的接线（见各自用例上的说明）。
  */
-class ModelProfilesDialogSaveTest {
+class SettingsDialogSaveTest {
 
     private val p1 = ModelProfile(
         id = "p1",
@@ -282,25 +411,25 @@ class ModelProfilesDialogSaveTest {
     private fun openOn(
         store: MemoryStore,
         vararg profiles: ModelProfile,
-    ): Pair<ModelProfilesDialog, ModelProfiles> {
-        lateinit var dialog: ModelProfilesDialog
+    ): Pair<SettingsDialog, ModelProfiles> {
+        lateinit var dialog: SettingsDialog
         lateinit var service: ModelProfiles
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
-            dialog = ModelProfilesDialog(fakeProject(), service)
+            dialog = SettingsDialog(fakeProject(), settingsWith(), service)
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }
         return dialog to service
     }
 
-    private fun listRowFor(dialog: ModelProfilesDialog, name: String): Component {
+    private fun listRowFor(dialog: SettingsDialog, name: String): Component {
         var c: Component? = findLabel(dialog.contentPanel, name) ?: error("列表里没有「$name」")
         while (c != null && c.mouseListeners.isEmpty()) c = c.parent
         return c ?: error("「$name」那一行上没有监听器")
     }
 
     /** 字段下面那个文本框。API Key 那格外面套了一层（装眼睛），所以往里再找一层。 */
-    private fun fieldOf(dialog: ModelProfilesDialog, label: String): JTextComponent {
+    private fun fieldOf(dialog: SettingsDialog, label: String): JTextComponent {
         val input = inputOf(dialog.contentPanel, label)
         return input as? JTextComponent
             ?: findFirst(input, { it is JTextComponent }) as? JTextComponent
@@ -313,7 +442,7 @@ class ModelProfilesDialogSaveTest {
      * 不能走 [fieldOf] —— 它只回第一个，而这里的每个模型各占一行。外面套了一层
      * 滚动框（限高用），所以得往里走。
      */
-    private fun modelFields(dialog: ModelProfilesDialog): List<JTextComponent> {
+    private fun modelFields(dialog: SettingsDialog): List<JTextComponent> {
         val out = mutableListOf<JTextComponent>()
         fun walk(c: Container) {
             for (child in c.components) {
@@ -331,7 +460,7 @@ class ModelProfilesDialogSaveTest {
      * 比较的是**局部坐标**：两行的宽度一样，所以 ✕ 的 x 只差在它左边那个
      * 〔使用中〕占位有多宽 —— 正是要钉的那个东西。
      */
-    private fun deleteButtonXs(dialog: ModelProfilesDialog): List<Int> {
+    private fun deleteButtonXs(dialog: SettingsDialog): List<Int> {
         val out = mutableListOf<Int>()
         SwingUtilities.invokeAndWait {
             layoutAll(dialog.contentPanel)
@@ -347,7 +476,7 @@ class ModelProfilesDialogSaveTest {
     }
 
     /** 字段下面那个下拉。 */
-    private fun comboOf(dialog: ModelProfilesDialog, label: String): JComboBox<*> =
+    private fun comboOf(dialog: SettingsDialog, label: String): JComboBox<*> =
         inputOf(dialog.contentPanel, label) as? JComboBox<*>
             ?: error("「$label」下面不是下拉框")
 
@@ -358,12 +487,12 @@ class ModelProfilesDialogSaveTest {
      * （`DocumentAdapter` 两个都接），而真人逐字输入一次只发一个。
      * 要数事件个数就用 [appendChar]。
      */
-    private fun type(dialog: ModelProfilesDialog, label: String, text: String) {
+    private fun type(dialog: SettingsDialog, label: String, text: String) {
         SwingUtilities.invokeAndWait { fieldOf(dialog, label).text = text }
     }
 
     /** 在末尾敲一个字符 —— 一次事件，跟真人敲一下一样。 */
-    private fun appendChar(dialog: ModelProfilesDialog, label: String, c: String) {
+    private fun appendChar(dialog: SettingsDialog, label: String, c: String) {
         SwingUtilities.invokeAndWait {
             val doc = fieldOf(dialog, label).document
             doc.insertString(doc.length, c, null)

@@ -2,12 +2,15 @@ package com.ccoder.ui
 
 import com.ccoder.sidecar.SessionInfo
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.Rectangle
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
@@ -20,10 +23,40 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JTextField
+import javax.swing.ScrollPaneConstants
+import javax.swing.Scrollable
 import javax.swing.SwingUtilities
 
-/** 行尾删除按钮的字符。实现与测试共用，免得两边各写一个字符然后漂移。 */
-internal const val DELETE_MARK = "✕"
+/**
+ * 行尾删除按钮上写什么。
+ *
+ * **2026-09-15 从 `✕` 改成文字「删除」。** 用户原话：「删除按钮看不见也需要优化，
+ * 按钮直接叫文字的 删除就好了」。`✕` 是一条被走过两遍的路（悬停才浮出 → 常驻
+ * 半透明 → 常驻三档强调），每一遍都在同一个点上不够：**它得先被认出来是个删除**。
+ * 文字没有这个成本，代价是宽 26px 而不是 16px —— 宽度现在由 [SESSION_LIST_WIDTH]
+ * 钉住，那 10px 从标题那儿出。
+ *
+ * 实现与测试共用这一个常量，免得两边各写一份然后漂移。
+ */
+internal const val DELETE_TEXT = "删除"
+
+/**
+ * 弹层宽度上限（未缩放 px）。
+ *
+ * 弹层宽度**原先没有上限**：由最长那条标题撑出来 —— 实测 731px，而工具窗口
+ * 只有 420px。跟 [SESSION_LIST_MAX_ROWS] 一起，是设计稿
+ * `docs/design/session-list-v2.html` 方案 A 的两条。
+ */
+internal const val SESSION_LIST_WIDTH = 420
+
+/**
+ * 一屏最多几行，多出来的滚。
+ *
+ * 高度原先同样没有上限：77 个会话 = 1702px，而弹层**不能滚** —— 下半截落在
+ * 屏幕外，点都点不到（`popupAnchorY` 那条"上下都放不下就贴屏幕顶"的分支就是
+ * 为这种情况写的）。10 行 ≈ 220px。
+ */
+internal const val SESSION_LIST_MAX_ROWS = 10
 
 /** 没有标签时那个入口上写什么。淡色的加号，点一下就地打标签。 */
 internal const val TAG_EMPTY_MARK = "＋"
@@ -61,10 +94,15 @@ private class ConfirmSlot {
  * 排布是单行紧凑（设计稿 A）：标题在左可伸缩，时间在右不参与收缩 ——
  * 时间被挤掉的话排序就看不出来了。
  *
+ * **宽高都钉住**（2026-09-15，设计稿 `session-list-v2.html` 方案 A）：
+ * 宽不超过 [maxWidth]，高不超过 [SESSION_LIST_MAX_ROWS] 行 —— 超了就滚。
+ * 这两条治的是实测出来的两个数：弹层宽 731px（由最长标题撑的）、
+ * 高 1702px（77 个会话 × 22px），而它当时**既不能滚也装不下**。
+ *
  * [block] 非 None 时**整列不可点**，并在顶部显示一句拦住的原因。
  * 拦住而不是静默忽略：点不动的东西容易被当成 bug（spec §5.1）。
  *
- * 悬停到一行时行尾浮出 [DELETE_MARK]，点了原地变成问句（设计稿 §二 A、§三 A）。
+ * 行尾的 [DELETE_TEXT] 点了原地变成问句（设计稿 §二 A、§三 A）。
  * [onDelete] 只在用户**确认之后**才被调用。
  *
  * 当前会话那个勾用的是 [MARK] —— 与权限模式列表共用同一个常量，
@@ -74,6 +112,11 @@ internal fun buildSessionList(
     sessions: List<SessionInfo>,
     currentSessionId: String?,
     block: SwitchBlock,
+    /**
+     * 调用方那栏现在有多宽。弹层不比它宽（见 [SESSION_LIST_WIDTH]）——
+     * 面板被拖窄了，弹层跟着窄，不能反过来溢出去。
+     */
+    maxWidth: Int = JBUI.scale(SESSION_LIST_WIDTH),
     // onDelete / onRename / onTag 刻意排在 onPick **前面**：Kotlin 的尾随 lambda
     // 绑的是最后一个参数，加在后面的话，所有既有的 `buildSessionList(s, id, block) { ... }`
     // 会**静默地**从"选中回调"变成别的什么 —— 点了会话什么都不发生，而且不报错。
@@ -83,11 +126,7 @@ internal fun buildSessionList(
     onTag: (SessionInfo, String?) -> Unit = { _, _ -> },
     onPick: (SessionInfo) -> Unit = {},
 ): JComponent {
-    val root = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        isOpaque = false
-        border = JBUI.Borders.empty(4, 4)
-    }
+    val root = ListColumn().apply { border = JBUI.Borders.empty(4, 4) }
 
     switchBlockNotice(block)?.let { root.add(noticeRow(it)) }
 
@@ -114,7 +153,60 @@ internal fun buildSessionList(
             )
         )
     }
-    return root
+
+    // 宽：**必须显式钉住**。行里的标题没有上限，`preferredSize` 会一路长到
+    // 标题那么宽（实测 731px）。钉住之后行会被压到列的宽度，标题自己打省略号。
+    val width = minOf(root.preferredSize.width, maxWidth, JBUI.scale(SESSION_LIST_WIDTH))
+
+    // 高：行高按**排出来的那一行**量，不写死 22 —— 字体与缩放下它不是常数
+    val rowH = root.components.last().preferredSize.height
+    val cap = rowH * SESSION_LIST_MAX_ROWS + root.insets.top + root.insets.bottom
+    val height = root.preferredSize.height
+    if (height <= cap) {
+        root.preferredSize = Dimension(width, height)
+        return root
+    }
+    return scrolledList(root, width, cap)
+}
+
+/**
+ * 超高的那一版：套一层滚动。**只有超了才套** —— 会话少的时候（最常见）保持
+ * 原来的组件结构，少一层壳，探针与测试也不用都跟着往里挖一层。
+ */
+private fun scrolledList(column: JPanel, width: Int, height: Int): JComponent =
+    JBScrollPane(column).apply {
+        border = JBUI.Borders.empty()
+        isOpaque = false
+        viewport.isOpaque = false
+        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+        preferredSize = Dimension(width, height)
+    }
+
+/**
+ * 一列会话行。
+ *
+ * 与普通 `JPanel` 的唯一差别：塞进视口后**宽度跟着视口走**
+ * （[getScrollableTracksViewportWidth]）。不这样的话，滚动条一出现，
+ * 视口就比这一列窄 ~10px，而右边被切掉的正好是行尾那个「删除」。
+ */
+private class ListColumn : JPanel(), Scrollable {
+    init {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+    }
+
+    override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+
+    override fun getScrollableUnitIncrement(r: Rectangle?, orientation: Int, direction: Int): Int =
+        JBUI.scale(16)
+
+    override fun getScrollableBlockIncrement(r: Rectangle?, orientation: Int, direction: Int): Int =
+        maxOf(1, (r?.height ?: 0) - JBUI.scale(16))
+
+    override fun getScrollableTracksViewportWidth(): Boolean = true
+
+    override fun getScrollableTracksViewportHeight(): Boolean = false
 }
 
 private fun sessionRow(
@@ -191,18 +283,20 @@ private fun sessionRow(
         toolTipText = if (session.tag.isNullOrBlank()) "给这个会话打个标签" else "改标签"
     }
 
-    // ✕ 藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
+    // 按钮藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
     // 监听器在下面函数定义之后再挂 —— Kotlin 的局部函数不支持前向引用
-    val deleteButton = JButton(DELETE_MARK).apply {
+    val deleteButton = JButton(DELETE_TEXT).apply {
         // **常驻可见**，不再"悬停才浮出来"。
         //
-        // 设计稿 §二 A 选的是悬停才出现（列表最干净），但实测反馈**两轮**
-        // "看不清楚" —— 悬停才出来的东西，人根本没机会看清它是什么；
-        // 第一轮我只改了颜色和字号，没动这个行为，所以没解决问题。
+        // 设计稿 §二 A 选的是悬停才出现（列表最干净），但实测反馈**三轮**：
+        // 悬停才出来 → "看不清楚"；改成常驻的 `✕` → 还是"看不见"；
+        // 2026-09-15 用户给了答案：「按钮直接叫文字的 删除就好了」——
+        // 卡着的从来不是显不显眼，而是**它得先被认出来是个删除**。
         //
-        // 现在的层次是：平时次要色（列表仍然安静）→ 指针到这一行上提亮 →
+        // 字号就是标签字号（`✕` 那版是 +2f）：文字不需要放大就有存在感，
+        // 放大反而会盖过标题。层次仍靠颜色：平时次要色 → 指针到这一行上提亮 →
         // 停在按钮上时变红并长出一个真的按钮框（危险信号 + 可点 affordance）。
-        font = base.deriveFont(base.size2D + 2f)
+        font = base
         foreground = UIUtil.getInactiveTextColor()
         isContentAreaFilled = false
         isBorderPainted = false
@@ -237,7 +331,9 @@ private fun sessionRow(
 
     val deleteSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
-        preferredSize = JBUI.size(16, base.size)
+        // 宽度按按钮自己量：文字比 `✕` 宽（26 对 16）——写死一个数的话，
+        // 换字体/换语言时又会对不上，而这槽的意义就是"勾/按钮怎么变，时间都不跳"
+        preferredSize = Dimension(deleteButton.preferredSize.width, base.size)
         add(deleteButton, BorderLayout.WEST)
     }
 

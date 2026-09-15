@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { memo, useMemo, useState, type KeyboardEvent } from 'react'
 import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
@@ -10,7 +10,8 @@ import { toolCommand, toolDelta, toolDiff, toolFile, toolParams, toolTitle } fro
  *
  * 折叠只有**一层**：卡片收着，点开后命令、diff、输出直接铺开。
  * 默认收着 —— 2026-09-14 一度改为默认展开，当天又按用户要求收回：
- * 「显示描述和操作的对应文件即可」。失败那张仍会自动弹开。
+ * 「显示描述和操作的对应文件即可」。**失败也收着**（2026-09-15 按用户要求
+ * 去掉自动弹开）：卡面上一个红 ✗ 就够，要看输出自己点开。
  *
  * 卡面只留一行：Bash 给摘要（Claude 的 description），文件类工具给文件名 ——
  * 名字**可点**，点了在编辑器里打开；真正的命令原文、diff、输出都在展开体里。
@@ -60,16 +61,11 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   // 只有"进行中"才走表：完成态的耗时在回放里算不准（见 elapsed.ts）
   const elapsed = useElapsed(state === 'running')
 
-  // 失败的自动展开：失败正是要立刻看到的东西，让人点开去找等于没显示。
-  // 其余默认收着（2026-09-14 按用户要求从"默认展开"改回）
-  const [open, setOpen] = useState(matched?.isError === true)
+  // 一律默认收着，**失败也不弹开**（2026-09-15 按用户要求改的，原先是失败自动
+  // 展开）：失败要说的只是"这次没成"，卡面那个红 ✗ 已经说完了；输出是细节，
+  // 想看的人自己点开。
+  const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
-
-  // live 路径下结果比调用晚到。失败的结果到点时把卡片弹开 ——
-  // 这个 effect 只在"是否失败"变化时跑，用户手动收起后不会被它顶开
-  useEffect(() => {
-    if (matched?.isError) setOpen(true)
-  }, [matched?.isError])
 
   // 从 item.input 派生的一切：只随参数变。六个函数各自 JSON.parse 一遍参数，
   // Write/Edit 还要按行切出 diff —— 卡片因任何原因重渲染（结果到达、收起展开）
@@ -163,14 +159,27 @@ export const ToolCallBlock = memo(function ToolCallBlock({
             {delta.del > 0 && <span className="tool__del">−{delta.del}</span>}
           </span>
         )}
-        {matched?.isError && <span className="tool__fail">失败</span>}
-
         {/* 状态位：固定在最右，图形尺寸一致，切换时不让标题左右抖 */}
         <span className="tool__status">
           {state === 'running' && <span className="spin" data-testid="tool-running" />}
           {state === 'done' && (
             <svg className="tool__check" data-testid="tool-done" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M3.5 8.5l3 3 6.5-7.5" />
+            </svg>
+          )}
+          {/* ✗ 不设 aria-hidden：它替换掉的是原先那截能读出来的「失败」文字，
+              盖上就成了纯装饰。⊘ 那边是既有问题，不在这里顺手改 */}
+          {state === 'failed' && (
+            <svg
+              className="tool__x"
+              data-testid="tool-failed"
+              viewBox="0 0 16 16"
+              role="img"
+              aria-label="失败"
+            >
+              <title>失败</title>
+              <line x1="4.6" y1="4.6" x2="11.4" y2="11.4" />
+              <line x1="11.4" y1="4.6" x2="4.6" y2="11.4" />
             </svg>
           )}
           {state === 'aborted' && (

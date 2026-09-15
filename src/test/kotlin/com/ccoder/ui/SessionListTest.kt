@@ -1,6 +1,8 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SessionInfo
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -46,7 +48,7 @@ class SessionListTest {
     /**
      * 列表里挂了鼠标点击响应的**行**。
      *
-     * 只看列表的直接子项：行内部还有别的交互子件（悬停用的 ✕），
+     * 只看列表的直接子项：行内部还有别的交互子件（行尾的删除按钮），
      * 递归扫会把它们也数进来，"哪几行可点"就测不准了。
      */
     private fun clickableRows(root: Container): List<Component> =
@@ -190,9 +192,9 @@ class SessionListTest {
         return out
     }
 
-    /** 一行的 ✕。列表里每行一个，按顺序取。 */
+    /** 一行的删除按钮。列表里每行一个，按顺序取。 */
     private fun deleteButtonOf(list: JComponent, index: Int) =
-        buttonsIn(list).filter { it.text == DELETE_MARK }[index]
+        buttonsIn(list).filter { it.text == DELETE_TEXT }[index]
 
     private fun hover(component: Component, entered: Boolean) {
         component.dispatchEvent(
@@ -205,15 +207,17 @@ class SessionListTest {
     }
 
     @Test
-    fun `✕ 常驻可见，悬停时提亮`() {
-        // 设计稿 §二 A 选的是"悬停才出现"（列表最干净），但实测反馈**两轮**
-        // "看不清楚" —— 悬停才出来的东西，人根本没机会看清它是什么。
-        // 所以改成常驻。这条守的就是"不悬停也看得见"，别再改回去。
+    fun `删除按钮常驻可见，悬停时提亮`() {
+        // 设计稿 §二 A 选的是"悬停才出现"（列表最干净），但实测反馈**三轮**：
+        // 悬停才出来 → "看不清楚"；常驻的半透明 `✕` → 还是"看不见"；
+        // 2026-09-15 用户给了答案：**写「删除」两个字**。
+        // 这条守的就是"不悬停也看得见、而且认得出来"，别再改回去。
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
         val row = list.components.filterIsInstance<JComponent>()[0]
         val x = deleteButtonOf(list, 0)
 
-        assertTrue(x.isVisible, "没悬停时也该看得见 ✕")
+        assertEquals(DELETE_TEXT, x.text, "按钮上是字，不是一个符号")
+        assertTrue(x.isVisible, "没悬停时也该看得见")
 
         val calm = x.foreground
         hover(row, entered = true)
@@ -229,14 +233,14 @@ class SessionListTest {
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.TurnRunning)
 
         assertTrue(
-            buttonsIn(list).none { it.text == DELETE_MARK && it.isVisible },
+            buttonsIn(list).none { it.text == DELETE_TEXT && it.isVisible },
             "忙时不该有看得见、点得动的删除入口",
         )
     }
 
     @Test
     fun `悬停不会让时间标签左右跳`() {
-        // ✕ 藏在固定宽度的槽里。若直接把它从布局里拿掉拿进，
+        // 删除按钮藏在固定宽度的槽里。若直接把它从布局里拿掉拿进，
         // 时间标签会左右跳一下 —— 那是能看见的抖动
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
         val row = list.components.filterIsInstance<JComponent>()[0]
@@ -248,7 +252,7 @@ class SessionListTest {
     }
 
     @Test
-    fun `点 ✕ 进入确认态，而且不触发切换`() {
+    fun `点删除进入确认态，而且不触发切换`() {
         // 这是本次唯一一个"写错了会误删"的点：整行可点、✕ 在行内，
         // 事件冒泡上去就会先切过去，然后你可能正在删一个刚被激活的会话
         var picked: SessionInfo? = null
@@ -261,7 +265,7 @@ class SessionListTest {
 
         deleteButtonOf(list, 0).doClick()
 
-        assertNull(picked, "点 ✕ 竟然触发了切换会话")
+        assertNull(picked, "点删除竟然触发了切换会话")
         assertNull(deleted, "确认之前不该真的删")
         assertTrue(
             textsIn(list).any { it.contains("删除") },
@@ -286,12 +290,12 @@ class SessionListTest {
 
     @Test
     fun `同一时刻只有一行处于确认态`() {
-        // 点了 A 行的 ✕ 又去点 B 行的 ✕，A 行必须收回原样 ——
+        // 点了 A 行的删除又去点 B 行的删除，A 行必须收回原样 ——
         // 否则界面上同时挂着两个待确认的删除
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
 
         deleteButtonOf(list, 0).doClick()
-        // A 行进了确认态，它自己的 ✕ 已经不在树里了 —— 现在只剩 B 行那一个
+        // A 行进了确认态，它自己的删除按钮已经不在树里了 —— 现在只剩 B 行那一个
         deleteButtonOf(list, 0).doClick()
 
         val confirmRows = textsIn(list).count { it.contains("删除「") }
@@ -420,6 +424,66 @@ class SessionListTest {
                 0, 5, 5, 2, false, MouseEvent.BUTTON1,
             )
         )
+    }
+
+    // ---- 宽高上限（设计稿 session-list-v2.html 方案 A，2026-09-15）----
+
+    @Test
+    fun `长标题不会把列表撑宽`() {
+        // 实测 731px：标题是行里唯一没有上限的元素，其余部件全是定宽。
+        // 钉住之后行会被压到列宽，标题自己打省略号
+        val long = SessionInfo(
+            "s1",
+            "帮我看看这个插件为什么在恢复历史会话之后模型名标签没有更新，顺便确认一下子代理的记录是不是也一起没了",
+            null,
+            now,
+        )
+
+        val list = buildSessionList(listOf(long), currentSessionId = null, block = SwitchBlock.None)
+
+        assertTrue(
+            list.preferredSize.width <= JBUI.scale(SESSION_LIST_WIDTH),
+            "宽没钉住：${list.preferredSize.width}",
+        )
+    }
+
+    @Test
+    fun `面板被拖窄时，列表跟着窄`() {
+        // 内容比面板宽时取面板宽；内容更窄时列表自己收着（不是硬撑到面板宽）
+        val long = SessionInfo("s1", "标题长到一定会超过三百像素，不然这条断言就量不到上限", null, now)
+        val wide = buildSessionList(listOf(long), currentSessionId = null, block = SwitchBlock.None, maxWidth = 300)
+        val narrow = buildSessionList(listOf(SessionInfo("s2", "短", null, now)), null, SwitchBlock.None, maxWidth = 300)
+
+        assertEquals(300, wide.preferredSize.width, "弹层比面板还宽就会溢出去")
+        assertTrue(narrow.preferredSize.width < 300, "内容窄的时候不该硬撑到面板宽")
+    }
+
+    @Test
+    fun `超过一屏就滚，不再往屏幕外长`() {
+        // 77 个会话 = 1702px，而弹层原先**不能滚** —— 下半截点都点不到。
+        // 这条守两件事：高度封顶、而且真的能滚（内容比视口高）
+        val many = (1..30).map { SessionInfo("s$it", "会话 $it", null, now - it * 1000L) }
+
+        val list = buildSessionList(many, currentSessionId = null, block = SwitchBlock.None)
+
+        val scroll = list as? JBScrollPane
+        assertTrue(scroll != null, "30 条会话应当被套上滚动，实际是 ${list.javaClass.simpleName}")
+        val viewportH = scroll!!.preferredSize.height
+        assertTrue(
+            scroll.viewport.view.preferredSize.height > viewportH,
+            "内容没比视口高，滚不动：内容 ${scroll.viewport.view.preferredSize.height} vs 视口 $viewportH",
+        )
+        // 上限是"行高 × 10 + 上下内边距"，不是写死的常数 —— 字体一变它跟着变
+        assertTrue(viewportH <= JBUI.scale(22) * SESSION_LIST_MAX_ROWS + JBUI.scale(8) + JBUI.scale(4), "高没封住：$viewportH")
+    }
+
+    @Test
+    fun `会话不多时不套滚动层`() {
+        // 绝大多数时候列表只有几条 —— 那时保持原样的组件结构：
+        // 少一层壳，探针与测试也不用都往里挖一层
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+
+        assertFalse(list is JBScrollPane, "没超上限不该套滚动")
     }
 
     private fun jTextFieldsIn(root: Container): List<JTextField> {

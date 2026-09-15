@@ -27,7 +27,7 @@ internal fun sidecarExitReport(exit: SidecarExit, maxLines: Int = STDERR_TAIL_LI
 
         val tail = exit.stderr.takeLast(maxLines)
         if (tail.isEmpty()) {
-            // 不能只报"进程已退出"就完事：那和卡在「正在启动…」一样无从下手
+            // 不能只报"进程已退出"就完事：那和卡在「启动中…」一样无从下手
             append("\n进程没有留下任何错误信息。")
             return@buildString
         }

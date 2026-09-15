@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.wm.ToolWindowManager
 
@@ -69,8 +70,12 @@ private fun languageTagOf(fileTypeName: String?): String? =
  *
  * 只做三件事：取选区、拼出**记号**与**完整片段**、交给面板
  * （记号进输入框，片段存进展开表等发送时用）。
+ *
+ * [DumbAware] 与另两条右键动作同源：不声明的话，**索引期间平台会把这一项
+ * 一起灰掉**（2026-09-15 在"加文件"那两条上踩到过），而它只碰输入框，
+ * 一个字都不依赖索引。
  */
-class AddSelectionToChatAction : AnAction() {
+class AddSelectionToChatAction : AnAction(), DumbAware {
 
     /**
      * 在 EDT 上更新。

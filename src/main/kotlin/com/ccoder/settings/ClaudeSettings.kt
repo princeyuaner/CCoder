@@ -20,15 +20,28 @@ enum class PermissionModeSetting(
     val wireValue: String,
     /** 界面上的显示名。枚举名（DEFAULT / ACCEPT_EDITS）是给代码看的。 */
     val label: String,
+    /**
+     * 一句话说清这个模式到底干什么。
+     *
+     * 放在枚举上而不是界面层：输入框左下角那个弹层与设置页的「权限」页都要用它，
+     * 两处**必须一个字不差** —— 而 `settings` 包不许反过来依赖 `ui`
+     * （见 `SendShortcut` 上那条），所以唯一的公共落点就是这里。
+     */
+    val description: String,
     val requiresDangerousOptIn: Boolean = false,
 ) {
-    DEFAULT("default", "标准"),
-    ACCEPT_EDITS("acceptEdits", "自动接受编辑"),
-    PLAN("plan", "仅规划"),
-    DONT_ASK("dontAsk", "不询问"),
+    DEFAULT("default", "标准", "危险操作会先询问"),
+    ACCEPT_EDITS("acceptEdits", "自动接受编辑", "文件改动自动接受，其余仍询问"),
+    PLAN("plan", "仅规划", "只读：只做计划，不执行工具"),
+    DONT_ASK("dontAsk", "不询问", "不询问；未预先允许的一律拒绝"),
 
     /** SDK 要求同时设置 allowDangerouslySkipPermissions（sdk.d.ts:1852-1856）。 */
-    BYPASS_PERMISSIONS("bypassPermissions", "绕过权限", requiresDangerousOptIn = true),
+    BYPASS_PERMISSIONS(
+        "bypassPermissions",
+        "绕过权限",
+        "所有操作都不再询问",
+        requiresDangerousOptIn = true,
+    ),
     ;
 
     /** `ComboBox` 拿 `toString` 当显示文本，覆盖它省得处处传 label。 */
@@ -108,13 +121,27 @@ enum class EffortSetting(
  * 同处 settings"（见 [PermissionModeSetting]）。放 ui 会引入 settings → ui
  * 的反向依赖。
  */
-enum class SendShortcut {
+enum class SendShortcut(
+    /**
+     * 界面上显示什么。
+     *
+     * **完整写出两个方向**（哪个键发送、哪个键换行），不是只写"Enter 发送" ——
+     * 选它的人真正想知道的就是"那 Shift+Enter 呢"。写全了，设置页那句解释也就不必再写。
+     *
+     * 显示名是**数据的属性**，同 [PermissionModeSetting] / [EffortSetting] 与
+     * `ModelProfile.displayName()` 的规矩；`override toString()` 是给 `ComboBox` 用的，
+     * 与那两个枚举一致（这个枚举不进日志，改了不会连日志里的名字一起改）。
+     */
+    val label: String,
+) {
     /** Enter 发送，Shift+Enter 换行。聊天工具惯例。 */
-    ENTER,
+    ENTER("Enter 发送，Shift+Enter 换行"),
 
     /** Enter 换行，Ctrl+Enter 发送。编辑器惯例。 */
-    CTRL_ENTER,
+    CTRL_ENTER("Ctrl+Enter 发送，Enter 换行"),
     ;
+
+    override fun toString(): String = label
 
     companion object {
         val DEFAULT = ENTER
