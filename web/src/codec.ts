@@ -116,6 +116,9 @@ function parseItem(raw: unknown): TranscriptItem | null {
       // 数字不值得浪费掉整段对话的反馈
       if (typeof it.costUsd === 'number') item.costUsd = it.costUsd
       if (typeof it.durationMs === 'number') item.durationMs = it.durationMs
+      if (typeof it.inputTokens === 'number') item.inputTokens = it.inputTokens
+      if (typeof it.outputTokens === 'number') item.outputTokens = it.outputTokens
+      if (typeof it.cacheReadTokens === 'number') item.cacheReadTokens = it.cacheReadTokens
       return item
     }
 

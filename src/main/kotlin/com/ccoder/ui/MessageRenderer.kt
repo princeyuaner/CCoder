@@ -49,7 +49,20 @@ sealed interface RenderItem {
     ) : RenderItem
 
     data class ErrorItem(val message: String) : RenderItem
-    data class Result(val subtype: String, val costUsd: Double?, val durationMs: Long?) : RenderItem
+
+    /**
+     * 回合结束。token 与耗时都是**本回合**的（见 [renderResult] 的说明）；
+     * [costUsd] 是**累计值** —— 界面那一行已经不显示它了，留着是给将来的成本面板
+     * （2026-09-15 用户决定：累计值摆在回合下面会被读成"本次花费"）。
+     */
+    data class Result(
+        val subtype: String,
+        val costUsd: Double?,
+        val durationMs: Long?,
+        val inputTokens: Long? = null,
+        val outputTokens: Long? = null,
+        val cacheReadTokens: Long? = null,
+    ) : RenderItem
     data class SystemNote(val text: String) : RenderItem
 }
 
@@ -288,15 +301,27 @@ object MessageRenderer {
         }
     }
 
-    private fun renderResult(event: JsonObject): List<RenderItem> = listOf(
-        RenderItem.Result(
-            subtype = event.str("subtype") ?: "unknown",
-            costUsd = event.get("total_cost_usd")
-                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble,
-            durationMs = event.get("duration_ms")
-                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong,
+    /**
+     * 回合结束那一行。
+     *
+     * **token 取 `usage`，不取 `modelUsage` / `total_cost_usd`**：后两者是**累计值**
+     * （CLI 语义：每次 result 给的是"到目前为止的总和"，`/clear` 还会把它清零），
+     * 摆在"这一回合下面"会被读成"本次消耗" —— 那是撒谎。而 `usage` 按回合给，
+     * 代价是它**只含主循环**（不含子代理与压缩那几次调用），这一点写在设计稿里。
+     */
+    private fun renderResult(event: JsonObject): List<RenderItem> {
+        val usage = event.obj("usage")
+        return listOf(
+            RenderItem.Result(
+                subtype = event.str("subtype") ?: "unknown",
+                costUsd = event.double("total_cost_usd"),
+                durationMs = event.long("duration_ms"),
+                inputTokens = usage?.long("input_tokens"),
+                outputTokens = usage?.long("output_tokens"),
+                cacheReadTokens = usage?.long("cache_read_input_tokens"),
+            )
         )
-    )
+    }
 
     private fun renderSystem(event: JsonObject): List<RenderItem> =
         when (event.str("subtype")) {
@@ -325,4 +350,10 @@ object MessageRenderer {
 
     private fun JsonObject.bool(key: String): Boolean? =
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean
+
+    private fun JsonObject.long(key: String): Long? =
+        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
+
+    private fun JsonObject.double(key: String): Double? =
+        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
 }

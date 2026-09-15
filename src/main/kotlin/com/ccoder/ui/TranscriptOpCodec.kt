@@ -124,6 +124,9 @@ object TranscriptOpCodec {
                 // 可选字段为 null 时整体省略，让 React 侧少一层判空
                 item.costUsd?.let { obj.addProperty("costUsd", it) }
                 item.durationMs?.let { obj.addProperty("durationMs", it) }
+                item.inputTokens?.let { obj.addProperty("inputTokens", it) }
+                item.outputTokens?.let { obj.addProperty("outputTokens", it) }
+                item.cacheReadTokens?.let { obj.addProperty("cacheReadTokens", it) }
             }
         }
         return obj

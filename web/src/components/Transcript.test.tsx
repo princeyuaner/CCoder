@@ -37,19 +37,27 @@ describe('Transcript', () => {
     expect(screen.getByText('会话已就绪')).toBeInTheDocument()
   })
 
-  it('result 显示成本与耗时', () => {
+  it('result 显示的是本回合的 token 与耗时', () => {
     render(
       <Transcript
-        state={state({ kind: 'result', id: 'r', ts, subtype: 'success', costUsd: 0.1008, durationMs: 1681 })}
+        state={state({
+          kind: 'result',
+          id: 'r',
+          ts,
+          subtype: 'success',
+          durationMs: 33818,
+          inputTokens: 12432,
+          cacheReadTokens: 8100,
+          outputTokens: 1234,
+        })}
       />,
     )
-    expect(screen.getByText(/\$0\.1008/)).toBeInTheDocument()
-    expect(screen.getByText(/1681ms/)).toBeInTheDocument()
+    expect(screen.getByText('成功 · 输入 12.4k · 缓存 8.1k · 输出 1.2k · 33.8s')).toBeInTheDocument()
   })
 
-  it('result 缺省可选字段时不显示它们', () => {
-    render(<Transcript state={state({ kind: 'result', id: 'r', ts, subtype: 'success' })} />)
-    expect(screen.getByText('success')).toBeInTheDocument()
+  it('result 的缺省字段不显示；**花费即使有也不显示**（累计值，会被读成本次）', () => {
+    render(<Transcript state={state({ kind: 'result', id: 'r', ts, subtype: 'success', costUsd: 4.546 })} />)
+    expect(screen.getByText('成功')).toBeInTheDocument()
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
   })
 

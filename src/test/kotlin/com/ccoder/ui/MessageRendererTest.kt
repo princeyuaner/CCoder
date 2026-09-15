@@ -78,6 +78,36 @@ class MessageRendererTest {
     }
 
     @Test
+    fun `result 带上 usage 里的 token —— 界面那一行要显示的是本回合的消耗`() {
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"result","subtype":"success","duration_ms":33818,
+                 "usage":{"input_tokens":12432,"output_tokens":1234,
+                          "cache_read_input_tokens":8100,"cache_creation_input_tokens":321}}
+                """,
+            )
+        )
+
+        val r = items[0] as RenderItem.Result
+        assertEquals(12432L, r.inputTokens)
+        assertEquals(1234L, r.outputTokens)
+        assertEquals(8100L, r.cacheReadTokens)
+        // 缓存"写"的那一份不显示（用户 2026-09-15 定的那一行里没有它），所以不往线上带
+        assertEquals(33818L, r.durationMs)
+    }
+
+    @Test
+    fun `没有 usage 的 result 三项都是 null，不抛`() {
+        val items = MessageRenderer.render(event("""{"type":"result","subtype":"success"}"""))
+
+        val r = items[0] as RenderItem.Result
+        assertEquals(null, r.inputTokens)
+        assertEquals(null, r.outputTokens)
+        assertEquals(null, r.cacheReadTokens)
+    }
+
+    @Test
     fun `assistant 错误事件渲染为 ErrorItem`() {
         val items = MessageRenderer.render(
             event(

@@ -45,8 +45,13 @@ export interface ToolResultItem extends Base {
 export interface ResultItem extends Base {
   kind: 'result'
   subtype: string
+  /** 累计花费（CLI 语义）。**界面这一行不显示它**（会被读成本次花费），留给成本面板。 */
   costUsd?: number
   durationMs?: number
+  /** 本回合的 token（来自 `usage`，只含主循环 —— 子代理那几次不在里面）。 */
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
 }
 
 export type TranscriptItem =

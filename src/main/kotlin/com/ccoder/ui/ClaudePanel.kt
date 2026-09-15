@@ -2372,6 +2372,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 TranscriptOp.Append(
                     TranscriptItem.Result(
                         nextMessageId(), now(), item.subtype, item.costUsd, item.durationMs,
+                        item.inputTokens, item.outputTokens, item.cacheReadTokens,
                     )
                 )
 

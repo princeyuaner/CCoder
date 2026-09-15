@@ -63,6 +63,10 @@ sealed interface TranscriptItem {
         val subtype: String,
         val costUsd: Double?,
         val durationMs: Long?,
+        /** 本回合的 token 数（来自 `usage`，只含主循环）。null = 这条没有（旧记录 / 取不到）。 */
+        val inputTokens: Long? = null,
+        val outputTokens: Long? = null,
+        val cacheReadTokens: Long? = null,
     ) : TranscriptItem
 
     data class SystemNote(override val id: String, override val ts: Long, val text: String) : TranscriptItem

@@ -85,7 +85,13 @@ const Item = memo(function Item({
 
     case 'result':
       return (
-        <ResultLine subtype={item.subtype} costUsd={item.costUsd} durationMs={item.durationMs} />
+        <ResultLine
+          subtype={item.subtype}
+          durationMs={item.durationMs}
+          inputTokens={item.inputTokens}
+          outputTokens={item.outputTokens}
+          cacheReadTokens={item.cacheReadTokens}
+        />
       )
 
     default:

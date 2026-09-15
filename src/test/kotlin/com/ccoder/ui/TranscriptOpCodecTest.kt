@@ -114,4 +114,44 @@ class TranscriptOpCodecTest {
 
         assertTrue(!json.has("images"), "没图还带 images 键，那个报文就不算没变")
     }
+
+    // ---- 回合结束那一行（2026-09-15：改成显示本次 token 与耗时）----
+
+    @Test
+    fun `result 的 token 与耗时都上线，花费也在（界面不显示它，但数据留着）`() {
+        val json = item(
+            TranscriptItem.Result(
+                id = "m1",
+                ts = 1,
+                subtype = "success",
+                costUsd = 0.0231,
+                durationMs = 33818,
+                inputTokens = 12432,
+                outputTokens = 1234,
+                cacheReadTokens = 8100,
+            ),
+        )
+
+        assertEquals("result", json.get("kind").asString)
+        assertEquals("success", json.get("subtype").asString)
+        assertEquals(12432L, json.get("inputTokens").asLong)
+        assertEquals(1234L, json.get("outputTokens").asLong)
+        assertEquals(8100L, json.get("cacheReadTokens").asLong)
+        assertEquals(33818L, json.get("durationMs").asLong)
+        assertEquals(0.0231, json.get("costUsd").asDouble, 0.0001)
+    }
+
+    @Test
+    fun `旧记录那三个字段为 null 时整体省略 —— web 侧少一层判空`() {
+        val json = item(TranscriptItem.Result("m1", 1, "success", null, null))
+
+        assertTrue(!json.has("inputTokens"))
+        assertTrue(!json.has("outputTokens"))
+        assertTrue(!json.has("cacheReadTokens"))
+        assertTrue(!json.has("durationMs"))
+    }
+
+    private fun item(entry: TranscriptItem): com.google.gson.JsonObject =
+        JsonParser.parseString(TranscriptOpCodec.encodeBatch(listOf(TranscriptOp.Append(entry))))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
 }
