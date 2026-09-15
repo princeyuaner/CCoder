@@ -553,6 +553,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             // 被最小化的提问那条带子**长在这里**（用户报"找不到从哪里重新打开"）。
             // 排在最上面：它说的是一件等他处理的事，比状态卡更急
             add(askRestoreBar.apply { alignmentX = LEFT_ALIGNMENT })
+            // 2026-09-15 用户要求"最小化后再往上挪 5px"：那条带子贴面板顶太近，
+            // 和它下面那排状态卡挤在一起。留 5px 的缝，其余间距一个字不动 ——
+            // 状态卡与输入框之间那 7px 是原有设计，不跟着一起松。
+            //
+            // **struts 也要左对齐**：默认是居中，而它正是会把 BoxLayout 的公共
+            // 对齐基准推歪的那个（这个坑本项目踩过，见上面那段说明）。
+            // `as JComponent` 不是多余的：`createVerticalStrut` 声明返回
+            // `java.awt.Component`，而 `alignmentX` 长在 JComponent 上
+            add(
+                (Box.createVerticalStrut(JBUI.scale(5)) as JComponent)
+                    .apply { alignmentX = LEFT_ALIGNMENT }
+            )
             add(statusCards)
             // 卡片与输入框之间留一口气。紧贴着看时，四张卡像是输入框的一部分
             // （而且状态卡是"常驻控件"，不是输入区里的一行）。strut 宽 0，
