@@ -9,13 +9,16 @@ import com.ccoder.settings.SendShortcut
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Graphics
 import java.awt.KeyboardFocusManager
 import java.awt.event.KeyEvent
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.text.JTextComponent
 
 // ---- 输入框高度 ----
 
@@ -31,6 +34,28 @@ import javax.swing.JPanel
  * 也压不下去，表现为"改了默认高度却没变"。
  */
 internal const val COMPOSER_MIN_ROWS = 1
+
+// ---- 空输入框的用法提示 ----
+
+/**
+ * 空输入框里那行灰字（2026-09-15 用户要求："聊天输入框应该写上这些符号的用法"）。
+ *
+ * **文案与能力同步**：它写着 `# 符号`，就得先有 `#`；哪一件被砍掉，这行字要一起改
+ * —— 否则界面就在替一个不存在的功能做广告。
+ */
+internal const val COMPOSER_PLACEHOLDER = "@ 文件 · # 符号 · / 命令"
+
+/**
+ * 该不该显示那行提示；不该显示时给 null。
+ *
+ * 抽成纯函数是为了可测：输入框与面板都依赖平台，起不了单测，而"什么时候显示"
+ * 是这条路上唯一的判断（画在哪、什么颜色都是绘制层的事）。
+ *
+ * **禁用态不显示**：今天面板并不真的禁用输入框（发不出去是拦在发送那一步的），
+ * 所以这条规则眼下只是守门 —— 但哪天有人禁用了它，挂一行"你可以打 #"就是撒谎。
+ */
+internal fun placeholderTextOf(area: JTextComponent): String? =
+    if (area.isEnabled && area.text.isEmpty()) COMPOSER_PLACEHOLDER else null
 
 // ---- 输入框本体 ----
 
@@ -78,6 +103,26 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
     override fun getData(dataId: String): Any? = imagePasteData(dataId, pasteProvider)
 
     override fun getScrollableTracksViewportHeight(): Boolean = true
+
+    /**
+     * 空着的时候，在**光标的落点**画一行灰字说明三个触发符号怎么用。
+     *
+     * 画在文字将要出现的位置（内边距之后），所以它不需要单独的控件 ——
+     * 也不会有"控件与文字错位"这种问题。有字时 [placeholderTextOf] 直接给 null。
+     */
+    override fun paintComponent(g: Graphics) {
+        super.paintComponent(g)
+        val placeholder = placeholderTextOf(this) ?: return
+
+        val g2 = g.create()
+        try {
+            g2.font = font
+            g2.color = UIUtil.getInactiveTextColor()
+            g2.drawString(placeholder, insets.left, insets.top + g2.fontMetrics.ascent)
+        } finally {
+            g2.dispose()
+        }
+    }
 }
 
 private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance("com.ccoder.ui.ComposerTextArea")

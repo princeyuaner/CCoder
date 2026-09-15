@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
@@ -99,6 +100,63 @@ class ComposerInputTest {
         val area = styled()
 
         assertFalse(area.isOpaque, "输入框不该自己填底")
+    }
+
+    // ---- 空着时的用法提示（2026-09-15 用户要求写上三个符号的用法）----
+
+    @Test
+    fun `空着的时候给文案，有字或禁用就不给`() {
+        assertEquals(COMPOSER_PLACEHOLDER, placeholderTextOf(composerLaidOut()))
+        assertNull(placeholderTextOf(composerLaidOut(text = "看一下 ")))
+        assertNull(placeholderTextOf(composerLaidOut(enabled = false)), "发不出去时挂一行「你可以打 #」是撒谎")
+    }
+
+    @Test
+    fun `文案里写着三个触发符号 —— 与能力同步，砍掉哪个都要改它`() {
+        assertEquals("@ 文件 · # 符号 · / 命令", COMPOSER_PLACEHOLDER)
+    }
+
+    @Test
+    fun `空着的时候真的画上去了 —— 数像素`() {
+        // 纯属性测不出"没画"：那正是用户看到的形式（什么提示都没有）。所以数像素
+        assertEquals(0, inkCount(composerLaidOut(enabled = false)), "禁用时一个字都不该画")
+        assertTrue(inkCount(composerLaidOut()) > 0, "空着时该看得见那行提示")
+    }
+
+    /** 一个排好版的 ComposerTextArea —— 提示画在它上面。 */
+    private fun composerLaidOut(text: String = "", enabled: Boolean = true): ComposerTextArea {
+        lateinit var area: ComposerTextArea
+        onEdt {
+            area = ComposerTextArea(1, 40).apply {
+                lineWrap = true
+                styleComposerInput(this)
+                this.text = text
+                this.isEnabled = enabled
+            }
+            val holder = JPanel(BorderLayout()).apply { add(area) }
+            holder.setSize(420, 60)
+            layoutAll(holder)
+        }
+        return area
+    }
+
+    /** 数"不是底色的像素"。画到白底图上，提示是灰字 —— 画了就一定数得出来。 */
+    private fun inkCount(area: ComposerTextArea): Int {
+        var count = 0
+        onEdt {
+            val img = BufferedImage(area.width, area.height, BufferedImage.TYPE_INT_RGB)
+            val g = img.createGraphics()
+            g.color = Color.WHITE
+            g.fillRect(0, 0, img.width, img.height)
+            area.paint(g)
+            g.dispose()
+
+            val white = Color.WHITE.rgb
+            for (y in 0 until img.height) {
+                for (x in 0 until img.width) if (img.getRGB(x, y) != white) count++
+            }
+        }
+        return count
     }
 
     // ---- 底色铺多宽（用户报过："背景充满了整个聊天框"）----
