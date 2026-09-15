@@ -112,6 +112,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         onOpenRunning = { toggleDetail(DetailCard.Running) },
     )
 
+    /**
+     * 被最小化的提问那条带子（见 [AskRestoreBar]）。
+     *
+     * 路的落点是**回到那个框**：先把工具窗口激活（用户可能已经切到编辑器里去了，
+     * 只弹一个对话框而窗口在后台，看起来同样像"没反应"），再走与状态栏那条完全
+     * 相同的入口 —— 身份比对、排队时机都在 [restoreAsk] 里，两条路不各写一套。
+     */
+    private val askRestoreBar = AskRestoreBar(onRestore = {
+        ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.activate(null)
+        askSequence?.let(::restoreAsk)
+    })
+
     /** 最近一次拿到的上下文用量。取不到时保持 null —— 不造零值。 */
     private var lastUsage: ContextUsage? = null
 
@@ -538,6 +550,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             // 平均值恒为 0，各归各位。
             alignmentX = LEFT_ALIGNMENT
             statusCards.alignmentX = LEFT_ALIGNMENT
+            // 被最小化的提问那条带子**长在这里**（用户报"找不到从哪里重新打开"）。
+            // 排在最上面：它说的是一件等他处理的事，比状态卡更急
+            add(askRestoreBar.apply { alignmentX = LEFT_ALIGNMENT })
             add(statusCards)
             // 卡片与输入框之间留一口气。紧贴着看时，四张卡像是输入框的一部分
             // （而且状态卡是"常驻控件"，不是输入区里的一行）。strut 宽 0，
@@ -2531,6 +2546,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     null
                 },
             )
+            // 工具窗口里那条带子与状态栏**同一个状态源**：两条路都是"有没有被
+            // 最小化的提问"，各判各的迟早会漂移（一条说有事、另一条说没事）
+            askRestoreBar.setSuspended(shouldShowAskRestore(suspended))
         }
         // 权限队列变化同样影响忙闲 —— 「＋」得跟着
         newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))

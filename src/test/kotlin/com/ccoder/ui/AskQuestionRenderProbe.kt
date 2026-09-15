@@ -57,6 +57,40 @@ class AskQuestionRenderProbe {
     @Test
     fun `把长题干的样子画成图片`() = render("build/ask-card-long.png", index = 0, picked = false, req = longTexts)
 
+    /**
+     * **最小化之后，工具窗口里那条回来的路**（[AskRestoreBar]）。
+     *
+     * 2026-09-15 用户报"最小化之后我找不到从哪里重新打开了"—— 上一版只有状态栏
+     * 那一行字。画出来看一眼：它是不是一眼能认出是"点这儿回去"。
+     */
+    @Test
+    fun `把最小化后的回来的路画成图片`() = SwingUtilities.invokeAndWait {
+        val bar = AskRestoreBar(onRestore = {}).apply { setSuspended(true) }
+        val outer = javax.swing.JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(10)
+            background = UIUtil.getPanelBackground()
+            add(bar, BorderLayout.NORTH)
+        }
+        outer.setSize(450, 10)
+        // 加进去之后还得再 revalidate 一次：容器**加新子项**不会自动重算布局，
+        // 量到的会是"没有这条带子"的高度（第一次画出来只有 207 字节的白图）
+        outer.revalidate()
+        layOutAll(outer)
+
+        // **量完再把尺寸定下来**：paint 用的是组件自己的尺寸，不是画布的。
+        // 先 setSize(450, 10) 再 paint 等于把内容裁在 10px 高里（第二次画出来
+        // 还是一片空白，只是文件大了点 —— 图小不代表图对）
+        val h = outer.preferredSize.height + 20
+        outer.setSize(450, h)
+        layOutAll(outer)
+
+        val img = BufferedImage(450, h, BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        outer.paint(g)
+        g.dispose()
+        ImageIO.write(img, "png", File("build/ask-restore-bar.png"))
+    }
+
     private val longTexts = askRequestOf(
         JsonParser.parseString(
             """
@@ -70,8 +104,7 @@ class AskQuestionRenderProbe {
         ).asJsonObject
     )!!
 
-    /** 推到第 index 题：前面每题随便答一个，只是为了走得过去。 */
-    private fun flowAt(index: Int, req: AskRequest = request): AskFlow {
+    /** 推到第 index 题：前面每题随便答一个，只是为了走得过去。 */    private fun flowAt(index: Int, req: AskRequest = request): AskFlow {
         val flow = AskFlow(req)
         while (flow.index < index) {
             flow.current.toggle(flow.question.options.first().label)
