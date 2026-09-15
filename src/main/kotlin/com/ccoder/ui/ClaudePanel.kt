@@ -333,6 +333,17 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 右键加选区进来的是**一行记号**（见 [refToken]），完整片段存在这里，
      * 发送的那一刻才换上 —— 输入框因此不会被三十行代码顶满。
      */
+    /**
+     * 这一轮里**还没等到结果**的工具调用 id（`tool_use.id`）。
+     *
+     * 只用来回答一个问题：状态卡上那行字该不该切成「等待响应」。一条 assistant
+     * 消息可以带多个 tool_use，所以"收到一个结果"不等于"工具都跑完了" ——
+     * 见 [activityChangeOf] 的 `toolsStillRunning`。
+     *
+     * 只在实时路径上维护；回放不碰它（那是旧会话，没有"现在在跑什么"这件事）。
+     */
+    private val pendingToolIds = mutableSetOf<String>()
+
     private val snippetRefs = SnippetRefs()
 
     /** 用量请求的闸：一次只允许一个在途（见 [UsageRequestGate]）。 */
@@ -1980,7 +1991,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // **只走实时路径**：回放旧会话时最后一条可能是被中断的
                     // 工具调用，照着它显示"运行指令"会是一句假话
                     items.forEach { item ->
-                        when (val change = activityChangeOf(item)) {
+                        // 先记这批工具：一条 assistant 消息可以带多个 tool_use，
+                        // 「整批跑完没有」决定工具结果之后是继续写工具词还是切成
+                        // 「等待响应」（那几十秒的 TTFT 就落在这个判断后面）
+                        when (item) {
+                            is RenderItem.ToolUse -> pendingToolIds += item.id
+                            is RenderItem.ToolResult -> pendingToolIds -= item.toolUseId
+                            else -> Unit
+                        }
+                        when (val change = activityChangeOf(item, pendingToolIds.isNotEmpty())) {
                             is ActivityChange.Now -> setActivity(change.text)
                             ActivityChange.Idle -> setActivity(null)
                             ActivityChange.Keep -> Unit
@@ -1988,6 +2007,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     }
                     // result 是回合结束的信号，此时按钮从"停止"变回"发送"
                     if (items.any { it is RenderItem.Result }) {
+                        // 回合结束了，上一批工具若有没配到结果的（中断、报错），
+                        // 那些 id 不能留到下一轮去
+                        pendingToolIds.clear()
                         setBusy(false)
                         lastSendWasCommand = false
 

@@ -12,7 +12,8 @@ import org.junit.jupiter.api.Test
  */
 class ActivityTest {
 
-    private fun change(item: RenderItem) = activityChangeOf(item)
+    private fun change(item: RenderItem, toolsStillRunning: Boolean = false) =
+        activityChangeOf(item, toolsStillRunning)
 
     private fun now(item: RenderItem) = (change(item) as ActivityChange.Now).text
 
@@ -59,8 +60,19 @@ class ActivityTest {
     }
 
     @Test
-    fun `工具结果不动 —— 一轮是「调用 → 结果 → 思考 → 调用」，中途清空会闪一下空闲`() {
-        assertTrue(change(toolResult()) is ActivityChange.Keep)
+    fun `一批工具跑完了就说等待响应 —— 那几十秒的 TTFT 落在这儿`() {
+        // 2026-09-15 用户报"调用工具后会突然卡几十秒，然后说思考中"。那几十秒是
+        // 上游还没吐出第一个 token（实测这一段 P50 3.2s / P90 10.3s / P99 38.8s /
+        // 最长 89s，且慢窗口之后模型先吐的**全是 thinking 块**）。这期间卡上原来
+        // 还写着「运行指令」—— 一句假话，于是看起来就成了"卡住"。
+        //
+        // **不是回空闲**：空闲是"已连接"，那会在一轮中间撒谎。
+        assertEquals(ACTIVITY_WAITING, now(toolResult()))
+    }
+
+    @Test
+    fun `还有别的工具在跑时不改口 —— 并行调用里一个结果不代表整批完了`() {
+        assertTrue(change(toolResult(), toolsStillRunning = true) is ActivityChange.Keep)
     }
 
     @Test

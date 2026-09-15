@@ -53,19 +53,33 @@ internal sealed interface ActivityChange {
 /**
  * 映射规则。
  *
- * 两处刻意的地方：
- * - **工具结果不清空**：一轮里是「调用 → 结果 → 思考 → 调用 …」，
+ * 三处刻意的地方：
+ *
+ * - **工具结果不清空成空闲**：一轮里是「调用 → 结果 → 思考 → 调用 …」，
  *   结果一到就清，卡上会在一轮中间闪一下"已连接"。
+ * - **但工具结果之后要切成「等待响应」**（2026-09-15 用户报"调用工具后会突然卡
+ *   几十秒，然后说思考中"）：那几十秒是上游还没吐出第一个 token —— 实测这一段
+ *   的间隔 P50 3.2s / P90 10.3s / P99 38.8s / 最长 89s，而且**慢窗口之后模型先
+ *   吐的全是 thinking 块**，所以卡上紧跟着就跳到"思考中"。这期间原来还写着
+ *   「运行指令」：一句假话，用户看到的就成了"卡住"。
+ * - **并行调用按"还有没有别的在跑"判**：一条 assistant 消息可以带多个 tool_use，
+ *   一个结果到了不代表整批完了（见 [toolsStillRunning]）。
  * - **只有回合结束（Result）与报错才回空闲**：那才是真的没在跑。
+ *
+ * @param toolsStillRunning 这条之后还有没有别的工具在跑。调用方维护那批
+ *   `tool_use.id`（见 ClaudePanel 里的 pendingToolIds）。**必须在这条 ToolResult
+ *   被移除之后**再算，否则永远是它自己把自己数进去。
  */
-internal fun activityChangeOf(item: RenderItem): ActivityChange = when (item) {
+internal fun activityChangeOf(item: RenderItem, toolsStillRunning: Boolean): ActivityChange = when (item) {
     is RenderItem.ThinkingDelta, is RenderItem.Thinking -> ActivityChange.Now(ACTIVITY_THINKING)
     is RenderItem.AssistantDelta, is RenderItem.AssistantText -> ActivityChange.Now(ACTIVITY_REPLYING)
     is RenderItem.ToolUse -> ActivityChange.Now(toolActivity(item.name))
     // 参数还在生成时就先把动作词摆出来 —— 那一段转写区是静的，
     // 状态卡是唯一能说明"它在动"的地方（见 renderStreamEvent 里那段）
     is RenderItem.ToolStarting -> ActivityChange.Now(toolActivity(item.name))
-    is RenderItem.ToolResult -> ActivityChange.Keep
+    // 一批工具全跑完了：接下来是模型自己要想（TTFT 那几十秒就落在这里）
+    is RenderItem.ToolResult ->
+        if (toolsStillRunning) ActivityChange.Keep else ActivityChange.Now(ACTIVITY_WAITING)
     is RenderItem.Result, is RenderItem.ErrorItem -> ActivityChange.Idle
     is RenderItem.UserText, is RenderItem.SystemNote -> ActivityChange.Keep
 }
