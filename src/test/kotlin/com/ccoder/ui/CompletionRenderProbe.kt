@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.ccoder.settings.PromptPreset
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.Color
@@ -37,6 +38,26 @@ class CompletionRenderProbe {
     @Test
     fun `文件组（长路径）画成图片`() =
         render("build/completion-probe-files.png", files())
+
+    /**
+     * 预设组**混着命令组**画一张。
+     *
+     * 光看预设组看不出问题 —— 要看的正是**两组交界处**：
+     * 分组标题的分量会不会跟候选抢注意力、以及预设那一组里"名字 · 正文首行"
+     * 这种新组合读起来累不累（命令那边副标题是描述，语气不一样）。
+     */
+    @Test
+    fun `预设组与命令组交界画成图片`() =
+        render(
+            "build/completion-probe-presets.png",
+            promptCandidates(
+                listOf(
+                    PromptPreset(name = "写测试", content = "给这段代码补单测：覆盖边界与失败路径"),
+                    PromptPreset(name = "解释报错", content = "解释这段报错：先给结论，再说为什么"),
+                    PromptPreset(name = "重命名", content = "把这个变量改个更准确的名字，并同步所有引用"),
+                ),
+            ) + commands().take(3),
+        )
 
     /** 数据取自实测：`brainstorming` 那条是本例里最长的真实描述。 */
     private fun commands() = listOf(

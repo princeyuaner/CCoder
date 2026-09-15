@@ -137,6 +137,20 @@ class PromptPresetsPageTest {
     }
 
     @Test
+    fun `多行内容进内容框是真换行`() {
+        // 离屏渲染的图上看不出"真换行"和"字面量 \n"的区别（都挤在一行里），
+        // 所以这条得用行数问清楚 —— 探针图上核对过一次，看走眼了
+        val service = PromptPresets()
+        service.upsert(PromptPreset(name = "多行", content = "第一行\n第二行\n第三行"))
+        lateinit var root: JComponent
+        onEdt { root = PromptPresetsPage(service).component() }
+
+        onEdt { clickRow(root, "多行") }
+
+        assertEquals(3, textAreaOf(root, "内容").lineCount, "内容框里不是三行 —— 换行成了字面量")
+    }
+
+    @Test
     fun `删除会把这条从服务里去掉`() {
         val (root, service) = open()
         onEdt {

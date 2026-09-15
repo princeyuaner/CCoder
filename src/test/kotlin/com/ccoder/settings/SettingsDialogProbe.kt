@@ -306,6 +306,27 @@ class SettingsDialogProbe {
         page = "环境",
     )
 
+    /**
+     * 预置页。两条预设、其中一条正文多行 —— 内容框的高度封没封住、
+     * 长名字在列表栏里怎么收，只有图上看得出来。
+     */
+    @Test
+    fun `把预置页画成图片`() = render(
+        "build/probe/settings-presets.png",
+        presets = listOf(
+            PromptPreset(
+                name = "写测试",
+                content = "给这段代码补单测。\n要求：\n- 覆盖边界与失败路径\n- 用项目里既有的测试风格\n- 别改产品代码",
+            ),
+            PromptPreset(
+                name = "解释这段报错，尽量说人话",
+                content = "解释这段报错：先给结论，再说为什么。\n不要复述代码。",
+            ),
+        ),
+        clicking = "写测试",
+        page = "预置",
+    )
+
     private fun render(
         path: String,
         profiles: List<ModelProfile> = emptyList(),
@@ -324,6 +345,7 @@ class SettingsDialogProbe {
         revealSecret: Boolean = false,
         /** 停在哪个页签上。默认是「模型」—— 齿轮点开就落在那儿。 */
         page: String = "模型",
+        presets: List<PromptPreset> = emptyList(),
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -332,7 +354,12 @@ class SettingsDialogProbe {
                 select(selected)
             }
             val settings = settingsWith(envOverrides, claudePath, model, extraDirs, permissionMode)
-            val dialog = SettingsDialog(fakeProject(), settings, service, PromptPresets())
+            val dialog = SettingsDialog(
+                fakeProject(),
+                settings,
+                service,
+                PromptPresets().apply { presets.forEach { upsert(it) } },
+            )
 
             // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()
             if (page != "模型") clickTab(dialog.contentPanel, page)
