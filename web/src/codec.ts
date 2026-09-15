@@ -1,4 +1,4 @@
-import type { TranscriptItem, TranscriptOp, TranscriptState } from './types'
+import type { TranscriptItem, TranscriptOp, TranscriptState, UserItem } from './types'
 
 const KNOWN_KINDS = new Set([
   'user', 'assistant', 'thinking', 'toolUse', 'toolResult',
@@ -48,6 +48,11 @@ export function parseOps(raw: unknown): TranscriptOp[] {
   return out
 }
 
+/** 只留字符串项。坏数据丢的是**那个字段**，不是整条消息 —— 图坏了不该把文字也吃掉。 */
+function stringArray(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string') : []
+}
+
 function parseItem(raw: unknown): TranscriptItem | null {
   if (!raw || typeof raw !== 'object') return null
   const it = raw as Record<string, unknown>
@@ -58,7 +63,18 @@ function parseItem(raw: unknown): TranscriptItem | null {
   const base = { id: it.id, ts: it.ts }
 
   switch (it.kind) {
-    case 'user':
+    case 'user': {
+      if (typeof it.text !== 'string') return null
+      const item: UserItem = { ...base, kind: 'user', text: it.text }
+      // **图必须原样带过去**。这个函数是逐字段重建的，漏一个字段它就永远到不了
+      // 转写区：2026-09-15 就是这么丢了 images —— Kotlin 把图推出去了、消息也发
+      // 出去了（模型确实收到了图），界面上却只有字。当时两侧测试与共享夹具里
+      // 都没有一条带图的用例，全绿；布局探针量的又是自己拼的 HTML，根本没走这里。
+      const pics = stringArray(it.images)
+      if (pics.length > 0) item.images = pics
+      return item
+    }
+
     case 'assistant':
     case 'thinking':
     case 'error':

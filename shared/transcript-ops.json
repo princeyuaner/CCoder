@@ -11,5 +11,6 @@
   {"op":"clearDelta","target":"assistant"},
   {"op":"append","item":{"kind":"error","id":"m4","ts":1726050004000,"text":"认证失败"}},
   {"op":"append","item":{"kind":"result","id":"m5","ts":1726050005000,"subtype":"success","costUsd":0.1008,"durationMs":1681}},
-  {"op":"append","item":{"kind":"assistant","id":"m6","ts":1726050006000,"text":"完成"}}
+  {"op":"append","item":{"kind":"assistant","id":"m6","ts":1726050006000,"text":"完成"}},
+  {"op":"append","item":{"kind":"user","id":"m7","ts":1726050007000,"text":"看这张","images":["data:image/jpeg;base64,AAAA","data:image/jpeg;base64,BBBB"]}}
 ]

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyOps, parseOps } from './codec'
-import type { TranscriptState } from './types'
+import type { TranscriptOp, TranscriptState, UserItem } from './types'
 
 // ESM 里没有 __dirname —— 用 import.meta.url 推导。
 // tsconfig 的 module 是 ESNext，__dirname 会直接编译失败。
@@ -12,6 +12,13 @@ const FIXTURE = resolve(HERE, '../../shared/transcript-ops.json')
 
 function emptyState(): TranscriptState {
   return { items: [], live: {} }
+}
+
+/** 第一条用户项。带图的断言都要先过它，省得每条都写一遍收窄。 */
+function firstUser(ops: TranscriptOp[]): UserItem {
+  const op = ops[0]
+  if (op.op !== 'append' || op.item.kind !== 'user') throw new Error('第一条不是 user 项')
+  return op.item
 }
 
 describe('契约 fixture', () => {
@@ -23,7 +30,7 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    expect(ops).toHaveLength(13)
+    expect(ops).toHaveLength(14)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
   })
@@ -32,7 +39,7 @@ describe('契约 fixture', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
     const state = applyOps(emptyState(), ops)
     // fixture 里有 10 条 append/finalize 产生的消息（含工具调用与它的结果）
-    expect(state.items).toHaveLength(9)
+    expect(state.items).toHaveLength(10)
     expect(state.live.assistant).toBeUndefined()
   })
 
@@ -49,6 +56,49 @@ describe('契约 fixture', () => {
     expect(result).toMatchObject({
       item: { toolUseId: 'toolu_1', text: '1\tpackage a\n2\t\n', isError: false },
     })
+  })
+})
+
+describe('用户消息里的图', () => {
+  it('夹具里带图的那条，图能一路走到状态里', () => {
+    // 2026-09-15：正是这一步漏了 —— Kotlin 推出了图、消息也发出去了（模型收到了），
+    // 转写区却只有字。夹具里当时没有带图的用例，所以两侧测试都是绿的
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const state = applyOps(emptyState(), ops)
+    const withPics = state.items.filter(
+      (i): i is UserItem => i.kind === 'user' && (i.images?.length ?? 0) > 0,
+    )
+    expect(withPics).toHaveLength(1)
+    expect(withPics[0].images).toEqual([
+      'data:image/jpeg;base64,AAAA',
+      'data:image/jpeg;base64,BBBB',
+    ])
+  })
+
+  it('images 原样带过来，不被逐字段重建时丢掉', () => {
+    const item = firstUser(
+      parseOps([
+        { op: 'append', item: { kind: 'user', id: 'm', ts: 1, text: '看这张', images: ['data:image/png;base64,AA'] } },
+      ] as unknown[]),
+    )
+    expect(item.text).toBe('看这张')
+    expect(item.images).toEqual(['data:image/png;base64,AA'])
+  })
+
+  it('纯文字那条路一字不变：没有 images 就不带这个字段', () => {
+    const item = firstUser(
+      parseOps([{ op: 'append', item: { kind: 'user', id: 'm', ts: 1, text: '你好' } }] as unknown[]),
+    )
+    expect(item.images).toBeUndefined()
+  })
+
+  it('数组里混进坏值只丢那一项，不连坐文字与别的图', () => {
+    const item = firstUser(
+      parseOps([
+        { op: 'append', item: { kind: 'user', id: 'm', ts: 1, text: '看', images: ['data:a', 42, null, 'data:b'] } },
+      ] as unknown[]),
+    )
+    expect(item.images).toEqual(['data:a', 'data:b'])
   })
 })
 

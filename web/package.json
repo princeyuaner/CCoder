@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "probe:layout": "node tools/layout-probe.mjs",
-    "probe:perf": "npm run build && node tools/perf-probe.mjs"
+    "probe:perf": "npm run build && node tools/perf-probe.mjs",
+    "probe:image": "node tools/image-push-probe.mjs"
   },
   "dependencies": {
     "highlight.js": "11.10.0",

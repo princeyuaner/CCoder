@@ -36,7 +36,14 @@ class TranscriptOpCodecTest {
         assertEquals("toolResult", itemKindAt(8))
 
         assertEquals("clearDelta", kinds[9])
-        assertEquals(13, kinds.size)
+
+        // 最后一条是**带图的用户消息**：契约里有它，两侧才会一起去管 images。
+        // 2026-09-15 补：此前夹具里一张图都没有，web 侧把 images 整个丢掉都测不出来
+        val withImages = array[13].asJsonObject.getAsJsonObject("item")
+        assertEquals("user", withImages.get("kind").asString)
+        assertEquals(2, withImages.getAsJsonArray("images").size())
+
+        assertEquals(14, kinds.size)
     }
 
     @Test
