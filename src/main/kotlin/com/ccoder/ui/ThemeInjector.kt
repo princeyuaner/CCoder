@@ -24,7 +24,7 @@ data class ThemeColors(
     val diffAddFg: Color,
     /** 标题行上 `−1`、以及"失败"标记的颜色。 */
     val diffDelFg: Color,
-    /** 思考正文的颜色：浅黄，但由文本色混出，随主题自动变（见 [PlatformTheme]）。 */
+    /** 思考正文的颜色：亚麻色，由文本色按主题混出（见 [thinkingFgFor]）。 */
     val thinkingFg: Color,
     val fontUi: Font,
     val fontMono: Font,
@@ -119,7 +119,7 @@ object PlatformTheme {
             diffDelBg = mix(bg, Color(0xE0, 0x54, 0x54), 0.16),
             diffAddFg = mix(text, Color(0x4C, 0xAF, 0x50), 0.60),
             diffDelFg = mix(text, Color(0xE0, 0x54, 0x54), 0.60),
-            thinkingFg = mix(text, THINK_FG, 0.85),
+            thinkingFg = thinkingFgFor(text, bg),
             fontUi = UIUtil.getLabelFont(),
             fontMono = EditorColorsManager.getInstance().globalScheme
                 .getFont(EditorFontType.PLAIN),
@@ -141,32 +141,53 @@ object PlatformTheme {
             kotlin.math.abs(a.green - b.green) +
             kotlin.math.abs(a.blue - b.blue)
 
-    private fun luminance(c: Color): Int = (c.red * 299 + c.green * 587 + c.blue * 114) / 1000
-
     private fun shift(c: Color, amount: Int): Color = Color(
         (c.red + amount).coerceIn(0, 255),
         (c.green + amount).coerceIn(0, 255),
         (c.blue + amount).coerceIn(0, 255),
     )
 
-    /** 把 [fg] 以 [ratio] 的比例混入 [base]，得到低饱和变体。 */
-    private fun mix(base: Color, fg: Color, ratio: Double): Color {
-        fun blend(b: Int, f: Int) = (b + (f - b) * ratio).toInt().coerceIn(0, 255)
-        return Color(blend(base.red, fg.red), blend(base.green, fg.green), blend(base.blue, fg.blue))
-    }
-
     private const val SURFACE_MIN_DISTANCE = 24
-
-    /**
-     * 思考正文的黄（奶油黄）。
-     *
-     * **不写死在 CSS 里**：浅色主题下浅黄压白底等于看不见。所以与 diff 那两套
-     * 颜色同一个做法 —— 从**文本色**混出来。
-     *
-     * 2026-09-15 调过一次：用户报"颜色太深"，换成更亮的奶油黄，混入比例也从
-     * 0.70 提到 0.85。深色主题下现在是 `#ecddb4`（面板色上约 8:1）—— 比正文的
-     * 灰白（约 5.4:1）还亮，所以思考会比正文更抢眼。觉得过头就把比例调回 0.75
-     * 左右。浅色主题下是 `#d5c69d`。
-     */
-    private val THINK_FG = Color(0xF5, 0xE3, 0xB3)
 }
+
+// ---- 纯颜色运算 ----
+//
+// 从 PlatformTheme 里挪出来是因为它们**不需要平台 API**：判明暗、混色、算对比度
+// 都是纯函数，留在那个对象里就只能靠"装上去看一眼"来验证。思考正文的配色规则
+// 现在长在这里，于是它能被单测直接钉住（见 ThemeInjectorTest）。
+
+/** 感知亮度 0..255，只用来判"这是深色主题还是浅色主题"。 */
+internal fun luminance(c: Color): Int = (c.red * 299 + c.green * 587 + c.blue * 114) / 1000
+
+/** 把 [fg] 以 [ratio] 的比例混入 [base]，得到低饱和变体。 */
+internal fun mix(base: Color, fg: Color, ratio: Double): Color {
+    fun blend(b: Int, f: Int) = (b + (f - b) * ratio).toInt().coerceIn(0, 255)
+    return Color(blend(base.red, fg.red), blend(base.green, fg.green), blend(base.blue, fg.blue))
+}
+
+/**
+ * 思考正文的颜色（亚麻色）—— 从**文本色**向锚色混出来，于是它跟着主题走，
+ * 而不是两个主题共用一管写死的颜色。
+ *
+ * 锚色**必须分两套**，这是 2026-09-15 才想明白的一件事：只用一个浅锚色时，
+ * 浅色主题下算出来是 `#d0c198` 压在白底上 —— 1.7:1，等于看不见（混色的方向
+ * 是"文本色 → 锚色"，浅色主题的文本色是黑的，往浅色混就是往看不见的方向走）。
+ * 所以亮底用深锚色、暗底用浅锚色，比例保持同一个。
+ *
+ * 用户 2026-09-15 从七个并排方案里挑的这一个（选型台见
+ * `web/tools/thinking-palette.mjs`，改颜色时把它重跑一遍）：
+ *
+ * - 深色主题 `#cfc8b8`，面板色上约 9.9:1 —— 比正文（12:1）暗一档，还是"暖纸"
+ *   的感觉，但不再是奶油黄那种荧光笔观感；
+ * - 浅色主题 `#5f5a4e`，白底上约 6.9:1。
+ *
+ * 与 diff 那几套颜色同一个做法：不写死结果，写锚色 + 比例。
+ */
+internal fun thinkingFgFor(text: Color, bg: Color): Color =
+    mix(text, if (luminance(bg) < 128) THINK_ANCHOR_DARK else THINK_ANCHOR_LIGHT, 0.85)
+
+/** 暗底用的锚色（浅亚麻）。 */
+private val THINK_ANCHOR_DARK = Color(0xCD, 0xC5, 0xB2)
+
+/** 亮底用的锚色（深亚麻）—— 见 [thinkingFgFor] 里那段"为什么必须分两套"。 */
+private val THINK_ANCHOR_LIGHT = Color(0x70, 0x6A, 0x5C)

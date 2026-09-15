@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.Font
+import kotlin.math.pow
 
 class ThemeInjectorTest {
 
@@ -21,7 +22,7 @@ class ThemeInjectorTest {
         diffDelBg = Color(0x33222A),
         diffAddFg = Color(0x5FAD65),
         diffDelFg = Color(0xDB5C5C),
-        thinkingFg = Color(0xEC, 0xDD, 0xB4),
+        thinkingFg = Color(0xCF, 0xC8, 0xB8),
         fontUi = Font("JetBrains Sans", Font.PLAIN, 13),
         fontMono = Font("JetBrains Mono", Font.PLAIN, 13),
     )
@@ -99,6 +100,43 @@ class ThemeInjectorTest {
         assertEquals(1, script.lines().size, "注入脚本必须单行——多行会破坏 executeJavaScript")
         assertTrue(script.contains("window.ccoderSetTheme"), "实际：$script")
         assertTrue(script.contains(":root"), "CSS 内容应被嵌进字符串")
+    }
+
+    @Test
+    fun `思考正文按主题混出亚麻色`() {
+        // 深色：文本色 #dcdcdc 往浅锚色混；浅色：黑字往深锚色混
+        assertEquals(Color(0xCF, 0xC8, 0xB8), thinkingFgFor(Color(0xDCDCDC), Color(0x1E1F22)))
+        assertEquals(Color(0x5F, 0x5A, 0x4E), thinkingFgFor(Color(0x000000), Color(0xF7F8FA)))
+    }
+
+    @Test
+    fun `思考正文在两套主题下都够读`() {
+        // 守的是 2026-09-15 那个坑：锚色不分明暗时，浅色主题算出 #d0c198 压在白底
+        // 上只有 1.7:1 —— 屏幕上等于看不见。单测里钉住"混出来的颜色必须够读"，
+        // 比在注释里写一句管用。
+        val cases = listOf(
+            "深色" to (Color(0xDCDCDC) to Color(0x1E1F22)),
+            "浅色" to (Color(0x000000) to Color(0xF7F8FA)),
+        )
+        for ((name, pair) in cases) {
+            val (text, bg) = pair
+            val ratio = contrast(thinkingFgFor(text, bg), bg)
+            assertTrue(ratio >= 4.5, "$name 主题下思考正文只有 ${"%.2f".format(ratio)}:1，低于 WCAG 正文门槛")
+        }
+    }
+
+    /** WCAG 相对亮度 —— 与 styles.css 里那几个对比度注释同一套算法。 */
+    private fun relativeLuminance(c: Color): Double {
+        fun channel(v: Int): Double {
+            val s = v / 255.0
+            return if (s <= 0.04045) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
+        }
+        return 0.2126 * channel(c.red) + 0.7152 * channel(c.green) + 0.0722 * channel(c.blue)
+    }
+
+    private fun contrast(a: Color, b: Color): Double {
+        val (hi, lo) = listOf(relativeLuminance(a), relativeLuminance(b)).sortedDescending()
+        return (hi + 0.05) / (lo + 0.05)
     }
 
     @Test

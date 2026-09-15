@@ -324,19 +324,21 @@ body {
 /*
  * 思考正文。
  *
- * 用 `--thinking-fg`（浅黄），**不是写死的黄色**：这个变量由 Kotlin 侧从
- * 主题的文本色混出来（见 ThemeInjector 的 THINK_FG）—— 深色主题下是浅黄，
- * 浅色主题下自动变成橄榄金。写死一个浅黄，浅色主题下压白底就等于看不见。
+ * 用 `--thinking-fg`（亚麻色），**不是写死的颜色**：这个变量由 Kotlin 侧从
+ * 主题的文本色混出来（见 ThemeInjector 的 thinkingFgFor）—— 深色主题下是
+ * `#cfc8b8`，浅色主题下换成深锚色 `#5f5a4e`。写死一个浅色，浅色主题下压白底
+ * 就等于看不见：这正是 2026-09-15 之前那版奶油黄的毛病（1.7:1）。
  *
- * 换掉 --text-dim 的经过（2026-09-15 用户报"思考的输出颜色太浅了，看不清"）：
- * --text-dim（Darcula 下 #8c8c8c 压在面板色上）只有 3.26:1，而它原先还要再乘
- * 一层 .collapsible--dim 的 0.75 —— 叠起来 2.5:1，远低于 WCAG 正文门槛 4.5:1。
- * 当天晚些又按"太深了"调亮过一次：现在是奶油黄，深色主题下约 8:1。
+ * 走到亚麻色的经过：先是 --text-dim（Darcula 下 #8c8c8c 压在面板色上只有
+ * 3.26:1，还叠着一层 .collapsible--dim 的 0.75，合起来 2.5:1，用户报
+ * "看不清"）→ 换成奶油黄并按"太深了"调亮过一次（用户仍报"不好看"）→
+ * 2026-09-15 摆出七个方案由用户挑，选中亚麻色：暖调留着、饱和度抽掉大半，
+ * 不再是荧光笔的观感。七个方案的选型台在 web/tools/thinking-palette.mjs。
  *
- * 斜体留着：它与这层黄一起，构成"这段是思考"的视觉标记。
+ * 斜体留着：它与这层颜色一起，构成"这段是思考"的视觉标记。
  */
 .thinking-text {
-  color: var(--thinking-fg, #ecddb4);
+  color: var(--thinking-fg, #cfc8b8);
   font-style: italic;
   white-space: pre-wrap;
 }
@@ -662,7 +664,7 @@ body {
   vertical-align: -3px;
   /* 尺寸与轨道都在 .spin 里（两处共用同一套）；这里只换"转动的头"的颜色 ——
      用思考块自己的浅黄，于是这一小块整体成了"等待中"的信号 */
-  border-top-color: var(--thinking-fg, #d7ba7d);
+  border-top-color: var(--thinking-fg, #cfc8b8);
 }
 
 .live-think__time {
@@ -671,7 +673,7 @@ body {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   /* 从标题继承来的 --text-dim 太淡，秒数也要看得见 */
-  color: var(--thinking-fg, #d7ba7d);
+  color: var(--thinking-fg, #cfc8b8);
 }
 
 .tool__body {
