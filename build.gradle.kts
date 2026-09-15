@@ -152,10 +152,21 @@ val generateSidecarManifest by tasks.registering {
             emit(relative, file.readBytes())
         }
 
-        for (name in listOf(
-            "index.js", "session.js", "env.js", "claude-path.js", "ndjson.js", "package.json"
-        )) {
-            emitFile(name, srcDir.resolve(name))
+        // 根目录的 .js / .mjs 与 package.json **统统进包**，不列白名单。
+        //
+        // 2026-09-15 的事故就是白名单造成的：history-images.js 加进来之后这里没跟着改，
+        // 于是包里的 index.js `import './history-images.js'` 找不到文件。构建全绿、
+        // 测试也全绿（测试跑的是源码目录，那儿文件在），而插件在用户机器上一启动就是
+        // ERR_MODULE_NOT_FOUND —— 整个 sidecar 起不来。
+        // 白名单天生会漏，扫目录不会。tools/ 与 test/ 在子目录里，不受影响。
+        val rootFiles = (srcDir.listFiles() ?: emptyArray())
+            .filter {
+                it.isFile &&
+                    (it.name.endsWith(".js") || it.name.endsWith(".mjs") || it.name == "package.json")
+            }
+            .sortedBy { it.name }
+        for (f in rootFiles) {
+            emitFile(f.name, f)
         }
 
         val pkg = srcDir.resolve("package.json")
@@ -288,6 +299,9 @@ tasks.named<Zip>("buildPlugin") {
         var manifest: List<String> = emptyList()
         val jarEntries = mutableSetOf<String>()
 
+        // 根目录那几个 .js 的正文 —— 末尾那道"import 指的文件在不在包里"的反向检查要用
+        val sidecarSources = mutableMapOf<String, String>()
+
         ZipFile(zipFile).use { zip ->
             val jarEntry = zip.entries().toList()
                 .firstOrNull { it.name.endsWith(".jar") && !it.name.contains("searchableOptions") }
@@ -305,6 +319,15 @@ tasks.named<Zip>("buildPlugin") {
                         ?: error("插件包内缺少 sidecar/manifest.txt，sidecar 无法提取")
                     manifest = jar.getInputStream(mf)
                         .bufferedReader().readLines().filter { it.isNotBlank() }
+
+                    // 只看 sidecar 根目录那几个：子目录里是 node_modules，
+                    // 它们不 import 同级的运行时代码
+                    for (e in jar.entries().toList()) {
+                        val rel = e.name.removePrefix("sidecar/")
+                        if (!e.name.startsWith("sidecar/") || rel.contains('/')) continue
+                        if (!rel.endsWith(".js") && !rel.endsWith(".mjs")) continue
+                        sidecarSources[rel] = jar.getInputStream(e).bufferedReader().readText()
+                    }
                 }
             } finally {
                 tmp.delete()
@@ -326,6 +349,32 @@ tasks.named<Zip>("buildPlugin") {
                     "generateSidecarManifest 的剔除规则是否与打包行为一致。"
             )
         }
+        // 反向检查：包内每个根 .js 里 `from './x.js'` 指的文件，必须也在包里。
+        //
+        // 上面那条只查"清单里列的都在包里"，查不出"代码用了却没人列" —— 而后者
+        // 正是 2026-09-15 history-images.js 那次事故的形态：清单没列它，于是没人
+        // 发现它不在包里，直到用户在 IDE 里看见「sidecar 进程已退出（退出码 1）」。
+        // 正向查不出反向的洞，这一条补的就是那个方向。
+        val relativeImport = Regex("""(?:from|import|require)\s*\(?\s*['"]\./([^'"]+)['"]""")
+        val missingImports = sidecarSources
+            .flatMap { (file, text) ->
+                relativeImport.findAll(text)
+                    .map { it.groupValues[1] }
+                    .filter { "sidecar/$it" !in jarEntries }
+                    .map { "$file 里 import 了 ./$it" }
+                    .toList()
+            }
+            .distinct()
+        if (missingImports.isNotEmpty()) {
+            error(
+                "交付包不一致：sidecar 的代码 import 了包里没有的文件 —— " +
+                    missingImports.joinToString("；") + "。\n" +
+                    "用户在 IDE 里看到的会是「sidecar 进程已退出（退出码 1）」加 " +
+                    "ERR_MODULE_NOT_FOUND，整个插件起不来。\n" +
+                    "查 generateSidecarManifest 的根目录扫描规则，或那个文件是不是在子目录里没被收进来。"
+            )
+        }
+
         // [verify] 前缀是 ASCII 的：终端编码不一致时中文日志会变乱码，
         // 校验结果必须无论如何都读得出来
         logger.lifecycle("[verify] OK: manifest ${manifest.size} entries, all present in $jarName")
