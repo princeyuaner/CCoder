@@ -29,6 +29,15 @@ class ActivityTest {
     }
 
     @Test
+    fun `工具刚起头就说动作词 —— 不必等到参数生成完`() {
+        // 参数生成那一段（大文件可能十几秒）转写区是静的，状态卡是唯一能说明
+        // "它还在动"的地方。等到 ToolUse 才改口就晚了 —— 那正是要补的那段窗口
+        assertEquals(ACTIVITY_EDITING, now(RenderItem.ToolStarting("Write")))
+        assertEquals(ACTIVITY_RUNNING, now(RenderItem.ToolStarting("Bash")))
+        assertEquals(ACTIVITY_TOOL, now(RenderItem.ToolStarting("mcp__whatever")))
+    }
+
+    @Test
     fun `工具调用按工具名给动作词`() {
         assertEquals(ACTIVITY_RUNNING, now(tool("Bash")))
         assertEquals(ACTIVITY_RUNNING, now(tool("BashOutput")))

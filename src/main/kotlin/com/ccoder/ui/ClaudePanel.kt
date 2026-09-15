@@ -868,11 +868,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             ApplicationManager.getApplication().invokeLater {
                 val msg = (outcome as? RequestOutcome.Answered)?.message
                 if (msg !is SidecarMessage.SubagentMessages) {
-                    pushOp(
-                        toOp(
-                            RenderItem.ErrorItem(
-                                "读子代理转写失败：${(outcome as? RequestOutcome.Failed)?.reason ?: "没有回执"}"
-                            )
+                    pushItem(
+                        RenderItem.ErrorItem(
+                            "读子代理转写失败：${(outcome as? RequestOutcome.Failed)?.reason ?: "没有回执"}"
                         )
                     )
                     return@invokeLater
@@ -1025,7 +1023,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             savedEffort = s.effort,
         )
         if (plan.deferred) {
-            pushOp(toOp(RenderItem.SystemNote("设置已保存；权限模式与思考深度要等下次建立会话时才生效")))
+            pushItem(RenderItem.SystemNote("设置已保存；权限模式与思考深度要等下次建立会话时才生效"))
             return
         }
         plan.permissionMode?.let { pickPermissionMode(it) }
@@ -1118,7 +1116,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             if (c == null) {
                 // ready 为真而通道为空，理论上到不了这里。不静默吞掉 ——
                 // 点了没反应比明说更让人困惑（同 [pickPermissionMode] 那条）
-                pushOp(toOp(RenderItem.SystemNote("会话还没建立，换模型要等连上会话再改")))
+                pushItem(RenderItem.SystemNote("会话还没建立，换模型要等连上会话再改"))
                 return
             }
             // 先记意图再发：回执只带模型名，没它认不出该写进哪条配置。
@@ -1175,12 +1173,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val c = client
         if (c == null) {
             // 不静默吞掉 —— 点了没反应比明说更让人困惑
-            pushOp(toOp(RenderItem.SystemNote("会话还没建立，列不出历史会话")))
+            pushItem(RenderItem.SystemNote("会话还没建立，列不出历史会话"))
             return
         }
         val dir = project.basePath
         if (dir == null) {
-            pushOp(toOp(RenderItem.ErrorItem("项目没有 basePath，无法定位会话目录。")))
+            pushItem(RenderItem.ErrorItem("项目没有 basePath，无法定位会话目录。"))
             return
         }
 
@@ -1192,14 +1190,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     is RequestOutcome.Answered -> {
                         val msg = outcome.message as? SidecarMessage.SessionList
                         if (msg == null) {
-                            pushOp(toOp(RenderItem.ErrorItem("会话列表返回了意外的消息。")))
+                            pushItem(RenderItem.ErrorItem("会话列表返回了意外的消息。"))
                         } else {
                             showSessionPopup(msg.sessions)
                         }
                     }
 
                     is RequestOutcome.Failed ->
-                        pushOp(toOp(RenderItem.ErrorItem("列出会话失败：${outcome.reason}")))
+                        pushItem(RenderItem.ErrorItem("列出会话失败：${outcome.reason}"))
                 }
             }
         }
@@ -1319,7 +1317,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     /** 失败时**行不动** —— 把它改成新名字才是撒谎。 */
     private fun reportSessionEditFailure(what: String, reason: String?) {
-        pushOp(toOp(RenderItem.ErrorItem("${what}失败：${reason ?: "没有回执"}")))
+        pushItem(RenderItem.ErrorItem("${what}失败：${reason ?: "没有回执"}"))
     }
 
     /**
@@ -1331,7 +1329,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun requestDeleteSession(session: SessionInfo) {
         val c = client
         if (c == null) {
-            pushOp(toOp(RenderItem.ErrorItem("删除会话失败：会话通道已关闭")))
+            pushItem(RenderItem.ErrorItem("删除会话失败：会话通道已关闭"))
             return
         }
         val id = nextId()
@@ -1348,7 +1346,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             is RequestOutcome.Failed ->
                 // 行**不放回**（它本来就在），只报错。
                 // 失败时把行摘掉才是撒谎：用户会以为删掉了
-                pushOp(toOp(RenderItem.ErrorItem("删除会话失败：${outcome.reason}")))
+                pushItem(RenderItem.ErrorItem("删除会话失败：${outcome.reason}"))
 
             is RequestOutcome.Answered -> {
                 sessionListCache = sessionListCache.filterNot { it.sessionId == sessionId }
@@ -1373,7 +1371,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 状态可能变（比如又来了一个权限询问）
         val block = switchBlock(busy, permissionQueue.totalPending)
         if (block != SwitchBlock.None) {
-            pushOp(toOp(RenderItem.SystemNote(switchBlockNotice(block) ?: return)))
+            pushItem(RenderItem.SystemNote(switchBlockNotice(block) ?: return))
             return
         }
 
@@ -1452,11 +1450,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             val ops = mutableListOf<TranscriptOp>()
             for (item in items) {
                 MessageRenderer.renderPrompt(item)?.let {
-                    ops += toOp(RenderItem.UserText(it.text, it.images))
+                    toOp(RenderItem.UserText(it.text, it.images))?.let { op -> ops += op }
                     rendered++
                 }
-                val rest = MessageRenderer.render(SidecarMessage.Event(item))
-                rest.forEach { ops += toOp(it) }
+                // mapNotNull 顺手滤掉"不产出操作的项"。ToolStarting 只会出现在
+                // 实时路径（它来自流事件），历史里不会有 —— 但走同一条转换就一并兜住
+                val rest = MessageRenderer.render(SidecarMessage.Event(item)).mapNotNull { toOp(it) }
+                ops += rest
                 rendered += rest.size
             }
             ApplicationManager.getApplication().invokeLater {
@@ -1468,8 +1468,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 resumeTargetId = null
                 setBusy(false)
                 setConnection("已连接")
-                pushOp(
-                    toOp(RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示"))
+                pushItem(
+                    RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示")
                 )
             }
         }
@@ -1487,7 +1487,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         setConnection("恢复失败")
         currentSessionTitle = null
         refreshSessionLabel(enabled = true)
-        pushOp(toOp(RenderItem.ErrorItem("恢复会话失败：$reason")))
+        pushItem(RenderItem.ErrorItem("恢复会话失败：$reason"))
     }
 
     /**
@@ -1513,7 +1513,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val c = client
         if (c == null) {
             // 没有会话可切。不静默吞掉 —— 点了没反应比明说更让人困惑
-            pushOp(toOp(RenderItem.SystemNote("会话还没建立，权限模式切换要先连上会话")))
+            pushItem(RenderItem.SystemNote("会话还没建立，权限模式切换要先连上会话"))
             return
         }
         c.sendLine(Protocol.encodeSetPermissionMode(nextId(), mode.wireValue))
@@ -1538,7 +1538,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         val c = client
         if (c == null) {
             // 没有会话可切。不静默吞掉 —— 点了没反应比明说更让人困惑
-            pushOp(toOp(RenderItem.SystemNote("会话还没建立，思考深度要等连上会话再改")))
+            pushItem(RenderItem.SystemNote("会话还没建立，思考深度要等连上会话再改"))
             return
         }
         // wireValue 为 null 就是「默认」：让 sidecar 把这一项从 flag 层清掉。
@@ -1747,11 +1747,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                             OpenPick.None -> Unit
 
                             is OpenPick.Unavailable ->
-                                pushOp(
-                                    toOp(
-                                        RenderItem.SystemNote(
-                                            "列不出历史会话（${pick.reason}），已开新会话"
-                                        )
+                                pushItem(
+                                    RenderItem.SystemNote(
+                                        "列不出历史会话（${pick.reason}），已开新会话"
                                     )
                                 )
                         }
@@ -1794,7 +1792,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         starting = false
         ApplicationManager.getApplication().invokeLater {
             setConnection("启动失败")
-            pushOp(toOp(RenderItem.ErrorItem(text)))
+            pushItem(RenderItem.ErrorItem(text))
             // 按"已断开"处理，让按钮变成"重启会话"：装好 node 之后用户不必
             // 重启 IDE，点一下就能重试。输入框保持可用，便于重试时带上消息
             ready = false
@@ -1849,7 +1847,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         disconnected = true
         setBusy(false)
         refreshMainButton()
-        pushOp(toOp(RenderItem.ErrorItem(detail)))
+        pushItem(RenderItem.ErrorItem(detail))
     }
 
     /**
@@ -1938,7 +1936,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         currentSessionId = resuming
                         beginReplay(resuming)
                     } else {
-                        pushOp(toOp(RenderItem.SystemNote("会话已就绪")))
+                        pushItem(RenderItem.SystemNote("会话已就绪"))
                         // 全新会话：没有标题可显示，标签是斜体的「新会话」
                         currentSessionTitle = null
                         refreshSessionLabel(enabled = true)
@@ -1960,9 +1958,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
                 is SidecarMessage.Event -> {
                     val items = MessageRenderer.render(msg)
-                    // 命令回合里的空输出丢掉；其余一律照常（设计稿 §5.1）
+                    // 命令回合里的空输出丢掉；其余一律照常（设计稿 §5.1）。
+                    // pushItem 会自动跳掉 ToolStarting —— 那种项只喂状态卡
                     items.filterNot { lastSendWasCommand && isEmptyCommandOutput(it) }
-                        .forEach { pushOp(toOp(it)) }
+                        .forEach { pushItem(it) }
 
                     // 连接卡上那行字跟着这批渲染项走（见 Activity.kt）。
                     // **只走实时路径**：回放旧会话时最后一条可能是被中断的
@@ -2031,7 +2030,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                                 // /clear 之后上下文也归零：不清的话这一格会一直
                                 // 挂着上一个对话的读数
                                 lastUsage = null
-                                pushOp(toOp(RenderItem.SystemNote("上下文已清空，这是一条新会话")))
+                                pushItem(RenderItem.SystemNote("上下文已清空，这是一条新会话"))
                             }
                             // 当前会话指针以 init 里的 id 为准，**不以会话列表为准**
                             // —— 刚 /clear 出来的新会话还没落盘，列表未必列得到它
@@ -2046,7 +2045,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 }
 
                 is SidecarMessage.Failure -> {
-                    pushOp(toOp(RenderItem.ErrorItem(failureHint(msg.code, msg.message))))
+                    pushItem(RenderItem.ErrorItem(failureHint(msg.code, msg.message)))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
                         setConnection("已断开")
@@ -2076,7 +2075,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         refreshModeLabel()
                         // 写回设置：下次启动还按这个模式起会话
                         ClaudeSettings.getInstance(project).permissionMode = mode
-                        pushOp(toOp(RenderItem.SystemNote("权限模式已切换为「${mode.label}」")))
+                        pushItem(RenderItem.SystemNote("权限模式已切换为「${mode.label}」"))
                     }
                 }
 
@@ -2095,7 +2094,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         // 写回设置：下次启动还按这个档位起会话
                         ClaudeSettings.getInstance(project).effort = picked
                         if (changed) {
-                            pushOp(toOp(RenderItem.SystemNote("思考深度已切换为「${picked.label}」")))
+                            pushItem(RenderItem.SystemNote("思考深度已切换为「${picked.label}」"))
                         }
                     }
                 }
@@ -2126,7 +2125,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                             // 窗口大小跟着模型走：不重问的话，用量卡还会用上一个
                             // 模型的分母，而那多半是另一个窗口
                             requestContextUsage()
-                            pushOp(toOp(RenderItem.SystemNote("模型已切换为「${pick.modelId}」")))
+                            pushItem(RenderItem.SystemNote("模型已切换为「${pick.modelId}」"))
                         }
                     }
                 }
@@ -2209,9 +2208,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * [MessageRenderer] 本身不动 —— 它做的是"SDK 事件 → RenderItem"，
      * 与用什么渲染无关。
      */
-    private fun toOp(item: RenderItem): TranscriptOp {
+    private fun toOp(item: RenderItem): TranscriptOp? {
         val now = { System.currentTimeMillis() }
         return when (item) {
+            // 只喂状态卡，**不进转写区**：它说的是"参数还在生成"，而参数生成完
+            // 会有一条真正的 ToolUse 进来。给它推一条项就会出现两张卡片
+            is RenderItem.ToolStarting -> null
+
             is RenderItem.UserText ->
                 TranscriptOp.Append(
                     TranscriptItem.User(nextMessageId(), now(), item.text, item.images)
@@ -2262,6 +2265,16 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     private fun pushOp(op: TranscriptOp) = transcriptView.push(op)
+
+    /**
+     * 推一条渲染项。产出 null 的那些（[RenderItem.ToolStarting]）自动跳过。
+     *
+     * 有这个包装，调用点就不必各自判断"这一项要不要画" —— 那个判断只该有
+     * [toOp] 一个出处。
+     */
+    private fun pushItem(item: RenderItem) {
+        toOp(item)?.let { pushOp(it) }
+    }
 
     // ---- 权限卡片（spec §6）----
 
@@ -2372,15 +2385,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
         sendDecision(perm, decision)
 
-        pushOp(
-            toOp(
-                RenderItem.SystemNote(
-                    note ?: when {
-                        decision.stopAsking -> "已允许：${perm.toolName}，$AUTO_ALLOW_LABEL"
-                        decision.allow -> "已允许：${perm.toolName}"
-                        else -> "已拒绝：${perm.toolName}"
-                    }
-                )
+        pushItem(
+            RenderItem.SystemNote(
+                note ?: when {
+                    decision.stopAsking -> "已允许：${perm.toolName}，$AUTO_ALLOW_LABEL"
+                    decision.allow -> "已允许：${perm.toolName}"
+                    else -> "已拒绝：${perm.toolName}"
+                }
             )
         )
     }
@@ -2616,7 +2627,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         }
 
         // 排队那条也要带图：补发时 pushOp 用的是它的 images，不是这里的 forTranscript
-        pushOp(toOp(RenderItem.UserText(text, forTranscript)))
+        pushItem(RenderItem.UserText(text, forTranscript))
 
         if (!ready) {
             // 会话还没就绪。可能是 fatal 断开后残留的进程，先清干净再起一个，
@@ -2675,7 +2686,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 先重画再发：sendNow 里的 setBusy(true) 会连带刷按钮，
         // 而按钮的文案里带着队列条数 —— 顺序反了它会拿着旧数字去刷
         refreshQueueStrip()
-        pushOp(toOp(RenderItem.UserText(next.text, next.images.map { it.transcriptDataUrl })))
+        pushItem(RenderItem.UserText(next.text, next.images.map { it.transcriptDataUrl }))
         sendNow(next.text, next.typed, next.images)
     }
 

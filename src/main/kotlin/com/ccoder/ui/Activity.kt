@@ -62,6 +62,9 @@ internal fun activityChangeOf(item: RenderItem): ActivityChange = when (item) {
     is RenderItem.ThinkingDelta, is RenderItem.Thinking -> ActivityChange.Now(ACTIVITY_THINKING)
     is RenderItem.AssistantDelta, is RenderItem.AssistantText -> ActivityChange.Now(ACTIVITY_REPLYING)
     is RenderItem.ToolUse -> ActivityChange.Now(toolActivity(item.name))
+    // 参数还在生成时就先把动作词摆出来 —— 那一段转写区是静的，
+    // 状态卡是唯一能说明"它在动"的地方（见 renderStreamEvent 里那段）
+    is RenderItem.ToolStarting -> ActivityChange.Now(toolActivity(item.name))
     is RenderItem.ToolResult -> ActivityChange.Keep
     is RenderItem.Result, is RenderItem.ErrorItem -> ActivityChange.Idle
     is RenderItem.UserText, is RenderItem.SystemNote -> ActivityChange.Keep

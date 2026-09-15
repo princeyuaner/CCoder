@@ -155,10 +155,43 @@ class MessageRendererTest {
     }
 
     @Test
+    fun `工具调用的起头帧产出一个只喂状态卡的项`() {
+        // 参数（对 Write 来说就是整个文件内容）还在生成时转写区没有东西可画，
+        // 屏幕上完全静止 —— 这一项让状态卡提前说「编辑文件」，不必等参数生成完。
+        // 它**不进转写区**：ToolStarting 在 toOp 那里给 null
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"stream_event","event":{"type":"content_block_start","index":0,
+                 "content_block":{"type":"tool_use","id":"toolu_1","name":"Write","input":{}}}}
+                """
+            )
+        )
+
+        assertEquals(listOf(RenderItem.ToolStarting("Write")), items)
+    }
+
+    @Test
+    fun `文本块的起头帧仍然什么都不产出`() {
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"stream_event","event":{"type":"content_block_start","index":0,
+                 "content_block":{"type":"text","text":""}}}
+                """
+            )
+        )
+
+        assertEquals(0, items.size, "文本块的起头帧没有可显示内容")
+    }
+
+    @Test
     fun `stream_event 的起止帧不产生渲染项`() {
-        // message_start / content_block_start / content_block_stop / message_stop
-        // 都没有可显示内容，多产生渲染项会让 UI 出现空行
-        for (kind in listOf("message_start", "content_block_start", "content_block_stop", "message_delta", "message_stop")) {
+        // message_start / content_block_stop / message_stop 没有可显示内容，
+        // 多产生渲染项会让 UI 出现空行。
+        // **content_block_start 不在这张名单里**：带 tool_use 的那种会产出一个
+        // 只喂状态卡的项（见上一条用例）
+        for (kind in listOf("message_start", "content_block_stop", "message_delta", "message_stop")) {
             val items = MessageRenderer.render(
                 event("""{"type":"stream_event","event":{"type":"$kind"}}""")
             )

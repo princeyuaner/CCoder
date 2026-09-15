@@ -29,6 +29,14 @@ sealed interface RenderItem {
     data class ToolUse(val name: String, val input: String, val id: String) : RenderItem
 
     /**
+     * 工具调用**刚开始**（参数还在生成）。
+     *
+     * 它唯一的去处是状态卡那行「现在在做什么」（见 Activity.kt），**不进转写区** ——
+     * 所以 `toOp` 给它 null。理由见 `renderStreamEvent` 里那段。
+     */
+    data class ToolStarting(val name: String) : RenderItem
+
+    /**
      * 一次工具调用的结果。
      *
      * 结果是**另一条消息**（长的像 user 消息），所以这里单列一项，
@@ -249,6 +257,22 @@ object MessageRenderer {
      */
     private fun renderStreamEvent(event: JsonObject): List<RenderItem> {
         val inner = event.obj("event") ?: return emptyList()
+
+        // 工具调用的**开头**。这时只知道工具名：参数还在逐字生成，而对 Write 来说
+        // 参数就是整个文件内容 —— 几百行的话要十几秒。这一段转写区什么都没有可画
+        // （见下面 input_json_delta 那条），于是屏幕上完全静止，用户的原话是
+        // 「看起来像卡住了」。而能证明"它在动"的转圈与耗时都长在工具卡上，
+        // 工具卡又要等参数生成完才出现 —— 指示器恰好缺席在最需要它的那一段。
+        //
+        // 这一项**不进转写区**（toOp 给它 null），只让状态卡立刻从「回复中」
+        // 变成「编辑文件 / 运行指令」，至少回答"它还在动"。
+        if (inner.str("type") == "content_block_start") {
+            val block = inner.obj("content_block") ?: return emptyList()
+            if (block.str("type") != "tool_use") return emptyList()
+            val name = block.str("name")?.takeIf { it.isNotBlank() } ?: return emptyList()
+            return listOf(RenderItem.ToolStarting(name))
+        }
+
         if (inner.str("type") != "content_block_delta") return emptyList()
         val delta = inner.obj("delta") ?: return emptyList()
 
