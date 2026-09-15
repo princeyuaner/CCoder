@@ -163,7 +163,7 @@ private fun platformClipboard(): Transferable? {
  * 那个 provider 去处理。这样文字粘贴一个字都没变，也就不用把那套逻辑（选区替换、
  * 撤销栈）重写一遍。规则与 TransferHandler 那条路是同一条（见 [attachImagesWanted]）。
  */
-internal fun imagePasteData(dataId: String, provider: PasteProvider?): Any? =
+internal fun imagePasteData(dataId: String, provider: PasteProvider?): PasteProvider? =
     if (provider != null && PlatformDataKeys.PASTE_PROVIDER.`is`(dataId) && provider.isPastePossible(EmptyDataContext)) {
         provider
     } else {
@@ -201,8 +201,14 @@ internal fun clipboardImageOnly(): Boolean {
     val app = ApplicationManager.getApplication() ?: return false
     return runCatching {
         val cp = app.getService(CopyPasteManager::class.java)
-        cp.areDataFlavorsAvailable(DataFlavor.imageFlavor) &&
-            !cp.areDataFlavorsAvailable(DataFlavor.stringFlavor)
+        val hasImage = cp.areDataFlavorsAvailable(DataFlavor.imageFlavor)
+        val hasText = cp.areDataFlavorsAvailable(DataFlavor.stringFlavor)
+        // 只有"既有图又有文字"这种**本来会让人意外**的拒绝才留话（文字优先那条规则
+        // 生效）：这条路上其它拒绝都是常态（剪贴板里就是段代码），记了全是噪音
+        if (hasImage && hasText) {
+            LOG.info("贴图：剪贴板里图和文字都有 —— 按文字优先交给平台")
+        }
+        hasImage && !hasText
     }.onFailure { LOG.warn("贴图：问平台剪贴板失败", it) }.getOrDefault(false)
 }
 

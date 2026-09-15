@@ -1,7 +1,9 @@
 package com.ccoder.ui
 
 import com.intellij.ide.PasteProvider
-import com.intellij.openapi.actionSystem.DataProvider
+import com.intellij.openapi.actionSystem.DataSink
+import com.intellij.openapi.actionSystem.PlatformDataKeys
+import com.intellij.openapi.actionSystem.UiCompatibleDataProvider
 
 import com.ccoder.settings.SendShortcut
 import com.intellij.ui.JBColor
@@ -39,7 +41,7 @@ internal const val COMPOSER_MIN_ROWS = 1
  * 返回 false），把它放进滚动面板后，拖高输入区只会多出一片空白 ——
  * 输入框本身纹丝不动，看起来像"拖了没用"。
  */
-internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), DataProvider {
+internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), UiCompatibleDataProvider {
 
     /**
      * Ctrl+V 的接管口（见 [imagePasteProvider]）。
@@ -47,16 +49,29 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
      * **为什么需要它**：IDE 里 Ctrl+V 走的是平台的 `$Paste` action，而那个 action
      * 是从**数据上下文**里取 [PasteProvider] 再调的 —— Swing 的 `TransferHandler`
      * 那条路在 IDE 里根本不会被执行（2026-09-15 实测：处理器装上了，一次都没被调到）。
-     * 输入框实现 [DataProvider] 之后，平台构建上下文时会来问它。
+     *
+     * **必须是 [UiCompatibleDataProvider]，不是普通的 `DataProvider`**：后者平台
+     * 会从后台线程随便问（所以要求线程安全），于是 2026-09-15 那一版实现完
+     * **一次都没被问到** —— 平台自己的 `EditorTextField` 实现的就是前者。
      *
      * 只在"剪贴板里只有图"时回答（见 [imagePasteData]），其余交回平台。
      */
     var pasteProvider: PasteProvider? = null
 
+    override fun uiDataSnapshot(sink: DataSink) {
+        val provider = imagePasteData(PlatformDataKeys.PASTE_PROVIDER.name, pasteProvider)
+        if (provider != null) {
+            LOG.info("贴图：把 PASTE_PROVIDER 交给平台（剪贴板里只有图）")
+            sink[PlatformDataKeys.PASTE_PROVIDER] = provider
+        }
+    }
+
     override fun getData(dataId: String): Any? = imagePasteData(dataId, pasteProvider)
 
     override fun getScrollableTracksViewportHeight(): Boolean = true
 }
+
+private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance("com.ccoder.ui.ComposerTextArea")
 
 // ---- 发送快捷键 ----
 
