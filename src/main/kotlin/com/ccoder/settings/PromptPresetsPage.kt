@@ -193,7 +193,10 @@ internal class PromptPresetsPage(
         formSlot.add(labeledField("内容", contentBox(content)))
         formSlot.add(
             wrappedHint(
-                "输入框里打 / 就会出现在「预设」分组里；点选后把内容追加到输入框末尾。",
+                // 说的是**实际行为**：预置走补全的采纳路径，那段 /… 会被替换掉。
+                // 别写成"追加到末尾" —— 那是 spec 最初的设想（对齐"添加选区"），
+                // 但补全这条路根本没有追加这回事，照着写就是让界面撒谎
+                "输入框里打 / 就会出现在「预设」分组里；选中后正文会替换掉你打的那段 /…",
                 JBUI.scale(PRESET_FORM_CONTENT_WIDTH),
             )
         )
