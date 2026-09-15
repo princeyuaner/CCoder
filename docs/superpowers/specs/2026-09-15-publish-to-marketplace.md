@@ -84,6 +84,46 @@ JetBrains 账号 → plugins.jetbrains.com → Profile → Add new plugin → �
 **专有许可，不是开源的。** 把它连着插件发到公开市场是法律问题，市场不会替你拦。
 这一条没有结论，是留给作者的判断。
 
+## 七、0.2.13 被卡：internal API（2026-09-15 当天）
+
+上传后市场自动跑的 Plugin Verifier 报了两条红字：
+
+| 红字 | 出处 |
+|---|---|
+| `Internal method usage: DataContext.getData(String)` | `ImagePaste.kt` 里那个 6 行的 `private object EmptyDataContext` 覆写了它（该方法是 `@ApiStatus.Internal`） |
+| `Non-extendable interface usage violation: DataContext` | **同一个对象**实现了 `DataContext`（接口本身标着 `@ApiStatus.NonExtendable`） |
+
+JetBrains 的审核指南里有一条明写的 approval criterion：「The Plugin does not violate
+JetBrains' internal API usage」；论坛上员工的回答是 "most likely we will never approve
+such new usages in a plugin and the version will not be published"。**这不是提示，是拦路。**
+
+**为什么会写出来**：`PasteProvider.isPastePossible(DataContext)` 的签名要一个上下文，
+而我们的 provider 根本不用它 —— 当初随手造了个空的。**平台自带
+`DataContext.EMPTY_CONTEXT`**，没有任何理由自己造。
+
+**修法**：`provider.isPastePossible(DataContext.EMPTY_CONTEXT)`，删掉那个 object，
+零行为变化。0.2.14 发。
+
+**一处容易误判的**：`ComposerTextArea` 实现的 `UiCompatibleDataProvider` **不含**
+`DataContext` —— 从 PyCharm 2025.3.1.1 的字节码里读出来的（它继承的是 `DataProvider`
++ `UiDataProvider`）。所以那两条红字只出自 `EmptyDataContext` 一个地方，这也解释了
+为什么报告里两条的计数都是 1 而不是 2。
+
+### 教训：上传前跑 verifyPlugin
+
+我们从头到尾**没跑过** `./gradlew verifyPlugin`。从 IntelliJ Platform Gradle Plugin
+2.15.0 起它会直接在 internal / override-only API 用法上判失败 —— 也就是说这道闸门
+本来就在手边，白挨了一轮审核。
+
+发版流程补一步：
+
+```
+三侧测试 → buildPlugin → ./gradlew verifyPlugin → publishPlugin
+```
+
+两个坑：它**不能和别的 Gradle 构建并发跑**（会撞 "Timeout waiting to lock Artifact
+transforms cache"）；第一次跑要下 IDE 分发，慢。
+
 ## 出处
 
 - [Publishing a Plugin](https://plugins.jetbrains.com/docs/intellij/publishing-plugin.html)
