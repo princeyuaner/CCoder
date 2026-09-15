@@ -32,16 +32,6 @@ import {
 /** 输出先铺多少行，超出部分折在一个按钮后面。 */
 const OUTPUT_HEAD_LINES = 14
 
-/**
- * 卡面上先画几行 diff（展开后画全）。
- *
- * 6 是"看得出这次改了什么"与"卡片别被撑开"之间的折中：一行太像摘要，看不出
- * 上下文；而一次 Edit 的 old/new 加起来常常二三十行，全铺在卡面上，转写区就
- * 被改文件的卡片占满了。**写死的理由**：改文件是这条流水线上最该被看见的事，
- * 所以它值几张卡的高度，但不值一整屏。
- */
-const DIFF_FACE_LINES = 6
-
 interface Props {
   item: ToolUseItem
   result?: ToolResultItem
@@ -228,12 +218,6 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const shown = showAll ? all : all.slice(0, OUTPUT_HEAD_LINES)
   const hidden = all.length - shown.length
 
-  // 卡面上的 diff：收着时先给几行，展开后画全（2026-09-15 用户要求
-  // 「工具卡片直接画 diff」—— 原先它埋在展开体里，而卡片默认收着，
-  // 等于改了什么必须逐个点开才看得见）
-  const diffShown = open ? diff : diff?.slice(0, DIFF_FACE_LINES)
-  const diffHidden = (diff?.length ?? 0) - (diffShown?.length ?? 0)
-
   const toggle = () => setOpen((v) => !v)
 
   /**
@@ -344,37 +328,24 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         </span>
       </div>
 
-      {/* diff 画在**卡面上**（卡片头之下、展开体之上）：位置不随开合变，
-          收着时是前几行，点开就长成全部 —— 同一个东西在原地长大，
-          而不是"点一下换一个地方出现" */}
-      {diff && diffShown && (
-        <div className="tool__diff tool__diff--face" data-testid="tool-diff">
-          {diffShown.map((line, i) => (
-            <div key={i} className={`tool__line tool__line--${line.kind}`}>
-              {/* 标记单独一个元素：测试要按内容精确取到那一行 */}
-              <span className="tool__sign">{line.kind === 'add' ? '+' : '−'}</span>
-              <span>{line.text}</span>
-            </div>
-          ))}
-          {diffHidden > 0 && (
-            <button
-              type="button"
-              className="tool__more tool__more--face"
-              data-testid="tool-diff-more"
-              onClick={toggle}
-            >
-              还有 {diffHidden} 行 —— 点开看全
-            </button>
-          )}
-        </div>
-      )}
-
       {open && (
         <div className="tool__body">
           {command !== '' && (
             <div className="tool__cmd" data-testid="tool-command">
               <span className="tool__prompt">$ </span>
               {command}
+            </div>
+          )}
+
+          {diff && (
+            <div className="tool__diff" data-testid="tool-diff">
+              {diff.map((line, i) => (
+                <div key={i} className={`tool__line tool__line--${line.kind}`}>
+                  {/* 标记单独一个元素：测试要按内容精确取到那一行 */}
+                  <span className="tool__sign">{line.kind === 'add' ? '+' : '−'}</span>
+                  <span>{line.text}</span>
+                </div>
+              ))}
             </div>
           )}
 

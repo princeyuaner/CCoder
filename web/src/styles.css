@@ -650,21 +650,6 @@ body {
   line-height: 1.5;
 }
 
-/* 卡面上那一份 diff（不经展开就画）。左右缩到与卡片头里的文字对齐 ——
-   卡片头的内边距是 `padding: 5px 8px`（见 .tool__head） */
-.tool__diff--face {
-  margin: 0 8px 8px;
-}
-
-/* 卡面上的"还有 N 行"。它不在 .tool__body 那个 flex 列里（.tool__diff 是块级），
-   所以 .tool__more 的 align-self 在这里不起作用，得自己撑满一行 */
-.tool__more--face {
-  display: block;
-  width: 100%;
-  padding: 3px 8px;
-  text-align: left;
-}
-
 .tool__line {
   display: flex;
   gap: 5px;

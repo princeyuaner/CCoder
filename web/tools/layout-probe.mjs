@@ -71,9 +71,6 @@ function findChromium() {
 const SCENARIOS = [
   { name: 'overflow', note: '内容严重溢出（38 文字 + 86 卡片）', entries: 38, tools: 86, thinking: 6, notes: 3 },
   { name: 'fits', note: '内容不溢出（2 文字 + 2 卡片）', entries: 2, tools: 2, thinking: 1, notes: 1 },
-  // 卡面上的 diff（2026-09-15）：改文件那张卡比别的卡高一块，要量的是
-  // 它有没有把卡片撑破、左右缩进有没有让开卡片头的那 8px
-  { name: 'diff', note: '带 diff 的编辑卡片', entries: 1, tools: 2, thinking: 0, notes: 0, diff: true },
 ]
 
 /** 卡片高度下限。卡片头是 5px 内边距 + 一行 12px 文字 + 2px 边框 ≈ 29px。 */
@@ -182,22 +179,6 @@ function buildPage(scenario) {
       '<pre class="tool__out">ok 1 - 第一条\\nok 2 - 第二条\\nok 3 - 第三条</pre>' +
       '</div>'
     t.appendChild(d)
-
-    // 卡面上的 diff（2026-09-15）—— DOM 与 ToolCallBlock 一致：
-    // .tool__diff--face 在卡片头**之后**、展开体**之前**
-    // （这段是**外层模板字符串里**的代码：注释里也不许出现反引号）
-    if (S.diff && i === 0) {
-      const face = document.createElement('div')
-      face.className = 'tool__diff tool__diff--face'
-      face.id = 't-diff'
-      face.innerHTML =
-        '<div class="tool__line tool__line--del"><span class="tool__sign">−</span>' +
-        '<span>    val before = 1</span></div>' +
-        '<div class="tool__line tool__line--add"><span class="tool__sign">+</span>' +
-        '<span>    val after = 2</span></div>' +
-        '<button type="button" class="tool__more tool__more--face">还有 12 行 —— 点开看全</button>'
-      d.insertBefore(face, d.querySelector('.tool__body'))
-    }
   }
   t.scrollTop = t.scrollHeight   // 真实页面也会自动滚到底
 
@@ -217,12 +198,6 @@ function buildPage(scenario) {
     return Math.round((hd.getBoundingClientRect().width - parent.clientWidth) * 10) / 10
   }
   const headOverflow = overflowOf(t.querySelector('.tool'), '.tool__head')
-  // 卡面 diff 的左右缩进：应当正好让开卡片头那 8px 内边距（两侧共 16）
-  const diffEl = document.getElementById('t-diff')
-  const diffPad = diffEl
-    ? Math.round((diffEl.parentElement.clientWidth - diffEl.getBoundingClientRect().width) * 10) / 10
-    : -1
-  const diffLines = diffEl ? diffEl.querySelectorAll('.tool__line').length : -1
   // 正文气泡 vs 它那一行的行宽。长文本下两者必须相等 —— 差多少就是右边空了多少
   const widthOf = (sel) => {
     const el = t.querySelector(sel)
@@ -272,8 +247,6 @@ function buildPage(scenario) {
     userW: userW,
     imagesOverflow: imagesOverflow,
     thumbW: thumbW,
-    diffPad: diffPad,
-    diffLines: diffLines,
     titleStyle: styleOf('.tool__title:not(.tool__file)'),
     fileStyle: styleOf('.tool__file'),
     // 能不能点不该靠悬停才发现 —— 静止态就得有下划线
@@ -366,15 +339,6 @@ for (const scenario of SCENARIOS) {
   }
   if (m.thumbW !== -1 && m.thumbW !== 150) {
     problems.push(`缩略图宽 ${m.thumbW} ≠ 150 —— 尺寸被别处的规则改掉了`)
-  }
-  // 卡面 diff（只有 diff 那个场景里才有）：缩进要与卡片头对齐，行数不多不少
-  if (m.diffPad >= 0 && Math.abs(m.diffPad - 16) > 1) {
-    problems.push(
-      `卡面 diff 的左右缩进是 ${m.diffPad}px —— 该是 16（2×8，与卡片头的内边距对齐）`,
-    )
-  }
-  if (m.diffLines >= 0 && m.diffLines !== 2) {
-    problems.push(`卡面 diff 里画了 ${m.diffLines} 行代码，该是 2`)
   }
   if (m.fileDecoration !== 'underline') {
     problems.push(

@@ -205,9 +205,7 @@ describe('ToolCallBlock', () => {
     expect(screen.getByTestId('tool-output')).toHaveTextContent('3 tests failed')
   })
 
-  it('Edit 的 diff 不点开就画在卡面上', async () => {
-    // 2026-09-15 用户要求「工具卡片直接画 diff」：改文件是这条流水线上最该被看见
-    // 的事，而卡片默认收着 —— 埋在展开体里等于每次都得点一下才知道改了什么
+  it('Edit 的 diff 只在展开后画出来，卡面只留改动规模', async () => {
     render(
       <ToolCallBlock
         item={use('Edit', { file_path: '/a/B.kt', old_string: '旧行', new_string: '新行' })}
@@ -217,48 +215,14 @@ describe('ToolCallBlock', () => {
 
     // 标题行右侧不点开就知道改动规模
     expect(screen.getByTestId('tool-delta')).toHaveTextContent('+1')
-    // 卡面上直接读得到改了哪两行
-    const diff = screen.getByTestId('tool-diff')
-    expect(diff).toHaveTextContent('旧行')
-    expect(diff).toHaveTextContent('新行')
 
-    // 展开后**不再画第二份**：同一个东西在原地长大，不是换个地方再出现
+    // **收着时不画 diff**（2026-09-15 用户选择「只在展开时画」）。
+    // 这一句是这条选择的守门人：少了它，谁把 diff 挪回卡面上都不会有用例变红
+    expect(screen.queryByText('旧行')).not.toBeInTheDocument()
+
     await userEvent.click(header())
-    expect(screen.getAllByTestId('tool-diff')).toHaveLength(1)
-  })
-
-  it('卡面先画几行 diff，剩下的折在"还有 N 行"后面', async () => {
-    const oldLines = Array.from({ length: 9 }, (_, i) => `旧${i}`).join('\n')
-    const newLines = Array.from({ length: 9 }, (_, i) => `新${i}`).join('\n')
-    render(
-      <ToolCallBlock
-        item={use('Edit', { file_path: '/a/B.kt', old_string: oldLines, new_string: newLines })}
-      />,
-    )
-
-    expect(screen.getByTestId('tool-diff').querySelectorAll('.tool__line')).toHaveLength(6)
-    expect(screen.getByTestId('tool-diff-more')).toHaveTextContent('还有 12 行')
-
-    await userEvent.click(screen.getByTestId('tool-diff-more'))
-
-    // 点开之后画全，那句话也就没了
-    expect(screen.getByTestId('tool-diff').querySelectorAll('.tool__line')).toHaveLength(18)
-    expect(screen.queryByTestId('tool-diff-more')).not.toBeInTheDocument()
-  })
-
-  it('Write 的卡面也画 diff —— 整份文件都是新增', () => {
-    render(
-      <ToolCallBlock item={use('Write', { file_path: '/a/C.kt', content: '第一行\n第二行' })} />,
-    )
-
-    const diff = screen.getByTestId('tool-diff')
-    expect(diff.querySelectorAll('.tool__line--add')).toHaveLength(2)
-    expect(diff.querySelectorAll('.tool__line--del')).toHaveLength(0)
-  })
-
-  it('跑命令、读文件的卡片卡面不画 diff', () => {
-    render(<ToolCallBlock item={use('Bash', { command: 'ls' })} />)
-    expect(screen.queryByTestId('tool-diff')).not.toBeInTheDocument()
+    expect(screen.getByText('旧行')).toBeInTheDocument()
+    expect(screen.getByText('新行')).toBeInTheDocument()
   })
 
   it('没有配上的结果（id 对不上）不挂到这张卡片上', () => {
