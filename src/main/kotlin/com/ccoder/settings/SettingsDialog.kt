@@ -45,11 +45,12 @@ fun showSettingsDialog(project: Project) {
         project = project,
         settings = ClaudeSettings.getInstance(project),
         profiles = ModelProfiles.getInstance(),
+        presets = PromptPresets.getInstance(),
     ).show()
 }
 
 /**
- * 设置对话框（设计稿方案 C，2026-09-15）。四页签：模型 / 通用 / 权限 / 环境。
+ * 设置对话框（设计稿方案 C，2026-09-15）。五页签：模型 / 预置 / 通用 / 权限 / 环境。
  *
  * ## 从三栏到四页签
  *
@@ -60,11 +61,11 @@ fun showSettingsDialog(project: Project) {
  *
  * ## 改动即时保存
  *
- * 四页统一：控件一变就写服务，**没有待保存副本，也没有回滚**。所以底部只有
+ * 五页统一：控件一变就写服务，**没有待保存副本，也没有回滚**。所以底部只有
  * 一颗「关闭」——原来的「取消」在这页上什么都不回滚（它旁边那句「改动即时保存」
  * 就是为了解释这件事才写的），换成一颗按钮之后那句解释也随之退休。
  *
- * ## 两个服务由调用方注入
+ * ## 服务由调用方注入
  *
  * 不在里面 `getInstance()`：探针要在没有 Application 服务的纯 JVM 里跑
  * （同 [ClaudeSettings.toStartParams] 的理由）。拿服务是入口 [showSettingsDialog] 的事。
@@ -79,13 +80,15 @@ internal class SettingsDialog(
     private val project: Project?,
     private val settings: ClaudeSettings,
     private val profiles: ModelProfiles,
+    private val presets: PromptPresets,
 ) : DialogWrapper(project) {
 
-    /** 四页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
+    /** 五页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
     internal val pages: List<SettingsPage> = run {
         val models = ModelProfilesPage(settings, profiles)
         listOf(
             models,
+            PromptPresetsPage(presets),
             GeneralSettingsPage(project, settings),
             PermissionSettingsPage(settings),
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——

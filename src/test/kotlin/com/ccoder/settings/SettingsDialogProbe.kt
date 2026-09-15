@@ -332,7 +332,7 @@ class SettingsDialogProbe {
                 select(selected)
             }
             val settings = settingsWith(envOverrides, claudePath, model, extraDirs, permissionMode)
-            val dialog = SettingsDialog(fakeProject(), settings, service)
+            val dialog = SettingsDialog(fakeProject(), settings, service, PromptPresets())
 
             // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()
             if (page != "模型") clickTab(dialog.contentPanel, page)
@@ -416,7 +416,7 @@ class SettingsDialogSaveTest {
         lateinit var service: ModelProfiles
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
-            dialog = SettingsDialog(fakeProject(), settingsWith(), service)
+            dialog = SettingsDialog(fakeProject(), settingsWith(), service, PromptPresets())
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }
         return dialog to service

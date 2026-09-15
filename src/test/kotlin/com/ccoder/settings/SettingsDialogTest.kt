@@ -142,6 +142,7 @@ class SettingsDialogLayoutTest {
                 layoutProbeProject(),
                 ClaudeSettings(),
                 ModelProfiles(emptyStore()),
+                PromptPresets(),
             )
             val pane = dialog.contentPane ?: dialog.contentPanel
             pane.setSize(DIALOG_WIDTH, DIALOG_HEIGHT)
@@ -272,7 +273,7 @@ class SettingsPagesTest {
     private fun open(settings: ClaudeSettings = ClaudeSettings()): Pair<SettingsDialog, ClaudeSettings> {
         lateinit var dialog: SettingsDialog
         SwingUtilities.invokeAndWait {
-            dialog = SettingsDialog(layoutProbeProject(), settings, ModelProfiles(emptyStore()))
+            dialog = SettingsDialog(layoutProbeProject(), settings, ModelProfiles(emptyStore()), PromptPresets())
             layoutAll(dialog.contentPane)
         }
         return dialog to settings
