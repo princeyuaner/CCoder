@@ -237,6 +237,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     /** 「＋」。位置与间距见 [buildTopRow]（2026-09-14 起在齿轮左边）。 */
     private val newSessionButton = SessionNewButton { onNewSession() }
 
+    /**
+     * 待发的图（贴图）。挂在输入卡里，空的时候它自己收起来。
+     *
+     * 回调在 [buildUI] 里接上 —— 这里还不知道输入卡在哪（见 AttachmentStrip 的说明）。
+     */
+    private val attachments = AttachmentStrip()
+
     /** 最近一次列出来的会话。删除成功后从它里面摘掉那一行再重画。 */
     private var sessionListCache: List<SessionInfo> = emptyList()
 
@@ -370,6 +377,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 已经没有查询词的位置上
         input.addCaretListener { refreshCompletion() }
 
+        // 贴图：剪贴板里的截图、拖进来的图片文件，都收进附件带。
+        // 文字粘贴走的还是原来那个处理器（见 installImagePaste 的说明）
+        installImagePaste(input) { incoming -> incoming.forEach(::addAttachment) }
+
         input.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 // 补全开着时，上下键与 Enter/Tab/Esc 归补全。
@@ -425,7 +436,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 四张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
 
-        val inputArea = buildComposerCard(inputScroll, composerToolbar)
+        val inputArea = buildComposerCard(inputScroll, composerToolbar, attachments)
+        // 附件带展开/收起会改卡片高度 —— 得让布局重算，不然第一张图会压在
+        // 输入框上画出来（附件带占的高度是凭空长出来的那一截）
+        attachments.onChanged = { inputArea.revalidate() }
 
         // 权限卡与状态卡共用 NORTH：两块都在输入卡**外面**、它的上方。
         // 顺序是权限卡在上（它更急）、状态卡紧贴输入框
@@ -2382,6 +2396,32 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 // reload_skills 时分组能更准
                 commandList = msg.commands
             }
+        }
+    }
+
+    /**
+     * 一张刚粘/拖进来的图 → 附件带。
+     *
+     * 缩放、编码、条数上限都在 [AttachedImage] 与 [AttachmentStrip] 那两层，
+     * 这里只负责**把没收下的原因显示出来**：用户刚按了 Ctrl+V，什么都没发生
+     * 看起来就是坏了（静默失败比多一行字严重）。
+     */
+    private fun addAttachment(incoming: IncomingImage) {
+        val reason = imageRejectReason(incoming.sourceBytes)
+        if (reason != null) {
+            attachments.reject(reason)
+            return
+        }
+        val prepared = prepareAttachment(
+            source = incoming.image,
+            index = attachments.images.size,
+            sourceBytes = incoming.sourceBytes,
+            name = incoming.name,
+        )
+        if (prepared == null) {
+            attachments.reject("这张图压不小，换个更小的试试")
+        } else {
+            attachments.add(prepared)
         }
     }
 

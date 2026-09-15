@@ -53,6 +53,14 @@ internal const val THUMB_W = 56
 internal const val THUMB_H = 42
 
 /**
+ * 缩略图右上角那个 ✕ 的边长。
+ *
+ * 14 是"手指头够得着"与"别把缩略图本尊挡住"之间的折中：再小点不准（它压在 56px 的
+ * 图上），再大就把内容压掉一块、认不出是哪张截图了。
+ */
+internal const val BADGE_SIDE = 14
+
+/**
  * 一张待发的图。
  *
  * [bytes] 是**已经缩过、可以直接发**的那份（见 [prepareAttachment]）；[thumb] 只给界面；

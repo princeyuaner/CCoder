@@ -119,14 +119,16 @@ internal class ComposerCard : JPanel(BorderLayout()) {
 }
 
 /**
- * 卡片内部自上而下两段：
+ * 卡片内部自上而下三段：
  *
+ *   NORTH  附件带（待发的图；没有图时它自己收起来，一分高度都不占）
  *   CENTER 输入框（撑满可用高度）
  *   SOUTH  控件工具栏（发送/停止在右，左侧留给模型切换等）
  *
- * NORTH 原本挂着"连接状态 + 上下文 + 任务条"那一行。那四样拆成独立卡片
- * 挪到输入卡**外面**之后这一层就不需要了 —— 它们是独立的一排，不是
- * 输入框的一部分。
+ * NORTH 原先挂着"连接状态 + 上下文 + 任务条"那一行。那四样拆成独立卡片
+ * 挪到输入卡**外面**之后这一层空了出来，2026-09-15 贴图把它用掉：
+ * 附件带必须在**卡片内部**——它是这条消息的一部分，不是状态卡那种常驻控件
+ * （设计稿 docs/design/image-attach.html 方案甲）。
  *
  * 工具栏放 SOUTH 而不是把按钮摆在输入框右边（原来那样）—— 右边放不下
  * 以后的模型切换、权限模式；摆下面则加控件只是往工具栏左侧添，不必再动结构。
@@ -134,7 +136,9 @@ internal class ComposerCard : JPanel(BorderLayout()) {
 internal fun buildComposerCard(
     inputScroll: JComponent,
     toolbar: JComponent,
+    attachments: JComponent? = null,
 ): ComposerCard = ComposerCard().apply {
+    if (attachments != null) add(attachments, BorderLayout.NORTH)
     add(inputScroll, BorderLayout.CENTER)
     add(toolbar, BorderLayout.SOUTH)
 }
