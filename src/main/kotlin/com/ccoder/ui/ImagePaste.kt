@@ -166,9 +166,17 @@ private fun platformClipboard(): Transferable? {
  * **只在"剪贴板里是图、而且没有文字"时才接管** —— 其余一律返回 null，让平台自己
  * 那个 provider 去处理。这样文字粘贴一个字都没变，也就不用把那套逻辑（选区替换、
  * 撤销栈）重写一遍。规则与 TransferHandler 那条路是同一条（见 [attachImagesWanted]）。
+ *
+ * **那个 context 参数用平台自带的 [DataContext.EMPTY_CONTEXT]，别自己实现 `DataContext`。**
+ * 它标着 `@ApiStatus.NonExtendable`（插件里实现它就是"non-extendable API usage
+ * violation"），而它那个 `getData(String)` 又是 `@ApiStatus.Internal`。2026-09-15：
+ * 一个 6 行的 `EmptyDataContext` 同时触发了这两条红字，足以让市场审核不通过 ——
+ * 平台本来就提供了空上下文，没有任何理由自己造一个。
  */
 internal fun imagePasteData(dataId: String, provider: PasteProvider?): PasteProvider? =
-    if (provider != null && PlatformDataKeys.PASTE_PROVIDER.`is`(dataId) && provider.isPastePossible(EmptyDataContext)) {
+    if (provider != null && PlatformDataKeys.PASTE_PROVIDER.`is`(dataId) &&
+        provider.isPastePossible(DataContext.EMPTY_CONTEXT)
+    ) {
         provider
     } else {
         null
@@ -224,11 +232,6 @@ internal fun readImagesFromPlatformClipboard(): List<IncomingImage> {
     }.onFailure { LOG.warn("贴图：读平台剪贴板失败", it) }.getOrNull() ?: return emptyList()
     LOG.info("贴图：从平台剪贴板读到了 ${image.getWidth(null)}x${image.getHeight(null)}")
     return listOf(IncomingImage(toBuffered(image), sourceBytes = 0, name = null))
-}
-
-/** 一个空的 DataContext：`isPastePossible` 用不上它，但签名要。 */
-private object EmptyDataContext : DataContext {
-    override fun getData(dataId: String): Any? = null
 }
 
 /**
