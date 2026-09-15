@@ -884,7 +884,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun showDetailPopup(card: StatusCardView, content: JComponent) {
         // 先取消旧的：它的 onClosed 会把字段置空，所以必须排在赋值之前
         runDetailPopup?.cancel()
-        runDetailPopup = showTogglePopup(anchor = card, content = content) {
+        runDetailPopup = showTogglePopup(anchor = card, content = content, underAnchor = true) {
             // 点浮层外面关掉时也要把高亮与"开着谁"一起清掉 ——
             // 少了这一句，那张卡会一直亮着，再点它反而变成"收起"
             closeDetail()
@@ -901,6 +901,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun showTogglePopup(
         anchor: JComponent,
         content: JComponent,
+        /**
+         * 横向贴不贴锚点。
+         *
+         * false（默认）= 贴面板左边缘，底部那排长列表用（会话标签是右对齐的，
+         * 跟着锚点会整块溢出）；true = 贴锚点，唯一用户是状态卡那三个详情浮层 ——
+         * 四张卡横排，浮层跑到面板最左就跟"这是哪张卡的"断了联系（见 [popupCardX]）。
+         *
+         * **必须排在 `onClosed` 前面**：尾随 lambda 会静默绑到最后一个参数上，
+         * 放在后面的话下面四个调用点的 `{ ... }` 会变成往 Boolean 上传函数 ——
+         * 这个坑 StatusCardsRow 的注释里记过一次，这里不再踩。
+         */
+        underAnchor: Boolean = false,
         onClosed: () -> Unit,
     ): JBPopup {
         val popup = JBPopupFactory.getInstance()
@@ -917,7 +929,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 override fun onClosed(event: LightweightWindowEvent) = onClosed()
             }
         )
-        showAboveOrBelow(popup, anchor)
+        showAboveOrBelow(popup, anchor, underAnchor)
         return popup
     }
 
@@ -925,10 +937,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 锚点都在工具窗口底部，向下弹必然出屏，所以位置得自己算。
      * 见 [popupAnchorY]。
      */
-    private fun showAboveOrBelow(popup: JBPopup, anchor: JComponent) {
+    private fun showAboveOrBelow(popup: JBPopup, anchor: JComponent, underAnchor: Boolean = false) {
         if (!anchor.isShowing) return
         val at = anchor.locationOnScreen
         val screen = anchor.graphicsConfiguration?.bounds ?: Rectangle(0, 0, 1920, 1080)
+        // 名字带前缀：`width` 在这个类里是**面板自己的宽度**，同名会把 panelRight 算错
+        val popupWidth = popupWidthOf(popup.size, popup.content?.preferredSize)
         val y = popupAnchorY(
             anchorTop = at.y,
             anchorHeight = anchor.height,
@@ -938,14 +952,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             gap = JBUI.scale(4),
         )
 
-        // 横向：一律贴面板左边缘（见 [popupLeftX] 里那段 —— 此前是"两个长列表
-        // 居中于面板、其余贴各自锚点"两种行为混着，一列弹层点下来横坐标每次都不同）
-        val x = popupLeftX(
-            panelLeft = locationOnScreen.x,
-            popupWidth = popupWidthOf(popup.size, popup.content?.preferredSize),
-            screenLeft = screen.x,
-            screenRight = screen.x + screen.width,
-        )
+        // 横向两条路，见 showTogglePopup 的 underAnchor 与 [popupCardX] 里那段：
+        // 状态卡的详情跟自己的卡走，底部那排长列表贴面板左边缘
+        val x = if (underAnchor) {
+            popupCardX(
+                anchorLeft = at.x,
+                popupWidth = popupWidth,
+                panelLeft = locationOnScreen.x,
+                panelRight = locationOnScreen.x + width,
+                screenLeft = screen.x,
+                screenRight = screen.x + screen.width,
+            )
+        } else {
+            popupLeftX(
+                panelLeft = locationOnScreen.x,
+                popupWidth = popupWidth,
+                screenLeft = screen.x,
+                screenRight = screen.x + screen.width,
+            )
+        }
 
         popup.showInScreenCoordinates(anchor, Point(x, y))
     }

@@ -86,3 +86,37 @@ internal fun popupLeftX(
     return panelLeft.coerceIn(lo, hi)
 }
 
+/**
+ * 详情浮层该出现在哪个 x：**贴它自己那张卡的左边缘**，再钳进面板。
+ *
+ * 2026-09-15 晚（用户报"上下文、子任务、子代理的弹框不应该居左，应该保持在各自
+ * 对应的下方"）。当天早些时候刚把所有浮层统一成贴面板左边缘（[popupLeftX]）——
+ * 那条对底部的长列表是对的，套到这一排卡上却错了：四张卡各占 404px 里的一格，
+ * 点第三张却从面板最左边弹出来，读起来像"这浮层跟哪张卡都没关系"。
+ *
+ * 两者分工：
+ *
+ * - **详情浮层跟卡走**（这里）—— 卡片排成一行，位置本身就是"这是哪一张"的信息；
+ * - **底部那些长列表仍贴面板左边缘**（[popupLeftX]）—— 它们的锚点是底部一排
+ *   标签，其中会话标签是**右对齐**的，标题短时缩到最右，跟着锚点会整块溢出面板。
+ *
+ * 钳的方向是"先右后左"：卡片在右半边时，浮层宁可与卡右对齐、往左伸出去，
+ * 也不要整块跑到面板外面。
+ */
+internal fun popupCardX(
+    anchorLeft: Int,
+    popupWidth: Int,
+    panelLeft: Int,
+    panelRight: Int,
+    screenLeft: Int,
+    screenRight: Int,
+): Int {
+    // 可用区间 = 面板 ∩ 屏幕，再减掉浮层自己的宽度
+    val lo = maxOf(panelLeft, screenLeft)
+    val hi = minOf(panelRight, screenRight) - popupWidth
+    // 浮层比可用区间还宽：贴左边界。与 [popupLeftX] 同一条兜底 ——
+    // 空区间会让 coerceIn 抛异常，而这是"点一下卡片"的路径，抛了就什么都弹不出来
+    if (hi < lo) return lo
+    return anchorLeft.coerceIn(lo, hi)
+}
+

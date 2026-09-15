@@ -122,4 +122,46 @@ class ComposerStripTest {
 
         assertEquals(0, x)
     }
+
+    // ---- 状态卡的详情浮层：跟自己的那张卡走（2026-09-15 用户报的那条）----
+
+    @Test
+    fun `详情浮层贴在它自己那张卡的左边缘`() {
+        // 面板 x=1000、宽 404，四张卡各占一格（约 97px）：
+        // 第三张卡的左边缘在 1000+2*(97+5)=1204。浮层该从 1204 开始，
+        // 而不是像长列表那样贴面板左边缘的 1000
+        assertEquals(
+            1204,
+            popupCardX(
+                anchorLeft = 1204, popupWidth = 200,
+                panelLeft = 1000, panelRight = 1404,
+                screenLeft = 0, screenRight = 3000,
+            ),
+        )
+    }
+
+    @Test
+    fun `靠右的卡不会把浮层顶出面板`() {
+        // 浮层比卡宽得多时，宁可往左伸出去（与卡右对齐），也不能整块跑出面板
+        val x = popupCardX(
+            anchorLeft = 1350, popupWidth = 300,
+            panelLeft = 1000, panelRight = 1404,
+            screenLeft = 0, screenRight = 3000,
+        )
+
+        assertTrue(x + 300 <= 1404, "溢出面板右边：x=$x, 右边缘=${x + 300}")
+        assertTrue(x >= 1000, "越过面板左边：$x")
+    }
+
+    @Test
+    fun `面板比浮层窄时也不抛`() {
+        // 同 popupLeftX 那条兜底 —— 空区间会让 coerceIn 抛，而这是点击路径
+        val x = popupCardX(
+            anchorLeft = 1010, popupWidth = 2400,
+            panelLeft = 1000, panelRight = 1404,
+            screenLeft = 0, screenRight = 1920,
+        )
+
+        assertEquals(1000, x)
+    }
 }
