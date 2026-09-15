@@ -3,12 +3,19 @@ package com.ccoder.ui
 /**
  * 排队中的一条输入（spec §3）。
  *
- * 两个字段的分工是**不能合并**的：[text] 是发出去要用的正文，snippet 记号
+ * 前两个字段的分工是**不能合并**的：[text] 是发出去要用的正文，snippet 记号
  * 在入队那一刻就展开好了（那时候才拿得到 [ComposerReferences] 那张表）；
  * [typed] 是用户敲的原样，只用来认会话标题 —— 拿展开后的文本当标题会变成
  * 「```kotlin …」（见 ClaudePanel.sendCurrentInput 里同样的理由）。
+ *
+ * [images]（贴图，2026-09-15）**跟着这条消息走**，不是跟着输入框：撤掉这条时
+ * 它的图一起没（留在输入框里的话，那几张图会串到下一条消息上）。
  */
-internal data class QueuedInput(val text: String, val typed: String)
+internal data class QueuedInput(
+    val text: String,
+    val typed: String,
+    val images: List<AttachedImage> = emptyList(),
+)
 
 /**
  * 排队中的输入。FIFO。
@@ -29,8 +36,8 @@ internal class SendQueue {
 
     val isEmpty: Boolean get() = items.isEmpty()
 
-    fun enqueue(text: String, typed: String) {
-        items.addLast(QueuedInput(text, typed))
+    fun enqueue(text: String, typed: String, images: List<AttachedImage> = emptyList()) {
+        items.addLast(QueuedInput(text, typed, images))
     }
 
     /** 看一眼队首，**不**取走 —— flush 要先画转写区再发。 */

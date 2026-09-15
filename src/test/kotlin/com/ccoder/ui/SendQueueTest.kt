@@ -65,4 +65,47 @@ class SendQueueTest {
         assertEquals(emptyList<QueuedInput>(), q.drain())
         assertEquals(0, q.size)
     }
+
+    // ---- 贴图（2026-09-15）----
+
+    /** 一张够小的图，只为"这条消息带着图"这件事本身。 */
+    private fun pic(index: Int = 0): AttachedImage {
+        val img = java.awt.image.BufferedImage(20, 20, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        return prepareAttachment(img, index) ?: error("夹具没做成")
+    }
+
+    @Test
+    fun `图跟着那条消息走，不串到下一条上`() {
+        // 撤掉 A 之后，A 的图绝不能留在队列里跟着 B 发出去 —— 那是"发给别人的截图"
+        val q = SendQueue()
+        val a = pic(0)
+        q.enqueue("带图的", "带图的", listOf(a))
+        q.enqueue("光文字", "光文字")
+
+        assertEquals(listOf(a), q.peek()!!.images)
+        assertTrue(q.drain()[1].images.isEmpty())
+    }
+
+    @Test
+    fun `撤掉一条时它的图一起走`() {
+        val q = SendQueue()
+        val a = pic(0)
+        q.enqueue("甲", "甲", listOf(a))
+        q.enqueue("乙", "乙")
+
+        q.remove(q.peek()!!)
+
+        val rest = q.snapshot()
+        assertEquals(1, rest.size)
+        assertTrue(rest[0].images.isEmpty(), "剩下的那条不该捡到前一条的图")
+    }
+
+    @Test
+    fun `不传图时字段是空列表，不是 null`() {
+        // 默认值那条路：既有调用点（命令回合、既有测试）都不用改
+        val q = SendQueue()
+        q.enqueue("光文字", "光文字")
+
+        assertTrue(q.peek()!!.images.isEmpty())
+    }
 }

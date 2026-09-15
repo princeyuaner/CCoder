@@ -55,17 +55,51 @@ class QueueStripRenderProbe {
         "最后再跑一遍 gradlew test" to "最后再跑一遍 gradlew test",
     )
 
-    /** @param queued 每条的 (text, typed)。 */
+    /** 带图那条：队列里的图看不见，全靠「图 N」标签（见 queueChipText）。 */
+    @Test
+    fun `一条带两张图的排队消息 —— 「图 2」标签`() =
+        render(
+            "build/queue-probe-with-images.png",
+            listOf("这个报错你看下" to "这个报错你看下"),
+            imagesPerRow = listOf(2),
+        )
+
+    /** 展开态里那条带图的：标签挂在**它自己**那一行上，别串到邻居头上。 */
+    @Test
+    fun `两条展开，第二条带图 —— 标签挂在那一行`() =
+        render(
+            "build/queue-probe-images-open.png",
+            listOf("先别动 README" to "先别动 README", "这个报错你看下" to "这个报错你看下"),
+            expanded = true,
+            imagesPerRow = listOf(0, 2),
+        )
+
+    private fun pic(index: Int): AttachedImage {
+        val img = BufferedImage(40, 30, BufferedImage.TYPE_INT_RGB).apply {
+            createGraphics().apply {
+                color = java.awt.Color(30, 60, 220)
+                fillRect(0, 0, 40, 30)
+                dispose()
+            }
+        }
+        return prepareAttachment(img, index) ?: error("夹具没做成")
+    }
+
+    /**
+     * @param queued 每条的 (text, typed)
+     * @param imagesPerRow 第 i 条挂几张图（不传就是都没图）
+     */
     private fun render(
         path: String,
         queued: List<Pair<String, String>>,
         expanded: Boolean = false,
+        imagesPerRow: List<Int> = emptyList(),
     ) {
         // 真机 LAF（New UI）下画。跑在测试 JVM 默认的 Metal 下画出来的按钮宽度、
         // 边框、颜色都跟用户屏幕上不是一回事 —— 顶行那两个图标就是这么被骗了两天
         // （见 [IdeLaf]）。图因此是**深色**的，那才是真机。
         IdeLaf.withRealLaf {
-            renderIn(path, queued, expanded)
+            renderIn(path, queued, expanded, imagesPerRow)
         }
     }
 
@@ -73,10 +107,13 @@ class QueueStripRenderProbe {
         path: String,
         queued: List<Pair<String, String>>,
         expanded: Boolean = false,
+        imagesPerRow: List<Int> = emptyList(),
     ) {
         SwingUtilities.invokeAndWait {
             val queue = SendQueue().apply {
-                for ((text, typed) in queued) enqueue(text, typed)
+                queued.forEachIndexed { i, (text, typed) ->
+                    enqueue(text, typed, List(imagesPerRow.getOrElse(i) { 0 }) { pic(it) })
+                }
             }
             val strip = QueueStrip {}.apply {
                 setModel(queueStripModel(queue))

@@ -5,6 +5,8 @@ import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
+import javax.swing.BorderFactory
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JLabel
@@ -58,9 +60,26 @@ internal fun queueStripModel(queue: SendQueue): QueueStripModel? {
  *
  * 只有一条时把内容一并写出来 —— 「排队 1」单独占一行是白占；两条以上只写条数，
  * 内容点开才有（用户 2026-09-15 的原话）。
+ *
+ * 单条时**图数也写在这一行上**：折叠写法里没有列表，不写的话"排着一张截图"和
+ * "排着一句话"看起来一模一样（展开时那张「图 N」标签见 [queueChipText]）。
  */
-internal fun queueLineText(model: QueueStripModel): String =
-    if (model.rows.size == 1) "排队 1 · ${model.rows[0].label}" else "排队 ${model.count}"
+internal fun queueLineText(model: QueueStripModel): String {
+    if (model.rows.size != 1) return "排队 ${model.count}"
+    val row = model.rows[0]
+    val chip = queueChipText(row.item.images.size)
+    return "排队 1 · ${row.label}" + if (chip != null) " · $chip" else ""
+}
+
+/**
+ * 一行后面那个「图 N」标签。没图给 null（不显示）。
+ *
+ * 为什么要有它：**队列里的图是看不见的** —— 缩略图只画在附件带上，而附件带在
+ * 入队那一刻就清空了（图跟着消息走了）。没有这个标签，一条排着的消息带着三张图
+ * 和一条纯文字在屏幕上长得一模一样。
+ */
+internal fun queueChipText(imageCount: Int): String? =
+    if (imageCount > 0) "图 $imageCount" else null
 
 /**
  * 排队条：哪些消息还排着、各自一眼能认出来、都能撤（spec §6）。
@@ -177,11 +196,22 @@ internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel(
     private fun buildRow(row: QueueRow) = JPanel(BorderLayout()).apply {
         isOpaque = false
         alignmentX = LEFT_ALIGNMENT
-        // 卡面只留一行摘要，全文挂 tooltip（与工具卡片那条摘要同一个道理）
+        // 卡面只留一行摘要，全文挂 tooltip（与工具卡片那条摘要同一个道理）。
+        // 「图 N」紧跟在文字后面（见 queueChipText 的说明）
         add(
-            JLabel(row.label).apply {
-                font = JBUI.Fonts.smallFont()
-                toolTipText = row.item.text
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                add(
+                    JLabel(row.label).apply {
+                        font = JBUI.Fonts.smallFont()
+                        toolTipText = row.item.text
+                    }
+                )
+                queueChipText(row.item.images.size)?.let { text ->
+                    add(Box.createHorizontalStrut(JBUI.scale(6)))
+                    add(imageChip(text))
+                }
             },
             BorderLayout.CENTER,
         )
@@ -195,6 +225,16 @@ internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel(
                 addActionListener { onRemove(row.item) }
             },
             BorderLayout.EAST,
+        )
+    }
+
+    /** 「图 N」：圆角小标签，颜色比正文淡一档 —— 它是个记号，不该比内容抢眼。 */
+    private fun imageChip(text: String) = JLabel(text).apply {
+        font = JBUI.Fonts.smallFont()
+        foreground = UIUtil.getInactiveTextColor()
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIUtil.getBoundsColor(), 1, true),
+            JBUI.Borders.empty(1, 5),
         )
     }
 }

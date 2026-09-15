@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.sidecar.CommandInfo
 import com.ccoder.sidecar.NodeCheck
 import com.ccoder.sidecar.NodeStatus
+import com.ccoder.sidecar.OutgoingImage
 import com.ccoder.sidecar.Protocol
 import com.ccoder.sidecar.RequestOutcome
 import com.ccoder.sidecar.SessionInfo
@@ -329,6 +330,14 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 代码围栏，拿它当标题会变成「```kotlin …」。
      */
     private var pendingFirstMessageTitle: String? = null
+
+    /**
+     * 暂存的那条消息带着的图（贴图）。
+     *
+     * 与 `pendingFirstMessage` 同生共死：就绪前粘的截图也是用户已经发出去的东西，
+     * 不能因为会话慢了一拍就把它丢了 —— 补发时两者一起走。
+     */
+    private var pendingFirstMessageImages: List<AttachedImage> = emptyList()
 
     // ---- 补全（设计稿 §3）----
 
@@ -1831,7 +1840,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                             // （上面那个 currentSessionTitle = null 刚把它清干净）
                             adoptTitleFrom(pendingFirstMessageTitle ?: text)
                             pendingFirstMessageTitle = null
-                            client?.sendLine(Protocol.encodeSend(nextId(), text))
+                            val images = pendingFirstMessageImages
+                            pendingFirstMessageImages = emptyList()
+                            client?.sendLine(Protocol.encodeSend(nextId(), text, outgoing(images)))
                             setBusy(true)
                         }
                     }
@@ -2426,7 +2437,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     private fun sendCurrentInput() {
-        if (input.text.isBlank()) return
+        // 纯图消息也能发（截一张图直接甩过来是常见用法），两样都没有才是空
+        val images = attachments.images
+        if (input.text.isBlank() && images.isEmpty()) return
 
         // 用户敲进去的原样。标题取的是**它**，不是下面展开后的文本 ——
         // 展开会把记号变成一大段代码，拿它当标题就成了「```kotlin …」
@@ -2439,6 +2452,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
         input.text = ""
         snippetRefs.clear()
+        // 图也是同一时刻搬走：取在上面、清在这里，中间不许有第二条路把输入框读空
+        attachments.clear()
 
         // 忙时入队（spec §5.2）—— 不回退成"什么都不做"：用户敲的这句话本来就该
         // 有个去处。**不推转写区**：它还没发出去，而转写区是"跟模型说过什么"的
@@ -2447,7 +2462,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 未就绪时 busy 恒为 false（mainButtonState 那时给的是「启动中…」，
         // fail 与 onSidecarDied 都会 setBusy(false)），所以与下面那条路不会同时命中。
         if (busy) {
-            queue.enqueue(text, typed)
+            queue.enqueue(text, typed, images)
             refreshQueueStrip()
             return
         }
@@ -2465,13 +2480,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             pendingFirstMessage = text
             // 标题取用户敲的那份（见上面 typed），暂存着等 Ready 之后一起认
             pendingFirstMessageTitle = typed
+            pendingFirstMessageImages = images
             refreshMainButton()
             startSession()
             return
         }
 
-        sendNow(text, typed)
+        sendNow(text, typed, images)
     }
+
+    /** 界面上的图 → 协议要的那份。转换只有这一处，改协议时只改这里。 */
+    private fun outgoing(images: List<AttachedImage>): List<OutgoingImage> =
+        images.map { OutgoingImage(it.mediaType, it.base64) }
 
     /**
      * 真正把一条消息发出去。**直接发与排队后发唯一的出口**（spec §5.1）。
@@ -2486,9 +2506,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 标题必须**紧挨着发送**认下来，不能提前到上面：会话还没就绪时 startSession()
      * 之后 Ready 分支会把标题清成 null，提前认的那一次会被它抹掉。
      */
-    private fun sendNow(text: String, typed: String) {
+    private fun sendNow(text: String, typed: String, images: List<AttachedImage> = emptyList()) {
         adoptTitleFrom(typed)
-        client?.sendLine(Protocol.encodeSend(nextId(), text))
+        client?.sendLine(Protocol.encodeSend(nextId(), text, outgoing(images)))
         lastSendWasCommand = text.startsWith("/")
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
@@ -2507,7 +2527,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 而按钮的文案里带着队列条数 —— 顺序反了它会拿着旧数字去刷
         refreshQueueStrip()
         pushOp(toOp(RenderItem.UserText(next.text)))
-        sendNow(next.text, next.typed)
+        sendNow(next.text, next.typed, next.images)
     }
 
     /** ✕ 撤回单条。撤掉的那条从没进过转写区，所以它不留痕迹（spec §5.4）。 */

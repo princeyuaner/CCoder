@@ -61,4 +61,39 @@ class QueueStripModelTest {
         assertEquals("第一行 第二行", queueRowText("第一行\n第二行"))
         assertEquals("a b", queueRowText("  a \n\n   b  "))
     }
+
+    // ---- 贴图（2026-09-15）----
+
+    @Test
+    fun `带图的那条挂一个「图 N」标签`() {
+        // 队列里的图是看不见的（缩略图只画在附件带上，而入队那一刻附件带就清空了）
+        // —— 没有这个标签，"带着三张图的那条"和"纯文字的"在屏幕上长得一模一样
+        assertEquals("图 1", queueChipText(1))
+        assertEquals("图 3", queueChipText(3))
+    }
+
+    @Test
+    fun `没图不给标签 —— 空标签比没有更糟`() {
+        assertNull(queueChipText(0))
+    }
+
+    @Test
+    fun `单条折叠那一行也要写出图数 —— 否则「排着一张截图」看不出来`() {
+        val withImages = QueueStripModel(
+            count = 1,
+            rows = listOf(QueueRow(QueuedInput("看下", "看下", listOf(pic(0))), "看下")),
+        )
+        val without = QueueStripModel(
+            count = 1,
+            rows = listOf(QueueRow(QueuedInput("看下", "看下"), "看下")),
+        )
+
+        assertEquals("排队 1 · 看下 · 图 1", queueLineText(withImages))
+        assertEquals("排队 1 · 看下", queueLineText(without))
+    }
+
+    private fun pic(index: Int): AttachedImage {
+        val img = java.awt.image.BufferedImage(20, 20, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        return prepareAttachment(img, index) ?: error("夹具没做成")
+    }
 }
