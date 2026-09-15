@@ -393,6 +393,16 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 文字粘贴走的还是原来那个处理器（见 installImagePaste 的说明）
         installImagePaste(input) { incoming -> incoming.forEach(::addAttachment) }
 
+        // 诊断：Ctrl+V 到底有没有到输入框。平台那条链（$Paste → PasteProvider）
+        // 只在焦点合适时才轮到我们，这一行能把"焦点不在这儿"和"平台没调我们"分开
+        input.addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                if (e.keyCode == KeyEvent.VK_V && e.isControlDown) {
+                    LOG.info("贴图：输入框收到了 Ctrl+V（Swing 层）")
+                }
+            }
+        })
+
         input.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 // 补全开着时，上下键与 Enter/Tab/Esc 归补全。

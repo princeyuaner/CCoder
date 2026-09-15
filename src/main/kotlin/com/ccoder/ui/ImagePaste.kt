@@ -72,7 +72,11 @@ internal fun installImagePaste(
     // 走 Swing 的 TransferHandler —— keymap 把 `$Paste` 交给平台的 paste action，
     // 而按平台自己的实现，它是从数据上下文里取 PasteProvider 再调。两条都接上，
     // 谁先到都能用（TransferHandler 那条还兼着拖拽）
-    (area as? ComposerTextArea)?.pasteProvider = imagePasteProvider(onImages)
+    (area as? ComposerTextArea)?.let {
+        it.pasteProvider = imagePasteProvider(onImages)
+        // 自己那条 Ctrl+V（见 PasteImageAction）：平台那条在焦点上有一堆前提
+        it.imagePasteAttach = { onImages(readImagesFromPlatformClipboard()) }
+    }
     LOG.info("贴图已接线：默认处理器是 ${fallback.javaClass.name}，平台 PasteProvider 也挂上了")
 }
 

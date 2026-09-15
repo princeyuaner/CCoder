@@ -48,6 +48,9 @@
             id="CCoder"
             displayType="BALLOON"
             isLogByDefault="false"/>
+        <!-- 同一条快捷键上平台也有一个（$Paste）：焦点在我们的输入框时，把这个排前面。
+             **必须在 extensions 里** —— 写在顶层会被静默忽略（这一条差点没赶上）。 -->
+        <actionPromoter implementation="com.ccoder.ui.ImagePastePromoter"/>
     </extensions>
 
     <actions>
@@ -84,5 +87,17 @@
             description="把选中的文件作为 @ 引用加到 CCoder 输入框">
             <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
         </action>
+
+        <!-- Ctrl+V 贴图。**只在"焦点在输入框、剪贴板里只有图"时可见**（见
+             PasteImageAction 的说明）—— 其余时候它不是候选，Ctrl+V 归平台原来那套，
+             文字粘贴一个字不变。 -->
+        <action
+            id="com.ccoder.PasteImage"
+            class="com.ccoder.ui.PasteImageAction"
+            text="贴图"
+            description="把剪贴板里的截图贴进输入框">
+            <keyboard-shortcut keymap="$default" first-keystroke="control V"/>
+        </action>
     </actions>
+
 </idea-plugin>

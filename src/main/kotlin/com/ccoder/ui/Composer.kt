@@ -58,7 +58,16 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
      */
     var pasteProvider: PasteProvider? = null
 
+    /**
+     * "从剪贴板收一张图"的回调 —— 给 [PasteImageAction] 用（Ctrl+V 那条自己占住的
+     * 路）。由 [installImagePaste] 接上。
+     */
+    var imagePasteAttach: (() -> Unit)? = null
+
     override fun uiDataSnapshot(sink: DataSink) {
+        // 无条件放：这个 key 只是"焦点在能收图的输入框上"的标记，可不可用由
+        // PasteImageAction.update 决定（它还要看剪贴板）
+        imagePasteAttach?.let { sink[IMAGE_PASTE_ATTACH] = it }
         val provider = imagePasteData(PlatformDataKeys.PASTE_PROVIDER.name, pasteProvider)
         if (provider != null) {
             LOG.info("贴图：把 PASTE_PROVIDER 交给平台（剪贴板里只有图）")
