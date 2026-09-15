@@ -52,7 +52,8 @@ fun showSettingsDialog(project: Project) {
 }
 
 /**
- * 设置对话框（设计稿方案 C，2026-09-15）。五页签：模型 / 预置 / 通用 / 权限 / 环境。
+ * 设置对话框（设计稿方案 C，2026-09-15）。
+ * 七页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks。
  *
  * ## 从三栏到四页签
  *
@@ -93,7 +94,7 @@ internal class SettingsDialog(
     private val baseDir: Path? = project?.basePath?.let { Path.of(it) },
 ) : DialogWrapper(project) {
 
-    /** 六页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
+    /** 七页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
     internal val pages: List<SettingsPage> = run {
         val models = ModelProfilesPage(settings, profiles)
         listOf(
@@ -106,6 +107,7 @@ internal class SettingsDialog(
             EnvironmentSettingsPage(settings) { models.refreshConflictWarning() },
             // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
             McpSettingsPage(baseDir, mcpStatus),
+            HooksSettingsPage(baseDir),
         )
     }
 

@@ -354,6 +354,29 @@ class SettingsDialogProbe {
         clicking = "codegraph",
     )
 
+    /**
+     * hooks 页。文件里**两种都有**：归这个面板管的（能编辑），
+     * 以及不归它管的（原样保留）。顶部那句"另有 N 处"是这一页最需要让人看见的
+     * —— 不报的话，"我原来配的那些哪去了"是必然会被问的问题。
+     */
+    @Test
+    fun `把 hooks 页画成图片`() = render(
+        "build/probe/settings-hooks.png",
+        page = "hooks",
+        hooksFile = """
+            {
+              "hooks": {
+                "PreToolUse": [
+                  { "matcher": "Write", "hooks": [ { "type": "command", "command": "echo '改文件前先问一声' >&2; exit 2" } ] },
+                  { "matcher": "Bash", "hooks": [ { "type": "prompt", "prompt": "看看这条命令危不危险" } ] }
+                ],
+                "PostCompact": [ { "hooks": [ { "type": "command", "command": "echo 压缩完了" } ] } ]
+              }
+            }
+        """.trimIndent(),
+        clicking = "PreToolUse",
+    )
+
     private fun render(
         path: String,
         profiles: List<ModelProfile> = emptyList(),
@@ -377,6 +400,8 @@ class SettingsDialogProbe {
         mcpFile: String? = null,
         /** 会话里的实时状态。空 = 还没拿到过。 */
         mcpServers: List<McpServerStatus> = emptyList(),
+        /** 写进临时项目根的 `.claude/settings.json`。null = 那份文件不存在。 */
+        hooksFile: String? = null,
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -389,6 +414,11 @@ class SettingsDialogProbe {
             // 用真目录而不是假的 —— 这一页的读写路径本身就是被测对象
             val base = Files.createTempDirectory("ccoder-settings-probe")
             mcpFile?.let { Files.writeString(base.resolve(".mcp.json"), it) }
+            hooksFile?.let {
+                // `.claude/` 常常还不存在 —— 页面写的时候会自己建，探针也得自己建
+                Files.createDirectories(base.resolve(".claude"))
+                Files.writeString(base.resolve(".claude").resolve("settings.json"), it)
+            }
             val mcpStatus = McpStatus().apply { if (mcpServers.isNotEmpty()) set(mcpServers) }
             val dialog = SettingsDialog(
                 fakeProject(),
