@@ -191,6 +191,30 @@ class StatusCardViewTest {
     }
 
     @Test
+    fun `指示器从无到有，卡片高度一动不动`() {
+        // 2026-09-15 用户报"子代理有任务时高度会自己变高，把高度算好固定死"。
+        // 四张卡的高度由 GridLayout 拉平到最高的那张，而指示器那一行的高度随类型
+        // 变（无 0 / 比例条 2 / 分段 4 / 点阵 5）—— 于是"子代理从空闲变成 1"
+        // 会让整排长高 5px，下面的转写区跟着跳。
+        val card = StatusCardView()
+        card.setModel(StatusCardModel(label = "子代理", value = CARD_IDLE_TEXT, quiet = true))
+        val fixed = card.preferredSize.height
+
+        for (indicator in listOf(
+            Indicator.Meter(0.5),
+            Indicator.Segments(done = 1, total = 3),
+            Indicator.Dots(2),
+        )) {
+            card.setModel(busy.copy(indicator = indicator))
+            assertEquals(fixed, card.preferredSize.height, "换成 $indicator 之后卡片高度变了")
+        }
+
+        // 反过来也要成立：从忙回到空闲，高度一样
+        card.setModel(StatusCardModel(label = "子代理", value = CARD_IDLE_TEXT, quiet = true))
+        assertEquals(fixed, card.preferredSize.height, "回到空闲之后高度变了")
+    }
+
+    @Test
     fun `一排点在自己那行里居中`() {
         // 这一行是铺满的（BoxLayout 只拉得满面板），所以居中靠绘制时的偏移。
         // 它在绘制里，从外面量不到 —— 算术抽成 pipsStartX 才钉得住

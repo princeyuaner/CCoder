@@ -240,6 +240,24 @@ internal class StatusCardView(
         Dimension(super.getMinimumSize().width, preferredSize.height)
 
     /**
+     * 卡片高度**固定**（2026-09-15 用户报"子代理有任务时高度会自己变高"）。
+     *
+     * 四张卡的高度由 GridLayout 拉平到最高的那张（见 [StatusCardsRow]），而指示器
+     * 那一行的高度是**随类型变**的：无 0px / 比例条 2px / 分段 4px / 点阵 5px。
+     * 于是"子代理从空闲变成 1"会让**整排**长高 5px，下面的转写区跟着跳一下。
+     *
+     * 做法：高度按**最高的那个指示器槽**（点阵的 5px）算死，差出来的空间由竖直
+     * 弹簧吸收 —— 指示器因此照旧贴底、四张卡底边齐，而卡片高度一动都不动。
+     * 代价是空闲时卡片底部多 5px 空档 —— 那正是"固定"的意思。
+     */
+    override fun getPreferredSize(): Dimension {
+        val base = super.getPreferredSize()
+        val reserved = topRow.preferredSize.height + valueRow.preferredSize.height +
+            insets.top + insets.bottom + IndicatorView.slotHeight()
+        return Dimension(base.width, maxOf(base.height, reserved))
+    }
+
+    /**
      * 描边色。
      *
      * **收边（quiet）也给正常的边** —— 那是"这格没数据"，不是"这格不存在"。
@@ -464,12 +482,21 @@ internal class IndicatorView : JComponent() {
 
     private data class Pips(val size: Int, val gap: Int, val y: Int)
 
-    private companion object {
+    internal companion object {
         /** 分段那一排的方块边长（未缩放）。 */
-        const val PIP = 4
+        private const val PIP = 4
 
         /** 计数那一排的圆点直径（未缩放）。 */
-        const val DOT = 5
+        private const val DOT = 5
+
+        /**
+         * 指示器槽位的固定高度 —— 取最高的那个（点阵）。
+         *
+         * 卡片按它**算死**自己的高度，好让"有指示器/没有指示器"不再改变整排的
+         * 高度（见 `StatusCardView.getPreferredSize`）。放在这里而不是在卡片里
+         * 写一个 5：两者一旦脱钩，点阵就会画到卡片外面去。
+         */
+        fun slotHeight(): Int = JBUI.scale(DOT)
     }
 }
 
