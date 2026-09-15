@@ -46,6 +46,30 @@ intellijPlatform {
             untilBuild = provider { null }
         }
     }
+
+    // 发布到 JetBrains Marketplace（./gradlew publishPlugin）。
+    //
+    // token 是密码，**不放仓库**：先读 GRADLE_USER_HOME 下 gradle.properties 里的
+    // intellijPlatformPublishingToken，没有再读 2.x 的默认来源 PUBLISH_TOKEN 环境变量。
+    //
+    // 注意是 GRADLE_USER_HOME，**不是 ~/.gradle**：本机把它设成了
+    // C:\Users\CY\scoop\apps\gradle\current\.gradle（用户级环境变量），文件放
+    // ~/.gradle 里 Gradle 根本不看 —— 实测踩过，探针报 present=false。而 current
+    // 是指向 9.7.0 的软链，所以 scoop 更新 Gradle 之后要重放一次。
+    //
+    // 用文件而不是环境变量，是因为守护进程会缓存环境变量，
+    // 那样每加一个变量都得 ./gradlew --stop 一次（PATH 上已经踩过这个坑）。
+    //
+    // 末尾那个 orElse("") 是必须的：token 是 required 属性，取不到值会让**整个构建**
+    // 在配置阶段就失败 —— 连 ./gradlew test 都跑不了。给个空串，则只有真的执行
+    // publishPlugin 时才会因为 token 为空而报错。
+    //
+    // 首版必须网页手传（市场规矩），从第 2 版起才走这里。
+    publishing {
+        token = providers.gradleProperty("intellijPlatformPublishingToken")
+            .orElse(providers.environmentVariable("PUBLISH_TOKEN"))
+            .orElse("")
+    }
 }
 
 kotlin {
