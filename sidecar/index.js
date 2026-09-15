@@ -486,6 +486,32 @@ export function createDispatcher({
         return session;
       }
 
+      case 'mcpServerStatus': {
+        // 与 contextUsage 同一条：它是会话的属性，没有会话就没得报
+        const call = session?.mcpServerStatus;
+        if (typeof call !== 'function') {
+          fail('NO_SESSION', '会话尚未建立', false);
+          return session;
+        }
+        Promise.resolve(call.call(session))
+          .then((list) => out({
+            type: 'mcpServers',
+            id: msg.id,
+            // 字段逐个写默认值，**别把 undefined 漏过线** —— JSON 里它会整个消失，
+            // 收端就得为"这个字段可能不在"多写一层防御
+            servers: (list ?? []).map((s) => ({
+              name: s?.name ?? '',
+              // 原样透传，不当枚举认：CLI 将来加一档不该让我们这层崩
+              status: s?.status ?? 'pending',
+              scope: s?.scope ?? null,
+              error: s?.error ?? null,
+              tools: (s?.tools ?? []).map((t) => t?.name ?? ''),
+            })),
+          }))
+          .catch((err) => fail('MCP_STATUS_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
       case 'stop':
         // 顺序重要：先清空待决权限，否则工具会挂住
         session?.denyAllPending?.('会话已终止');

@@ -169,9 +169,37 @@ sealed interface SidecarMessage {
         val skills: List<CommandInfo>,
     ) : SidecarMessage
 
+    /**
+     * `mcpServerStatus` 的应答。
+     *
+     * 列的是**当前会话里**各 MCP server 的实时状态，含我们自己没配的那些 ——
+     * [McpServerStatus.scope] 能分辨 `user` / `project`，面板靠它把"项目里的"
+     * 与"你自己全局配的"分开显示（2026-09-15 探针实测）。
+     */
+    data class McpServers(
+        val requestId: String,
+        val servers: List<McpServerStatus>,
+    ) : SidecarMessage
+
     /** 未知类型。与"解析失败"（null）区分开——这类要忽略而非报错。 */
     data class Unknown(val type: String) : SidecarMessage
 }
+
+/**
+ * 一条 MCP server 的实时状态。
+ *
+ * 字段从 SDK 的 `McpServerStatus` 里**裁剪**出来，只留界面要用的：
+ * [status] 是 `connected` / `failed` / `needs-auth` / `pending` / `disabled`
+ * 之一（原样透传，不当枚举认 —— CLI 将来加一档不该让我们解析失败）；
+ * [error] 只在失败时有意义；[tools] 是它提供的工具名。
+ */
+data class McpServerStatus(
+    val name: String,
+    val status: String,
+    val scope: String?,
+    val error: String?,
+    val tools: List<String>,
+)
 
 /**
  * 会话列表中的一条。
@@ -408,6 +436,11 @@ object Protocol {
                 )
             }
 
+            // 同上：缺 id 整条丢弃
+            "mcpServers" -> obj.str("id")?.let { rid ->
+                SidecarMessage.McpServers(rid, parseMcpServers(obj.arr("servers")))
+            }
+
             "error" -> SidecarMessage.Failure(
                 message = obj.str("message") ?: "未知错误",
                 code = obj.str("code"),
@@ -489,6 +522,15 @@ object Protocol {
     fun encodeContextUsage(id: String): String = encodeSimple(id, "contextUsage")
 
     /**
+     * 问一次各 MCP server 的实时状态（设置面板右侧那一栏）。
+     *
+     * 与 `contextUsage` 同一条：它是**会话的属性** —— 没有会话就没得报，
+     * 而且它反映的只是**当前会话**连上了什么。用户刚改完 `.mcp.json` 时
+     * 这里不会立刻变（改配置下次会话才生效），界面要把这句话说在明面上。
+     */
+    fun encodeMcpServerStatus(id: String): String = encodeSimple(id, "mcpServerStatus")
+
+    /**
      * 响应类消息的关联 id。非响应消息返回 null。
      *
      * 放在这里而不是 [com.ccoder.sidecar.SidecarClient]：客户端不必认识每一种
@@ -499,6 +541,7 @@ object Protocol {
         is SidecarMessage.History -> msg.requestId
         is SidecarMessage.SessionDeleted -> msg.requestId
         is SidecarMessage.Commands -> msg.requestId
+        is SidecarMessage.McpServers -> msg.requestId
         is SidecarMessage.ContextUsageReport -> msg.requestId
         is SidecarMessage.SessionRenamed -> msg.requestId
         is SidecarMessage.SessionTagged -> msg.requestId
@@ -663,6 +706,31 @@ object Protocol {
      * 缺 `name` 的条目**跳过而非废掉整个列表** —— 与 [parseSessionList] 同一条
      * 理由：一条坏数据不该让另外 44 个命令都补全不出来。
      */
+    /**
+     * 解析 server 列表。
+     *
+     * `status` 与 `scope` **原样透传、不当枚举认**：CLI 将来加一档不该让我们
+     * 解析失败（§3.3 那条"容忍未知"的同一个道理）。名字缺了就丢这一条 ——
+     * 一条没有名字的 server 在界面上没有落点。
+     */
+    private fun parseMcpServers(arr: JsonArray?): List<McpServerStatus> {
+        if (arr == null) return emptyList()
+        return arr.mapNotNull { element ->
+            val o = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val name = o.str("name") ?: return@mapNotNull null
+            McpServerStatus(
+                name = name,
+                // 认不出的一律当 pending：那是"还不知道"，不是"坏了"
+                status = o.str("status") ?: "pending",
+                scope = o.str("scope"),
+                error = o.str("error"),
+                tools = o.arr("tools")?.mapNotNull { t ->
+                    t.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+                }.orEmpty(),
+            )
+        }
+    }
+
     private fun parseCommands(arr: JsonArray?): List<CommandInfo> {
         if (arr == null) return emptyList()
         return arr.mapNotNull { el ->

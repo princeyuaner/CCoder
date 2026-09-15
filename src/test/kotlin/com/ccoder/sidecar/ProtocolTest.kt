@@ -728,4 +728,63 @@ class ProtocolTest {
         assertTrue(json.contains(""""method":"listCommands""""))
         assertTrue(json.endsWith("\n"), "NDJSON 必须以换行结尾")
     }
+
+    // ---- MCP 连接状态 ----
+
+    @Test
+    fun `解析 mcpServers 应答`() {
+        val line = """
+            {"type":"mcpServers","id":"11","servers":[
+              {"name":"codegraph","status":"failed","scope":"user","error":"Connection closed","tools":[]},
+              {"name":"proj","status":"connected","scope":"project","tools":["t1","t2"]}
+            ]}
+        """.trimIndent()
+
+        val msg = Protocol.parse(line) as SidecarMessage.McpServers
+
+        assertEquals("11", msg.requestId)
+        assertEquals(listOf("codegraph", "proj"), msg.servers.map { it.name })
+        assertEquals("failed", msg.servers[0].status)
+        assertEquals("user", msg.servers[0].scope)
+        assertEquals("Connection closed", msg.servers[0].error)
+        assertEquals(listOf("t1", "t2"), msg.servers[1].tools)
+    }
+
+    @Test
+    fun `mcpServers 缺 id 时按畸形丢弃`() {
+        // 缺 id 就无从配对 —— 同 contextUsage
+        assertNull(Protocol.parse("""{"type":"mcpServers","servers":[]}"""))
+    }
+
+    @Test
+    fun `mcpServers 里缺名字的那条丢掉，不认识的 status 原样留着`() {
+        // 没名字的 server 在界面上没有落点；而 status 是原样透传的 ——
+        // CLI 将来加一档不该让我们解析失败（§3.3 容忍未知）
+        val line = """
+            {"type":"mcpServers","id":"11","servers":[
+              {"status":"将来才有的一档"},
+              {"name":"ok","status":"needs-auth"}
+            ]}
+        """.trimIndent()
+
+        val msg = Protocol.parse(line) as SidecarMessage.McpServers
+
+        assertEquals(1, msg.servers.size, "没有名字的那条没被丢掉")
+        assertEquals("needs-auth", msg.servers[0].status)
+    }
+
+    @Test
+    fun `mcpServers 是响应消息，带关联 id`() {
+        val msg = Protocol.parse("""{"type":"mcpServers","id":"11","servers":[]}""")!!
+
+        assertEquals("11", Protocol.responseIdOf(msg))
+    }
+
+    @Test
+    fun `encodeMcpServerStatus 不带参数`() {
+        val json = Protocol.encodeMcpServerStatus("req-1")
+
+        assertTrue(json.contains(""""method":"mcpServerStatus""""))
+        assertTrue(json.endsWith("\n"), "NDJSON 必须以换行结尾")
+    }
 }

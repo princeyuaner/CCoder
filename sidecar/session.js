@@ -256,6 +256,23 @@ export function createSession({
     },
 
     /**
+     * 当前会话里各 MCP server 的实时状态。
+     *
+     * 与 setEffort / setModel 同一条规矩：**缺方法就抛**，不照抄
+     * setPermissionMode 的可选链 —— 那种写法在 `query` 为 null 时整句静默成功，
+     * 上层据此发出一条假回执。这里尤其要紧：「状态是空的」与「问不到状态」
+     * 必须在界面上能分开：前者是正常的（一个 server 都没配），后者是 CLI 太老。
+     */
+    async mcpServerStatus() {
+      if (!query || typeof query.mcpServerStatus !== 'function') {
+        throw new Error(
+          '当前 CLI 不支持查询 MCP 连接状态，需要更新 claude 可执行文件'
+        );
+      }
+      return await query.mcpServerStatus();
+    },
+
+    /**
      * 会话可用的命令列表（带描述）。
      *
      * 尽力而为：取不到给空数组，**不抛**。命令补全挂着不该把聊天带崩 ——

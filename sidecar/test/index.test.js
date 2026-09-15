@@ -1218,3 +1218,74 @@ test('subagentMessages 缺 agentId 时回错误', async () => {
 
   assert.equal(out.find((m) => m.type === 'error').code, 'SUBAGENT_MESSAGES_FAILED');
 });
+
+// ---- MCP 连接状态（mcpServerStatus）----
+
+/** 起一个会话并给它挂上 mcpServerStatus。 */
+function withMcpStatus(fn) {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const s = d.handle(START);
+  s.mcpServerStatus = async () => fn();
+  return { d, out };
+}
+
+test('mcpServerStatus 把实时状态按协议字段回报', async () => {
+  const { d, out } = withMcpStatus(async () => [
+    { name: 'codegraph', status: 'failed', scope: 'user', error: 'Connection closed', tools: [] },
+    { name: 'proj', status: 'connected', scope: 'project', tools: [{ name: 't1' }, { name: 't2' }] },
+  ]);
+
+  d.handle({ id: '11', method: 'mcpServerStatus', params: {} });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'mcpServers');
+  assert.ok(ack, '没有应答，面板右侧那一栏就一直是空的');
+  assert.equal(ack.id, '11', 'id 必须回传 —— 插件靠它配对');
+  assert.deepEqual(ack.servers.map((s) => s.name), ['codegraph', 'proj']);
+  assert.equal(ack.servers[0].status, 'failed');
+  assert.equal(ack.servers[0].scope, 'user');
+  assert.equal(ack.servers[0].error, 'Connection closed');
+  assert.deepEqual(ack.servers[1].tools, ['t1', 't2'], '工具名没带出来');
+});
+
+test('mcpServerStatus：字段缺失时逐项给默认值，别把 undefined 漏过线', async () => {
+  // undefined 在 JSON 里会整个消失，收端就得为"这个字段可能不在"多写一层防御
+  const { d, out } = withMcpStatus(async () => [{}]);
+
+  d.handle({ id: '11', method: 'mcpServerStatus', params: {} });
+  await tick();
+
+  assert.deepEqual(
+    out.find((m) => m.type === 'mcpServers').servers[0],
+    { name: '', status: 'pending', scope: null, error: null, tools: [] },
+  );
+});
+
+test('mcpServerStatus 失败时回错误，不静默给空列表', async () => {
+  // 静默给空列表的话，「一个 server 都没配」与「问不到状态」
+  // 在界面上长得一模一样 —— 而这两件事该说的话完全不同
+  const { d, out } = withMcpStatus(async () => {
+    throw new Error('当前 CLI 不支持查询 MCP 连接状态');
+  });
+
+  d.handle({ id: '11', method: 'mcpServerStatus', params: {} });
+  await tick();
+
+  assert.ok(!out.some((m) => m.type === 'mcpServers'), '失败时不该发一条空列表');
+  const err = out.find((m) => m.type === 'error');
+  assert.equal(err.code, 'MCP_STATUS_FAILED');
+  assert.match(err.message, /不支持查询 MCP 连接状态/);
+});
+
+test('mcpServerStatus：没有会话时回 NO_SESSION', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '11', method: 'mcpServerStatus', params: {} });
+  await tick();
+
+  assert.equal(out.find((m) => m.type === 'error').code, 'NO_SESSION');
+});

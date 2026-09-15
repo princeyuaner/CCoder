@@ -578,3 +578,27 @@ test('skills 失败或缺失时回空数组', async () => {
   });
   assert.deepEqual(await plain.skills(), []);
 });
+
+// ---- MCP 连接状态（mcpServerStatus）----
+
+test('mcpServerStatus 把 CLI 的读数原样转发', async () => {
+  const list = [{ name: 'a', status: 'connected', scope: 'user', tools: [] }];
+  const q = fakeQuery([], { mcpServerStatus: async () => list });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  assert.deepEqual(await s.mcpServerStatus(), list);
+});
+
+test('没有 mcpServerStatus 时抛错，不静默成功', async () => {
+  // 可选链 `query?.mcpServerStatus?.()` 在这里会 await 一个 undefined，于是
+  // "成功"了 —— 上层据此发出一条假回执：面板显示「一个 server 都没配」，
+  // 而真相是这台 CLI 太老、根本问不到。「状态是空的」与「问不到状态」
+  // 在界面上必须是两句不同的话
+  const s = createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: fakeQuery().fn,
+  });
+  await new Promise((r) => setImmediate(r));
+
+  await assert.rejects(() => s.mcpServerStatus(), /不支持查询 MCP 连接状态/);
+});

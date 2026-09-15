@@ -2100,6 +2100,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 is SidecarMessage.SessionTagged,
                 is SidecarMessage.Subagents,
                 is SidecarMessage.SubagentMessages,
+                is SidecarMessage.McpServers,
                 -> Unit
 
                 is SidecarMessage.Exit -> {
