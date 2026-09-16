@@ -184,7 +184,7 @@ private class ChipView(
         isOpaque = false
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         toolTipText = buildString {
-            append(chip.title?.takeIf { it.isNotBlank() } ?: UNNAMED_TITLE)
+            append(chip.title?.takeIf { it.isNotBlank() } ?: NEW_TAB_TITLE)
             append(
                 when (chip.state) {
                     TabState.Running -> " · 正在跑"
@@ -296,9 +296,6 @@ private class ChipView(
         val CHIP_WARN: Color = warningColor()
     }
 }
-
-/** 还没起名的会话显示什么 —— 与面板里那个斜体占位同一个词（[SessionTabs.NEW_TAB_TITLE]）。 */
-private const val UNNAMED_TITLE = "新会话"
 
 /**
  * 强调色。**只在这一处取** —— 别处不许再写死一个蓝色（这一版换主题全靠它）。

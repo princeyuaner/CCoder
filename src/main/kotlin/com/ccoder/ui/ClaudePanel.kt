@@ -1845,9 +1845,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     @Suppress("UNUSED_PARAMETER")
     private fun refreshSessionLabel(enabled: Boolean = !busy) {
-        // 标题**跟同一个出口走**：不给它留第二条更新路径，否则改名之后
-        // 胶囊上写的还是旧名字
-        SessionTabs.getInstance(project).setTitle(this, currentSessionTitle)
+        // 标题如今住在胶囊行上，而胶囊是**照着 SessionTabs 现算的**（它问本面板要
+        // `tabTitle()`）—— 所以这里只要喊一声"重画"，不留第二份标题
         SessionTabs.getInstance(project).notifyTabsChanged()
     }
 

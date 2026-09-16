@@ -172,11 +172,12 @@ internal fun withPanel(
 ) {
     val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return
     toolWindow.show()
-    // 多标签：落到**当前选中的**那个标签（取不到再退回第一个）。一直塞进第一个的话，
-    // 用户在第二个标签里按"加到聊天"，内容会跑到别的标签去（2026-09-16）
-    val manager = toolWindow.contentManager
-    val selected = manager.selectedContent?.component as? ClaudePanel
-    val panel = selected ?: manager.contents.firstOrNull()?.component as? ClaudePanel
+    // 多标签：落到**当前那一条会话**上。一直塞进第一条的话，用户在第二个标签里按
+    // "加到聊天"，内容会跑到别的标签去（2026-09-16）。
+    //
+    // 不能读 `contentManager.selectedContent` —— 平台那边只有一个 content
+    // （宿主），当前是哪条只有 SessionTabs 知道（见它的类注释）
+    val panel = SessionTabs.getInstance(project).currentPanel()
     if (panel != null) {
         action(panel)
         return
