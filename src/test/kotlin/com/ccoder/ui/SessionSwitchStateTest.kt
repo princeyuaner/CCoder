@@ -68,6 +68,15 @@ class SessionSwitchStateTest {
     }
 
     @Test
+    fun `只有开工具窗口那一次该恢复最近会话`() {
+        // 「＋」出来的标签必须是**空**的 —— 它那个面板的"第一次上屏"是它被创建
+        // 的那一刻，与"用户第一次打开这个工具窗口"不是一回事（2026-09-16 的 bug）
+        assertTrue(resumeOnFirstShow(firstShow = true, openedByPlus = false))
+        assertFalse(resumeOnFirstShow(firstShow = true, openedByPlus = true), "「＋」出来的该是空会话")
+        assertFalse(resumeOnFirstShow(firstShow = false, openedByPlus = false), "切回来不该又恢复一次")
+    }
+
+    @Test
     fun `能开时提示说的是它做什么，到上限时说的是先做什么`() {
         assertEquals("新建会话", newTabTooltip(1))
 

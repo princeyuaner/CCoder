@@ -129,6 +129,19 @@ internal fun titleFromFirstMessage(text: String, current: String?): String? =
     if (current != null || text.startsWith("/")) null else titleSnippet(text)
 
 /**
+ * 第一次上屏要不要恢复"最近那条会话"。
+ *
+ * 只有**开工具窗口时建的那个面板**该恢复（用户要的是"接着上次聊"）；
+ * 点「＋」开出来的标签必须是**空的** —— 那个面板的"第一次上屏"是它被创建的那一刻，
+ * 与"用户第一次打开这个工具窗口"不是一回事。
+ *
+ * 2026-09-16 的 bug 就在这儿：`＋` 出来的标签"第一次上屏"也成立，于是它悄悄
+ * resume 了最近那条会话，用户截图来问"新建会话不应该是空的吗"。
+ */
+internal fun resumeOnFirstShow(firstShow: Boolean, openedByPlus: Boolean): Boolean =
+    firstShow && !openedByPlus
+
+/**
  * 打开面板时该恢复哪一条：修改时间最新的那条；没有历史会话时给 null
  * （调用方据此退回"开新会话"）。
  *

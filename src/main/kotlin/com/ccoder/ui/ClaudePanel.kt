@@ -86,7 +86,19 @@ import javax.swing.text.DefaultCaret
  * 不再占布局里的位置 —— 工具窗口没开着的时候它们照样弹得出来，这正是改形态的理由。
  * 留在原生的理由没变：审批 UI 是安全关键路径，不该依赖 Web 视图的可用性。
  */
-class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), SidecarListener, Disposable {
+class ClaudePanel(
+    private val project: Project,
+    /**
+     * 这个面板是不是点「＋」开出来的（见 [SessionTabs.openNewTab]）。
+     *
+     * **它决定第一次上屏时恢不恢复最近会话**：开工具窗口时建的那个面板要恢复
+     * （用户要的是"接着上次聊"），「＋」开出来的必须是**空**的 ——
+     * 那个面板的"第一次上屏"是它被创建的那一刻，与"用户第一次打开这个工具窗口"
+     * 不是一回事。2026-09-16 的 bug 就在这儿：点「＋」得到的是"最近那条会话"，
+     * 用户截图来问"新建会话不应该是空的吗"。
+     */
+    private val openedByPlus: Boolean = false,
+) : JPanel(BorderLayout()), SidecarListener, Disposable {
 
     private val transcriptView = ClaudeTranscriptView(project)
 
@@ -771,7 +783,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun consumeFirstShow(): Boolean {
         if (firstShowDone) return false
         firstShowDone = true
-        return true
+        // 只有**开工具窗口时建的那个**面板该恢复最近会话；「＋」开出来的必须是空的
+        return resumeOnFirstShow(firstShow = true, openedByPlus = openedByPlus)
     }
 
     override fun removeNotify() {

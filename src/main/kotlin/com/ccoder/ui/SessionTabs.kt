@@ -129,13 +129,18 @@ class SessionTabs {
      * （`pickMostRecent`）负责，"第一次上屏"才恢复最近会话。
      */
     fun openFirstTab() {
-        addTab()
+        addTab(openedByPlus = false)
     }
 
-    /** 开一个新标签。到上限了返回 false（调用方负责说一句话，不静默）。 */
+    /**
+     * 开一个新标签。到上限了返回 false（调用方负责说一句话，不静默）。
+     *
+     * **新标签是空的**：它不恢复任何历史（`openedByPlus = true` 一路传到面板的
+     * 首屏闸）。"接着上次聊"只属于开工具窗口那一次 —— 见 [resumeOnFirstShow]。
+     */
     fun openNewTab(): Boolean {
         if (!canOpenNewTab()) return false
-        addTab()
+        addTab(openedByPlus = true)
         return true
     }
 
@@ -223,8 +228,11 @@ class SessionTabs {
         ) == Messages.YES
     }
 
-    private fun addTab() {
-        val panel = ClaudePanel(requireNotNull(project) { "SessionTabs 还没 attach 就要开标签" })
+    private fun addTab(openedByPlus: Boolean) {
+        val panel = ClaudePanel(
+            requireNotNull(project) { "SessionTabs 还没 attach 就要开标签" },
+            openedByPlus = openedByPlus,
+        )
         panels += panel
         // 挂进宿主由 selectOwner 做（新开的必须是当前这条）
         selectOwner(panel)
