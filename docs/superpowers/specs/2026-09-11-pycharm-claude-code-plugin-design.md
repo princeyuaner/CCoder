@@ -447,12 +447,24 @@ PyCharm → node sidecar → claude CLI。**杀掉父进程不会自动杀掉孙
 | 项 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `claudePath` | String | 空 | 空 = 自动解析（§8.2） |
-| `permissionMode` | enum | `default` | `default` / `acceptEdits` / `plan` / `bypassPermissions` / `dontAsk` |
+| `permissionMode` | enum | `default` | `default` / `acceptEdits` / `auto` / `plan` / `bypassPermissions` / `dontAsk` |
 | `model` | String | 空 | 空 = 用 CLI 配置的模型 |
 | `extraDirs` | List\<String\> | 空 | 映射 `Options.additionalDirectories`，对应 CLI 的 `--add-dir` |
 | `envOverrides` | Map | 空 | 追加环境变量。**不能**移除 §3.2 的黑名单项 |
 
 关于 `bypassPermissions`：SDK 要求同时设 `allowDangerouslySkipPermissions: true`（sdk.d.ts:1852-1856）。UI 上该选项需带明确警告文案。
+
+> **2026-09-16 补：`auto` 一开始漏了，现已接上。** 上面那一格原先只列了五个，而 SDK 的联合类型有六个（sdk.d.ts:2327）——`auto`（**模型分类器逐条判定放不放行**）从第一天起就没有界面入口，而枚举上的注释却把六个全抄了一遍（写了却没接，与"组件加了没人用"是同一类）。
+>
+> 三条实测（`sidecar/tools/probe-auto-mode.mjs`，**不发消息、零模型调用**）：
+>
+> - 正常项目里热切 `auto` → **成功**。而且 CLI 会吐一条 `system/status`，里面带着 `permissionMode: 'auto'` —— 这是本仓库第一次发现**不发消息就能读回生效模式**的通道（从前"切成功"只是控制请求没报错，见 session.js 里 setEffort 那段对"假回执"的抱怨）；
+> - 闸门拉下时（项目设置 `permissions.disableAutoMode="disable"`）热切 → **明确被拒**："Cannot set permission mode to auto: auto mode disabled by settings"。**不是静默忽略** —— 这条报错可以直接端到用户面前；
+> - 它**不需要** `allowDangerouslySkipPermissions`（那是绕过那一项的门票）。auto 自己的闸门在 CLI 侧另算：`permissions.disableAutoMode`、用户设置的 `autoModeEnabled`、服务器端断路器、以及 `Auto mode is unavailable for your plan`（跟着订阅档走）。
+>
+> **未决一条**：闸门拉下时**以 `auto` 起会话**（正是设置里存模式的走法）会不会静默回落，本地看不出来 —— 要看 init 的 `permissionMode`，而 init 要等第一条消息（要花一次模型调用）。两个方向都是更保守的那侧（回落只会变成 `default`，不会变成绕过），所以先收下。
+>
+> 另：CLI（v1.2.3）里有一句 `Auto mode is now Claude Code's default permission mode.` —— **裸跑 claude 时它的默认已经是 auto**，而本插件显式钉 `default`（危险操作先问）。两条路这是有意分岔的，不是跟着漂：见 `sidecar/index.js` 的 `params.permissionMode ?? 'default'`。
 
 **凭据不进设置。** CLI 自己读 `~/.claude/settings.json`，插件不接触、不存储任何 token。
 
