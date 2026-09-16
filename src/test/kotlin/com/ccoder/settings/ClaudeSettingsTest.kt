@@ -27,7 +27,8 @@ class ClaudeSettingsTest {
         assertEquals("plan", PermissionModeSetting.PLAN.wireValue)
         assertEquals("dontAsk", PermissionModeSetting.DONT_ASK.wireValue)
         assertEquals("bypassPermissions", PermissionModeSetting.BYPASS_PERMISSIONS.wireValue)
-        assertEquals(5, PermissionModeSetting.entries.size)
+        assertEquals("auto", PermissionModeSetting.AUTO.wireValue)
+        assertEquals(6, PermissionModeSetting.entries.size)
     }
 
     @Test
@@ -42,6 +43,9 @@ class ClaudeSettingsTest {
         assertTrue(!PermissionModeSetting.ACCEPT_EDITS.requiresDangerousOptIn)
         assertTrue(!PermissionModeSetting.PLAN.requiresDangerousOptIn)
         assertTrue(!PermissionModeSetting.DONT_ASK.requiresDangerousOptIn)
+        // auto 不设：它的闸门在 CLI 侧（disableAutoMode / 订阅档 / 断路器），
+        // 与 bypassPermissions 那个"必须用户点头"的资格位是两回事
+        assertTrue(!PermissionModeSetting.AUTO.requiresDangerousOptIn)
     }
 
     @Test
@@ -50,6 +54,7 @@ class ClaudeSettingsTest {
         // 枚举名 DEFAULT / ACCEPT_EDITS 是给代码看的，不该出现在界面上
         assertEquals("标准", PermissionModeSetting.DEFAULT.label)
         assertEquals("自动接受编辑", PermissionModeSetting.ACCEPT_EDITS.label)
+        assertEquals("自动判定", PermissionModeSetting.AUTO.label)
         assertEquals("仅规划", PermissionModeSetting.PLAN.label)
         assertEquals("不询问", PermissionModeSetting.DONT_ASK.label)
         assertEquals("绕过权限", PermissionModeSetting.BYPASS_PERMISSIONS.label)

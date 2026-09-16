@@ -112,7 +112,7 @@ export function createSession({
   //   "Cannot set permission mode to bypassPermissions because the session
   //    was not launched with --dangerously-skip-permissions"。
   //
-  // 界面那份模式列表是"5 个全列、点了直接生效"（见 ComposerMode），所以
+  // 界面那份模式列表是"6 个全列、点了直接生效"（见 ComposerMode），所以
   // 热切必须真能切过去 —— 只在以绕过启动时才开，等于让下拉里那一项对别的
   // 会话永远是死路。真要以绕过**启动**仍由设置里那个"我明白风险"把关
   // （见 ClaudeSettings.effectivePermissionMode），CLI 侧的禁用配置
@@ -120,6 +120,11 @@ export function createSession({
   // sdk.d.ts:1853-1856 要求的"用 bypassPermissions 必须设它"一并满足。
   //
   // 实测：tools/probe-bypass-switch.mjs —— 不带它上面那条报错，带上切换成功。
+  //
+  // 它对 'auto' **不起作用**，也不必起：auto 的闸门是另一套（permissions.disableAutoMode、
+  // 用户设置的 autoModeEnabled、订阅档、服务器端断路器），撞上时 CLI 直接报错
+  // "Cannot set permission mode to auto: auto mode disabled by settings"（实测见
+  // tools/probe-auto-mode.mjs）。所以这个资格位不是"所有模式的总开关"，只是绕过那一项的门票。
   options.allowDangerouslySkipPermissions = true;
 
   let query = null;

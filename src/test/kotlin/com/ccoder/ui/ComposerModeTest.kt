@@ -160,7 +160,7 @@ class ComposerModeTest {
 
     @Test
     fun `列表列出全部模式，不只是安全的那些`() {
-        // 用户明确选了"5 个都列"
+        // 用户明确选了"全都列出来"（枚举长一个，这里就自动多一条）
         val list = buildModeList(PermissionModeSetting.DEFAULT) {}
         val texts = textsIn(list).joinToString("\n")
 

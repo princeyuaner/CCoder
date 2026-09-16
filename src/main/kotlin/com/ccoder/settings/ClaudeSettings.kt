@@ -32,6 +32,19 @@ enum class PermissionModeSetting(
 ) {
     DEFAULT("default", "标准", "危险操作会先询问"),
     ACCEPT_EDITS("acceptEdits", "自动接受编辑", "文件改动自动接受，其余仍询问"),
+
+    /**
+     * 由 CLI 侧的一个**模型分类器**逐条判定放不放行 —— 不是"什么都放"。
+     * 拿不准的仍会问（CLI 原话：`Auto mode classifier requires confirmation for this`）；
+     * 规则里已经允许的、以及 acceptEdits 本来就放的，压根不过分类器（两条快速通道）。
+     *
+     * 它的闸门比别的模式多：管理/项目设置的 `permissions.disableAutoMode`（restrictive
+     * 项）、用户设置的 `autoModeEnabled`、服务器端断路器、订阅档
+     * （`Auto mode is unavailable for your plan`）。撞上闸门时 CLI **明确报错**
+     * （实测 "Cannot set permission mode to auto: auto mode disabled by settings"，
+     * 见 sidecar/tools/probe-auto-mode.mjs）—— 它不会静默换成别的模式糊弄过去。
+     */
+    AUTO("auto", "自动判定", "模型逐条判定放不放行；拿不准的仍会询问"),
     PLAN("plan", "仅规划", "只读：只做计划，不执行工具"),
     DONT_ASK("dontAsk", "不询问", "不询问；未预先允许的一律拒绝"),
 

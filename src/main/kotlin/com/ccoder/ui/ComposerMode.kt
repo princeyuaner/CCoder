@@ -122,7 +122,7 @@ internal fun modeDescription(mode: PermissionModeSetting): String = mode.descrip
 /**
  * 模式列表。当前项打勾。
  *
- * 全部列出、包括绕过 —— 用户明确要了"5 个都列，直接生效"。取走掉
+ * 全部列出、包括绕过 —— 用户明确要了"全都列出来，直接生效"。取走掉
  * "绕过权限"的做法会让这个下拉在半数场景下答非所问（"我要切回绕过"）。
  */
 internal fun buildModeList(
