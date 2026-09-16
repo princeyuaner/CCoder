@@ -175,7 +175,7 @@ internal class HooksSettingsPage(
     // ---- 右栏 ----
 
     private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = JBUI.Borders.empty(14, HOOK_FORM_PADDING_H)
+        border = formColumnBorder(JBUI.Borders.empty(14, HOOK_FORM_PADDING_H))
         preferredSize = Dimension(JBUI.scale(HOOK_FORM_WIDTH), 0)
         add(formSlot, BorderLayout.NORTH)
     }

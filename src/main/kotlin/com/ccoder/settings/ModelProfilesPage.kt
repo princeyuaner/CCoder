@@ -184,7 +184,7 @@ internal class ModelProfilesPage(
     }
 
     private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = JBUI.Borders.empty(14, FORM_PADDING_H)
+        border = formColumnBorder(JBUI.Borders.empty(14, FORM_PADDING_H))
         preferredSize = Dimension(JBUI.scale(MODEL_FORM_WIDTH), 0)
         add(formSlot, BorderLayout.NORTH)
     }

@@ -13,6 +13,7 @@ import java.awt.event.ActionEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.Action
+import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
@@ -173,6 +174,9 @@ internal class SettingsDialog(
         val base = super.createSouthPanel()
         return JPanel(BorderLayout()).apply {
             isOpaque = false
+            // 页脚上方那条线（设计稿 `.dlg-ft { border-top }`）：不画的话，
+            // 「改动即时保存」与「关闭」是两颗浮在空白里的字，不像一条页脚
+            border = hairlineTop()
             add(
                 JBLabel(FOOTER_HINT).apply { foreground = UIUtil.getInactiveTextColor() },
                 BorderLayout.WEST,
@@ -193,7 +197,9 @@ internal class SettingsDialog(
      */
     private fun tabsColumn(): JComponent = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(10, 8)
+        // 页签栏右侧那条线（设计稿 `.tabs-v { border-right }`）：有它才看得出
+        // 左栏是导航、右面是内容，而不是七个字浮在整张纸上
+        border = BorderFactory.createCompoundBorder(hairlineRight(), JBUI.Borders.empty(10, 8))
         preferredSize = Dimension(JBUI.scale(TABS_WIDTH), 0)
         pages.forEach { page ->
             val label = JBLabel(page.title).apply {

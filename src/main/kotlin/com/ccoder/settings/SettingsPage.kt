@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.ui.lineColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
@@ -10,9 +11,11 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.BorderFactory
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.border.Border
 
 /**
  * 设置对话框里的一页（2026-09-15 起有四页：模型 / 通用 / 权限 / 环境）。
@@ -55,6 +58,48 @@ internal interface SettingsPage {
      */
     fun dispose() {}
 }
+
+/**
+ * 一条发丝分界线，跟随主题。
+ *
+ * ## 为什么补这三条（2026-09-16）
+ *
+ * 设计稿（`docs/design/settings-v2.html`，方案 C）里**三处都画了线**：
+ * 页签栏右侧（`.tabs-v { border-right }`）、列表栏与表单栏之间（`.lcol { border-right }`）、
+ * 页脚上方（`.dlg-ft { border-top }`）。实现时三条全漏了 —— 于是整张对话框同一片底色，
+ * 左栏、列表、表单、页脚糊成一片。用户原话：「设置界面现在没有分隔条，很难看」。
+ *
+ * 颜色取面板那支 [lineColor]（`Component.borderColor`）：转写区里那些分界线用的就是它。
+ * 设置框与面板是一个插件的两块界面，各用一支灰迟早看出一深一浅。
+ */
+internal fun hairlineLeft(): Border = JBUI.Borders.customLineLeft(lineColor())
+
+/**
+ * 页签栏右侧那条 —— 设计稿的 `.tabs-v { border-right }`。
+ *
+ * 画在**页签栏自己的右沿**：它是 `BorderLayout.WEST`，整列占满高度，线也就整条下来。
+ * 页签栏的宽度是写死的 [TABS_WIDTH]，线吃掉的 1px 在栏内，页内容那侧不多不少。
+ */
+internal fun hairlineRight(): Border = JBUI.Borders.customLineRight(lineColor())
+
+/**
+ * 页脚上方那条 —— 设计稿的 `.dlg-ft { border-top }`。
+ *
+ * 底部从"浮在空白里的两颗字"变成一条真页脚：这句话与「关闭」是一条栏上的东西。
+ */
+internal fun hairlineTop(): Border = JBUI.Borders.customLineTop(lineColor())
+
+/**
+ * 列表栏与表单栏之间的那条 —— 设计稿的 `.lcol { border-right }`。
+ *
+ * 线画在**表单栏的左沿**而不是列表栏的右沿：`BorderLayout` 里表单栏在 `EAST`、
+ * 列表栏在 `CENTER`，两者紧挨着，画哪边位置一样；而表单栏的宽度是各页写死的常量
+ * （`*_FORM_WIDTH`），线跟着它走，不会被列表栏那侧忽多忽少的内容带偏。
+ *
+ * 四页共用（模型 / 预置 / MCP / hooks）—— 它们是同一个两栏骨架。
+ */
+internal fun formColumnBorder(inner: Border): Border =
+    BorderFactory.createCompoundBorder(hairlineLeft(), inner)
 
 /** 各页内容区的左右内边距。 */
 internal const val PAGE_PADDING_H = 20
