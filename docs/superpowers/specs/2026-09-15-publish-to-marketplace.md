@@ -124,6 +124,19 @@ such new usages in a plugin and the version will not be published"。**这不是
 两个坑：它**不能和别的 Gradle 构建并发跑**（会撞 "Timeout waiting to lock Artifact
 transforms cache"）；第一次跑要下 IDE 分发，慢。
 
+## 八、What's New 写哪几版（2026-09-16 补）
+
+**规则：清单只写当前版本相对"上一个已上架版本"的增量。**
+
+这条此前是**隐式**的，靠成例摸着走 —— 而 0.2.13 被拒、0.2.14 与 0.2.15 又都没上架，
+所以那几次开版时就把前一代的条目**带着走**（根本没有"上一个已上架版本"可言，
+带着走是对的）。0.2.15 上传之后，开 0.2.16 时又照抄了一遍 —— 于是 0.2.16 的清单里
+躺着**十条其实属于 0.2.15 的内容**，直到有人问"这版的 What's New 有什么"才发现。
+
+2026-09-16 起按增量写，并接受一条已知风险：**万一 0.2.15 最终没过审，0.2.16 就是
+首个公开版本**，那时要把它那十条再补回来。补回来比删掉容易 —— 十条都还在 git 历史里
+（`git show 0073cd0:src/main/resources/META-INF/plugin.xml`）。
+
 ## 出处
 
 - [Publishing a Plugin](https://plugins.jetbrains.com/docs/intellij/publishing-plugin.html)
