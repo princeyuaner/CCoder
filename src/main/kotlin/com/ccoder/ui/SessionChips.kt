@@ -77,12 +77,19 @@ internal val CHIP_GAP = JBUI.scale(6)
 private val CHIP_PAD_H = JBUI.scale(8)
 
 /**
- * 圆角直径 = 高度的一半（半径 = 高度的 1/4）。
+ * 圆角**直径 = 高度** —— 这才是设计稿里那颗胶囊（`docs/design/session-tabs.html:108`
+ * 的 `border-radius: 999px`）。两端各是一个半圆，半径正好是高度的一半。
  *
- * **跟着高度算，不写死**：它原来是按 22 配的 11，高度一改就得连它一起改 ——
- * 而"忘了改"的症状只是圆角比例有点变，图上不盯着看根本发现不了。
+ * ## 这里踩过一个坑：arc 参数是直径，不是半径
+ *
+ * `RoundRectangle2D` 的 arc 参数是**圆角的直径**，所以
+ * `arc = HEIGHT / 2` 得到的是**半径 h/4** —— 一个圆角矩形，不是胶囊。
+ * 这个错从第一版就在（22px 配 11，半径 5.5），22px 时看着还不明显；
+ * 2026-09-16 拉到 28px 之后半径只有 7，用户一眼看出「不像胶囊，圆角太尖」。
+ *
+ * 写 `HEIGHT` 而不是 `HEIGHT / 2` 不是笔误（下面那条用例钉着）。
  */
-private val CHIP_ARC = CHIP_HEIGHT / 2
+internal val CHIP_ARC = CHIP_HEIGHT
 private val DOT_SIDE = JBUI.scale(8)
 private val CLOSE_SIDE = JBUI.scale(12)
 
