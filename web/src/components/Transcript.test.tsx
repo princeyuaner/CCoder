@@ -383,6 +383,44 @@ describe('Transcript 滚动跟随', () => {
     expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
   })
 
+  it('暂停期间自己发一条：视口自动回到底部，暂停与按钮一起收起', () => {
+    // 2026-09-15 用户报："发送消息时如果输出区不在最底部，应该自动滚到最底部"。
+    // 暂停态下按发送、屏幕上什么都不动，看起来像没发出去
+    const { view, el, m } = setup(first)
+
+    m.setTop(200) // 先翻上去读旧内容
+    fireEvent.scroll(el)
+    expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+
+    const mine: TranscriptItem = { kind: 'user', id: 'u2', ts: ts + 2, text: '我发一条' }
+    m.growTo(1500)
+    view.rerender(<Transcript state={state(first, second, mine)} />)
+
+    expect(m.top()).toBe(1500)
+    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+  })
+
+  it('回放历史（切会话 / 恢复）后落在最底端', () => {
+    // 回放走的是同一条路（最后一条用户消息也"换了 id"），所以同样落到最底端。
+    // 这是上面那条规则的**已知后果**，不是漏网 —— 记在这里免得被当 bug 改掉
+    const { view, el, m } = setup(first, second)
+
+    m.setTop(200)
+    fireEvent.scroll(el)
+
+    view.rerender(<Transcript state={state()} />) // Reset：转写区先清空
+
+    const replay: TranscriptItem[] = [
+      { kind: 'user', id: 'h1', ts, text: '旧的一' },
+      { kind: 'assistant', id: 'h2', ts, text: '旧的二' },
+      { kind: 'user', id: 'h3', ts, text: '旧的三' },
+    ]
+    m.growTo(1800)
+    view.rerender(<Transcript state={state(...replay)} />)
+
+    expect(m.top()).toBe(1800)
+  })
+
   it('平滑滚动动画期间不会被自己的中间位置误判为用户上滚', async () => {
     const user = userEvent.setup()
     const { view, el, m } = setup(first)

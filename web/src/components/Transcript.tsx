@@ -111,6 +111,19 @@ function isAtBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD_PX
 }
 
+/**
+ * 转写区里最后一条**用户消息**的 id，没有就是 null。
+ *
+ * 拿它当"用户刚发了一条"的判据。用 id 而不是"用户消息的条数"：`reset`
+ * 与回放都会把 items 整个换掉，条数会在换会话时撞出假阳性。
+ */
+function lastUserItemIdOf(items: TranscriptItem[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === 'user') return items[i].id
+  }
+  return null
+}
+
 export function Transcript({ state }: { state: TranscriptState }) {
   const liveText = state.live.assistant
   // 进行中的思考。空串按"没有"处理：Kotlin 侧会把空增量过滤掉，这里的判断是兜底
@@ -158,6 +171,8 @@ export function Transcript({ state }: { state: TranscriptState }) {
 
   const [stick, setStick] = useState(true)
   const [hasNewWhilePaused, setHasNewWhilePaused] = useState(false)
+  // 上一次看见的"最后一条用户消息"。见下面 layout effect 的第一段。
+  const lastUserItemIdRef = useRef<string | null>(null)
 
   // 内容增长后跟随到底。用 layout effect 而非 effect，避免"先渲染再跳动"的闪烁。
   //
@@ -166,6 +181,25 @@ export function Transcript({ state }: { state: TranscriptState }) {
   useLayoutEffect(() => {
     const el = scrollerRef.current
     if (!el) return
+
+    // 自己发出去一条 = 把视口带回底部，哪怕上一秒还在翻旧内容（2026-09-15 用户提：
+    // 暂停态下按发送，屏幕上什么都不动，看起来像没发出去）。
+    //
+    // 发送发生在 Kotlin 侧（输入框是 Swing 的），web 能看见的信号只有那一条
+    // `append(user)` —— 所以判据是**最后一条用户消息换了 id**。敲下发送的那一刻
+    // 它就到了（ClaudePanel.sendCurrentInput），不必等模型回答；忙时排队的那条在
+    // 真正发出时由 flushQueue 推，同样落在这一条上。
+    //
+    // 回放历史（切会话 / 恢复）走的也是这条路，于是同样落到最底端 —— 那正是
+    // "刚换了会话，想看看聊到哪了"该在的位置（详见设计稿 §4.5 的修订块）。
+    const lastUserId = lastUserItemIdOf(state.items)
+    if (lastUserId !== null && lastUserId !== lastUserItemIdRef.current) {
+      lastUserItemIdRef.current = lastUserId
+      stickRef.current = true
+      setStick(true)
+      setHasNewWhilePaused(false)
+    }
+
     if (!stickRef.current) {
       setHasNewWhilePaused(true)
       return
