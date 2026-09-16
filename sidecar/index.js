@@ -18,6 +18,7 @@ import { NdjsonDecoder, encodeNdjson, parseLine } from './ndjson.js';
 import { capHistoryImages } from './history-images.js';
 import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
+import { applyProjectKey } from './project-key.js';
 
 /**
  * SDK 的 EffortLevel 联合类型（sdk.d.ts:601）。
@@ -575,6 +576,12 @@ function main() {
       return;
     }
     try {
+      // **每一条请求都先对一次目录名**（幂等，见 project-key.js）。必须赶在
+      // 任何 SDK 调用之前 —— SDK 那边是记忆化的，第一次读过就定了。
+      // 侧车自己的 cwd 是插件目录（ProcessBuilder.directory 给的是 sidecar/），
+      // 所以只能从请求里拿项目目录：建会话是 cwd、历史那几条是 dir。
+      const dir = parsed.value.params?.cwd ?? parsed.value.params?.dir;
+      if (typeof dir === 'string' && dir) applyProjectKey(dir);
       dispatcher.handle(parsed.value);
     } catch (err) {
       write({ type: 'error', code: 'DISPATCH_FAILED', message: String(err?.message ?? err), fatal: false });
