@@ -110,14 +110,18 @@ class PermissionDialogRenderProbe {
         column.add(PermissionCard(planPermission(), queuedCount = 0) {})
         column.add(Box.createVerticalGlue())
 
-        val w = 460
+        // 画布跟着卡片宽度走（2026-09-16 方案 B：卡片 420 → 640）。
+        // 写死数字的话，改宽度那次会把右边整条裁掉 —— 而探针恰恰是唯一能看见这件事的地方
+        val w = PERMISSION_CARD_WIDTH + JBUI.scale(20)
         column.setSize(w, column.preferredSize.height)
         layoutAll(column)
 
         val h = column.preferredSize.height
         println("[权限卡片探针] 首选尺寸 ${column.preferredSize}")
 
-        val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+        // 高度留一点余量：preferred 量的是内容，画的时候卡片描边还占几个像素，
+        // 正好贴边时最后一行会被切掉一条
+        val img = BufferedImage(w, h + JBUI.scale(10), BufferedImage.TYPE_INT_RGB)
         val g = img.createGraphics()
         column.paint(g)
         g.dispose()

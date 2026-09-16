@@ -59,7 +59,13 @@ internal class PermissionDialog(
 
     init {
         title = TITLE
-        isResizable = false
+        // 可拉伸（2026-09-16 方案 B）。原先写死 false，理由是"卡片内容静态" ——
+        // 但计划正文可以几百行，420×200 的框里一眼只看得到四五条路径，而**要批准
+        // 的东西正是那些字**。现在初始尺寸按屏幕给（见 PERMISSION_CARD_WIDTH /
+        // planAreaHeight），拖大时计划区跟着长（那张卡的滚动区不封顶）。
+        //
+        // 下限由 PermissionCard.getMinimumSize 兜住，拖不成一条缝。
+        isResizable = true
         init()
 
         // 规则②：没有默认按钮 = 回车不批准。

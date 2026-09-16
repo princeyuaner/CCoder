@@ -163,14 +163,27 @@ class PermissionCard(
                 border = JBUI.Borders.empty()
                 alignmentX = LEFT_ALIGNMENT
                 // 长正文（计划那种）给得高一些：80px 只够四行，而那是要读的东西。
-                // 仍然封顶 —— 卡片再高也不该把按钮顶出屏幕
-                maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(body.maxHeight))
+                // 仍然封顶 —— 卡片再高也不该把按钮顶出屏幕。
+                //
+                // 例外是计划那一档：**不封顶**。框现在可以拉伸（方案 B），拖大时这块
+                // 要跟着长；封着的话用户拖半天只有空白在长。其它字段照旧封住，
+                // 免得一条长命令把窗口直接顶到屏幕外。
+                maximumSize = Dimension(
+                    Int.MAX_VALUE,
+                    if (body.markdown) Int.MAX_VALUE else JBUI.scale(body.maxHeight),
+                )
                 if (body.markdown) {
-                    // HTML 面板不认 rows：按行高自己给一个与纯文本那条路相当的高度。
-                    // 这只是"一开始能看几行"，超出的照样在框里滚
+                    // HTML 面板不认 rows：高度**按屏幕算**（方案 B）——
+                    // 45% 屏高，夹在 260~520 之间（见 planAreaHeight）。
+                    //
+                    // 但那是**上限**不是定额：短计划按内容给，否则一个六行的小计划
+                    // 底下留一片空白（离屏渲染第一版就是这样，图里一眼看见）。
+                    // 量不准（量出 0）才退回屏幕份额 —— 超出的照样在框里滚。
+                    val cap = JBUI.scale(planAreaHeight(JBUI.unscale(screenHeightPx())))
+                    val content = runCatching { inputArea.preferredSize.height }.getOrDefault(0)
                     preferredSize = Dimension(
-                        JBUI.scale(CARD_WIDTH - 40),
-                        inputArea.getFontMetrics(inputArea.font).height * body.rows,
+                        JBUI.scale(PERMISSION_CARD_WIDTH - 40),
+                        if (content > 0) content.coerceAtMost(cap) else cap,
                     )
                 }
             })
@@ -213,11 +226,24 @@ class PermissionCard(
      * 不写成 `preferredSize = Dimension(...)` 那样的一次性赋值：那会把高度也冻在
      * 构造那一刻。权限卡片的内容确实是静态的，但提问卡片会长高（选中「其它…」
      * 冒出一个输入框），而两张卡片共用同一套写法 —— 冻过一次就会有人照着抄。
+     *
+     * 宽度这一版换成 [PERMISSION_CARD_WIDTH]（640，方案 B）：计划正文里全是长路径，
+     * 420 宽下一行折三段。提问框没跟着动 —— 见那个常量的注释。
      */
     override fun getPreferredSize(): Dimension {
         val natural = super.getPreferredSize()
-        return Dimension(CARD_WIDTH, natural.height)
+        return Dimension(PERMISSION_CARD_WIDTH, natural.height)
     }
+
+    /**
+     * 最小宽度也钉住。
+     *
+     * 框改成可拉伸之后必须有这条下限：DialogWrapper 拖到比它小就会被挡住，
+     * 否则能一路拖成一条缝。高度取布局自己的最小 —— 里面的滚动区最小很小，
+     * 所以框仍然能拖矮，只是拖不成零。
+     */
+    override fun getMinimumSize(): Dimension =
+        Dimension(PERMISSION_CARD_WIDTH, super.getMinimumSize().height)
 
     private companion object {
         val ACCENT = JBColor(0xFFA000, 0xFFB74D)
@@ -228,18 +254,44 @@ class PermissionCard(
 }
 
 /**
- * 主题色 → HTML 里能用的 `#rrggbb`。
+ * 强调色 → HTML 里能用的 `#rrggbb`（行内代码、小节那条 `▌`）。
  *
- * 强调色的出处与网页那份是同一个（ThemeInjector 给 `--accent` 的也是它）——
- * 两处各挑一个"差不多的蓝"，迟早会分叉。
+ * ## 2026-09-16 改过一次，原因值得留着
+ *
+ * 原先直接取 `UIUtil.getTreeSelectionBackground`。那是个**底色** —— 深色主题下
+ * 本来就是个深蓝（它生来是要被白字压着的）。我们拿它去当**文字色**，于是计划里的
+ * 代码块变成深蓝印在深灰上：对底色约 1.6:1，用户截图来问"深蓝很难看清楚"。
+ *
+ * 现在改成**按对比度挑**：主题那个色排第一（跟 IDE 一致），不够 4.5:1 就往后走 ——
+ * 兜底两个蓝里，深色主题会挑中亮的那个、浅色主题挑中深的那个。
+ * 换主题（Darcula / Material / 高对比）都不用重新挑色，也不会再犯"拿了底色当文字色"。
  *
  * `JBColor` 的取值随当前 LaF 走，所以卡片在浅色/深色下会自动拿到各自那一份；
  * 代价是**建好之后换主题不会重画**（HTML 里的颜色已经定死）。权限卡是短命的
  * 一张卡，这个代价收下。
  */
-private fun accentHex(): String = hexOf(UIUtil.getTreeSelectionBackground(true))
+private fun accentHex(): String = hexOf(
+    pickReadable(
+        listOf(UIUtil.getTreeSelectionBackground(true), CODE_BLUE_BRIGHT, CODE_BLUE_DEEP),
+        UIUtil.getPanelBackground(),
+    ),
+)
 
-/** 次要文字色：HTML 里的小节标题用它压过正文。 */
-private fun dimHex(): String = hexOf(UIUtil.getInactiveTextColor())
+/**
+ * 小节标题色：从正常前景往底色方向压一档。
+ *
+ * 不用 `InactiveTextColor`（主题的"次要文字色"在深色下常常只有 3.4:1 —— 那就是
+ * 用户截图里另一处发闷的地方）：层级仍在，但不掉到读不清。
+ */
+private fun dimHex(): String = hexOf(blend(UIUtil.getLabelForeground(), UIUtil.getPanelBackground(), 0.85))
 
 private fun hexOf(color: java.awt.Color): String = "#%06x".format(color.rgb and 0xFFFFFF)
+
+/**
+ * 屏幕高（真实像素），给 [planAreaHeight] 用。
+ *
+ * 取不到就按 1080：无头测试里 `Toolkit` 会抛 `HeadlessException`，而那时这个数
+ * 只影响"计划区首选多高"一个值。**不往构造函数外面传** —— 调用方没有更好的答案。
+ */
+private fun screenHeightPx(): Int =
+    runCatching { java.awt.Toolkit.getDefaultToolkit().screenSize.height }.getOrDefault(1080)
