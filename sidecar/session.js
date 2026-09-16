@@ -282,8 +282,26 @@ export function createSession({
      *
      * 尽力而为：取不到给空数组，**不抛**。命令补全挂着不该把聊天带崩 ——
      * 调用方（listCommands）拿空数组就当成"没有候选"。
+     *
+     * **首选 `initializationResult()`，退回 `supportedCommands()`。**
+     * 2026-09-16 实测（tools/probe-init-before-send.mjs，把两条的冷启动
+     * 耗时对调着各量一次）：
+     *
+     * - 两份数据**完全一样**：都 31 条，字段都是 `name/description/argumentHint`；
+     * - 但冷启动差 4 倍 —— `initializationResult()` **680ms**，
+     *   `supportedCommands()` **2976ms**（它俩都要等 CLI 把会话建起来，
+     *   而前者答的是"建会话时顺手算好的那份"）。
+     *
+     * 用户看到的差别就是：打 `/` 之后列表是立刻出来还是干等三秒。
+     * 先问快的；它没给（老 CLI、或字段形状变了）再走原来那条。
      */
     async supportedCommands() {
+      try {
+        const r = await query?.initializationResult?.();
+        if (Array.isArray(r?.commands) && r.commands.length > 0) return r.commands;
+      } catch {
+        // 掉到下面那条路 —— 退回不是降级到"没有"，是换个问法再问一次
+      }
       try {
         return (await query?.supportedCommands?.()) ?? [];
       } catch {

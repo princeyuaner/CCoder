@@ -111,19 +111,10 @@ const consumer = (async () => {
 // 让事件循环先转起来（SDK 在建子进程）
 await new Promise((r) => setTimeout(r, 300));
 
-console.log('\n--- 1. 立刻问 supportedCommands() ---');
-const supported = await withTimeout('supportedCommands', q.supportedCommands());
-if (supported.timedOut) console.log(`  超时（${CALL_TIMEOUT_MS}ms 内没答）`);
-else if (supported.error) console.log(`  抛错：${supported.error}`);
-else console.log(`  ${supported.ms}ms 拿到 ${describeCommands(supported.value)}`);
-
-console.log('\n--- 1b. 立刻问 reloadSkills()（技能的"可发送名"是不是能单独拿到）---');
-const reload = await withTimeout('reloadSkills', q.reloadSkills());
-if (reload.timedOut) console.log(`  超时（${CALL_TIMEOUT_MS}ms 内没答）`);
-else if (reload.error) console.log(`  抛错：${reload.error}`);
-else console.log(`  ${reload.ms}ms 拿到：${JSON.stringify(reload.value).slice(0, 400)}`);
-
-console.log('\n--- 2. 立刻问 initializationResult() ---');
+// 2026-09-16 改：把 initializationResult() 放到**冷启动第一问**。
+// 原先它排在 supportedCommands 后面，量出来 0ms —— 那个 0 是被前一次调用焐热的，
+// 说明不了谁快。顺序倒过来，两条的冷启动耗时才有对照。
+console.log('\n--- 1. 冷启动第一问：initializationResult() ---');
 const init = await withTimeout('initializationResult', q.initializationResult());
 if (init.timedOut) console.log(`  超时（${CALL_TIMEOUT_MS}ms 内没答）`);
 else if (init.error) console.log(`  抛错：${init.error}`);
@@ -135,6 +126,18 @@ else {
   console.log(`  account：${JSON.stringify(v.account ?? null).slice(0, 200)}`);
   console.log(`  output_style：${JSON.stringify(v.output_style ?? null)}`);
 }
+
+console.log('\n--- 1b. 立刻问 reloadSkills()（技能的"可发送名"是不是能单独拿到）---');
+const reload = await withTimeout('reloadSkills', q.reloadSkills());
+if (reload.timedOut) console.log(`  超时（${CALL_TIMEOUT_MS}ms 内没答）`);
+else if (reload.error) console.log(`  抛错：${reload.error}`);
+else console.log(`  ${reload.ms}ms 拿到：${JSON.stringify(reload.value).slice(0, 400)}`);
+
+console.log('\n--- 2. 再问 supportedCommands()（此刻已被焐过；冷启动实测 2976ms）---');
+const supported = await withTimeout('supportedCommands', q.supportedCommands());
+if (supported.timedOut) console.log(`  超时（${CALL_TIMEOUT_MS}ms 内没答）`);
+else if (supported.error) console.log(`  抛错：${supported.error}`);
+else console.log(`  ${supported.ms}ms 拿到 ${describeCommands(supported.value)}`);
 
 console.log(`\n--- 3. 什么都不发，等 ${WAIT_MS / 1000} 秒看有没有自发事件 ---`);
 const before = events.length;
@@ -184,8 +187,24 @@ const namespaced = a.filter((n) => paired.get(n) && paired.get(n) !== n);
 console.log(`  A 与 B 的配对：${a.length - miss.length}/${a.length} 配上`);
 console.log(`    · A 名**就是**B 名（裸名可直接发）：${JSON.stringify(bare)}`);
 console.log(`    · A 名与 B 名不同（需要改写才能发）：`);
-for (const n of namespaced) console.log(`        ${JSON.stringify(n)} → ${JSON.stringify(paired.get(n))}`);
+for (const n of namespaced) {
+  console.log(`        ${JSON.stringify(n)} → ${JSON.stringify(paired.get(n))}`);
+  // 2026-09-16 加：这几条正是"起手那几秒里会猜错"的那批。要看的是
+  // **A 那份里有没有能提前认出它们的结构信号** —— 光看显示名猜不出
+  // `frontend-design:frontend-design` 这种前缀。加印描述/参数提示/别名。
+  const entry = (supported.value ?? []).find((c) => c.name === n) ?? {};
+  console.log(`          描述：${JSON.stringify(entry.description ?? '').slice(0, 220)}`);
+  console.log(`          参数提示：${JSON.stringify(entry.argumentHint ?? '')} · 别名：${JSON.stringify(entry.aliases ?? [])}`);
+}
 console.log(`    · 配不上的（B 里没有）：${JSON.stringify(miss)}`);
+
+// 全部 31 条的描述抬头 —— 判据要在这上面立得住：**描述以 "(" 开头的，
+// 是不是恰好就是需要命名空间的那批**？误伤一条就会把不该藏的藏起来。
+console.log('\n--- 31 条描述的抬头（判据的检查面）---');
+for (const c of supported.value ?? []) {
+  const lead = (c.description ?? '').trimStart().startsWith('(') ? '【前缀括号】' : '            ';
+  console.log(`  ${lead} ${JSON.stringify(c.name).padEnd(28)} ${JSON.stringify((c.description ?? '').slice(0, 46))}`);
+}
 
 console.log('\n--- 收尾 ---');
 stopped = true;

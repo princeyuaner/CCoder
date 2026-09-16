@@ -61,8 +61,77 @@ class CommandCandidatesTest {
         assertEquals(
             listOf("debug-issue", "compact", "code-review:code-review"),
             out.map { it.insert },
-            "插入值用归一化后的显示名（实测 31 条里 29 条这样是对的）",
+            "插入值用归一化后的显示名；命名空间那几条由下面的规则补上",
         )
+    }
+
+    @Test
+    fun `init 未到时，描述开头的括号就是命名空间 —— 不靠猜`() {
+        // 2026-09-16 实测：31 条里只有 3 条描述以 `(x)` 开头，而这 3 条恰好
+        // 就是要命名空间的那 3 条（探针把 31 条的抬头全打了一遍核过）。
+        // 从前这两条会被猜成裸名（`frontend-design`），发出去被 CLI 当普通文本
+        val out = commandCandidates(
+            commands = listOf(
+                cmd("frontend-design", "(frontend-design) Create distinctive interfaces"),
+                cmd("brainstorming", "(superpowers) Brainstorm ideas"),
+                cmd("compact", "Free up context"),
+            ),
+            sendable = emptySet(),
+        )
+
+        assertEquals(
+            listOf("frontend-design:frontend-design", "superpowers:brainstorming", "compact"),
+            out.map { it.insert },
+            "前缀是**插件名**，不一定是技能名（superpowers:brainstorming），所以只能读不能推",
+        )
+        assertEquals(
+            listOf(GROUP_PLUGIN, GROUP_PLUGIN, GROUP_OTHER),
+            out.map { it.group },
+            "带命名空间的要落进「插件」组",
+        )
+    }
+
+    @Test
+    fun `末尾的括号不是命名空间`() {
+        // 用户技能的描述以 `(user)` **收尾**（实测），不是开头 —— 认错会把名字拼歪
+        val out = commandCandidates(
+            commands = listOf(cmd("Debug Issue", "Systematically debug issues (user)")),
+            sendable = emptySet(),
+        )
+
+        assertEquals(listOf("debug-issue"), out.map { it.insert })
+    }
+
+    @Test
+    fun `开头的括号里不是 slug 时不当命名空间`() {
+        // 只认形状像插件名的；`(see docs)` 这种不当信号
+        val out = commandCandidates(
+            commands = listOf(cmd("compact", "(see docs) Free up context")),
+            sendable = emptySet(),
+        )
+
+        assertEquals(listOf("compact"), out.map { it.insert })
+    }
+
+    @Test
+    fun `显示名自带命名空间时原样用，不叠第二层`() {
+        // code-review:code-review 的描述也以 `(code-review)` 开头 —— 它自己已经带了
+        val out = commandCandidates(
+            commands = listOf(cmd("code-review:code-review", "(code-review) Code review a pull request")),
+            sendable = emptySet(),
+        )
+
+        assertEquals(listOf("code-review:code-review"), out.map { it.insert })
+    }
+
+    @Test
+    fun `init 一到，那条改走严格配对 —— 拼接只是空窗期的替代品`() {
+        val out = commandCandidates(
+            commands = listOf(cmd("frontend-design", "(frontend-design) Create distinctive interfaces")),
+            sendable = setOf("frontend-design:frontend-design"),
+        )
+
+        assertEquals(listOf("frontend-design:frontend-design"), out.map { it.insert })
     }
 
     @Test

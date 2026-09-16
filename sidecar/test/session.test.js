@@ -533,6 +533,46 @@ function withCommands(q, methods) {
   return q;
 }
 
+// ---- 取数来源：先问快的 ----
+// 2026-09-16 实测（tools/probe-init-before-send.mjs，两条各量一次冷启动）：
+// initializationResult() 680ms、supportedCommands() 2976ms，**数据完全一样**。
+// 用户看到的就是打 `/` 之后立刻出来还是干等三秒。
+
+test('supportedCommands 优先走 initializationResult —— 它冷启动快 4 倍', async () => {
+  const fast = [{ name: 'compact', description: '压缩', argumentHint: '', aliases: [] }];
+  let askedSlow = 0;
+  const q = withCommands(fakeQuery(), {
+    initializationResult: async () => ({ commands: fast }),
+    supportedCommands: async () => { askedSlow++; return [{ name: '慢的那份' }]; },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.supportedCommands(), fast);
+  assert.equal(askedSlow, 0, '快的走得通就不该再去问慢的那条');
+});
+
+test('initializationResult 给空 commands 时退回 supportedCommands', async () => {
+  const list = [{ name: 'compact' }];
+  const q = withCommands(fakeQuery(), {
+    initializationResult: async () => ({ commands: [] }),
+    supportedCommands: async () => list,
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.supportedCommands(), list);
+});
+
+test('initializationResult 抛错（老 CLI、或字段形状变了）也退回 supportedCommands', async () => {
+  const list = [{ name: 'compact' }];
+  const q = withCommands(fakeQuery(), {
+    initializationResult: async () => { throw new Error('Unsupported control request subtype'); },
+    supportedCommands: async () => list,
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+
+  assert.deepEqual(await s.supportedCommands(), list);
+});
+
 test('supportedCommands 拿到就原样返回', async () => {
   const list = [{ name: 'compact', description: '压缩', argumentHint: '', aliases: [] }];
   const q = withCommands(fakeQuery(), { supportedCommands: async () => list });

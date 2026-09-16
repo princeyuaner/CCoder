@@ -27,6 +27,34 @@ internal fun normalizeCommandName(name: String): String =
     name.trim().lowercase().replace(Regex("\\s+"), "-")
 
 /**
+ * 从描述里读**插件命名空间** —— 描述以 `(x)` 开头时那个 `x`。
+ *
+ * 用途只有一个：init 未到、拿不到可发送名的那几秒里，别靠"归一化显示名"硬猜
+ * （实测 31 条里有 2 条会猜错，见 [commandCandidates]）。
+ *
+ * 判据是量出来的（2026-09-16，probe-init-before-send.mjs 把 31 条的抬头全打了一遍）：
+ * **只有 3 条描述以 `(x)` 开头，而这 3 条恰好就是要命名空间的那 3 条** ——
+ * 其中 `code-review:code-review` 的 A 名自己就带着 `code-review:`，
+ * 等于直接演示了"括号里那个词就是命名空间"。另外两条端到端也对得上：
+ * `(frontend-design)` + 显示名 `frontend-design` → `frontend-design:frontend-design`；
+ * 拿设计稿 §2 事实 5 那张表的例子套：`(superpowers)` + `brainstorming`
+ * → `superpowers:brainstorming`（**前缀是插件名、不一定是技能名**，所以只能读、不能推）。
+ *
+ * 只认「开头的 + 形状像 slug 的」括号：描述里别处的括号（比如末尾那个
+ * `(user)`）一律不当信号。认错会把名字拼歪，而拼歪正是这条规则要消灭的东西。
+ */
+internal fun namespaceOf(description: String?): String? {
+    val text = description?.trimStart() ?: return null
+    if (!text.startsWith("(")) return null
+    val end = text.indexOf(')')
+    if (end <= 1) return null
+    val token = text.substring(1, end).trim()
+    return token.takeIf { candidate ->
+        candidate.isNotEmpty() && candidate.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }
+    }
+}
+
+/**
  * 两个名字是否指同一条命令。
  *
  * 除了归一化，还要容忍**插件命名空间**。实测（2026-09-13 探针）两份来源的写法：
@@ -75,15 +103,20 @@ internal fun commandCandidates(
     //
     // 所以 init 未到时改用**归一化后的显示名**当插入值。这不是拍脑袋，是量过的
     // （同一个探针）：31 条里 25 条的显示名本来就是可发送名、4 条归一化后正确
-    // （`Debug Issue` → `debug-issue`）、**2 条会猜错**（`frontend-design` →
-    // `frontend-design:frontend-design`，要插件命名空间前缀，光看显示名猜不出来）。
-    // 那 2 条是这条规则的已知代价：万一是它们，CLI 会把这行当普通文本处理。
+    // （`Debug Issue` → `debug-issue`）、2 条要插件命名空间前缀。
+    //
+    // 那 2 条**不再靠猜**：它们的描述以 `(命名空间)` 开头，读出来拼上去即可
+    // （见 [namespaceOf]，31 条的抬头全量核过，判据不误伤）。剩下真正无解的
+    // 情况一条都没有了 —— 归一名拼出来的就是 CLI 认的那个。
     //
     // init 一到（`sendable` 非空）立刻回到严格配对 —— 宁缺勿错那半条规矩还在。
     val preInit = sendable.isEmpty()
     return commands.mapNotNull { cmd ->
         val insert = if (preInit) {
-            normalizeCommandName(cmd.name)
+            val bare = normalizeCommandName(cmd.name)
+            // 显示名自己就带命名空间的（`code-review:code-review`）原样用；
+            // 否则看描述里有没有 `(namespace)` —— 有就拼上，没有才是裸名
+            if (bare.contains(':')) bare else namespaceOf(cmd.description)?.let { "$it:$bare" } ?: bare
         } else {
             sendable.firstOrNull { sameCommand(cmd.name, it) } ?: return@mapNotNull null
         }
