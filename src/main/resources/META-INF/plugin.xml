@@ -28,6 +28,9 @@
       <li>While Claude writes a file, the status card now says what it is writing. It used to stay silent for 3.6 seconds, which looked like a hang.</li>
       <li>Diffs are no longer drawn on the tool card itself. They appear when the card is expanded.</li>
       <li>Thinking text is now light yellow. It used to be dimmed twice over and was hard to read.</li>
+      <li>Selected-code references keep the input box's look in the transcript: the bubble shows the one-line token you typed instead of the expanded snippet. What the model receives is unchanged.</li>
+      <li>Sending a message scrolls the output back to the bottom. With auto-follow paused, sending used to look like nothing happened.</li>
+      <li>Command completion works as soon as the plugin opens. Slash-command suggestions used to stay empty until you had sent one message.</li>
     </ul>
 
     <h4>中文</h4>
@@ -39,6 +42,9 @@
       <li>让 Claude 写文件的那几秒，状态卡提前说明在写什么。此前会静默 3.6 秒，看着像卡住。</li>
       <li>工具卡上的 diff 不再直接铺在卡面上，展开才画。</li>
       <li>思考正文改成浅黄，从此前偏淡、看不清的状态调亮。</li>
+      <li>参考记号在输出区里长得和输入框一样：气泡里画的是你敲的那一行记号，不再铺开成整段代码。发给模型的那份没变。</li>
+      <li>发送消息后输出区自动回到底部。此前在暂停跟随的状态下按发送，屏幕上什么都不动，看着像没发出去。</li>
+      <li>刚打开插件打 <code>/</code> 就有候选。可发送名要等第一条消息才到，此前那段空窗期整个列表是空的。</li>
     </ul>
     ]]></change-notes>
 
