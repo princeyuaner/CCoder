@@ -27,6 +27,10 @@
       <li>The permission mode now shows what is really running: if the CLI ends up in a different mode because of settings or your plan, the panel says so and corrects the label instead of showing what you picked.</li>
       <li>File completion (@) is fuzzy now: cmprk finds ComposerMode.kt. Prefix matches still come first.</li>
       <li>The characters you typed are in bold in the completion list, and symbol completion (#) is fuzzy too.</li>
+      <li>Plan approvals (ExitPlanMode) are laid out as Markdown now: headings, lists and code blocks read as such instead of showing the raw markup.</li>
+      <li>"Add file to chat" in the Project view context menu works again &mdash; it was greyed out on files.</li>
+      <li>The session library is no longer empty for projects opened through a mapped drive (Z:) &mdash; the list matches what the CLI sees.</li>
+      <li>The permission and plan dialogs are wider and can be resized, and their inline code and section headings are readable in dark themes.</li>
     </ul>
 
     <h4>中文</h4>
@@ -37,6 +41,10 @@
       <li>权限模式现在会显示<b>真正在跑</b>的那个：CLI 若因设置或订阅档换成了别的模式，界面会说一句并改过来，而不是一直显示你选的那个。</li>
       <li><code>@</code> 补全支持模糊匹配：<code>cmprk</code> 也能找到 <code>ComposerMode.kt</code>。前缀命中的仍排在最前。</li>
       <li>补全列表里，你敲的那几个字符会加粗；<code>#</code> 符号补全同样支持模糊匹配。</li>
+      <li>计划审批框（ExitPlanMode）现在按 Markdown 排版：标题、列表、代码块都成形，不再把 <code>#</code>、<code>**</code> 当源码显示。</li>
+      <li>项目树右键的「添加文件到聊天」恢复可用 —— 此前在文件上是灰的，点不动。</li>
+      <li>用映射盘（<code>Z:</code>）打开的项目，会话库的历史列表不再恒为空 —— 看到的就是 CLI 那边那些。</li>
+      <li>权限与计划框更宽、可拉伸；里面的行内代码与小节标题在深色主题下也读得清。</li>
     </ul>
     ]]></change-notes>
 
