@@ -44,6 +44,28 @@ class CommandCandidatesTest {
     }
 
     @Test
+    fun `可发送名还没到（init 未到）时，用归一化后的显示名顶上`() {
+        // 刚打开插件就是这个状态：显示那份（supportedCommands）已经拿到了，
+        // 而可发送名要等第一条消息（探针 probe-init-before-send.mjs 实测）。
+        // 不放宽的话整个列表被滤空 —— 用户看到的正是"打 / 什么都没有"
+        val out = commandCandidates(
+            commands = listOf(cmd("Debug Issue"), cmd("compact"), cmd("code-review:code-review")),
+            sendable = emptySet(),
+        )
+
+        assertEquals(
+            listOf("Debug Issue", "compact", "code-review:code-review"),
+            out.map { it.display },
+            "init 未到时一条都不该被滤掉",
+        )
+        assertEquals(
+            listOf("debug-issue", "compact", "code-review:code-review"),
+            out.map { it.insert },
+            "插入值用归一化后的显示名（实测 31 条里 29 条这样是对的）",
+        )
+    }
+
+    @Test
     fun `名字归一化：小写、空白折成连字符`() {
         assertEquals("debug-issue", normalizeCommandName("Debug Issue"))
         assertEquals("debug-issue", normalizeCommandName("  DEBUG   issue "))

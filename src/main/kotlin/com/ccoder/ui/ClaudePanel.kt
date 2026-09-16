@@ -2161,6 +2161,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                             ?.map { it.asString }
                             ?.toSet()
                             ?.let { sendableNames = it }
+                            // 这一份到齐 = `/` 的列表可以换成"CLI 认的那些名字"了。
+                            // 弹层里可能正拿着"归一化猜出来的"那批在显示（见
+                            // commandCandidates 的 preInit 说明）—— 刷新一次，
+                            // 让每一行的插入值换成真正可发送的那个
+                            .also { if (completion.isOpen) refreshCompletion() }
 
                         // 真正的会话 id 只在这里。**不读 ready.sessionId** ——
                         // 那个回显的是请求参数，全新会话时是 null（spec §10）。

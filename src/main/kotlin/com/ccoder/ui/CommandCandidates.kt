@@ -66,8 +66,27 @@ internal fun commandCandidates(
     commands: List<CommandInfo>,
     sendable: Set<String>,
 ): List<CompletionItem> {
+    // 「可发送名」那一份（`system/init.slash_commands`）在**第一条消息之前是不存在的** ——
+    // 流式输入下 init 要等用户先说话（2026-09-15 探针 probe-init-before-send.mjs 复现：
+    // 什么都不发，15 秒一个事件都没有）。
+    //
+    // 于是刚打开插件时那条"配不上就不显示"的规则会把整个列表滤空：显示用的那份
+    // （supportedCommands()）明明已经拿到了，用户看到的却是"打 / 什么都没有"。
+    //
+    // 所以 init 未到时改用**归一化后的显示名**当插入值。这不是拍脑袋，是量过的
+    // （同一个探针）：31 条里 25 条的显示名本来就是可发送名、4 条归一化后正确
+    // （`Debug Issue` → `debug-issue`）、**2 条会猜错**（`frontend-design` →
+    // `frontend-design:frontend-design`，要插件命名空间前缀，光看显示名猜不出来）。
+    // 那 2 条是这条规则的已知代价：万一是它们，CLI 会把这行当普通文本处理。
+    //
+    // init 一到（`sendable` 非空）立刻回到严格配对 —— 宁缺勿错那半条规矩还在。
+    val preInit = sendable.isEmpty()
     return commands.mapNotNull { cmd ->
-        val insert = sendable.firstOrNull { sameCommand(cmd.name, it) } ?: return@mapNotNull null
+        val insert = if (preInit) {
+            normalizeCommandName(cmd.name)
+        } else {
+            sendable.firstOrNull { sameCommand(cmd.name, it) } ?: return@mapNotNull null
+        }
         CompletionItem(
             display = cmd.name,
             insert = insert,
