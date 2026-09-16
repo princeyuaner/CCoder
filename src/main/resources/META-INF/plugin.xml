@@ -49,16 +49,17 @@
              （META-INF/pluginIcon.svg）同一张脸。13px 那份不带方块底、
              内圈与外壳同色，理由见 icons/ccoderToolWindow.svg 的注释。
              深色主题那份走 _dark 后缀，平台自己按主题挑。 -->
-        <!-- canCloseContents="true"：多标签之后每个标签要能关（2026-09-16）。
-             这个标志**只能写在这儿** —— `ToolWindow` 接口上只有 getter，没有 setter，
-             实测 `ToolWindowImpl` 里是 `private final boolean`。
-             "至少留一个标签"不归平台管，由 SessionTabs.refreshCloseable 钉住 ——
-             全关之后平台不会重建面板（见那个类的注释）。 -->
+        <!-- canCloseContents **刻意保持 false**（2026-09-16）：
+             标签条与关闭叉改由面板自己画（`SessionChips` 那排胶囊），平台的
+             ✕ 与我们自己的 ✕ 同时出现就重复了。关闭逻辑一个字没变 —— 我们那颗 ✕
+             走的还是 `ContentManager.removeContent`，于是 `contentRemoveQuery`
+             那道闸（忙 / 有待决权限 / 正在启动时先问一句）照旧生效。
+             这个标志也**只能写在这儿**：`ToolWindow` 接口上只有 getter，
+             `ToolWindowImpl` 里是 `private final boolean`。 -->
         <toolWindow
             id="CCoder"
             anchor="right"
             icon="/icons/ccoderToolWindow.svg"
-            canCloseContents="true"
             factoryClass="com.ccoder.ClaudeToolWindowFactory"/>
 
         <!-- 待决权限在状态栏常驻显示。

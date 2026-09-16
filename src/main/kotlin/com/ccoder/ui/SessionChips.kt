@@ -1,0 +1,309 @@
+package com.ccoder.ui
+
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
+import java.awt.BasicStroke
+import java.awt.Color
+import java.awt.Cursor
+import java.awt.Dimension
+import java.awt.Font
+import java.awt.FontMetrics
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import java.awt.geom.Ellipse2D
+import java.awt.geom.Line2D
+import java.awt.geom.RoundRectangle2D
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JComponent
+import javax.swing.JPanel
+
+/**
+ * 一条会话此刻处在什么状态 —— 就是胶囊上那个小圆点的颜色。
+ *
+ * 这是多标签最需要被看见的东西：**另一条会话在等我，而我在这一条里**。
+ * 平台那条原生标签条表达不了它（那是选 B 的主要理由，见
+ * `docs/design/session-tabs.html`）。
+ */
+internal enum class TabState { Running, WaitingPermission, Idle }
+
+/**
+ * 状态的判据。**忙优先于等待**：正在跑的回合里也可能挂着权限询问，那时说"在跑"
+ * 更贴切（它确实在动），而"等你"会让人以为卡住了。
+ *
+ * 抽成纯函数是为了能在纯 JVM 单测里钉住这张真值表 —— 画点的那一半在
+ * [SessionChips] 里（要 Swing，测不了）。
+ */
+internal fun tabStateOf(pendingPermissions: Int, busy: Boolean, starting: Boolean): TabState = when {
+    busy || starting -> TabState.Running
+    pendingPermissions > 0 -> TabState.WaitingPermission
+    else -> TabState.Idle
+}
+
+/** 一个胶囊要显示的全部信息。 */
+internal data class TabChip(
+    val owner: JComponent,
+    /** 会话标题；null = 还没起名（画成斜体「新会话」）。 */
+    val title: String?,
+    val state: TabState,
+    /** 是不是当前这一条。 */
+    val current: Boolean,
+    /** 能不能关（只剩一条时不能 —— 平台不会重建面板，见 [SessionTabs]）。 */
+    val canClose: Boolean,
+)
+
+/** 胶囊的几何。四个数在这里定，别处不许再写。 */
+internal val CHIP_HEIGHT = JBUI.scale(22)
+internal val CHIP_GAP = JBUI.scale(6)
+private val CHIP_PAD_H = JBUI.scale(8)
+private val CHIP_ARC = JBUI.scale(11)
+private val DOT_SIDE = JBUI.scale(7)
+private val CLOSE_SIDE = JBUI.scale(11)
+
+/** 胶囊宽度被夹在这两个数之间：太窄认不出，太宽挤掉邻居。 */
+internal val CHIP_MIN_WIDTH = JBUI.scale(56)
+internal val CHIP_MAX_WIDTH = JBUI.scale(140)
+
+/**
+ * 每个胶囊分到多宽 —— 纯算术，可单测。
+ *
+ * 为什么"按份分"而不是"谁长谁宽"：宽度不均时，短标题那颗会比长的矮一截感
+ * （`BoxLayout` 里高度一致、宽度参差，看着像没对齐）。等宽之后只有标题在截断，
+ * 那一行是齐的。
+ */
+internal fun chipWidthFor(available: Int, count: Int, gap: Int = CHIP_GAP): Int {
+    if (count <= 0) return CHIP_MIN_WIDTH
+    val usable = available - gap * (count - 1)
+    return (usable / count).coerceIn(CHIP_MIN_WIDTH, CHIP_MAX_WIDTH)
+}
+
+/**
+ * 标题按像素截断，尾巴给省略号。
+ *
+ * 与 [rowTextFor]（补全弹层）同一套做法：**量真实字体**而不是数数字符 ——
+ * 中文、ASCII、`[1m]` 这种后缀的宽度差得多，按字符数截会在长英文标题上露出半个词。
+ *
+ * @param unnamed 还没起名的会话显示什么（与面板里那个斜体占位同一个词）
+ */
+internal fun chipTitleFor(
+    title: String?,
+    metrics: FontMetrics,
+    maxWidth: Int,
+    unnamed: String = "新会话",
+): String {
+    val text = title?.takeIf { it.isNotBlank() } ?: return unnamed
+    if (metrics.stringWidth(text) <= maxWidth) return text
+    val ellipsis = "…"
+    val budget = maxWidth - metrics.stringWidth(ellipsis)
+    if (budget <= 0) return ellipsis
+    var end = text.length
+    while (end > 0 && metrics.stringWidth(text.substring(0, end)) > budget) end--
+    return if (end <= 0) ellipsis else text.substring(0, end) + ellipsis
+}
+
+/**
+ * 会话胶囊行 —— 顶行中间那一格（原来是个单会话标签）。
+ *
+ * ## 为什么自己画
+ *
+ * 平台那条标签条只能开关、改不动样式，而且**表达不了状态**（见 [TabState]）。
+ * 四个方案比对与选择在设计稿 `docs/design/session-tabs.html`，用户 2026-09-16 选 B。
+ * 平台标签条随之关掉（`canCloseContents` 撤回 false），关闭逻辑一个字没变 ——
+ * 只是从平台的 ✕ 挪到我们自己的 ✕ 上。
+ *
+ * ## 交互
+ *
+ * - 点**别的**胶囊 → 切到那条会话
+ * - 点**当前**胶囊 → 开历史会话列表（与原会话标签同一个入口，行为不变）
+ * - 悬停时右端出现 ✕（当前那颗**常驻**）；点了交给 [SessionTabs] 的关闭闸 ——
+ *   忙时会先问一句，这里不管
+ */
+internal class SessionChips(
+    private val onPick: (TabChip) -> Unit,
+    private val onClose: (TabChip) -> Unit,
+) : JPanel() {
+
+    init {
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
+        isOpaque = false
+    }
+
+    /** 上一次渲染用的模型 —— 宽度变了要原样重画一遍。 */
+    private var chips: List<TabChip> = emptyList()
+
+    /** 已排版的宽度。0 = 还没上过屏，用兜底值分宽。 */
+    private var laidOutWidth = 0
+
+    fun render(chips: List<TabChip>) {
+        this.chips = chips
+        removeAll()
+        val available = (laidOutWidth.takeIf { it > 0 } ?: DEFAULT_ROW_WIDTH) - CHIP_PAD_H * 2
+        val width = chipWidthFor(available, chips.size)
+        chips.forEachIndexed { index, chip ->
+            if (index > 0) add(Box.createHorizontalStrut(CHIP_GAP))
+            add(ChipView(chip, width, onPick, onClose))
+        }
+        revalidate()
+        repaint()
+    }
+
+    override fun doLayout() {
+        // 宽度变了要重分：多一个胶囊、面板被拖窄、工具窗口被拖宽都走这儿
+        if (width > 0 && width != laidOutWidth) {
+            laidOutWidth = width
+            render(chips)
+        }
+        super.doLayout()
+    }
+
+    private companion object {
+        /** 还没上屏时的兜底宽度：420 的工具窗口减掉两个图标按钮那一段。 */
+        val DEFAULT_ROW_WIDTH = JBUI.scale(340)
+    }
+}
+
+/**
+ * 一个胶囊。自绘 —— 因为它比 `JLabel` 多三件事：底与边随选中/悬停变、左端那颗
+ * 状态点与文字不同色、右端 ✕ 只在该出现的时候出现。用三个 `JLabel` 拼也能做，
+ * 但那一行只有 22px 高，三个盒子各自的内边距挤不下。
+ */
+private class ChipView(
+    private val chip: TabChip,
+    private val chipWidth: Int,
+    private val onPick: (TabChip) -> Unit,
+    private val onClose: (TabChip) -> Unit,
+) : JComponent() {
+
+    private var hover = false
+    private var overClose = false
+
+    init {
+        isOpaque = false
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        toolTipText = buildString {
+            append(chip.title?.takeIf { it.isNotBlank() } ?: UNNAMED_TITLE)
+            append(
+                when (chip.state) {
+                    TabState.Running -> " · 正在跑"
+                    TabState.WaitingPermission -> " · 等你批准"
+                    TabState.Idle -> " · 空闲"
+                }
+            )
+            append(if (chip.current) "（当前）" else " —— 点一下切过去")
+        }
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) {
+                hover = true
+                repaint()
+            }
+
+            override fun mouseExited(e: MouseEvent) {
+                hover = false
+                overClose = false
+                repaint()
+            }
+
+            override fun mouseMoved(e: MouseEvent) {
+                val was = overClose
+                overClose = showsClose() && e.x >= closeLeft()
+                if (was != overClose) repaint()
+            }
+
+            override fun mouseClicked(e: MouseEvent) {
+                if (showsClose() && e.x >= closeLeft()) onClose(chip) else onPick(chip)
+            }
+        })
+    }
+
+    override fun getPreferredSize(): Dimension = Dimension(chipWidth, CHIP_HEIGHT)
+
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    override fun getMaximumSize(): Dimension = preferredSize
+
+    /** 当前那颗常驻 ✕，其余的悬停才出现。 */
+    private fun showsClose(): Boolean = chip.canClose && (chip.current || hover)
+
+    /** ✕ 那一段的左边界 —— 点哪儿算点了 ✕，就是它说了算。 */
+    private fun closeLeft(): Int = width - CHIP_PAD_H - CLOSE_SIDE
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // 底与边：当前那颗用强调色的浅底 + 强调色边，其余中性
+            val accent = chipAccent()
+            g2.color = when {
+                chip.current -> accentTint(accent)
+                hover -> UIUtil.getListSelectionBackground(false)
+                else -> UIUtil.getPanelBackground()
+            }
+            g2.fill(roundRect(0f, 0f, width.toFloat(), height.toFloat()))
+            g2.color = if (chip.current) accent else JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground()
+            g2.stroke = BasicStroke(JBUI.scale(1).toFloat())
+            g2.draw(roundRect(0.5f, 0.5f, width - 1f, height - 1f))
+
+            // 状态点
+            g2.color = when (chip.state) {
+                TabState.Running -> accent
+                TabState.WaitingPermission -> CHIP_WARN
+                TabState.Idle -> UIUtil.getInactiveTextColor()
+            }
+            g2.fill(
+                Ellipse2D.Float(
+                    CHIP_PAD_H.toFloat(),
+                    ((height - DOT_SIDE) / 2f) + 0f,
+                    DOT_SIDE.toFloat(),
+                    DOT_SIDE.toFloat(),
+                )
+            )
+
+            // 标题
+            g2.font = UIUtil.getLabelFont().deriveFont(if (chip.title.isNullOrBlank()) Font.ITALIC else Font.PLAIN)
+            val metrics = g2.fontMetrics
+            val textLeft = CHIP_PAD_H + DOT_SIDE + JBUI.scale(6)
+            val textRight = if (showsClose()) closeLeft() - JBUI.scale(4) else width - CHIP_PAD_H
+            g2.color = if (chip.current) UIUtil.getLabelForeground() else UIUtil.getInactiveTextColor()
+            g2.drawString(
+                chipTitleFor(chip.title, metrics, textRight - textLeft),
+                textLeft,
+                (height + metrics.ascent - metrics.descent) / 2,
+            )
+
+            // ✕
+            if (showsClose()) {
+                g2.color = if (overClose) UIUtil.getLabelForeground() else UIUtil.getInactiveTextColor()
+                g2.stroke = BasicStroke(JBUI.scale(1.2f).toFloat(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                val cx = closeLeft() + CLOSE_SIDE / 2f
+                val cy = height / 2f
+                val arm = CLOSE_SIDE / 2f - JBUI.scale(2f)
+                g2.draw(Line2D.Float(cx - arm, cy - arm, cx + arm, cy + arm))
+                g2.draw(Line2D.Float(cx - arm, cy + arm, cx + arm, cy + arm - 2 * arm))
+            }
+        } finally {
+            g2.dispose()
+        }
+    }
+
+    private fun roundRect(x: Float, y: Float, w: Float, h: Float) =
+        RoundRectangle2D.Float(x, y, w, h, CHIP_ARC.toFloat(), CHIP_ARC.toFloat())
+
+    private companion object {
+        val CHIP_WARN: Color = warningColor()
+    }
+}
+
+/** 还没起名的会话显示什么 —— 与面板里那个斜体占位同一个词（[SessionTabs.NEW_TAB_TITLE]）。 */
+private const val UNNAMED_TITLE = "新会话"
+
+/**
+ * 强调色。**只在这一处取** —— 别处不许再写死一个蓝色（这一版换主题全靠它）。
+ */
+private fun chipAccent(): Color = JBUI.CurrentTheme.Focus.focusColor()
+
+/** 当前胶囊的浅底：强调色往面板底上压一档。纯强调色是描边的活，铺底会太吵。 */
+private fun accentTint(accent: Color): Color = mix(accent, UIUtil.getPanelBackground(), 0.82)

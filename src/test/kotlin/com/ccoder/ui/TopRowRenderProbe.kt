@@ -92,12 +92,25 @@ class TopRowRenderProbe {
         // 先换 LAF、后建组件：组件在**建的那一刻**取 UI 委托（见 IdeLaf）
         IdeLaf.withRealLaf {
             SwingUtilities.invokeAndWait {
-                val sessionLabel = SessionLabel {}.apply { setTitle(title, enabled = enabled) }
+                val chips = SessionChips({}, {}).apply {
+                    render(
+                        listOf(
+                            TabChip(
+                                owner = JPanel(),
+                                title = title,
+                                // 出图用：到上限那一版把点画成"在跑"，一眼看得出状态点
+                                state = if (enabled) TabState.Idle else TabState.Running,
+                                current = true,
+                                canClose = false,
+                            )
+                        )
+                    )
+                }
                 val newButton = SessionNewButton {}.apply {
                     setTabState(if (enabled) 1 else MAX_SESSION_TABS)
                 }
 
-                val top = buildTopRow(sessionLabel, settingsGearButton {}, newButton)
+                val top = buildTopRow(chips, settingsGearButton {}, newButton)
 
                 val outer = JPanel(BorderLayout()).apply {
                     isOpaque = true

@@ -52,7 +52,8 @@ class TopRowTest {
 
     private class Laid(
         val row: JPanel,
-        val label: JComponent,
+        /** 中间那一格 —— 2026-09-16 起是一排会话胶囊（原来是单个会话标签）。 */
+        val center: JComponent,
         val gear: JButton,
         val plus: JButton,
         val cluster: JPanel,
@@ -67,17 +68,29 @@ class TopRowTest {
     private fun laidOut(width: Int = 420, title: String? = "重构 extractor 的指纹计算"): Laid {
         lateinit var out: Laid
         onEdt {
-            val label = SessionLabel {}.apply { setTitle(title, enabled = true) }
+            val chips = SessionChips({}, {}).apply {
+                render(
+                    listOf(
+                        TabChip(
+                            owner = JPanel(),
+                            title = title,
+                            state = TabState.Idle,
+                            current = true,
+                            canClose = false,
+                        )
+                    )
+                )
+            }
             val gear = settingsGearButton {}
             val plus = SessionNewButton {}
-            val row = buildTopRow(label, gear, plus)
+            val row = buildTopRow(chips, gear, plus)
 
             val outer = JPanel(BorderLayout()).apply { isOpaque = true }
             outer.add(row)
             outer.setSize(width, 200)
             layoutAll(outer)
 
-            out = Laid(row, label, gear, plus, row.getComponent(1) as JPanel)
+            out = Laid(row, chips, gear, plus, row.getComponent(1) as JPanel)
         }
         return out
     }
@@ -189,7 +202,7 @@ class TopRowTest {
         )
 
         assertTrue(r.rightOf(r.gear) <= r.row.width - r.row.insets.right, "齿轮被挤出这一行了")
-        assertTrue(r.label.x + r.label.width <= r.leftOf(r.plus), "标题压到按钮上了")
+        assertTrue(r.center.x + r.center.width <= r.leftOf(r.plus), "胶囊行压到按钮上了")
     }
 
     @Test

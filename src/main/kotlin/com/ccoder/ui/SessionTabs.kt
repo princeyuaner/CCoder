@@ -150,15 +150,54 @@ class SessionTabs {
     /** 面板 → content 的顺序（测试与探针要按顺序点标签）。 */
     internal fun order(): List<JComponent> = contents.keys.toList()
 
-    fun addTabCountListener(listener: () -> Unit) {
+    /**
+     * 眼下开着的那些会话 —— 每个面板顶上那行胶囊就是照着它画的。
+     *
+     * 标题与状态**现问面板**（`ClaudePanel.tabTitle` / `tabState`），服务自己不存一份：
+     * 存了就有两份真相，而"忙碌中"这种状态每秒都可能变。
+     */
+    internal fun tabs(): List<TabChip> {
+        val selected = toolWindow?.contentManager?.selectedContent
+        return contents.entries.map { (owner, content) ->
+            val panel = owner as? ClaudePanel
+            TabChip(
+                owner = owner,
+                title = panel?.tabTitle(),
+                state = panel?.tabState() ?: TabState.Idle,
+                current = content === selected,
+                // 只剩一条时不给关：平台不会重建面板（见 refreshCloseable）
+                canClose = contents.size > 1,
+            )
+        }
+    }
+
+    /**
+     * 关掉某个标签。
+     *
+     * 走平台的 `removeContent`，于是**关闭闸照旧生效**（[closeGuard] 的
+     * `contentRemoveQuery`：忙 / 有待决权限 / 正在启动时会先问一句）——
+     * 我们的 ✕ 与平台的 ✕ 走的是同一条路，只是前者的样子归我们管。
+     */
+    internal fun closeTab(owner: JComponent) {
+        if (contents.size <= 1) return
+        val content = contents[owner] ?: return
+        toolWindow?.contentManager?.removeContent(content, true)
+    }
+
+    fun addTabsListener(listener: () -> Unit) {
         listeners.add(listener)
     }
 
-    fun removeTabCountListener(listener: () -> Unit) {
+    fun removeTabsListener(listener: () -> Unit) {
         listeners.remove(listener)
     }
 
-    private fun notifyTabsChanged() {
+    /**
+     * 标签那边有变化（多一个 / 少一个 / 谁忙了 / 谁改名字了）时喊一声。
+     *
+     * **面板自己调**：忙碌与待决权限是面板的私有状态，服务看不见它们。
+     */
+    fun notifyTabsChanged() {
         // 复制一份再遍历：监听器可能在回调里退订（同 PendingPermissionCount 的写法）
         listeners.toList().forEach { it() }
     }
@@ -241,6 +280,16 @@ class SessionTabs {
             val panel = event.content.component as? ClaudePanel ?: return
             contents.remove(panel)
             refreshCloseable()
+            notifyTabsChanged()
+        }
+
+        /**
+         * 切了标签 —— 每个面板顶上那行胶囊都要重画（当前那颗的高亮跟着走）。
+         *
+         * 不挂这一条的话：切过去之后，**新**当前那颗上面没有强调色，旧的还亮着，
+         * 而两个面板都不会自己知道。
+         */
+        override fun selectionChanged(event: ContentManagerEvent) {
             notifyTabsChanged()
         }
     }

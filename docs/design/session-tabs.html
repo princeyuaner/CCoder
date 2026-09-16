@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 多会话（多标签）· 四种形态</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量，
+   与 settings-v2.html / session-list-v2.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased; transition: background .2s, color .2s;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+            padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 74ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; transition: background .15s, color .15s; }
+.toggle button.on { background: var(--accent); color: var(--accent-fg); }
+
+.intro { margin: 40px 0 8px; display:grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 16px; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); letter-spacing:.06em; text-transform:uppercase; color: var(--page-dim); font-weight:600; }
+.card p { margin: 0; font-size: 13.5px; color: var(--page-fg); }
+.card.warn { border-left: 3px solid var(--warn); }
+.card.ok { border-left: 3px solid var(--ok); }
+
+.variant { margin: 72px 0 0; padding-top: 34px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap: 14px; flex-wrap:wrap; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.1em; text-transform:uppercase; padding: 4px 9px; border-radius: 5px;
+       background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.tag.now { background: transparent; color: var(--page-dim); border-color: var(--page-line); }
+.tag.pick { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.variant h2 { font-family: var(--serif); font-size: 24px; margin: 0; font-weight: 600; }
+.vsub { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 78ch; }
+.split { display:grid; grid-template-columns: 420px minmax(300px,1fr); gap: 34px; margin-top: 26px; align-items:start; }
+@media (max-width: 900px){ .split { grid-template-columns: 1fr; } }
+
+/* ---------------- 产品 mock：一个 420px 的工具窗口 ---------------- */
+.win { width: 420px; border:1px solid var(--border); border-radius: 6px; overflow:hidden; background: var(--panel);
+       box-shadow: 0 10px 34px rgba(0,0,0,.22); }
+[data-theme="light"] .win { box-shadow: 0 10px 34px rgba(0,0,0,.10); }
+.win-head { display:flex; align-items:center; gap:8px; padding: 7px 10px; background: var(--panel);
+            border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text); }
+.win-head .dot3 { color: var(--dim); letter-spacing: 2px; font-size: 13px; }
+.win-head .ttl { font-weight: 500; }
+.win-head .grow { flex:1; }
+.win-head .ico { width: 18px; height: 18px; border-radius: 4px; background: var(--code); color: var(--dim);
+                 display:grid; place-items:center; font-size: 11px; }
+
+/* A：平台原生标签条（现状） */
+.plat-tabs { display:flex; align-items:stretch; background: var(--panel); border-bottom: 1px solid var(--border); }
+.plat-tab { position:relative; padding: 7px 12px; font-size: 12.5px; color: var(--dim); white-space:nowrap;
+            overflow:hidden; text-overflow:ellipsis; max-width: 132px; border-right: 1px solid var(--border-soft); }
+.plat-tab.on { color: var(--text); background: var(--editor); }
+.plat-tab.on::before { content:""; position:absolute; inset:0 0 auto 0; height:2px; background: var(--accent); }
+.plat-tab .x { margin-left:6px; color: var(--dim); }
+.plat-tabs .plus { padding: 7px 10px; color: var(--dim); }
+
+/* 面板自己的顶行（会话名 + ＋ + 齿轮） */
+.p-top { display:flex; align-items:center; gap:8px; padding: 8px 10px 6px; }
+.p-session { font-size: 12.5px; color: var(--text); font-style: italic; }
+.p-session.named { font-style: normal; }
+.p-grow { flex:1; }
+.p-btn { width: 20px; height: 20px; border-radius: 5px; display:grid; place-items:center; color: var(--dim); font-size: 13px; }
+.p-btn.hot { color: var(--text); }
+
+/* B：面板内胶囊行 */
+.chips { display:flex; align-items:center; gap:6px; padding: 8px 10px 6px; overflow:hidden; }
+.chip { display:flex; align-items:center; gap:6px; min-width:0; max-width: 138px; padding: 4px 8px; border-radius: 999px;
+        border:1px solid var(--border); background: var(--code); color: var(--dim); font-size: 12px; }
+.chip .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); }
+.chip .st { width:7px; height:7px; border-radius:50%; flex:none; background: var(--dim); }
+.chip .st.run { background: var(--accent); }
+.chip .st.ask { background: var(--warn); }
+.chip .x { color: var(--dim); font-size: 11px; margin-left:2px; }
+.chip.more { color: var(--dim); }
+
+/* C：当前会话胶囊 + 计数 */
+.pill { display:flex; align-items:center; gap:8px; margin: 8px 10px 4px; padding: 5px 9px; border-radius: 8px;
+        border:1px solid var(--border); background: var(--code); font-size: 12.5px; color: var(--text); }
+.pill .st { width:7px; height:7px; border-radius:50%; background: var(--accent); }
+.pill .cnt { margin-left:auto; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.pill .caret { color: var(--dim); font-size: 10px; }
+
+/* D：顶端细条（每会话一段） */
+.strip { display:flex; gap:2px; padding: 0 10px 6px; }
+.seg { height:3px; border-radius: 2px; flex:1; background: var(--border); }
+.seg.run { background: var(--accent); }
+.seg.ask { background: var(--warn); }
+.seg.on { background: var(--text); height:4px; }
+
+/* 转写区与输入区（四个方案共用，示意用） */
+.body { background: var(--editor); border-top: 1px solid var(--border-soft); padding: 12px 12px 10px; }
+.line { font-size: 12.5px; color: var(--text); margin: 0 0 9px; }
+.line .who { color: var(--dim); font-size: 11px; }
+.tool { border:1px solid var(--border); border-radius: 7px; padding: 7px 9px; margin: 0 0 9px; background: var(--panel); }
+.tool .h { font-size: 11.5px; color: var(--dim); display:flex; gap:6px; align-items:center; }
+.tool .code { font-family: var(--mono); font-size: 11.5px; color: var(--text); margin-top: 4px; }
+.inbar { display:flex; align-items:center; gap:8px; margin: 10px 12px 12px; padding: 8px 10px; border-radius: 8px;
+         border:1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--dim); }
+.inbar .grow { flex:1; }
+.send { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); display:grid; place-items:center; font-size: 12px; }
+
+/* 说明栏 */
+.spec { margin: 0; }
+.spec dt { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); margin: 16px 0 4px; }
+.spec dd { margin: 0; font-size: 13.5px; color: var(--page-fg); }
+.spec dd b { color: var(--page-fg); }
+.spec .bad { color: var(--danger); }
+.spec .good { color: var(--ok); }
+.spec ul { margin: 4px 0 0; padding-left: 18px; }
+.spec li { margin: 3px 0; }
+
+table.cmp { width: 100%; border-collapse: collapse; margin-top: 30px; font-size: 13.5px; }
+table.cmp th, table.cmp td { text-align:left; padding: 10px 12px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+table.cmp th { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); font-weight: 600; }
+.verdict { margin-top: 46px; padding: 24px 26px; border:1px solid var(--page-line); border-radius: 14px;
+           background: var(--page-card); border-left: 3px solid var(--ok); }
+.verdict h2 { font-family: var(--serif); margin: 0 0 8px; font-size: 21px; }
+.verdict p { margin: 0 0 8px; font-size: 14px; }
+.note { color: var(--page-dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-16</p>
+      <h1>多会话：标签条该长什么样</h1>
+      <p class="lede">
+        功能已经能跑（一个工具窗口里最多 5 条会话，各自一个进程）。现在要定的是<strong>它长什么样</strong>。
+        四个形态都按真实约束画：工具窗口只有 <b>420px</b>；平台那条标签条（A）我们能开、能关，但<b>改不动它的样子</b>；
+        转写区是 JCEF 网页，标签却必须是 Swing —— 两者不在同一块画布上。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="t-dark" class="on" onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" onclick="setTheme('light')">Light</button>
+    </div>
+  </header>
+
+  <section class="intro">
+    <div class="card warn">
+      <h3>约束一</h3>
+      <p>420px 宽。四个标签并排时，每个只剩 ~100px —— 中文标题只够五六个字，这是 A 方案最硬的天花板。</p>
+    </div>
+    <div class="card warn">
+      <h3>约束二</h3>
+      <p>平台标签条只能"用"，不能改样式（`canCloseContents` 之外没有可调项）。想好看就得自己在面板里画。</p>
+    </div>
+    <div class="card ok">
+      <h3>约束三</h3>
+      <p>面板里已经有"会话名 + ＋ + 齿轮"那一行 —— 四个方案都要回答：<b>它和它怎么共处</b>，是合并还是叠加。</p>
+    </div>
+  </section>
+
+  <!-- ================= A ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag now">A · 现状（已实现）</span>
+      <h2>平台原生标签条</h2>
+    </div>
+    <p class="vsub">什么也不用写：`canCloseContents="true"` 之后平台自己画标签与关闭叉。问题是它与面板的视觉不是一套，而且和下面那行会话名重复说同一件事。</p>
+
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="plat-tabs">
+          <div class="plat-tab on">重构 extractor 的…<span class="x">✕</span></div>
+          <div class="plat-tab">查日志<span class="x">✕</span></div>
+          <div class="plat-tab">新会话<span class="x">✕</span></div>
+          <div class="plus">＋</div>
+        </div>
+        <div class="p-top">
+          <span class="p-session named">重构 extractor 的指纹计算</span>
+          <span class="p-grow"></span><span class="p-btn">＋</span><span class="p-btn">⚙</span>
+        </div>
+        <div class="body">
+          <p class="line"><span class="who">你</span><br>把 extractor 的指纹改成跨块的</p>
+          <div class="tool"><div class="h">▸ Read &nbsp;·&nbsp; extractor.py</div><div class="code">def fingerprint(chunk): …</div></div>
+          <p class="line">改完了：<b>sha1</b> 换成按块流式累加，旧数据仍能校验。</p>
+        </div>
+        <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+      </div>
+
+      <dl class="spec">
+        <dt>什么在哪儿</dt>
+        <dd>标签 = 平台画的，标题取 `Content.displayName`（我们跟会话名同步）。</dd>
+        <dt>状态怎么表达</dt>
+        <dd class="bad">表达不了。哪个标签在跑、哪个在等批准，标签条一律不显示 —— 而多会话最需要看见的恰恰是这个。</dd>
+        <dt>挤不下时</dt>
+        <dd>平台会把它压扁（截图里第一条已经在省略号里），没有溢出菜单可接。</dd>
+        <dt>代价</dt>
+        <dd class="good">零代码。</dd>
+        <dt>结论</dt>
+        <dd>能用，但"不好看"这件事主要出在这儿。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= B ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag">B</span>
+      <h2>面板内胶囊行（会话名那一行升级成标签行）</h2>
+    </div>
+    <p class="vsub">把平台标签条<b>关掉</b>，在自己面板的第一行画胶囊：状态点 + 标题 + ✕。它同时替掉了原来那行会话名 —— 一个位置只说一件事，不再重复。</p>
+
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="chips">
+          <div class="chip on"><span class="st run"></span><span class="nm">重构 extractor 的指纹</span><span class="x">✕</span></div>
+          <div class="chip"><span class="st ask"></span><span class="nm">查一下线上日志</span><span class="x">✕</span></div>
+          <div class="chip"><span class="nm">新会话</span><span class="x">✕</span></div>
+          <div class="p-btn">＋</div>
+        </div>
+        <div class="body">
+          <p class="line"><span class="who">你</span><br>把 extractor 的指纹改成跨块的</p>
+          <div class="tool"><div class="h">▸ Read &nbsp;·&nbsp; extractor.py</div><div class="code">def fingerprint(chunk): …</div></div>
+          <p class="line">改完了：<b>sha1</b> 换成按块流式累加，旧数据仍能校验。</p>
+        </div>
+        <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+      </div>
+
+      <dl class="spec">
+        <dt>什么在哪儿</dt>
+        <dd>胶囊行取代了原来的会话名行。齿轮挪到右上角（或保持原行右端），「＋」跟在最后一个胶囊后面。</dd>
+        <dt>状态怎么表达</dt>
+        <dd class="good">一个 7px 的点：<span style="color:var(--accent)">●</span> 正在跑 · <span style="color:var(--warn)">●</span> 等你批准 · 灰点 = 空闲。<b>后台标签在等你，也看得见。</b></dd>
+        <dt>挤不下时</dt>
+        <dd>标题按像素截断（保头去尾），超过 3 个折成「⋯ +N」——点开就是现成的会话列表。</dd>
+        <dt>代价</dt>
+        <dd>中等：一个自绘组件（胶囊、点、悬停 ✕）+ 一处布局改动。但它是四个里<b>唯一同时解决"好看"与"看得见状态"</b>的。</dd>
+        <dt>风险</dt>
+        <dd>胶囊是自绘，深色/浅色两套都得过一遍；标题长的会话会一直显示省略号（可给 tooltip 补全名）。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= C ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag">C</span>
+      <h2>当前会话一颗胶囊 + 计数（省一行）</h2>
+    </div>
+    <p class="vsub">只有"当前"占地方，其余藏进下拉。420px 里最省空间的做法，代价是<b>并排看见两个会话的状态</b>这件事没有了。</p>
+
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="pill">
+          <span class="st"></span><span>重构 extractor 的指纹计算</span><span class="cnt">2 / 3</span><span class="caret">▼</span>
+        </div>
+        <div class="body">
+          <p class="line"><span class="who">你</span><br>把 extractor 的指纹改成跨块的</p>
+          <div class="tool"><div class="h">▸ Read &nbsp;·&nbsp; extractor.py</div><div class="code">def fingerprint(chunk): …</div></div>
+          <p class="line">改完了：<b>sha1</b> 换成按块流式累加，旧数据仍能校验。</p>
+        </div>
+        <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+      </div>
+
+      <dl class="spec">
+        <dt>什么在哪儿</dt>
+        <dd>一颗胶囊 = 当前会话；右侧 `2 / 3` 是"三条里的第二条"；▼ 展开所有开着的会话（含状态与 ✕）。</dd>
+        <dt>状态怎么表达</dt>
+        <dd>胶囊上的点只说<b>当前</b>这一条；别的标签有事，只能在计数上做文章（例如把 `2/3` 变成琥珀色）—— 不如 B 直白。</dd>
+        <dt>挤不下时</dt>
+        <dd>不挤：永远只有一颗。</dd>
+        <dt>代价</dt>
+        <dd>与 B 相当（一个自绘胶囊 + 复用现成的会话弹层）。</dd>
+        <dt>风险</dt>
+        <dd>"哪条在等我批准"要靠点开才知道 —— 正是多会话要解决的问题之一。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= D ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag">D</span>
+      <h2>顶端细条：一色一段</h2>
+    </div>
+    <p class="vsub">最激进的一种：不放标题，只在面板顶端贴一条 3px 的分段条，<b>每段一条会话</b>，颜色即状态，点一下切过去，悬停出标题。</p>
+
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="strip">
+          <div class="seg on"></div><div class="seg ask"></div><div class="seg"></div>
+        </div>
+        <div class="p-top">
+          <span class="p-session named">重构 extractor 的指纹计算</span>
+          <span class="p-grow"></span><span class="p-btn hot">＋</span><span class="p-btn">⚙</span>
+        </div>
+        <div class="body">
+          <p class="line"><span class="who">你</span><br>把 extractor 的指纹改成跨块的</p>
+          <div class="tool"><div class="h">▸ Read &nbsp;·&nbsp; extractor.py</div><div class="code">def fingerprint(chunk): …</div></div>
+          <p class="line">改完了：<b>sha1</b> 换成按块流式累加，旧数据仍能校验。</p>
+        </div>
+        <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+      </div>
+
+      <dl class="spec">
+        <dt>什么在哪儿</dt>
+        <dd>原会话名那行留着（它就是当前会话的名字）；分段条只承担"有几条、各是什么状态、切哪条"。</dd>
+        <dt>状态怎么表达</dt>
+        <dd class="good">颜色即状态，一眼扫过去就知道几条在跑、几条在等 —— 这是它的长处。</dd>
+        <dt>挤不下时</dt>
+        <dd>段是等宽弹性的，10 条也不挤（但那时已经分不清谁是谁）。</dd>
+        <dt>代价</dt>
+        <dd class="bad">发现性最差：不给标题，用户得先悬停才知道那条是什么；关标签也得靠右键或悬停才出现的 ✕。对"我就想开两条"的人，这层抽象是负担。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <table class="cmp">
+    <thead>
+      <tr><th>方案</th><th>好看</th><th>看得见"别的会话在等我"</th><th>420px 里挤不挤</th><th>要写多少</th><th>风险</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><b>A</b> 平台标签条</td><td>一般（不是我们的视觉）</td><td class="bad">看不见</td><td class="bad">挤 · 无溢出菜单</td><td class="good">零</td><td class="good">无</td></tr>
+      <tr><td><b>B</b> 胶囊行</td><td class="good">好 · 与面板一套</td><td class="good">看得见（状态点）</td><td>中 · 3 个后折「⋯ +N」</td><td>中</td><td>自绘组件的双主题</td></tr>
+      <tr><td><b>C</b> 一颗胶囊 + 计数</td><td class="good">好 · 最省地方</td><td>弱（要点开）</td><td class="good">不挤</td><td>中</td><td>同 B</td></tr>
+      <tr><td><b>D</b> 顶端细条</td><td>独特 · 冷静</td><td class="good">一眼扫全</td><td class="good">不挤</td><td>中</td><td>发现性最差</td></tr>
+    </tbody>
+  </table>
+
+  <div class="verdict">
+    <h2>我的建议：B</h2>
+    <p>理由只有一条：多会话真正的新问题是<b>"另一条会话在等我，而我在这一条里"</b> —— 状态点在一个视线内就能回答它，A 答不了，C 要动手点，D 要悬停。</p>
+    <p>它顺带解决的还有"重复表达"：胶囊行取代原来那行会话名，一个位置只说一件事。</p>
+    <p class="note">挑好之后我把选中的那个做成可点的原型（真组件、离屏出图），再换掉现在这版平台标签条；平台标签条会关掉（`canCloseContents` 撤回），
+       关闭叉与"忙时确认"那套逻辑原样保留 —— 它只是从平台的叉挪到我们自己的 ✕ 上。</p>
+  </div>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('t-dark').classList.toggle('on', t === 'dark');
+  document.getElementById('t-light').classList.toggle('on', t === 'light');
+}
+// 支持 ?theme=light，与仓库里其它设计稿一致
+if (new URLSearchParams(location.search).get('theme') === 'light') setTheme('light');
+</script>
+</body>
+</html>

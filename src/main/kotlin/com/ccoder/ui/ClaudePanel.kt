@@ -246,7 +246,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private var pendingModelPick: ModelPick? = null
 
     /** 顶部左侧的会话标签。可点，点开列历史会话。 */
-    private val sessionLabel = SessionLabel { toggleSessionChooser() }
+    // 会话标签在 2026-09-16 被 sessionChips（上面那排胶囊）取代 —— 见它的注释
 
     /**
      * 当前会话的标题。null = 还不知道（全新会话，或者刚恢复还没拿到标题）。
@@ -285,12 +285,31 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private val newSessionButton = SessionNewButton { onNewSession() }
 
     /**
-     * 标签数变了就把「＋」重算一次（到上限要置灰）。
+     * 顶行那排会话胶囊（2026-09-16 起替掉了原来的单个会话标签）。
+     *
+     * 点别的胶囊 = 切过去；点当前那颗 = 开历史会话列表（与原标签同一个入口）；
+     * 点 ✕ = 关掉那个标签（忙时由 [SessionTabs] 先问一句）。
+     */
+    private val sessionChips = SessionChips(
+        onPick = { chip ->
+            val owner = chip.owner as? ClaudePanel
+            when {
+                owner == null -> Unit
+                owner === this -> toggleSessionChooser()
+                else -> SessionTabs.getInstance(project).selectOwner(owner)
+            }
+        },
+        onClose = { chip -> SessionTabs.getInstance(project).closeTab(chip.owner) },
+    )
+
+    /**
+     * 标签那边有变化就重画胶囊行、并把「＋」重算一次（到上限要置灰）。
      *
      * 存成字段而不是就地写 lambda：退订得用**同一个引用**（[dispose] 里摘），
      * 而订阅是累加的 —— 漏摘一次就多留一个捕获着本面板的监听器。
      */
-    private val tabCountListener: () -> Unit = {
+    private val tabsListener: () -> Unit = {
+        refreshChips()
         newSessionButton.setTabState(SessionTabs.getInstance(project).tabCount)
     }
 
@@ -509,7 +528,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
 
     init {
         // 标签数变化 → 「＋」的可用性重算（多标签之后它只在到上限时置灰）
-        SessionTabs.getInstance(project).addTabCountListener(tabCountListener)
+        SessionTabs.getInstance(project).addTabsListener(tabsListener)
         // 补全：文本变了就重算候选。用文档监听而不是按键监听 ——
         // 粘贴、撤销、退格都会改文本，而它们不都是"按键"
         input.document.addDocumentListener(object : DocumentAdapter() {
@@ -601,7 +620,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         //
         // 布局本身在 [buildTopRow] 里：它可测（这一行不可测 —— 依赖 Project），
         // 而"两个按钮挨多近""谁在左"正是那一版改的两件事。
-        val top = buildTopRow(sessionLabel, settingsButton, newSessionButton)
+        val top = buildTopRow(sessionChips, settingsButton, newSessionButton)
 
         // 滚动面板与视口都设为透明，否则会盖住输入框自己的底色与边框
         val inputScroll = JBScrollPane(input).apply {
@@ -1447,7 +1466,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             switchToSession(picked)
         }
         // 居中于面板：锚点（会话标签）右对齐，标题短时弹层会跟着溢出到面板外
-        sessionPopup = showTogglePopup(sessionLabel, content) { sessionPopup = null }
+        // 锚点换成胶囊行：原来的会话标签已经被它取代，弹层跟着新的那一个走
+        sessionPopup = showTogglePopup(sessionChips, content) { sessionPopup = null }
     }
 
     /** 按缓存的列表重画弹层。删除成功后用。浮层没开着就什么都不做。 */
@@ -1815,16 +1835,36 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     }
 
     /**
-     * 会话标签的唯一出口。规则见 [currentSessionTitle]。
+     * 会话标题的唯一出口。规则见 [currentSessionTitle]。
      *
-     * @param enabled false 时变灰（忙时）—— 但**仍然可点**，见 [setBusy]
+     * 2026-09-16：目标从"面板里那个会话标签"换成了**胶囊行**（以及平台那份
+     * displayName）。名字保留是因为它在这 19 处调用点里就是"标题变了"的意思。
+     *
+     * @param enabled 保留参数：原来忙时要把标签变灰，而现在那颗胶囊靠**状态点**
+     *   表达忙闲，标题不再变灰 —— 于是这里忽略它，仍收下是为了不动那 19 个调用点
      */
+    @Suppress("UNUSED_PARAMETER")
     private fun refreshSessionLabel(enabled: Boolean = !busy) {
-        sessionLabel.setTitle(currentSessionTitle, enabled = enabled)
-        // 标签标题**跟同一个出口走**：不给它留第二条更新路径，否则改名之后
-        // 面板里的标签变了、平台那条标签还写着旧名字
+        // 标题**跟同一个出口走**：不给它留第二条更新路径，否则改名之后
+        // 胶囊上写的还是旧名字
         SessionTabs.getInstance(project).setTitle(this, currentSessionTitle)
+        SessionTabs.getInstance(project).notifyTabsChanged()
     }
+
+    /** 按服务里的现状重画胶囊行。谁改了"标签那边的事"就调它。 */
+    private fun refreshChips() {
+        sessionChips.render(SessionTabs.getInstance(project).tabs())
+    }
+
+    /** 会话标题（给胶囊行读）。null = 还没起名。 */
+    internal fun tabTitle(): String? = currentSessionTitle
+
+    /**
+     * 这条会话此刻的状态（给胶囊上那颗点读）。
+     *
+     * 判据在 [tabStateOf]（纯函数，可单测）—— 这里只喂它三个字段。
+     */
+    internal fun tabState(): TabState = tabStateOf(permissionQueue.totalPending, busy, starting)
 
     /**
      * 把刚发出去的这条消息认成会话标题（用户 2026-09-15 的要求）。
@@ -2227,7 +2267,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 刷一个已经没了的组件
         stopWaitingTicker()
         // 标签容器那边的订阅同理 —— 摘晚一步它就会去碰一个已经销毁的按钮
-        SessionTabs.getInstance(project).removeTabCountListener(tabCountListener)
+        SessionTabs.getInstance(project).removeTabsListener(tabsListener)
         // 状态栏那份记账也要摘干净：留着的 restoreAsk 会让人点一下"回到提问"，
         // 而那个框属于一个已经销毁的面板（点下去什么都不发生，或者更糟）
         PendingPermissionCount.getInstance(project).clear(this)
@@ -2827,6 +2867,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 权限队列变化影响忙闲与状态栏 —— 但「＋」只跟标签数走
         // （多标签之后有权限挂着也能开新标签，见 [onNewSession]）
         newSessionButton.setTabState(SessionTabs.getInstance(project).tabCount)
+        // 待决数变了 → 胶囊上那颗点可能要从"空闲"变成"等你批准"，
+        // 而且**别的**标签那行也要跟着变（它们画的是同一份列表）
+        SessionTabs.getInstance(project).notifyTabsChanged()
     }
 
     /**

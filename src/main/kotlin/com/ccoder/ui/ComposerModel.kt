@@ -83,7 +83,7 @@ internal class ModelLabel(private val onOpen: () -> Unit) : JLabel() {
      *
      * 后两档在浅色主题里**恰好是同一个灰**（`Label.disabledForeground` 与
      * `Component.infoForeground` 都解到 #999999）—— 别看了觉得没生效就合并掉：
-     * 取的是各自语义上对的那一档，和 [SessionLabel] 的做法一致，换主题就分得开。
+     * 取的是各自语义上对的那一档，换主题就分得开（同 [SessionChips] 那颗状态点的做法）。
      */
     private fun applyForeground() {
         foreground = when {
