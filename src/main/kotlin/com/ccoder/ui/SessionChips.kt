@@ -55,13 +55,36 @@ internal data class TabChip(
     val canClose: Boolean,
 )
 
-/** 胶囊的几何。四个数在这里定，别处不许再写。 */
-internal val CHIP_HEIGHT = JBUI.scale(22)
+/**
+ * 胶囊的几何。这几个数在这里定，别处不许再写。
+ *
+ * ## 高度就是**可点区域**的高度，它改过一次
+ *
+ * 2026-09-16 用户报「这一行的高度拉高一点，现在太矮了点击不方便」—— 原来 22。
+ * 这颗胶囊整块都是可点的（点它 = 切过去 / 开会话列表），所以它多高，
+ * 可点的地方就有多高；而这一行**只有**这颗胶囊可点，那圈内边距是点不着的。
+ *
+ * 28 是照着平台自己的工具窗口标签条取的（New UI 那一行差不多就是这个高），
+ * 落在这个数上不是随手写的：整行随之从 30 长到 36（`buildTopRow` 上下各 4px
+ * 内边距），转写区少 6px —— 换来的是可点高度 **+27%**。
+ *
+ * 改这个数会让整行一起长，**别在别处再补竖直内边距**：白只有 `buildTopRow`
+ * 那一处出处（同 [TOP_ROW_GAP] 那条教训）。观感看
+ * `SessionChipsRenderProbe` / `TopRowRenderProbe` 出的图。
+ */
+internal val CHIP_HEIGHT = JBUI.scale(28)
 internal val CHIP_GAP = JBUI.scale(6)
 private val CHIP_PAD_H = JBUI.scale(8)
-private val CHIP_ARC = JBUI.scale(11)
-private val DOT_SIDE = JBUI.scale(7)
-private val CLOSE_SIDE = JBUI.scale(11)
+
+/**
+ * 圆角直径 = 高度的一半（半径 = 高度的 1/4）。
+ *
+ * **跟着高度算，不写死**：它原来是按 22 配的 11，高度一改就得连它一起改 ——
+ * 而"忘了改"的症状只是圆角比例有点变，图上不盯着看根本发现不了。
+ */
+private val CHIP_ARC = CHIP_HEIGHT / 2
+private val DOT_SIDE = JBUI.scale(8)
+private val CLOSE_SIDE = JBUI.scale(12)
 
 /** 胶囊宽度被夹在这两个数之间：太窄认不出，太宽挤掉邻居。 */
 internal val CHIP_MIN_WIDTH = JBUI.scale(56)
@@ -168,7 +191,7 @@ internal class SessionChips(
 /**
  * 一个胶囊。自绘 —— 因为它比 `JLabel` 多三件事：底与边随选中/悬停变、左端那颗
  * 状态点与文字不同色、右端 ✕ 只在该出现的时候出现。用三个 `JLabel` 拼也能做，
- * 但那一行只有 22px 高，三个盒子各自的内边距挤不下。
+ * 但那一行只有 [CHIP_HEIGHT] 这么高，三个盒子各自的内边距挤不下。
  */
 private class ChipView(
     private val chip: TabChip,

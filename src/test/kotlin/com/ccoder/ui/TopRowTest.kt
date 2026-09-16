@@ -192,6 +192,42 @@ class TopRowTest {
         }
     }
 
+    // ---- 可点的高度 ----
+
+    /**
+     * **这一行只有胶囊可点，所以行高必须就是胶囊高 + 内边距。**
+     *
+     * 2026-09-16 用户报「这一行的高度拉高一点，现在太矮了点击不方便」—— 原来胶囊
+     * 22px。这条钉的是竖直方向的那条规矩（同 [TOP_ROW_GAP] 第五轮那条的竖直版）：
+     * 哪天有人在别处再补一层竖直内边距，多出来的那几像素**看着是这一行的一部分**，
+     * 点下去却什么都不会发生 —— 而截图上看不出区别。
+     *
+     * 顺带也钉住"图标按钮没有反超胶囊"：簇比胶囊高的话，行高就不再由胶囊决定，
+     * 胶囊上下会各空出一截点不着的白。
+     */
+    @Test
+    fun `这一行的高度就是胶囊的高度 —— 多出来的都是点不着的白`() {
+        val r = laidOut()
+
+        assertEquals(
+            CHIP_HEIGHT + r.row.insets.top + r.row.insets.bottom,
+            r.row.preferredSize.height,
+            "行高 ≠ 胶囊高 + 内边距 —— 多出来的是点不着的白",
+        )
+        assertEquals(CHIP_HEIGHT, r.center.preferredSize.height, "胶囊没占满这一格")
+    }
+
+    @Test
+    fun `胶囊比那一簇图标高 —— 行高由它说了算`() {
+        // 反过来的话，上面那条会红在"行高不等于胶囊高"，但原因看着像胶囊写错了
+        val r = laidOut()
+
+        assertTrue(
+            CHIP_HEIGHT > r.plus.preferredSize.height,
+            "图标那一簇比胶囊还高（${r.plus.preferredSize.height}）—— 行高不再由胶囊决定",
+        )
+    }
+
     // ---- 挤不挤得掉 ----
 
     @Test
