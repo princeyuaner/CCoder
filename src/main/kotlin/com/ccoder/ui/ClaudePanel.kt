@@ -204,6 +204,15 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private var autoAllow = false
 
+    /**
+     * 刚发出去、还没等到回执的那次模式切换。
+     *
+     * 只为**压掉重复说明**：CLI 在回控制请求之前也可能先吐一条 `system/status`，
+     * 那条同样会被读成"模式变了"。用户自己点的切换，说明由回执那条负责
+     * （"权限模式已切换为…"），status 这条只管把标签改对、不吭声。
+     */
+    private var requestedMode: PermissionModeSetting? = null
+
     /** 打开着的模式列表浮层。用它实现"再点一次收起"。 */
     private var modePopup: JBPopup? = null
 
@@ -1655,6 +1664,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             pushItem(RenderItem.SystemNote("会话还没建立，权限模式切换要先连上会话"))
             return
         }
+        requestedMode = mode
         c.sendLine(Protocol.encodeSetPermissionMode(nextId(), mode.wireValue))
     }
 
@@ -2195,6 +2205,28 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                             currentSessionId = sid
                         }
                     }
+                    // 权限模式的**读回**：CLI 的 status 事件里带着它此刻真正在跑的模式
+                    // （2026-09-16 实测，sidecar/tools/probe-auto-mode.mjs）。事件本来
+                    // 就透传到这里，只是从前没人解读 subtype=status 这一支。
+                    //
+                    // 这条补的是"问不到"的那一半：切换有回执所以向来可信，但
+                    // **会话以什么模式起来**没有任何读回手段 —— 闸门（disableAutoMode /
+                    // 订阅档 / 断路器）都在 CLI 侧，它启动时换了档，我们从前看不见，
+                    // 标签会一直显示用户选的那个。
+                    //
+                    // 只改标签、**不回写设置**：设置是用户的意愿，CLI 报的是现场；
+                    // 拿现场写回意愿，等于用户的选项被悄悄改掉。
+                    val reported = permissionModeOfStatus(msg.event)
+                    val action = modeReadbackOf(reported, currentMode, requestedMode)
+                    if (reported != null && action != ModeReadback.None) {
+                        currentMode = reported
+                        refreshModeLabel()
+                        // 用户自己点的那次切换由回执那条负责说明（见 ModeReadback）
+                        if (action == ModeReadback.Announce) {
+                            pushItem(RenderItem.SystemNote("CLI 报的实际权限模式是「${reported.label}」，与刚才显示的不同 —— 已按实际更正"))
+                        }
+                    }
+
                     // 任务与子代理的状态要走**每一个**事件，不只是 result ——
                     // task_progress 这类事件不会产出任何转写项，但它们正是
                     // "现在在跑什么"的全部信息来源
@@ -2203,6 +2235,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 }
 
                 is SidecarMessage.Failure -> {
+                    // 请求失败了，"等着回执"这件事就结束了 —— 不清掉的话
+                    // 下一次真的读数（哪怕不是同一档）会被误当成"用户刚点的"
+                    requestedMode = null
                     pushItem(RenderItem.ErrorItem(failureHint(msg.code, msg.message)))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
@@ -2225,6 +2260,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 // 切换**生效了**才更新标签。认不出的模式名什么都不改 ——
                 // 显示一个我们自己都不认识的模式，不如保持原样
                 is SidecarMessage.PermissionModeChanged -> {
+                    requestedMode = null
                     val mode = PermissionModeSetting.entries.firstOrNull { it.wireValue == msg.mode }
                     if (mode == null) {
                         LOG.warn("收到不认识的权限模式回执：${msg.mode}")

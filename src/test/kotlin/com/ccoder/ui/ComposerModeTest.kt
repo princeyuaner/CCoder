@@ -1,9 +1,11 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.PermissionModeSetting
+import com.google.gson.JsonParser
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -194,4 +196,45 @@ class ComposerModeTest {
         assertTrue(text.contains("不再询问") || text.contains("不询问"), "实际：$text")
     }
 
+    // ---- status 事件里的**生效模式**（读回）----
+    //
+    // 2026-09-16 实测（tools/probe-auto-mode.mjs）：切完模式 CLI 会吐一条
+    // `system/status`，里面带着 `permissionMode` —— 这是唯一一条能读回
+    // "此刻真正在跑什么模式"的路。下面钉的是它的**不猜**：认不出就 null。
+
+    @Test
+    fun `status 事件里的 permissionMode 能读出来`() {
+        val event = JsonParser
+            .parseString("""{"type":"system","subtype":"status","status":null,"permissionMode":"auto"}""")
+            .asJsonObject
+
+        assertEquals(PermissionModeSetting.AUTO, permissionModeOfStatus(event))
+    }
+
+    @Test
+    fun `只有 status 那一条才算 —— init 也带 permissionMode，但那条不是实时读数`() {
+        val init = JsonParser
+            .parseString("""{"type":"system","subtype":"init","permissionMode":"auto"}""")
+            .asJsonObject
+
+        assertNull(permissionModeOfStatus(init))
+    }
+
+    @Test
+    fun `认不出的模式名给 null —— 显示一个自己不认识的模式不如保持原样`() {
+        val event = JsonParser
+            .parseString("""{"type":"system","subtype":"status","permissionMode":"somethingNew"}""")
+            .asJsonObject
+
+        assertNull(permissionModeOfStatus(event))
+    }
+
+    @Test
+    fun `status 没带 permissionMode 时给 null（它是可选字段）`() {
+        val event = JsonParser
+            .parseString("""{"type":"system","subtype":"status","status":"compacting"}""")
+            .asJsonObject
+
+        assertNull(permissionModeOfStatus(event))
+    }
 }

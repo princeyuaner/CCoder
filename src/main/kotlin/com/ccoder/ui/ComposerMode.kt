@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.PermissionModeSetting
+import com.google.gson.JsonObject
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
@@ -118,6 +119,28 @@ internal fun modeColor(mode: PermissionModeSetting): Color =
  * 留这个名字是因为它在这儿读起来更顺，内容是**同一份**，不是抄一份。
  */
 internal fun modeDescription(mode: PermissionModeSetting): String = mode.description
+
+/**
+ * 从 CLI 的 `system/status` 事件里读出**此刻真正在跑**的权限模式；不是那条事件就给 null。
+ *
+ * 为什么要读它（2026-09-16 实测，`sidecar/tools/probe-auto-mode.mjs`）：切完模式
+ * CLI 会吐一条 status，里面带着 `permissionMode` —— 这是**唯一一条能读回
+ * 生效模式**的路。从前"切成功"的依据只是控制请求没报错，而"会话以什么模式起来"
+ * 连问都问不到：闸门（`permissions.disableAutoMode`、订阅档、断路器）在 CLI 侧，
+ * 它在启动时换了档我们看不见，标签就会一直显示用户选的那个。
+ *
+ * 认不出的值一律给 null，**不猜** —— 与旁边那个回执分支同一条规矩：
+ * 显示一个我们自己都不认识的模式，不如保持原样。
+ */
+internal fun permissionModeOfStatus(event: JsonObject): PermissionModeSetting? {
+    if (event.str("type") != "system" || event.str("subtype") != "status") return null
+    val wire = event.str("permissionMode") ?: return null
+    return PermissionModeSetting.entries.firstOrNull { it.wireValue == wire }
+}
+
+// 与 ui 包里其它文件同一写法：每个文件自带一份，别为这个把包结构改了
+private fun JsonObject.str(key: String): String? =
+    get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
 
 /**
  * 模式列表。当前项打勾。

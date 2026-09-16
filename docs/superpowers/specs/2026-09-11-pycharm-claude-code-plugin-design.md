@@ -464,6 +464,8 @@ PyCharm → node sidecar → claude CLI。**杀掉父进程不会自动杀掉孙
 >
 > **未决一条**：闸门拉下时**以 `auto` 起会话**（正是设置里存模式的走法）会不会静默回落，本地看不出来 —— 要看 init 的 `permissionMode`，而 init 要等第一条消息（要花一次模型调用）。两个方向都是更保守的那侧（回落只会变成 `default`，不会变成绕过），所以先收下。
 >
+> **同日再补：生效模式现在读得回来了，这条未决从"永远不会被发现"变成"会自己现形"。** `system/status` 事件带 `permissionMode`（就是上面探针 B 吐的那条），而事件本来就透传到 Kotlin —— 接上之后，读到与界面不同就**按实况更正标签并在转写区说明**。只改标签、**不回写设置**：设置是用户的意愿，CLI 报的是现场，拿现场写回意愿等于把用户的选项悄悄改掉。仍未覆盖的只剩"第一条消息之前"那段（status 也要等回合开始），而那里本来就没人能看见。
+>
 > 另：CLI（v1.2.3）里有一句 `Auto mode is now Claude Code's default permission mode.` —— **裸跑 claude 时它的默认已经是 auto**，而本插件显式钉 `default`（危险操作先问）。两条路这是有意分岔的，不是跟着漂：见 `sidecar/index.js` 的 `params.permissionMode ?? 'default'`。
 
 **凭据不进设置。** CLI 自己读 `~/.claude/settings.json`，插件不接触、不存储任何 token。
