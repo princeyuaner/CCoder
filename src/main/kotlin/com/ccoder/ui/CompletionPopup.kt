@@ -193,9 +193,6 @@ internal fun highlightedRowText(text: String, item: CompletionItem): String {
     return sb.append("</html>").toString()
 }
 
-private fun escapeHtml(s: String): String =
-    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
 private fun row(item: CompletionItem, selected: Boolean): JComponent {
     val label = JLabel()
     // 可用宽度 = 弹层定宽 - 这一行的左右内边距。字体要从**标签自己**身上取：

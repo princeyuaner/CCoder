@@ -188,6 +188,21 @@ internal data class PermissionBody(
     val text: String,
     val rows: Int,
     val maxHeight: Int,
+    /**
+     * 正文是 **Markdown**（目前只有 `plan` 那一档）：卡片改走 HTML 渲染
+     * （见 [planHtml] 与 `docs/design/plan-markdown.html` 的方案 B）。
+     *
+     * 只有计划走这条：别的长字段（Bash 的 command 那种）是**代码或 JSON**，
+     * 按 Markdown 渲染只会平白把 `#`、`*` 当记号 —— 那比不渲染更糟。
+     */
+    val markdown: Boolean = false,
+    /**
+     * 附在正文**下方**的那一段（「其余参数」的缩进 JSON）；没有就是 null。
+     *
+     * 从前它拼在 `text` 尾巴上。分开是因为计划改走 HTML 之后，它会以**正文字体**
+     * 混在被渲染的段落里 —— 一段 JSON 看着像计划正文，比排版难看严重。
+     */
+    val footer: String? = null,
 )
 
 /** 超过这个长度就算"正文"，不再塞进 JSON 里当一行字符串。 */
@@ -220,19 +235,14 @@ internal fun permissionBody(input: JsonObject): PermissionBody {
     val rest = JsonObject().apply {
         input.entrySet().filter { it.key != field.key }.forEach { add(it.key, it.value) }
     }
-    val text = buildString {
-        append(field.value.asString)
-        if (rest.size() > 0) {
-            append("\n\n————————————\n其余参数：\n")
-            append(prettyJson(rest))
-        }
-    }
     return PermissionBody(
         // 计划是这一档里唯一有专名的：它同时回答了"这是在批准什么"
         caption = if (field.key == PLAN_FIELD) PLAN_CAPTION else INPUT_CAPTION,
-        text = text,
+        text = field.value.asString,
         rows = LONG_ROWS,
         maxHeight = LONG_MAX_HEIGHT,
+        markdown = field.key == PLAN_FIELD,
+        footer = if (rest.size() > 0) "其余参数：\n${prettyJson(rest)}" else null,
     )
 }
 

@@ -15,6 +15,8 @@ import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
+import javax.swing.JComponent
+import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
@@ -100,12 +102,24 @@ class PermissionCard(
         // 入参按"能读"的样子铺开：长正文（比如 ExitPlanMode 那份计划）走文本，
         // 短入参走缩进 JSON —— 见 permissionBody 里那段"看不到内容的审批不是审批"
         val body = permissionBody(permission.input)
-        val inputArea = JBTextArea(body.text).apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            rows = body.rows
-            foreground = UIUtil.getInactiveTextColor()
+        // 计划走 HTML（它是 Markdown，纯文本组件只会把 `#`、`**` 原样铺出来 ——
+        // 那不是排版朴素，是在显示源码）。其余入参仍是纯文本：那些是命令与 JSON，
+        // 按 Markdown 渲染只会平白吃掉字符
+        val inputArea: JComponent = if (body.markdown) {
+            JEditorPane("text/html", planHtml(body.text, accentHex(), dimHex())).apply {
+                isEditable = false
+                isOpaque = false // 透出卡片背景，与旁边那些标签一个底色
+                putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+                border = JBUI.Borders.empty()
+            }
+        } else {
+            JBTextArea(body.text).apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                rows = body.rows
+                foreground = UIUtil.getInactiveTextColor()
+            }
         }
 
         val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
@@ -151,7 +165,31 @@ class PermissionCard(
                 // 长正文（计划那种）给得高一些：80px 只够四行，而那是要读的东西。
                 // 仍然封顶 —— 卡片再高也不该把按钮顶出屏幕
                 maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(body.maxHeight))
+                if (body.markdown) {
+                    // HTML 面板不认 rows：按行高自己给一个与纯文本那条路相当的高度。
+                    // 这只是"一开始能看几行"，超出的照样在框里滚
+                    preferredSize = Dimension(
+                        JBUI.scale(CARD_WIDTH - 40),
+                        inputArea.getFontMetrics(inputArea.font).height * body.rows,
+                    )
+                }
             })
+            // 「其余参数」单独一块：它偏代码/JSON，不该混进上面那段被渲染的正文
+            body.footer?.let { footer ->
+                add(Box.createVerticalStrut(4))
+                add(JBScrollPane(JBTextArea(footer).apply {
+                    isEditable = false
+                    lineWrap = true
+                    wrapStyleWord = true
+                    rows = 3
+                    foreground = UIUtil.getInactiveTextColor()
+                }).apply {
+                    border = JBUI.Borders.empty()
+                    alignmentX = LEFT_ALIGNMENT
+                    // 80px 同 PermissionQueue 里 GENERIC_MAX_HEIGHT 那条：附注再长也不该顶掉按钮
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(80))
+                })
+            }
             add(Box.createVerticalStrut(6))
             add(buttons.apply { alignmentX = LEFT_ALIGNMENT })
         }
@@ -188,3 +226,20 @@ class PermissionCard(
         val WARN = warningColor()
     }
 }
+
+/**
+ * 主题色 → HTML 里能用的 `#rrggbb`。
+ *
+ * 强调色的出处与网页那份是同一个（ThemeInjector 给 `--accent` 的也是它）——
+ * 两处各挑一个"差不多的蓝"，迟早会分叉。
+ *
+ * `JBColor` 的取值随当前 LaF 走，所以卡片在浅色/深色下会自动拿到各自那一份；
+ * 代价是**建好之后换主题不会重画**（HTML 里的颜色已经定死）。权限卡是短命的
+ * 一张卡，这个代价收下。
+ */
+private fun accentHex(): String = hexOf(UIUtil.getTreeSelectionBackground(true))
+
+/** 次要文字色：HTML 里的小节标题用它压过正文。 */
+private fun dimHex(): String = hexOf(UIUtil.getInactiveTextColor())
+
+private fun hexOf(color: java.awt.Color): String = "#%06x".format(color.rgb and 0xFFFFFF)

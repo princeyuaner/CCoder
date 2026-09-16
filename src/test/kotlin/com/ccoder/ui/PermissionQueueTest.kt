@@ -226,8 +226,20 @@ class PermissionOptionsTest {
         assertTrue(body.text.startsWith("# 计划"), "正文该是计划原文：${body.text}")
         // 真换行，不是字面 \n
         assertTrue(body.text.contains("第一段\n第二段"), "换行没还原：${body.text}")
-        // 其余字段一个都不能藏
-        assertTrue(body.text.contains("planFilePath"), "其余参数被吞了：${body.text}")
+        // 其余字段一个都不能藏（2026-09-16 起它们单独成一段 footer：
+        // 计划改走 Markdown 渲染后，混在正文里会以正文字体印出来）
+        assertTrue(body.footer?.contains("planFilePath") == true, "其余参数被吞了：${body.footer}")
+    }
+
+    @Test
+    fun `计划那条走 Markdown 渲染，别的长正文不走`() {
+        // 只有计划是 Markdown。Bash 的 command 那种按 Markdown 渲染只会平白
+        // 把 `#`、`*` 当记号 —— 比不渲染更糟
+        val plan = bodyOf("""{"plan":"${"字".repeat(300)}"}""")
+        val script = bodyOf("""{"command":"set -e\n${"字".repeat(300)}"}""")
+
+        assertTrue(plan.markdown, "计划该走 HTML 渲染")
+        assertFalse(script.markdown, "多行脚本不是 Markdown")
     }
 
     @Test
@@ -261,6 +273,6 @@ class PermissionOptionsTest {
     fun `没有其余参数时不拼那一段`() {
         val body = bodyOf("""{"plan":"${"字".repeat(300)}"}""")
 
-        assertFalse(body.text.contains("其余参数"), body.text)
+        assertNull(body.footer, "没有别的字段就不该有那一段：${body.footer}")
     }
 }
