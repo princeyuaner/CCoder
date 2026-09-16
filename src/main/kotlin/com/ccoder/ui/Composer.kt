@@ -150,7 +150,24 @@ internal fun isSendKey(
 
 // ---- 输入区布局 ----
 
-private const val CARD_ARC = 10
+/**
+ * 这一片（输入卡 + 上面那排状态卡）所有圆角的**直径**。
+ *
+ * `drawRoundRect` / `fillRoundRect` 收的都是直径而不是半径 —— 所以半径是它的一半，
+ * 也就是 8px。**一处定义、两处使用**（[ComposerCard] 与 [StatusCardView]）：
+ * 这两张卡上下叠着只隔 7px，两个半径一旦分叉，看着就像是画错了。
+ *
+ * ## 改过两次，第二次是同一天
+ *
+ * - 2026-09-14 改版：从"1px 直角矩形"换成圆角卡片，当时是 10（半径 5）。
+ * - 2026-09-16：用户报**状态卡**「这个也稍微圆一点点，现在太方正了」。看了
+ *   `composer-probe.png`（那张图把状态卡与输入卡画在一起）之后把**两处一起**
+ *   提到 16（半径 8）—— 只动状态卡的话，紧挨着的输入卡反而更方，前后不一致。
+ *   半径 8 也正好是设计稿里那一档（`session-tabs.html` 的 `.inbar` 是 8px）。
+ *
+ * 观感看 `ComposerRenderProbe` / `StatusCardsRenderProbe` 出的图。
+ */
+internal const val CARD_CORNER_ARC = 16
 
 /**
  * 输入区是一个**圆角卡片**（方案 A）。
@@ -175,7 +192,10 @@ internal class ComposerCard : JPanel(BorderLayout()) {
     init {
         isOpaque = false
         border = BorderFactory.createCompoundBorder(
-            RoundedLineBorder({ if (focused) focusColor() else lineColor() }, JBUI.scale(CARD_ARC)),
+            RoundedLineBorder(
+                { if (focused) focusColor() else lineColor() },
+                JBUI.scale(CARD_CORNER_ARC),
+            ),
             JBUI.Borders.empty(4, 6, 5, 6),
         )
     }

@@ -28,9 +28,6 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingConstants
 
-/** 描边圆角半径。 */
-private const val CARD_ARC = 9
-
 /**
  * 卡片左上角那个图标。一排卡各一个。
  *
@@ -119,7 +116,7 @@ internal class StatusCardView(
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
         border = BorderFactory.createCompoundBorder(
-            RoundedLineBorder(colorProvider = ::strokeColor, arc = JBUI.scale(CARD_ARC)),
+            RoundedLineBorder(colorProvider = ::strokeColor, arc = JBUI.scale(CARD_CORNER_ARC)),
             JBUI.Borders.empty(5, 8, 6, 8),
         )
 
@@ -168,6 +165,10 @@ internal class StatusCardView(
      *
      * 顺带：自绘圆角矩形也避免了"方角填充 + 圆角描边"在四个角上打架。
      *
+     * 圆角用的是 [CARD_CORNER_ARC]（在 Composer 那边，与输入卡**共用一个数**）：
+     * 底由这里的 `fillRoundRect` 画、边由 [RoundedLineBorder] 的 `drawRoundRect`
+     * 画 —— 两个数一旦分叉，四个角上就会露出"底比边圆"或者反过来的一圈毛刺。
+     *
      * **收边（quiet）也照画**：那是"这格现在没数据"（值变灰），不是"这格不存在"。
      * 2026-09-14 用户明确要求过：没数据时边框与底照常要有，四张卡看着是一排。
      */
@@ -177,7 +178,7 @@ internal class StatusCardView(
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = UIUtil.getPanelBackground()
-            val arc = JBUI.scale(CARD_ARC)
+            val arc = JBUI.scale(CARD_CORNER_ARC)
             g2.fillRoundRect(0, 0, width, height, arc, arc)
         } finally {
             g2.dispose()
