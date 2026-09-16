@@ -39,7 +39,21 @@ object SidecarExtractor {
      * @param fingerprint  包内 sidecar 全部内容的内容指纹
      * @return 可直接运行的 sidecar 目录
      */
-    fun extract(resourceRoot: Path, targetDir: Path, version: String, fingerprint: String): Path {
+    fun extract(resourceRoot: Path, targetDir: Path, version: String, fingerprint: String): Path =
+        // **进程内互斥**（2026-09-16，多标签）：下面是"先删目录再重拷"，两个标签
+        // 同时冷启动时，第二个可能把第一个**正在跑**的目录删掉（生产模式会重提取；
+        // 开发模式走源码树，不受影响）。锁住整段就够 —— 跨进程（两个 IDE 同时
+        // 冷启动）不在本次范围，设计稿里记着这条。
+        synchronized(lock) { extractLocked(resourceRoot, targetDir, version, fingerprint) }
+
+    private val lock = Any()
+
+    private fun extractLocked(
+        resourceRoot: Path,
+        targetDir: Path,
+        version: String,
+        fingerprint: String,
+    ): Path {
         val versioned = targetDir.resolve(version)
 
         // 半成品目录（上次提取中断）与完整目录必须区分对待：

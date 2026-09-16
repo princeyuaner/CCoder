@@ -1,12 +1,10 @@
 package com.ccoder
 
-import com.ccoder.ui.ClaudePanel
+import com.ccoder.ui.SessionTabs
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.content.ContentFactory
 
 /**
  * 工具窗口工厂。
@@ -27,11 +25,8 @@ import com.intellij.ui.content.ContentFactory
 class ClaudeToolWindowFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = ClaudePanel(project)
-        val content = ContentFactory.getInstance().createContent(panel, null, false)
-        toolWindow.contentManager.addContent(content)
-
-        // 关闭时按 spec §7.4 的顺序清理进程树，否则 claude 会变孤儿继续消耗额度
-        Disposer.register(content) { panel.dispose() }
+        // 面板的创建、上限、关闭确认、标题都归 SessionTabs —— 这里只负责"把容器接上、
+        // 开第一个标签"。面板自己仍然只吃一个 project（见 SessionTabs 的类注释）
+        SessionTabs.getInstance(project).apply { attach(project, toolWindow) }.openFirstTab()
     }
 }

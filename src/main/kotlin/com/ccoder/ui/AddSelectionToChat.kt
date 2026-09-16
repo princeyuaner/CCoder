@@ -172,7 +172,11 @@ internal fun withPanel(
 ) {
     val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return
     toolWindow.show()
-    val panel = toolWindow.contentManager.contents.firstOrNull()?.component as? ClaudePanel
+    // 多标签：落到**当前选中的**那个标签（取不到再退回第一个）。一直塞进第一个的话，
+    // 用户在第二个标签里按"加到聊天"，内容会跑到别的标签去（2026-09-16）
+    val manager = toolWindow.contentManager
+    val selected = manager.selectedContent?.component as? ClaudePanel
+    val panel = selected ?: manager.contents.firstOrNull()?.component as? ClaudePanel
     if (panel != null) {
         action(panel)
         return
@@ -183,9 +187,6 @@ internal fun withPanel(
         }
     }
 }
-
-/** 工具窗口 id。与 plugin.xml 里的 `id="CCoder"` 必须一致。 */
-internal const val TOOL_WINDOW_ID = "CCoder"
 
 /** 拿不到文件路径时的占位。聊胜于无：至少格式不塌。 */
 internal const val UNKNOWN_PATH = "未命名"

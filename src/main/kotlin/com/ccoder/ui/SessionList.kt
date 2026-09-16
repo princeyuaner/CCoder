@@ -62,6 +62,14 @@ internal const val SESSION_LIST_MAX_ROWS = 10
 internal const val TAG_EMPTY_MARK = "＋"
 
 /**
+ * 已被别的标签占着的那一行，时间那一格改写这个。
+ *
+ * 为什么不只靠"点不动"：点不动的东西会被当成 bug（spec §5.1 的老账）。
+ * 一句话讲清"为什么点不动、去哪儿找它"。
+ */
+internal const val TAKEN_TEXT = "已打开"
+
+/**
  * 标签 chip 上写什么。
  *
  * 有标签时带一个 `#` 前缀：它是**用户自己打的**标记，不带前缀的话会和标题
@@ -117,6 +125,14 @@ internal fun buildSessionList(
      * 面板被拖窄了，弹层跟着窄，不能反过来溢出去。
      */
     maxWidth: Int = JBUI.scale(SESSION_LIST_WIDTH),
+    /**
+     * 已被**别的标签**占着的会话（见 [OpenSessions]）。这些行不可点，并在时间那一格
+     * 写一句「已打开」—— 两条标签开同一条会话会两边同时写同一个 jsonl。
+     *
+     * 位置在 [onPick] 之前是**硬要求**：Kotlin 的尾随 lambda 绑最后一个参数，
+     * 见下面那段注释。
+     */
+    takenIds: Set<String> = emptySet(),
     // onDelete / onRename / onTag 刻意排在 onPick **前面**：Kotlin 的尾随 lambda
     // 绑的是最后一个参数，加在后面的话，所有既有的 `buildSessionList(s, id, block) { ... }`
     // 会**静默地**从"选中回调"变成别的什么 —— 点了会话什么都不发生，而且不报错。
@@ -143,7 +159,9 @@ internal fun buildSessionList(
             sessionRow(
                 session = s,
                 selected = s.sessionId == currentSessionId,
-                clickable = block == SwitchBlock.None,
+                // 被别的标签占着的那条也不可点（点击会切过去 = 两边写同一条）
+                clickable = block == SwitchBlock.None && s.sessionId !in takenIds,
+                taken = s.sessionId in takenIds,
                 nowMs = now,
                 onPick = onPick,
                 onDelete = onDelete,
@@ -219,6 +237,8 @@ private fun sessionRow(
     onRename: (SessionInfo, String) -> Unit,
     onTag: (SessionInfo, String?) -> Unit,
     confirmSlot: ConfirmSlot,
+    /** 已被别的标签占着。不可点，并在时间那一格写一句「已打开」。 */
+    taken: Boolean = false,
 ): JComponent {
     // 显式取字体：未挂到层级上时 getFont() 可能是 null，deriveFont 会 NPE
     // （RunStripView 上踩过同一个坑）
@@ -247,6 +267,11 @@ private fun sessionRow(
     val titleLabel = JLabel(title).apply {
         font = if (selected) base.deriveFont(Font.BOLD) else base
         // 唯一可伸缩的元素
+        if (taken) {
+            // 压暗 + 一句 tooltip：光"点不动"会被当成 bug（spec §5.1 的老账）
+            foreground = UIUtil.getLabelDisabledForeground()
+            toolTipText = TAKEN_TEXT
+        }
     }
 
     /**
@@ -260,7 +285,9 @@ private fun sessionRow(
         add(titleLabel, BorderLayout.CENTER)
     }
 
-    val timeLabel = JLabel(relativeTime(nowMs, session.lastModified)).apply {
+    // 被占的那一行，时间那一格改说「已打开」：状态比"多久以前"更该被看见，
+    // 而这一行本来就点不动了（时间对它没有意义）
+    val timeLabel = JLabel(if (taken) TAKEN_TEXT else relativeTime(nowMs, session.lastModified)).apply {
         font = base
         foreground = UIUtil.getInactiveTextColor()
     }

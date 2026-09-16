@@ -58,7 +58,25 @@ object ProductionSidecarResolver {
 
     private const val RESOURCE_ROOT = "sidecar"
 
-    fun resolve(): Path {
+    /**
+     * 解析并缓存结果。
+     *
+     * **为什么缓存**（2026-09-16，多标签）：每个标签都会自己起一次会话，于是
+     * 每个标签都会问一次这里 —— 而这条路上有"把上千个文件摊进临时目录再复制"
+     * 那两步（首次 1~2 秒），乘以标签数就是白白重复。提取本身是幂等的
+     * （[SidecarExtractor] 会比对内容指纹），所以缓存只是省掉重复劳动，
+     * 不改变结果。
+     *
+     * 缓存的生命周期 = 这一次 IDE 进程：插件换了版本得重启 IDE，那时自然重算。
+     */
+    fun resolve(): Path = cached ?: synchronized(this) {
+        cached ?: doResolve().also { cached = it }
+    }
+
+    @Volatile
+    private var cached: Path? = null
+
+    private fun doResolve(): Path {
         val version = readVersion()
         val fingerprint = readFingerprint()
         val staged = stageResourcesToTemp()

@@ -76,6 +76,16 @@ class SessionListRenderProbe {
         render("build/session-list-probe-hover.png", SwitchBlock.None, hoverRow = 1)
 
     /**
+     * **有会话正被别的标签跑着**那一版（多标签，2026-09-16）。
+     *
+     * 「已打开」是替换时间那一格的文字，而这一行本来就只剩 420px ——
+     * 长标题叠上它会不会把 ✕ 顶出画面，只能看。
+     */
+    @Test
+    fun `把有会话已被打开的那一版画成图片`() =
+        render("build/session-list-probe-taken.png", SwitchBlock.None, taken = setOf("s1", "s3"))
+
+    /**
      * **改过名、打过标签**的那一版单独出一张。
      *
      * 行尾多了个标签 chip，而那一行本来就只剩 420px —— 最长的标题 + 最长的时间
@@ -122,6 +132,8 @@ class SessionListRenderProbe {
         block: SwitchBlock,
         hoverRow: Int = -1,
         tagged: Boolean = false,
+        /** 正被**别的标签**跑着的那些会话（多标签，2026-09-16）。 */
+        taken: Set<String> = emptySet(),
     ) {
         val sessions = listOf(
             // s1 **两句都有**：显示的是自己说的第一句（firstPrompt 优先于 summary，
@@ -142,7 +154,7 @@ class SessionListRenderProbe {
                 SessionInfo("s4", "重构 extractor 的指纹计算，顺便把跨块的 CR 边界也一起处理掉", null, now - 5 * 86_400_000)
             },
         )
-        draw(path, sessions, block, current = "s2", hoverRow = hoverRow)
+        draw(path, sessions, block, current = "s2", hoverRow = hoverRow, taken = taken)
     }
 
     /**
@@ -158,9 +170,15 @@ class SessionListRenderProbe {
         block: SwitchBlock,
         current: String? = "s2",
         hoverRow: Int = -1,
+        taken: Set<String> = emptySet(),
     ) {
         SwingUtilities.invokeAndWait {
-            val list = buildSessionList(sessions, currentSessionId = current, block = block)
+            val list = buildSessionList(
+                sessions,
+                currentSessionId = current,
+                block = block,
+                takenIds = taken,
+            )
 
             // 悬停态：往那一行派发 MOUSE_ENTERED，删除按钮就会提亮
             if (hoverRow >= 0) {

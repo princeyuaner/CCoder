@@ -7,6 +7,7 @@ import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.Consumer
 import java.awt.event.MouseEvent
+import javax.swing.JComponent
 
 /**
  * 状态栏的待决权限计数（spec §6.3）。
@@ -71,12 +72,15 @@ class PendingPermissionStatusBar(private val project: Project) :
         val restore = service.restoreAsk
         // 挂起提问优先：这一行此刻说的是"有提问待回答"，点它却去开工具窗口
         // 就牛头不对马嘴了 —— 用户要找的是他刚才收起来的那个框。
-        if (service.askSuspended && restore != null) restore()
+        if (service.askSuspended && restore != null) {
+            // 多标签：先切到**登记它的那个标签**再回去 —— 否则用户会被送到当前标签，
+            // 而那个框在另一个标签里
+            (service.restoreOwner as? JComponent)?.let { owner ->
+                SessionTabs.getInstance(project).selectOwner(owner)
+            }
+            restore()
+        }
         else ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID)?.show()
-    }
-
-    private companion object {
-        const val TOOL_WINDOW_ID = "CCoder"
     }
 }
 

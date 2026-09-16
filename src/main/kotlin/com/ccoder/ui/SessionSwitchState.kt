@@ -139,8 +139,16 @@ internal fun titleFromFirstMessage(text: String, current: String?): String? =
  * 并列（两次改动落在同一毫秒）时取列表里靠前的那条 —— `maxByOrNull` 只在
  * 严格更大时才替换，规则是确定的。
  */
-internal fun mostRecentSession(sessions: List<SessionInfo>): SessionInfo? =
-    sessions.maxByOrNull { it.lastModified }
+internal fun mostRecentSession(
+    sessions: List<SessionInfo>,
+    /**
+     * 这条会话是不是已经被别的标签占着（[OpenSessions]）。被占的**跳过** ——
+     * 两条标签开同一条会话，两边会同时写同一个 jsonl（见那个类的说明）。
+     *
+     * 默认恒 false：老调用点与老用例逐字段不变。
+     */
+    isTaken: (String) -> Boolean = { false },
+): SessionInfo? = sessions.filterNot { isTaken(it.sessionId) }.maxByOrNull { it.lastModified }
 
 /**
  * 打开面板时，从 `listSessions` 的回执里读出的结论。
@@ -162,7 +170,11 @@ internal sealed interface OpenPick {
 }
 
 /** [OpenPick] 的读法。见它的说明。 */
-internal fun openPick(outcome: RequestOutcome): OpenPick = when (outcome) {
+internal fun openPick(
+    outcome: RequestOutcome,
+    /** 跳过已被别的标签占住的会话（见 [mostRecentSession]）。 */
+    isTaken: (String) -> Boolean = { false },
+): OpenPick = when (outcome) {
     is RequestOutcome.Failed -> OpenPick.Unavailable(outcome.reason)
 
     is RequestOutcome.Answered -> {
@@ -170,7 +182,7 @@ internal fun openPick(outcome: RequestOutcome): OpenPick = when (outcome) {
         if (msg == null) {
             OpenPick.Unavailable("会话列表返回了意外的消息")
         } else {
-            mostRecentSession(msg.sessions)?.let { OpenPick.Resume(it) } ?: OpenPick.None
+            mostRecentSession(msg.sessions, isTaken)?.let { OpenPick.Resume(it) } ?: OpenPick.None
         }
     }
 }
@@ -178,19 +190,23 @@ internal fun openPick(outcome: RequestOutcome): OpenPick = when (outcome) {
 /**
  * 「＋」能不能点。
  *
- * 与切换会话拦的是同一件事：新建同样要 stopSession()，会把正在跑的回合腰斩，
- * 挂着的权限询问也会一并作废。所以直接复用 [switchBlock] 的判定。
+ * **2026-09-16 语义变了**：多标签之后它只是"再加一个标签"，不再 `stopSession()` ——
+ * 手上这条会话继续跑，正在进行的回合与挂着的权限询问都不受影响。所以"忙"与
+ * "有待决权限"**都不再是理由**，唯一的闸是标签数到上限。
+ *
+ * 旧的那对谓词（`newSessionEnabled(SwitchBlock)` / `newSessionTooltip(SwitchBlock)`）
+ * 随这次改动删掉：留着会让下一个人以为"忙时不能新建"还是条规矩。
  */
-internal fun newSessionEnabled(block: SwitchBlock): Boolean = block == SwitchBlock.None
+internal fun newTabEnabled(tabCount: Int, max: Int = MAX_SESSION_TABS): Boolean =
+    tabCount < max
 
 /**
  * 「＋」的提示语。
  *
- * 能点时说明它做什么，不能点时说明**先做什么** —— 光说"不能新建"没用。
- * 不能点那种情况直接复用 [switchBlockNotice]，两句提示不必各写一份。
+ * 能点时说明它做什么；到上限时说明**先做什么** —— 光说"不能新建"没用。
  */
-internal fun newSessionTooltip(block: SwitchBlock): String =
-    switchBlockNotice(block) ?: "新建会话"
+internal fun newTabTooltip(tabCount: Int, max: Int = MAX_SESSION_TABS): String =
+    if (tabCount >= max) "最多同时开 $max 条会话 —— 先关掉一个标签" else "新建会话"
 
 /**
  * `init` 带进来的 session id 是否意味着**换了会话**（`/clear` 走这条路）。

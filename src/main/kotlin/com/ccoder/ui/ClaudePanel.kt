@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.CommandInfo
+import com.ccoder.sidecar.McpServerStatus
 import com.ccoder.sidecar.NodeCheck
 import com.ccoder.sidecar.NodeStatus
 import com.ccoder.sidecar.OutgoingImage
@@ -284,6 +285,26 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private val newSessionButton = SessionNewButton { onNewSession() }
 
     /**
+     * 标签数变了就把「＋」重算一次（到上限要置灰）。
+     *
+     * 存成字段而不是就地写 lambda：退订得用**同一个引用**（[dispose] 里摘），
+     * 而订阅是累加的 —— 漏摘一次就多留一个捕获着本面板的监听器。
+     */
+    private val tabCountListener: () -> Unit = {
+        newSessionButton.setTabState(SessionTabs.getInstance(project).tabCount)
+    }
+
+    /**
+     * 这个标签里有没有"活着的"东西 —— 关它之前该不该问一句。
+     *
+     * 判定在 [closeNeedsConfirm]（纯函数，可单测），这里只把四个字段喂进去。
+     * `starting` 也在其中：点「＋」之后立刻点叉是最常见的路径，而那一刻
+     * `proc` 还是 null（见 [SessionGate]），只判 `proc` 会静默放过。
+     */
+    internal fun hasLiveSessionState(): Boolean =
+        closeNeedsConfirm(starting, proc != null, busy, permissionQueue.totalPending)
+
+    /**
      * 待发的图（贴图）。挂在输入卡里，空的时候它自己收起来。
      *
      * 回调在 [buildUI] 里接上 —— 这里还不知道输入卡在哪（见 AttachmentStrip 的说明）。
@@ -309,6 +330,25 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     @Volatile
     private var starting = false
+
+    /**
+     * "第一次上屏"已经发生过没有 —— 只有那一次才恢复最近会话（见 [consumeFirstShow]）。
+     *
+     * 多标签之前不需要它：一个面板一辈子只上屏一次。现在切走再切回会反复上屏，
+     * 不钉住的话一个起失败的标签会自己接到别的会话上。
+     */
+    private var firstShowDone = false
+
+    /** 启动期取消闸（见 [SessionGate] 的文件头：不判它就会留下孤儿进程）。 */
+    private val sessionGate = SessionGate()
+
+    /**
+     * 本会话最后一份 MCP 状态。
+     *
+     * 多标签之后 `McpStatus` 服务仍是**单槽**（设置页只表达"当前会话"），所以面板
+     * 自己留一份：切到这个标签时重新发布（见 [publishMcpStatus]）。null = 还没有过。
+     */
+    private var lastMcpServers: List<McpServerStatus>? = null
 
     /** 打开着的详情浮层。用它实现"再点一次收起"。 */
     private var runDetailPopup: JBPopup? = null
@@ -468,6 +508,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private val queueStrip = QueueStrip { removeQueued(it) }
 
     init {
+        // 标签数变化 → 「＋」的可用性重算（多标签之后它只在到上限时置灰）
+        SessionTabs.getInstance(project).addTabCountListener(tabCountListener)
         // 补全：文本变了就重算候选。用文档监听而不是按键监听 ——
         // 粘贴、撤销、退格都会改文本，而它们不都是"按键"
         input.document.addDocumentListener(object : DocumentAdapter() {
@@ -676,9 +718,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private val showingWatcher = HierarchyListener { e ->
         if (e.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L && isShowing) {
             LOG.info("CCoder 面板显示（SHOWING_CHANGED），据此决定是否建会话")
-            // 打开面板默认回到最近那条会话 —— 用户要的是"接着上次聊"，
+            // 第一次上屏默认回到最近那条会话 —— 用户要的是"接着上次聊"，
             // 而不是每次开窗都从零开始（旧行为见 session-switch spec §1.3）
-            startSession(pickMostRecent = true)
+            startSession(pickMostRecent = consumeFirstShow())
         }
     }
 
@@ -690,8 +732,27 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 装监听之前，不会有事件再来。延后一拍再判 isShowing，避开布局未完成的时刻。
         ApplicationManager.getApplication().invokeLater {
             LOG.info("CCoder 面板上屏：isShowing=$isShowing，据此决定是否建会话")
-            if (isShowing) startSession(pickMostRecent = true)
+            if (isShowing) startSession(pickMostRecent = consumeFirstShow())
+            // 切到这个标签（或者它刚建出来）：把**本会话**的 MCP 状态重新发布 ——
+            // 设置页右栏读的是那个单槽服务，不发布的话它显示的是上一个标签的
+            publishMcpStatus()
         }
+    }
+
+    /**
+     * "打开面板恢复最近会话"只该发生**一次**。
+     *
+     * 多标签之后 [showingWatcher] 与 [addNotify] 会被反复触发（切走再切回 =
+     * `removeNotify`/`addNotify`），而今天那条路里"起失败 / 断开导致 `proc == null`"
+     * 会重新走 `pickMostRecent = true` —— 于是一个起失败的标签会**悄悄接到
+     * 别的会话上**（还会撞上 [OpenSessions] 的占用登记）。
+     *
+     * 两个触发点共用这一个开关，所以谁先到谁赢，后到的那个拿到 false。
+     */
+    private fun consumeFirstShow(): Boolean {
+        if (firstShowDone) return false
+        firstShowDone = true
+        return true
     }
 
     override fun removeNotify() {
@@ -792,7 +853,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         if (report == null) {
                             LOG.warn("MCP 状态返回了意外的消息")
                         } else {
-                            McpStatus.getInstance(project).set(report.servers)
+                            // 先记本地：切标签回来时要拿它重新发布（见 [publishMcpStatus]）
+                            lastMcpServers = report.servers
+                            publishMcpStatus()
                         }
                     }
 
@@ -800,6 +863,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 }
             }
         }
+    }
+
+    /**
+     * 把本会话的 MCP 状态发布到项目服务（设置页右栏读它）。
+     *
+     * **只有当前选中的标签才有资格发布**：服务仍是单槽，"当前会话"就是选中的那个。
+     * 后台标签的上报与清空都不该动它 —— 否则前台刚拿到的读数会被后台的会话状态顶掉
+     * （`Exit` 那条路就是这么漏的）。
+     */
+    private fun publishMcpStatus() {
+        if (!SessionTabs.getInstance(project).isSelected(this)) return
+        val servers = lastMcpServers
+        if (servers == null) McpStatus.getInstance(project).clear()
+        else McpStatus.getInstance(project).set(servers)
     }
 
     /** 唯一的连接状态写入口。文字变了，卡上的点与色跟着变。 */
@@ -1359,6 +1436,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             // 弹层不比这一栏宽（宽高上限见 SessionList.kt 的文件头）。
             // width 在还没排过版时是 0，那时让默认值兜底
             maxWidth = if (width > 0) width else JBUI.scale(SESSION_LIST_WIDTH),
+            // 别的标签正在跑的那些行不可点，并标一句「已打开」（见 OpenSessions）
+            takenIds = OpenSessions.getInstance(project).takenIds(),
             onDelete = { s -> requestDeleteSession(s) },
             onRename = { s, title -> requestRenameSession(s.sessionId, title) },
             onTag = { s, tag -> requestTagSession(s.sessionId, tag) },
@@ -1399,10 +1478,18 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         startSession()
     }
 
+    /**
+     * 「＋」：**开一个新标签**（2026-09-16 多标签）。
+     *
+     * 改之前它是"停掉当前会话、原地开一条新的"（[startNewSession]）—— 点一下
+     * 等于放弃手上这条。现在只是再加一条，手上这条继续跑，所以**忙时也照样能点**
+     * （这也是 [SessionNewButton] 的置灰条件从"忙"换成"到上限"的原因）。
+     */
     private fun onNewSession() {
-        // 按钮已置灰，这里只是兜底
-        if (switchBlock(busy, permissionQueue.totalPending) != SwitchBlock.None) return
-        startNewSession()
+        // 到上限时按钮已经置灰 + tooltip 说明原因，这里只是兜底（键盘/程序化触发）
+        if (!SessionTabs.getInstance(project).openNewTab()) {
+            LOG.info("CCoder 标签已达上限（$MAX_SESSION_TABS），忽略这一次新建")
+        }
     }
 
     /**
@@ -1523,13 +1610,44 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             return
         }
 
+        // 已被**别的标签**占着的会话不能切过去：两边会同时写同一个 jsonl
+        // （设计稿里那条"不做检测"的风险，多标签之后变成必然）
+        if (OpenSessions.getInstance(project).isTaken(target.sessionId)) {
+            pushItem(RenderItem.SystemNote("这条会话已经在另一个标签里打开了"))
+            return
+        }
+
         LOG.info("CCoder 切换会话：${target.sessionId}")
+        // 顺序要紧：[stopSession] 会把本面板的占用登记全部放掉（它覆盖新建/重启/
+        // 销毁全部入口），所以**占要放在停之后**，否则刚占上的立刻被自己清掉
         stopSession()
+        OpenSessions.getInstance(project).reserve(target.sessionId, this)
         // 标题从列表里就知道，不必等 loadHistory
         currentSessionTitle = sessionLabelTitle(target)
         refreshSessionLabel(enabled = true)
         resumeTargetId = target.sessionId
         startSession()
+    }
+
+    /**
+     * 把占用登记校正到 `init` 报的那条会话上（**权威信号**）。
+     *
+     * 为什么不能只信我们发出去的 `resumeSessionId`：`resume` 未必按我们传的 id
+     * 成立（CLI 侧可能落到别的 id 上），只有 init 报回来的这一条是事实。
+     * 所以每条会话第一次 init 时都在这里对一次账。
+     */
+    private fun confirmOwnership(sessionId: String) {
+        val claims = OpenSessions.getInstance(project)
+        val previous = currentSessionId
+        if (previous != null && previous != sessionId) {
+            // /clear 那种：CLI 在同一进程里换了 id，旧的得放掉
+            claims.release(previous, this)
+        }
+        if (!claims.reserve(sessionId, this)) {
+            // 别的标签正跑着同一条：**不硬断开**（进程还活着，硬停比说一句更糟），
+            // 但必须说出来 —— 两边同时写同一个 jsonl 是会丢历史的
+            pushItem(RenderItem.SystemNote("这条会话同时被另一个标签打开了，两边可能互相覆盖"))
+        }
     }
 
     /**
@@ -1703,6 +1821,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      */
     private fun refreshSessionLabel(enabled: Boolean = !busy) {
         sessionLabel.setTitle(currentSessionTitle, enabled = enabled)
+        // 标签标题**跟同一个出口走**：不给它留第二条更新路径，否则改名之后
+        // 面板里的标签变了、平台那条标签还写着旧名字
+        SessionTabs.getInstance(project).setTitle(this, currentSessionTitle)
     }
 
     /**
@@ -1759,8 +1880,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 忙时会话标签变灰但**仍然可点** —— spec §5.1 的"点了才说"：
         // 点开能看到置灰的列表加一句说明，比一个点不动的标签强
         refreshSessionLabel(enabled = !value)
-        // 「＋」相反：单一动作按钮点了没反应更像坏了，所以直接置灰
-        newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))
+        // 「＋」相反：单一动作按钮点了没反应更像坏了，所以到上限时直接置灰 ——
+        // 但它**不再**跟着忙闲走（多标签之后新建不停当前会话，见 [onNewSession]）
+        newSessionButton.setTabState(SessionTabs.getInstance(project).tabCount)
         refreshMainButton()
     }
 
@@ -1788,6 +1910,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     fun startSession(pickMostRecent: Boolean = false) {
         if (proc != null || starting) return
         starting = true
+        // 这一趟的令牌。异世界（池线程）走一遭回来要拿它问一句"我还算数吗"
+        val token = sessionGate.begin()
 
         // 新会话，旧会话的任务与清单全部作废。
         // SDK 的电平信号"在启动时不发任何东西"，只会在下次成员变动时重发全量 ——
@@ -1854,11 +1978,30 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                 p.start()
                 val c = SidecarClient(p.stdout!!, p.stdin!!, this)
 
+                // 进程起来了，但这一趟可能已经作废（点「＋」立刻点叉、切会话、
+                // 面板被销毁）。不判的话没有任何代码会杀它 —— stopSession 只对
+                // proc/client 动刀，而此刻它们还是 null（见 [SessionGate]）
+                if (!sessionGate.isCurrent(token)) {
+                    LOG.info("CCoder 启动被取消（进程已起，未归属），收掉它")
+                    runCatching { p.shutdown() }
+                    runCatching { c.close() }
+                    return@executeOnPooledThread
+                }
+
                 ApplicationManager.getApplication().invokeLater {
+                    // 再判一次：停止可能发生在"这条 invokeLater 排队"之后、执行之前，
+                    // 而真正把进程交出去的正是下面这两行
+                    if (!sessionGate.isCurrent(token)) {
+                        LOG.info("CCoder 启动被取消（回到 EDT 之后），收掉它")
+                        runCatching { p.shutdown() }
+                        runCatching { c.close() }
+                        return@invokeLater
+                    }
                     proc = p
                     client = c
                     // 起好了，启动闸归位（见 [starting]）
                     starting = false
+                    sessionGate.finish()
                 }
                 c.start()
 
@@ -1882,12 +2025,22 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                         // 所以这里直接放弃，什么都不用补
                         if (client !== c) return@invokeLater
 
-                        when (val pick = openPick(outcome)) {
+                        // 跳过已被别的标签占住的会话（见 [OpenSessions]）——
+                        // 两个标签开同一条会两边同时写同一个 jsonl
+                        val claims = OpenSessions.getInstance(project)
+                        when (val pick = openPick(outcome) { claims.isTaken(it) }) {
                             is OpenPick.Resume -> {
-                                LOG.info("CCoder 打开时恢复最近会话：${pick.session.sessionId}")
-                                currentSessionTitle = sessionLabelTitle(pick.session)
-                                resumeTargetId = pick.session.sessionId
-                                refreshSessionLabel(enabled = true)
+                                val sid = pick.session.sessionId
+                                if (claims.reserve(sid, this@ClaudePanel)) {
+                                    LOG.info("CCoder 打开时恢复最近会话：$sid")
+                                    currentSessionTitle = sessionLabelTitle(pick.session)
+                                    resumeTargetId = sid
+                                    refreshSessionLabel(enabled = true)
+                                } else {
+                                    // 竞态：挑的时候还空着，这一会儿被别的标签占了。
+                                    // 那就当没有历史 —— 开新会话，不提示（同 OpenPick.None）
+                                    LOG.info("CCoder 想恢复的会话已被别的标签占用：$sid，改开新会话")
+                                }
                             }
 
                             // 没有历史：一个字都不说，与「＋」新建同一条路。
@@ -1939,6 +2092,7 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 起会话中途失败的每一条路都走这里（NodeCheck 不过、sidecar 找不到、
         // 建进程抛错），启动闸必须在这里归位，否则面板从此再也起不了会话
         starting = false
+        sessionGate.invalidate()
         ApplicationManager.getApplication().invokeLater {
             setConnection("启动失败")
             pushItem(RenderItem.ErrorItem(text))
@@ -1970,6 +2124,10 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         proc = null
         client = null
         starting = false
+        sessionGate.invalidate()
+        // 进程没了，这条会话就不再被本标签占着 —— 不放的话列表里那一行会永远
+        // 写着"已打开"，而实际上谁也打不开它（同 [stopSession] 那条生命周期）
+        OpenSessions.getInstance(project).releaseAll(this)
 
         // 挂着的权限框必须一起收掉：Claude 已经没了，那个框点下去也没有收件人了
         // （模态框还留在屏幕上是最糟的一种"看起来还能操作"）。
@@ -2008,6 +2166,12 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
      * 顺序按 spec §7.4：先停会话，再关通道，最后杀进程树。
      */
     private fun stopSession() {
+        // 在途的那一趟启动就此作废：它回来时会在 [SessionGate] 那里被拦下并收掉
+        // 自己刚起的进程。**也必须放掉 [starting]** —— 否则"启动期间切会话"
+        // 会让下面那次 startSession 直接返回，界面停在没有会话的状态上
+        sessionGate.invalidate()
+        starting = false
+
         // 命令列表随会话走（设计稿 §4.1）。留着它会让未连接时打 `/`
         // 弹出一份过期的
         commandList = emptyList()
@@ -2053,12 +2217,20 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 这条路径覆盖了重启 / 新建 / 切会话 / dispose 全部四个入口
         clearQueue()
         ready = false
+        // 占用的生命周期就是"本标签有一个活着的 sidecar 在跑这条会话" ——
+        // 会话停了，登记也该放掉（它覆盖新建/重启/切会话/dispose 全部入口）
+        OpenSessions.getInstance(project).releaseAll(this)
     }
 
     override fun dispose() {
         // 秒表捕获着这个面板：不摘的话它会把面板钉在事件队列上，一秒一跳地
         // 刷一个已经没了的组件
         stopWaitingTicker()
+        // 标签容器那边的订阅同理 —— 摘晚一步它就会去碰一个已经销毁的按钮
+        SessionTabs.getInstance(project).removeTabCountListener(tabCountListener)
+        // 状态栏那份记账也要摘干净：留着的 restoreAsk 会让人点一下"回到提问"，
+        // 而那个框属于一个已经销毁的面板（点下去什么都不发生，或者更糟）
+        PendingPermissionCount.getInstance(project).clear(this)
         stopSession()
         Disposer.dispose(transcriptView)
     }
@@ -2200,6 +2372,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                                 lastUsage = null
                                 pushItem(RenderItem.SystemNote("上下文已清空，这是一条新会话"))
                             }
+                            // 占用登记对账：init 报的 id 才是事实（见 [confirmOwnership]）
+                            confirmOwnership(sid)
                             // 当前会话指针以 init 里的 id 为准，**不以会话列表为准**
                             // —— 刚 /clear 出来的新会话还没落盘，列表未必列得到它
                             currentSessionId = sid
@@ -2340,7 +2514,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
                     // 会话没了，上一份 MCP 状态就不作数了 —— 留着的话，
                     // 用户切到新会话后右栏还在显示上一个会话的 server，
                     // 那比空着更糟：它看起来是"当前"的
-                    McpStatus.getInstance(project).clear()
+                    //
+                    // 多标签：**只有自己是被选中的那个标签时才清服务** —— 否则
+                    // 一个后台标签的断开会把前台标签刚拿到的读数一起抹掉
+                    lastMcpServers = null
+                    if (SessionTabs.getInstance(project).isSelected(this)) {
+                        McpStatus.getInstance(project).clear()
+                    }
                     setBusy(false)
                     refreshMainButton()
                 }
@@ -2626,10 +2806,13 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun updateStatusBar() {
         runCatching {
             val service = PendingPermissionCount.getInstance(project)
-            service.set(permissionQueue.totalPending)
+            // 按 owner 写（多标签：两个面板的计数要**求和**、挂起提问各存各的，
+            // 见 PendingPermissionCount 的类注释）
+            service.set(this, permissionQueue.totalPending)
             val suspended = askSequence?.suspended == true
             val seq = askSequence
             service.setSuspended(
+                owner = this,
                 suspended = suspended,
                 restore = if (suspended && seq != null) {
                     { showModal { restoreAsk(seq) } }
@@ -2641,8 +2824,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             // 最小化的提问"，各判各的迟早会漂移（一条说有事、另一条说没事）
             askRestoreBar.setSuspended(shouldShowAskRestore(suspended))
         }
-        // 权限队列变化同样影响忙闲 —— 「＋」得跟着
-        newSessionButton.setBlock(switchBlock(busy, permissionQueue.totalPending))
+        // 权限队列变化影响忙闲与状态栏 —— 但「＋」只跟标签数走
+        // （多标签之后有权限挂着也能开新标签，见 [onNewSession]）
+        newSessionButton.setTabState(SessionTabs.getInstance(project).tabCount)
     }
 
     /**
@@ -3197,8 +3381,6 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
     private fun nextMessageId(): String = synchronized(messageIdLock) { "m${messageCounter++}" }
 
     private companion object {
-        const val TOOL_WINDOW_ID = "CCoder"
-
         /**
          * 光打一个触发字符时那行提示的文案。
          *

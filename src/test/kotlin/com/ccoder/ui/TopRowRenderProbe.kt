@@ -82,9 +82,10 @@ class TopRowRenderProbe {
     }
 
     @Test
-    fun `把忙时的顶部那一行画成图片`() {
-        // 「＋」置灰时的那一档颜色
-        render("build/top-row-probe-busy.png", title = "重构 extractor 的指纹计算", enabled = false)
+    fun `把标签到上限的顶部那一行画成图片`() {
+        // 「＋」置灰时的那一档颜色。**2026-09-16**：多标签之后它只在标签数到上限时
+        // 置灰 —— "忙"不再是理由（新建不再停当前会话，见 ClaudePanel.onNewSession）
+        render("build/top-row-probe-tabs-full.png", title = "重构 extractor 的指纹计算", enabled = false)
     }
 
     private fun render(path: String, title: String?, enabled: Boolean) {
@@ -93,7 +94,7 @@ class TopRowRenderProbe {
             SwingUtilities.invokeAndWait {
                 val sessionLabel = SessionLabel {}.apply { setTitle(title, enabled = enabled) }
                 val newButton = SessionNewButton {}.apply {
-                    setBlock(if (enabled) SwitchBlock.None else SwitchBlock.TurnRunning)
+                    setTabState(if (enabled) 1 else MAX_SESSION_TABS)
                 }
 
                 val top = buildTopRow(sessionLabel, settingsGearButton {}, newButton)

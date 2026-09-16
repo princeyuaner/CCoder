@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CyclicBarrier
 
 class SidecarExtractorTest {
 
@@ -129,5 +131,44 @@ class SidecarExtractorTest {
 
         assertTrue(Files.exists(result.resolve("index.js")), "半成品必须被重建而非当成完整版")
         assertTrue(Files.exists(result.resolve("env.js")))
+    }
+
+    /**
+     * 两个标签同时冷启动（多标签，2026-09-16）。
+     *
+     * 提取是"**先删目录再重拷**"：没有互斥时，后到的那个可能把先到那个正在用的
+     * 目录删掉 —— 症状是那边刚起好的 node 找不到 index.js（生产模式才会走到这儿，
+     * 开发模式用源码树）。这条钉的是"两边都拿到同一个、内容完整的目录"。
+     */
+    @Test
+    fun `并发提取不会互删`(@TempDir tmp: Path) {
+        val src = tmp.resolve("src")
+        val dst = tmp.resolve("dst")
+        makeSource(src)
+
+        val barrier = CyclicBarrier(2)
+        val results = ConcurrentHashMap<Int, Path>()
+        val errors = ConcurrentHashMap<Int, Throwable>()
+        val threads = (0 until 2).map { i ->
+            Thread {
+                try {
+                    barrier.await()
+                    results[i] = SidecarExtractor.extract(src, dst, "0.3.0", "fp-C")
+                } catch (t: Throwable) {
+                    errors[i] = t
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+
+        assertTrue(errors.isEmpty(), "并发提取不该抛：$errors")
+        assertEquals(2, results.size)
+        assertEquals(1, results.values.toSet().size, "两边必须指向同一个目录")
+        val dir = results.values.first()
+        assertTrue(Files.exists(dir.resolve("index.js")), "内容必须完整")
+        assertTrue(Files.exists(dir.resolve("test/env.test.js")), "子目录也得在")
+        // 指纹文件的名字是 SidecarExtractor 的私有常量，这里按它的契约直接读
+        assertEquals("fp-C", Files.readString(dir.resolve(".fingerprint")))
     }
 }

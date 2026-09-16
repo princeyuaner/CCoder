@@ -10,39 +10,45 @@ import org.junit.jupiter.api.Test
  * 顶部那一行最右的「＋」。
  *
  * 它和会话标签的区别是：标签点了有东西可看（弹出列表），而它是个单一动作
- * 按钮 —— 点了没反应更像坏了。所以忙时是**置灰**而不是"点了才说"
+ * 按钮 —— 点了没反应更像坏了。所以到上限时是**置灰**而不是"点了才说"
  * （设计稿 §3.2）。
+ *
+ * **2026-09-16**：置灰的条件从"忙"换成了"标签数到上限" —— 多标签之后新建
+ * 不再停掉当前会话，忙、有待决权限都照样能开（见 [newTabEnabled]）。
  */
 class SessionNewButtonTest {
 
     @Test
-    fun `空闲时可点`() {
+    fun `没到上限时可点`() {
         val b = SessionNewButton {}
-        b.setBlock(SwitchBlock.None)
+        b.setTabState(1)
         assertTrue(b.isEnabled)
+
+        b.setTabState(MAX_SESSION_TABS - 1)
+        assertTrue(b.isEnabled, "还剩一个位置也该能点")
     }
 
     @Test
-    fun `忙时置灰`() {
+    fun `到上限时置灰`() {
         val b = SessionNewButton {}
 
-        b.setBlock(SwitchBlock.TurnRunning)
-        assertFalse(b.isEnabled, "回合进行中不该能新建")
+        b.setTabState(MAX_SESSION_TABS)
+        assertFalse(b.isEnabled, "满了就不该还能开")
 
-        b.setBlock(SwitchBlock.PermissionPending)
-        assertFalse(b.isEnabled, "有权限挂着时不该能新建")
+        b.setTabState(MAX_SESSION_TABS + 1)
+        assertFalse(b.isEnabled, "超过上限（理论上不该发生）也不该能点")
     }
 
     @Test
-    fun `不能点时说清先做什么`() {
+    fun `到上限时说清先做什么`() {
         val b = SessionNewButton {}
 
-        b.setBlock(SwitchBlock.None)
+        b.setTabState(1)
         assertEquals("新建会话", b.toolTipText)
 
-        b.setBlock(SwitchBlock.TurnRunning)
+        b.setTabState(MAX_SESSION_TABS)
         assertNotNull(b.toolTipText)
-        assertTrue(b.toolTipText.contains("停止"), "实际：${b.toolTipText}")
+        assertTrue(b.toolTipText.contains("先关掉一个"), "实际：${b.toolTipText}")
     }
 
     @Test
@@ -59,7 +65,7 @@ class SessionNewButtonTest {
     fun `置灰时点不动`() {
         var clicks = 0
         val b = SessionNewButton { clicks++ }
-        b.setBlock(SwitchBlock.TurnRunning)
+        b.setTabState(MAX_SESSION_TABS)
 
         b.doClick()
 

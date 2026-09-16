@@ -51,27 +51,28 @@ class SessionSwitchStateTest {
         assertEquals(true, pending.contains("权限"), "实际：$pending")
     }
 
-    // ---- 新建会话 ----
+    // ---- 新建会话（「＋」＝开一个新标签，2026-09-16）----
 
     @Test
-    fun `空闲时才能新建`() {
-        assertTrue(newSessionEnabled(SwitchBlock.None))
+    fun `没到上限就能开新标签`() {
+        assertTrue(newTabEnabled(0))
+        assertTrue(newTabEnabled(1))
+        assertTrue(newTabEnabled(MAX_SESSION_TABS - 1))
     }
 
     @Test
-    fun `忙时不能新建`() {
-        // 与切换会话拦的是同一件事：新建同样要 stopSession()，
-        // 会把正在跑的回合腰斩
-        assertFalse(newSessionEnabled(SwitchBlock.TurnRunning))
-        assertFalse(newSessionEnabled(SwitchBlock.PermissionPending))
+    fun `到上限就不能开了`() {
+        // 这是唯一的闸：忙、有待决权限都不再拦（新建不再停当前会话）
+        assertFalse(newTabEnabled(MAX_SESSION_TABS))
+        assertFalse(newTabEnabled(MAX_SESSION_TABS + 1))
     }
 
     @Test
-    fun `能点时提示说的是它做什么，不能点时说的是先做什么`() {
-        assertEquals("新建会话", newSessionTooltip(SwitchBlock.None))
+    fun `能开时提示说的是它做什么，到上限时说的是先做什么`() {
+        assertEquals("新建会话", newTabTooltip(1))
 
-        val blocked = newSessionTooltip(SwitchBlock.TurnRunning)
-        assertTrue(blocked.contains("停止"), "实际：$blocked")
+        val full = newTabTooltip(MAX_SESSION_TABS)
+        assertTrue(full.contains("先关掉一个"), "实际：$full")
     }
 
     // ---- 标题与删除确认语 ----
@@ -215,6 +216,28 @@ class SessionSwitchStateTest {
         // 否则同一个列表在不同调用里可能给出不同答案
         val picked = mostRecentSession(listOf(at("前", 5_000), at("后", 5_000)))
         assertEquals("前", picked?.sessionId)
+    }
+
+    @Test
+    fun `恢复最近会话时跳过已被别的标签占住的那条`() {
+        // 多标签：两个标签各自 listSessions 挑"最近那条"，很容易撞同一条 ——
+        // 两边同时写同一个 jsonl（见 OpenSessions）
+        val all = listOf(at("最新的", 3_000), at("次新的", 2_000), at("旧的", 1_000))
+
+        assertEquals("最新的", mostRecentSession(all)?.sessionId, "没人占时行为不变")
+        assertEquals("次新的", mostRecentSession(all) { it == "最新的" }?.sessionId)
+        assertNull(mostRecentSession(all) { true }, "全被占 → null，调用方据此开新会话")
+    }
+
+    @Test
+    fun `openPick 也吃这套跳过规则`() {
+        val pick = openPick(
+            RequestOutcome.Answered(
+                SidecarMessage.SessionList("r1", listOf(at("最新的", 3_000), at("次新的", 2_000)))
+            )
+        ) { it == "最新的" }
+
+        assertEquals(OpenPick.Resume(at("次新的", 2_000)), pick)
     }
 
     // ---- 打开面板时那份回执的读法 ----

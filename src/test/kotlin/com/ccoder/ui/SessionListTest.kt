@@ -107,6 +107,28 @@ class SessionListTest {
         assertEquals(1, texts.count { it.startsWith("✓") }, "只该有一条被标记为当前")
     }
 
+    // ---- 已被别的标签占住的行（多标签，2026-09-16）----
+
+    @Test
+    fun `被占的那行标出已打开，并且不可点`() {
+        val root = buildSessionList(sessions, "s1", SwitchBlock.None, takenIds = setOf("s2")) {}
+
+        assertTrue(textsIn(root).any { it == TAKEN_TEXT }, "光点不动会被当成 bug，得说一句")
+        assertEquals(2, clickableRows(root).size, "三条里有一条被占 → 只剩两条可点")
+    }
+
+    @Test
+    fun `没人占用时与从前逐字一致`() {
+        // 多标签是加法：takenIds 空集时这一列必须一个字都不变（防回归）
+        val before = textsIn(buildSessionList(sessions, "s1", SwitchBlock.None) {})
+        val after = textsIn(
+            buildSessionList(sessions, "s1", SwitchBlock.None, takenIds = emptySet()) {}
+        )
+
+        assertEquals(before, after)
+        assertFalse(after.any { it == TAKEN_TEXT })
+    }
+
     @Test
     fun `摘要与首个提问都为空时显示占位而非空白行`() {
         val blank = listOf(SessionInfo("s9", null, null, now))
