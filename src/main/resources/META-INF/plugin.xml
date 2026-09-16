@@ -19,7 +19,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
-    <h3>0.2.15</h3>
+    <h3>0.2.16</h3>
     <ul>
       <li>Preset prompts: save your own reusable prompts in Settings, then type / in the input box to pick one. The "预设" (Presets) group is listed first.</li>
       <li>MCP panel: read and edit the project-level .mcp.json. The right-hand column shows the connection status and the error reason of every server in the current session.</li>
