@@ -2982,8 +2982,11 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
             return
         }
 
+        // 转写区里推的是**用户敲的那份**（`typed`，记号原样留着），不是展开后的全文 ——
+        // 展开只给模型看。铺一份几百行的代码进气泡，自己写的那句话就淹在里头了
+        // （2026-09-15 用户提：输出区显示的格式该和输入框里的一样）。
         // 排队那条也要带图：补发时 pushOp 用的是它的 images，不是这里的 forTranscript
-        pushItem(RenderItem.UserText(text, forTranscript))
+        pushItem(RenderItem.UserText(typed, forTranscript))
 
         if (!ready) {
             // 会话还没就绪。可能是 fatal 断开后残留的进程，先清干净再起一个，
@@ -3042,7 +3045,8 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         // 先重画再发：sendNow 里的 setBusy(true) 会连带刷按钮，
         // 而按钮的文案里带着队列条数 —— 顺序反了它会拿着旧数字去刷
         refreshQueueStrip()
-        pushItem(RenderItem.UserText(next.text, next.images.map { it.transcriptDataUrl }))
+        // 与直接发送同一条规矩：气泡里画用户敲的那份（`typed`），展开的那份只发给模型
+        pushItem(RenderItem.UserText(next.typed, next.images.map { it.transcriptDataUrl }))
         sendNow(next.text, next.typed, next.images)
     }
 

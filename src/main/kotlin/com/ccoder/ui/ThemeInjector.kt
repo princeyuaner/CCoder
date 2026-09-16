@@ -15,6 +15,13 @@ data class ThemeColors(
     val accent: Color,
     val surface: Color,
     val codeBg: Color,
+    /**
+     * 参考记号（`⟦路径 24-27 · 4 行⟧`）的底色。
+     *
+     * 与输入框里那层底色取**同一个值**（[refBackground]），不是各调各的近似色 ——
+     * 用户要的就是"转写区里和输入框里长得一样"，两处各写一个颜色迟早分叉。
+     */
+    val refBg: Color,
     val errorBg: Color,
     /** diff 的新增行底色（工具卡片里的 Edit 预览）。 */
     val diffAddBg: Color,
@@ -53,6 +60,7 @@ object ThemeInjector {
         append(" --accent: ${colors.accent.hex()};")
         append(" --surface: ${colors.surface.hex()};")
         append(" --code-bg: ${colors.codeBg.hex()};")
+        append(" --ref-bg: ${colors.refBg.hex()};")
         append(" --error-bg: ${colors.errorBg.hex()};")
         append(" --diff-add-bg: ${colors.diffAddBg.hex()};")
         append(" --diff-del-bg: ${colors.diffDelBg.hex()};")
@@ -109,6 +117,8 @@ object PlatformTheme {
             accent = UIUtil.getTreeSelectionBackground(true),
             surface = surfaceFor(bg),
             codeBg = UIUtil.getTextFieldBackground(),
+            // 就是输入框高亮用的那个常量：两处必须同色，读同一个出处
+            refBg = refBackground,
             // 错误背景：以文本色为基准向橙红偏移，得到低饱和变体。
             // 不用纯红——纯红在浅色主题下刺眼，在深色主题下又太暗。
             errorBg = mix(text, Color(0xD8, 0x43, 0x15), 0.85),

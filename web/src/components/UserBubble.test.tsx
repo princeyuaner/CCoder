@@ -56,3 +56,26 @@ describe('用户气泡的图', () => {
     expect(screen.getByTestId('lightbox')).toBeInTheDocument()
   })
 })
+
+/**
+ * 右键加进来的片段，在输入框里是一行记号（`⟦路径 24-27 · 4 行⟧`）。
+ * 转写区里**画的是同一份** —— 而不是展开后的整段代码（2026-09-15 用户提：
+ * "发送到输出区后显示的格式应该和输入框中的一样"）。
+ */
+describe('用户气泡里的参考记号', () => {
+  const T = '⟦src/a/X.kt 24-27 · 4 行⟧'
+
+  it('记号画成一块底色，前后的文字一个不少、顺序不变', () => {
+    const { container } = render(<UserBubble text={`看这里 ${T} 为什么`} />)
+
+    const chip = container.querySelector('.bubble__text .ref')
+    expect(chip).toHaveTextContent(T)
+    expect(container.querySelector('.bubble__text')?.textContent).toBe(`看这里 ${T} 为什么`)
+  })
+
+  it('没有记号时不画那个 span —— DOM 与从前一模一样', () => {
+    const { container } = render(<UserBubble text="普通的一句话" />)
+
+    expect(container.querySelector('.bubble__text .ref')).toBeNull()
+  })
+})

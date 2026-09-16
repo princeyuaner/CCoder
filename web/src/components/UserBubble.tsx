@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { splitRefs } from '../refs'
 import { ImageLightbox } from './ImageLightbox'
 
 /**
@@ -35,7 +36,21 @@ export function UserBubble({ text, images }: { text: string; images?: string[] }
               ))}
             </div>
           )}
-          {text !== '' && <div className="bubble__text">{text}</div>}
+          {/* 参考记号（`⟦路径 12-18 · 7 行⟧`）画成和输入框里一样的底色。
+              没有记号时这里就是一个纯字符串 —— 与从前渲染出来的 DOM 一字不差 */}
+          {text !== '' && (
+            <div className="bubble__text">
+              {splitRefs(text).map((seg, i) =>
+                seg.ref ? (
+                  <span className="ref" key={i}>
+                    {seg.text}
+                  </span>
+                ) : (
+                  seg.text
+                ),
+              )}
+            </div>
+          )}
         </div>
       </div>
       {open !== null && (

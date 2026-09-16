@@ -17,6 +17,7 @@ class ThemeInjectorTest {
         accent = Color(0x2F65CA),
         surface = Color(0x2B2D30),
         codeBg = Color(0x191A1C),
+        refBg = Color(0x2C2540),
         errorBg = Color(0x4A1F1F),
         diffAddBg = Color(0x1E2F1F),
         diffDelBg = Color(0x33222A),
@@ -40,7 +41,7 @@ class ThemeInjectorTest {
         val css = ThemeInjector.buildCss(sample())
         for (name in listOf(
             "--bg", "--text", "--text-dim", "--border", "--accent",
-            "--surface", "--code-bg", "--error-bg",
+            "--surface", "--code-bg", "--ref-bg", "--error-bg",
             "--diff-add-bg", "--diff-del-bg", "--diff-add-fg", "--diff-del-fg",
             "--thinking-fg",
             "--font-ui", "--font-mono",
