@@ -165,11 +165,45 @@ private fun statusRow(text: String): JComponent = JLabel(text).apply {
     maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(ROW_HEIGHT))
 }
 
+/**
+ * 把查询命中的字符**加粗**（CLI 的 TUI 也是这么标的）。
+ *
+ * 两条分寸：
+ *
+ * - **只在这行确实以 [CompletionItem.display] 打头时才加。** 行文本可能被上面的
+ *   让位逻辑砍过（`…/app/x.py`），那时下标对不上位置，标错比不标糟。
+ * - **没有命中就原样返回纯文本**：JLabel 一进 HTML 模式就换一套排版规则，
+ *   不该为不相干的行付这个代价。
+ *
+ * 加粗而不是上色：文件名这一列本来就长，再加颜色会和"选中行底色"抢注意力；
+ * 而且加粗在两套主题下都不用挑颜色。
+ */
+internal fun highlightedRowText(text: String, item: CompletionItem): String {
+    if (item.hits.isEmpty() || !text.startsWith(item.display)) return text
+    val hitSet = item.hits.toHashSet()
+    val sb = StringBuilder("<html>")
+    var i = 0
+    while (i < text.length) {
+        val hit = i in hitSet
+        val start = i
+        while (i < text.length && (i in hitSet) == hit) i++
+        val chunk = escapeHtml(text.substring(start, i))
+        if (hit) sb.append("<b>").append(chunk).append("</b>") else sb.append(chunk)
+    }
+    return sb.append("</html>").toString()
+}
+
+private fun escapeHtml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 private fun row(item: CompletionItem, selected: Boolean): JComponent {
     val label = JLabel()
     // 可用宽度 = 弹层定宽 - 这一行的左右内边距。字体要从**标签自己**身上取：
     // 它才是最终画字的那份（LaF / 缩放都会影响它），见 [rowTextFor]
-    label.text = rowTextFor(item, label.getFontMetrics(label.font), JBUI.scale(COMPLETION_WIDTH - ROW_PADDING))
+    label.text = highlightedRowText(
+        rowTextFor(item, label.getFontMetrics(label.font), JBUI.scale(COMPLETION_WIDTH - ROW_PADDING)),
+        item,
+    )
 
     return label.apply {
         // 底色就是"选中"的全部视觉信号 —— 单测只能断言它有没有，好不好看见探针

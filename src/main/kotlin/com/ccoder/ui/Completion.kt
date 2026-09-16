@@ -15,6 +15,14 @@ internal data class CompletionItem(
     /** 分组标题；null = 不分组。 */
     val group: String? = null,
     /**
+     * [display] 里被查询命中的字符下标（升序），弹层拿它加粗。
+     *
+     * 空 = 不高亮。**匹配发生在哪一段就高亮哪一段**：`@` 的文件是按路径匹配的
+     * （`display` 就是路径），`/` 的命令是按显示名或别名匹配的 —— 命中别名时
+     * 这里给空，因为下标在 `display` 上对不上，加错比不加糟。
+     */
+    val hits: List<Int> = emptyList(),
+    /**
      * 这一项插入的是**一整段文本**，而不是"命令名 / 文件路径"。
      *
      * 预置 prompt 就是这种：它要写进输入框的是 prompt 正文，不是 `/正文`。
@@ -107,10 +115,17 @@ internal fun completionQuery(text: String, caret: Int): CompletionQuery? {
 internal fun filterCandidates(items: List<CompletionItem>, query: String): List<CompletionItem> {
     if (query.isEmpty()) return items
     val q = query.lowercase()
-    return items.filter { item ->
-        item.display.lowercase().startsWith(q) ||
-            item.insert.lowercase().startsWith(q) ||
-            item.aliases.any { it.lowercase().startsWith(q) }
+    return items.mapNotNull { item ->
+        when {
+            // 命中显示名：连高亮一起给（这一行的字就是 display）
+            item.display.lowercase().startsWith(q) ->
+                item.copy(hits = (0 until q.length).toList())
+            // 命中插入文本或别名：留下，但**不高亮** —— 下标在 display 上
+            // 对不上位置，标错比不标糟
+            item.insert.lowercase().startsWith(q) || item.aliases.any { it.lowercase().startsWith(q) } ->
+                item
+            else -> null
+        }
     }
 }
 

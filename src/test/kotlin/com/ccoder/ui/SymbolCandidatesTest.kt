@@ -86,8 +86,30 @@ class SymbolCandidatesTest {
     }
 
     @Test
-    fun `排序：不以前缀开头的名字一律丢掉`() {
-        assertEquals(emptyList<String>(), rankSymbolHits(listOf("barFoo", "xFoo"), "Foo", limit = 10))
+    fun `子序列也能进候选 —— cmprk 找得到 ComposerMode`() {
+        // 2026-09-16：原先只收前缀命中，`#cmprk` 一条都出不来。
+        // 判据换成与文件补全共用的那份（见 [fuzzyMatch]）。
+        // 名字里得真有那个 `k`（`ComposerMode` 没有，`.kt` 那个有）
+        assertEquals(
+            listOf("ComposerMode.kt"),
+            rankSymbolHits(listOf("ComposerMode.kt", "CommandCandidates"), "cmprk", limit = 10),
+        )
+    }
+
+    @Test
+    fun `候选带上命中的下标，给弹层加粗`() {
+        // C0 o1 m2 p3 o4 s5 e6 r7 M8 o9 d10 e11 .12 k13 t14
+        val items = symbolCandidates(listOf(hit(name = "ComposerMode.kt")), "cmprk")
+
+        assertEquals(listOf(0, 2, 3, 7, 13), items.single().hits)
+    }
+
+    @Test
+    fun `排序：不匹配的丢掉，子序列也算匹配`() {
+        // 2026-09-16 改：原先**非前缀一律丢**（`barFoo` 进不来），现在按子序列收。
+        // 前半句钉的仍是"不匹配就是不要"，后半句钉新的那半条
+        assertEquals(emptyList<String>(), rankSymbolHits(listOf("barFoo", "xFoo", "Whoops"), "zzz", limit = 10))
+        assertEquals(listOf("xFoo", "barFoo"), rankSymbolHits(listOf("xFoo", "barFoo"), "Foo", limit = 10))
     }
 
     @Test

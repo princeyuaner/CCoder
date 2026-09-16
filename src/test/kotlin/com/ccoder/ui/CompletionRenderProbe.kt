@@ -40,6 +40,20 @@ class CompletionRenderProbe {
         render("build/completion-probe-files.png", files())
 
     /**
+     * 命中加粗（2026-09-16）：**前缀命中与模糊命中并排**画一张。
+     *
+     * 要看的正是两件事：这一列本身很长，加粗会不会把行读得更乱；以及模糊命中
+     * （字符散着）在真实字体下加粗之后，还认不认得出原来是哪个词。
+     * 单测能钉住"该包的包上了、该转义的转义了"，钉不住"看着乱不乱"。
+     */
+    @Test
+    fun `命中加粗画成图片 —— 前缀与模糊各几条`() = render(
+        "build/completion-probe-file-hits.png",
+        fileCandidates(files().map { it.display }, "Command") +
+            fileCandidates(files().map { it.display }, "cmpl"),
+    )
+
+    /**
      * 预设组**混着命令组**画一张。
      *
      * 光看预设组看不出问题 —— 要看的正是**两组交界处**：

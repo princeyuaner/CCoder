@@ -165,8 +165,11 @@ internal fun searchSymbols(
     }
 
     val nameList = names ?: emptyList()
-    val matched = nameList.count { it.lowercase().startsWith(prefix.lowercase()) }
+    // 两个数分开数：2026-09-16 起候选是**子序列**收的，前缀命中只是一部分 ——
+    // 混成一个数的话，探针日志会让人以为"候选比命中的还多"
+    val prefixMatched = nameList.count { it.lowercase().startsWith(prefix.lowercase()) }
     val toResolve = rankSymbolHits(nameList, prefix)
+    val matched = toResolve.size
     val hits = toResolve.mapNotNull { resolve(project, params, contributors, it) }
 
     val elapsed = System.currentTimeMillis() - started
@@ -174,7 +177,7 @@ internal fun searchSymbols(
     LOG.info(
         "符号探针：prefix='$prefix'（${prefix.length} 字符）" +
             " 枚举看到 $scanned 条名字（Ex2=$ex2 Ex=$ex legacy=$legacy，缓存=${cachedNames != null}），" +
-            " 命中 $matched（解析前）→ 解析出 ${hits.size} 个，耗时 ${elapsed}ms",
+            " 前缀命中 $prefixMatched、子序列收进 $matched 条（解析前）→ 解析出 ${hits.size} 个，耗时 ${elapsed}ms",
     )
 
     val failure =

@@ -114,6 +114,36 @@ class FileCandidatesTest {
         assertEquals(1, fileCandidates(listOf("lib/xAbcThing.kt"), "abct").size)
     }
 
+    // ---- 命中下标：弹层拿它加粗（2026-09-16）----
+
+    @Test
+    fun `路径前缀命中的下标从 0 数`() {
+        val item = fileCandidates(listOf("src/main/A.kt"), "src").single()
+
+        assertEquals(listOf(0, 1, 2), item.hits)
+    }
+
+    @Test
+    fun `文件名前缀命中的下标要加上文件名的起点偏移`() {
+        // src/main/A.kt → s0 r1 c2 /3 m4 a5 i6 n7 /8 A9 .10 k11 t12
+        val item = fileCandidates(listOf("src/main/A.kt"), "A.").single()
+
+        assertEquals(listOf(9, 10), item.hits)
+    }
+
+    @Test
+    fun `模糊命中的下标就是子序列在路径里的位置`() {
+        val path = "src/main/kotlin/com/ccoder/ui/ComposerMode.kt"
+
+        val item = fileCandidates(listOf(path), "cmprk").single()
+
+        assertEquals(
+            listOf('c', 'm', 'p', 'r', 'k'),
+            item.hits.map { path[it].lowercaseChar() },
+            "下标指到的那几个字符应当拼出查询本身",
+        )
+    }
+
     /**
      * 规模下的耗时。**这是哨兵不是基准**：量级变了就说明匹配里塞进了不该塞的
      * 东西（比如给每条路径 `lowercase()` 一次 —— 两万条就是两万个临时字符串，

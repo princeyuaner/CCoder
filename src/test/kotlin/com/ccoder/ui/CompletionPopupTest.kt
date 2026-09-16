@@ -218,4 +218,43 @@ class CompletionPopupTest {
             ),
         )
     }
+
+    // ---- 命中字符加粗（2026-09-16）----
+
+    @Test
+    fun `命中字符包在 b 里，没命中的原样`() {
+        val item = CompletionItem(
+            display = "src/Composer.kt",
+            insert = "src/Composer.kt",
+            hits = listOf(4, 5),
+        )
+
+        assertEquals("<html>src/<b>Co</b>mposer.kt</html>", highlightedRowText("src/Composer.kt", item))
+    }
+
+    @Test
+    fun `没有命中就还是纯文本 —— 不为不相干的行付 HTML 排版的代价`() {
+        val item = CompletionItem(display = "src/Composer.kt", insert = "src/Composer.kt")
+
+        assertEquals("src/Composer.kt", highlightedRowText("src/Composer.kt", item))
+    }
+
+    @Test
+    fun `行文本被让位砍过时不加粗 —— 下标对不上就不标`() {
+        // 符号行塞不下时会被让位逻辑改成 `…/X.kt`，那时 display 已经不在行首
+        val item = CompletionItem(
+            display = "src/a/X.kt",
+            insert = "x",
+            hits = listOf(0, 1, 2),
+        )
+
+        assertEquals("…/a/X.kt", highlightedRowText("…/a/X.kt", item))
+    }
+
+    @Test
+    fun `尖括号与和号要转义 —— 路径里真的会出现`() {
+        val item = CompletionItem(display = "a<b>&c.kt", insert = "x", hits = listOf(0))
+
+        assertEquals("<html><b>a</b>&lt;b&gt;&amp;c.kt</html>", highlightedRowText("a<b>&c.kt", item))
+    }
 }

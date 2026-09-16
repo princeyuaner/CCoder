@@ -71,16 +71,23 @@ internal fun rankSymbolHits(
     if (q.isEmpty()) return emptyList()
     return names.asSequence()
         .map { it.trim() }
-        .filter { it.isNotEmpty() && it.lowercase().startsWith(q) }
+        .filter { it.isNotEmpty() }
         .distinct()
+        // 2026-09-16 起标的是**子序列**而不是前缀：`#cmprk` 也该找得到
+        // `ComposerMode`。判据与文件补全共用一份（见 [fuzzyMatch]），
+        // 免得两处各写一套、哪天各漂各的
+        .mapNotNull { name -> fuzzyMatch(name, q)?.let { name to it.score } }
         .sortedWith(
             compareBy(
-                { if (it.equals(query, ignoreCase = true)) 0 else 1 },
-                { it.length },
-                { it.lowercase() },
+                // 完全同名仍然最前 —— 打 `#Foo` 时 `Foo` 通常就是要的那个
+                { if (it.first.equals(query, ignoreCase = true)) 0 else 1 },
+                { -it.second },
+                { it.first.length },
+                { it.first.lowercase() },
             ),
         )
         .take(limit)
+        .map { it.first }
         .toList()
 }
 
@@ -93,11 +100,14 @@ internal fun rankSymbolHits(
  * **verbatim**：写进去的是记号本身，不加触发字符、也不加尾随空格。
  * 不分组：单一来源不需要组头。
  */
-internal fun symbolCandidates(hits: List<SymbolHit>): List<CompletionItem> =
+internal fun symbolCandidates(hits: List<SymbolHit>, query: String = ""): List<CompletionItem> =
     hits.map { hit ->
         CompletionItem(
             display = hit.name,
             insert = symbolToken(hit),
+            // 命中的字符给弹层加粗。用同一份实现算，所以与"为什么这条会出现在
+            // 列表里"（[rankSymbolHits] 那把尺子）是同一个答案
+            hits = fuzzyMatch(hit.name, query.lowercase())?.hits ?: emptyList(),
             // 整条路径原样带着：**塞不塞得下是绘制层的事**（那里有真实字体可以量）。
             // 在这里按字符数预截过一版，探针图上证明是错的：等宽与比例字体下，
             // 同样的字符数宽度能差一半，结果仍然被容器从尾部裁掉一截

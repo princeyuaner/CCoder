@@ -2821,7 +2821,9 @@ class ClaudePanel(private val project: Project) : JPanel(BorderLayout()), Sideca
         completionHint = result.status
         result.names?.let { symbolNamesCache = it }
 
-        val items = symbolCandidates(result.hits)
+        // 查询取自当前那次补全 —— 高亮的字符要与"为什么这条会出现在列表里"
+        // 用同一把尺子（见 symbolCandidates 的 hits）
+        val items = symbolCandidates(result.hits, completionQuery?.query.orEmpty())
         if (items.isNotEmpty()) {
             completionItems = visibleCandidates(items)
             completionIndex = 0

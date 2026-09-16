@@ -103,8 +103,26 @@ class CompletionTest {
 
     @Test
     fun `前缀匹配大小写不敏感`() {
-        assertEquals(listOf(debug), filterCandidates(listOf(compact, usage, debug), "deb"))
-        assertEquals(listOf(debug), filterCandidates(listOf(compact, usage, debug), "DEBUG"))
+        // 比 display 而不是整项：命中现在会带上高亮下标（见 CompletionItem.hits），
+        // 整项相等会把"哪几条通过了"这件事淹没在下标里
+        assertEquals(
+            listOf("Debug Issue"),
+            filterCandidates(listOf(compact, usage, debug), "deb").map { it.display },
+        )
+        assertEquals(
+            listOf("Debug Issue"),
+            filterCandidates(listOf(compact, usage, debug), "DEBUG").map { it.display },
+        )
+    }
+
+    @Test
+    fun `命中显示名的带上高亮下标`() {
+        assertEquals(listOf(0, 1, 2), filterCandidates(listOf(debug), "deb").single().hits)
+    }
+
+    @Test
+    fun `命中别名的不给高亮 —— 下标在显示名上对不上位置`() {
+        assertEquals(emptyList<Int>(), filterCandidates(listOf(usage), "cost").single().hits)
     }
 
     @Test

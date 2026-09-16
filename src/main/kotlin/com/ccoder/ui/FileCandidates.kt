@@ -52,70 +52,36 @@ internal fun fileCandidates(
     val q = query.lowercase()
 
     val out = ArrayList<CompletionItem>(limit)
-    val fuzzy = ArrayList<Pair<String, Int>>()
+    val fuzzy = ArrayList<Pair<CompletionItem, Int>>()
     for (path in paths) {
         // 用 ignoreCase 比较而不是先把每条路径 lowercase() —— 两万条路径
         // 就是两万个临时字符串，而这是**每敲一个字**都要跑一遍的地方
-        if (path.startsWith(q, ignoreCase = true) ||
-            path.startsWith(q, path.lastIndexOf('/') + 1, ignoreCase = true)
-        ) {
-            out += CompletionItem(display = path, insert = path)
+        val baseStart = path.lastIndexOf('/') + 1
+        val atPathHead = path.startsWith(q, ignoreCase = true)
+        if (atPathHead || path.startsWith(q, baseStart, ignoreCase = true)) {
+            // 命中的是路径开头还是文件名开头，高亮的下标不一样
+            val at = if (atPathHead) 0 else baseStart
+            out += CompletionItem(
+                display = path,
+                insert = path,
+                hits = (at until at + q.length).toList(),
+            )
             // 前缀层收满就回 —— 模糊那一层一个位置都没有了，没必要再扫一遍
             if (out.size >= limit) return out
             continue
         }
         // 单字符不走模糊：`@s` 几乎能子序列命中所有路径，那是个纯噪音列表
         if (q.length < 2) continue
-        fuzzyScore(path, q)?.let { fuzzy += path to it }
+        fuzzyMatchPath(path, q)?.let {
+            fuzzy += CompletionItem(display = path, insert = path, hits = it.hits) to it.score
+        }
     }
 
     // 稳定排序：同分保持原顺序（目录遍历顺序），免得列表在同分项之间乱跳
     fuzzy.sortByDescending { it.second }
-    for ((p, _) in fuzzy) {
-        out += CompletionItem(display = p, insert = p)
+    for ((item, _) in fuzzy) {
+        out += item
         if (out.size >= limit) break
     }
     return out
-}
-
-/**
- * 子序列匹配的打分（高者前）；不匹配给 null。
- *
- * 先只在**文件名**那一段里找：用户敲的片段多半是文件名（`cmprk` 想找
- * `ComposerMode.kt`），而拿整条路径从头贪婪匹配会先把 `com/ccoder` 里的
- * 字符吃掉、拼出一个散架的低分匹配。文件名里凑不出完整子序列，才回到整条
- * 路径上再试 —— 两条路的分数**不在一个量级**（文件名那条 +1000），
- * 于是"文件名命中"永远排在"只在目录里命中"前面。
- *
- * 分数由三样换算，都是"看起来更像"的直觉：
- * - **连着命中**加分最多（`Comp` 打中 `Composer` 比打中 `c…o…m…p` 强）
- * - **词边界**加分（`/`、`.`、`-`、`_` 之后，以及驼峰的大写处）
- * - 命中得越晚、路径越长，扣一点
- */
-private fun fuzzyScore(path: String, q: String): Int? {
-    val baseStart = path.lastIndexOf('/') + 1
-    scoreFrom(path, baseStart, q)?.let { return 1000 + it }
-    return scoreFrom(path, 0, q)
-}
-
-private fun scoreFrom(path: String, from: Int, q: String): Int? {
-    var qi = 0
-    var first = -1
-    var prev = -2
-    var consecutive = 0
-    var boundary = 0
-    var i = from
-    while (i < path.length && qi < q.length) {
-        if (path[i].lowercaseChar() == q[qi]) {
-            if (first < 0) first = i
-            if (i == prev + 1) consecutive++
-            if (i == 0 || !path[i - 1].isLetterOrDigit()) boundary++
-            else if (path[i - 1].isLowerCase() && path[i].isUpperCase()) boundary++
-            prev = i
-            qi++
-        }
-        i++
-    }
-    if (qi < q.length) return null
-    return 100 + consecutive * 12 + boundary * 8 - (first - from) / 4 - path.length / 20
 }
