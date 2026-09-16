@@ -99,6 +99,41 @@ class SessionChipsTest {
         assertEquals("…", chipTitleFor("重构指纹计算", fm, 0))
     }
 
+    // ---- 这一排要占多宽 ----
+
+    /**
+     * **这一排的宽只由胶囊个数算出来，不看自己被排了多宽。**
+     *
+     * 这是「＋」能紧跟最后一个胶囊的前提：`buildTopRow` 把这一排、「＋」与弹簧
+     * 放进同一个横向 BoxLayout，BoxLayout 按**首选宽**分配 —— 而"这一排多宽"
+     * 若反过来取决于"上一次排出来多宽"，窗口拖宽时胶囊就不会跟着长
+     * （见 [SessionChips.getPreferredSize] 的说明）。
+     */
+    @Test
+    fun `这一排的宽只由胶囊个数决定`() {
+        fun rowOf(n: Int) = SessionChips({}, {}).apply {
+            render(List(n) { chip(current = false) })
+        }
+
+        assertEquals(CHIP_MAX_WIDTH, rowOf(1).preferredSize.width, "一颗时就是它自己的宽")
+        assertEquals(
+            CHIP_MAX_WIDTH * 3 + CHIP_GAP * 2,
+            rowOf(3).preferredSize.width,
+            "三颗 = 三个上限 + 两道间距",
+        )
+        assertEquals(CHIP_MIN_WIDTH, rowOf(1).minimumSize.width, "挤到底就是下限")
+        assertEquals(CHIP_MAX_WIDTH * 2 + CHIP_GAP, rowOf(2).maximumSize.width)
+    }
+
+    /** 造一颗胶囊要的模型 —— 探针与用例共用；`owner` 只要求是个 JComponent。 */
+    private fun chip(current: Boolean, canClose: Boolean = true) = TabChip(
+        owner = owner(),
+        title = "重构 extractor",
+        state = TabState.Idle,
+        current = current,
+        canClose = canClose,
+    )
+
     // ---- 形状：它得真的是个胶囊 ----
 
     /**

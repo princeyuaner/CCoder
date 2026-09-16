@@ -14,11 +14,11 @@ import javax.swing.SwingUtilities
  * 渲染探针：把顶部那一行画成 PNG。
  *
  * 没有断言，也不该有 —— 单测钉得住"标签显示标题""「＋」忙时置灰""两个按钮隔
- * [TOP_ROW_GAP]"，钉不住"这两个字形挨在一起好不好看"。而后者正是 2026-09-14
+ * 间距"，钉不住"这几个东西挨在一起好不好看"。而后者正是 2026-09-14
  * 那次改动（间隔太大 → 收紧、顺序对调）的**全部内容**：改之前出了五张候选图
  * 并排看，才敢说 2px 比 4px 对。
  *
- * **2026-09-15 前后收过四次**，教训都记在 [TOP_ROW_GAP] 顶上。最后落到
+ * **2026-09-15 前后收过四次**，教训都记在 [buildTopRow] 与 [TopRowIconButton] 顶上。最后落到
  * 自绘图标：字形盒那片随字体与 DPI 变的边距没法用布局收，而按墨迹去裁按钮
  * 宽度又会被 LAF 判成"放不下"、把「＋」画成「…」——**那一次正是这张图
  * 抓到的，可惜当时只量了数字没看图**。现在这张图上两个图标之间是固定的 2px。
@@ -88,26 +88,50 @@ class TopRowRenderProbe {
         render("build/top-row-probe-tabs-full.png", title = "重构 extractor 的指纹计算", enabled = false)
     }
 
-    private fun render(path: String, title: String?, enabled: Boolean) {
+    /**
+     * **挤到上限（5 个）+ 「＋」置灰** —— 这一行最满的一档，也是宽度分配最吃紧的一档。
+     *
+     * 看两件事：五颗胶囊是不是等宽、**「＋」有没有还咬着最后一个胶囊**
+     * （2026-09-16 用户要求「时刻跟随在最后一个胶囊的后面」—— 这一张就是它的验收图）。
+     */
+    @Test
+    fun `把五个会话的顶部那一行画成图片`() {
+        render(
+            "build/top-row-probe-five.png",
+            titles = listOf(
+                "重构 extractor 的指纹计算",
+                "查一下线上日志里那条 500",
+                "把 setting 页的七页签画完",
+                "给 sidecar 补三个用例",
+                null,
+            ),
+            enabled = false,
+        )
+    }
+
+    private fun render(path: String, title: String?, enabled: Boolean) =
+        render(path, listOf(title), enabled)
+
+    private fun render(path: String, titles: List<String?>, enabled: Boolean) {
         // 先换 LAF、后建组件：组件在**建的那一刻**取 UI 委托（见 IdeLaf）
         IdeLaf.withRealLaf {
             SwingUtilities.invokeAndWait {
                 val chips = SessionChips({}, {}).apply {
                     render(
-                        listOf(
+                        titles.mapIndexed { i, t ->
                             TabChip(
                                 owner = JPanel(),
-                                title = title,
+                                title = t,
                                 // 出图用：到上限那一版把点画成"在跑"，一眼看得出状态点
                                 state = if (enabled) TabState.Idle else TabState.Running,
-                                current = true,
-                                canClose = false,
+                                current = i == 0,
+                                canClose = titles.size > 1,
                             )
-                        )
+                        }
                     )
                 }
                 val newButton = SessionNewButton {}.apply {
-                    setTabState(if (enabled) 1 else MAX_SESSION_TABS)
+                    setTabState(if (enabled) titles.size else MAX_SESSION_TABS)
                 }
 
                 val top = buildTopRow(chips, settingsGearButton {}, newButton)

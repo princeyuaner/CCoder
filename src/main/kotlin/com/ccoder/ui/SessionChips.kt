@@ -69,7 +69,7 @@ internal data class TabChip(
  * 内边距），转写区少 6px —— 换来的是可点高度 **+27%**。
  *
  * 改这个数会让整行一起长，**别在别处再补竖直内边距**：白只有 `buildTopRow`
- * 那一处出处（同 [TOP_ROW_GAP] 那条教训）。观感看
+ * 那一处出处（见 [buildTopRow] 里"白只有两处出处"那段）。观感看
  * `SessionChipsRenderProbe` / `TopRowRenderProbe` 出的图。
  */
 internal val CHIP_HEIGHT = JBUI.scale(28)
@@ -135,7 +135,8 @@ internal fun chipTitleFor(
 }
 
 /**
- * 会话胶囊行 —— 顶行中间那一格（原来是个单会话标签）。
+ * 会话胶囊行 —— 顶行的**开头**那一格（原来是个单会话标签），「＋」紧跟在它后面
+ * （位置由 [buildTopRow] 决定）。
  *
  * ## 为什么自己画
  *
@@ -170,8 +171,7 @@ internal class SessionChips(
     fun render(chips: List<TabChip>) {
         this.chips = chips
         removeAll()
-        val available = (laidOutWidth.takeIf { it > 0 } ?: DEFAULT_ROW_WIDTH) - CHIP_PAD_H * 2
-        val width = chipWidthFor(available, chips.size)
+        val width = chipWidthFor(laidOutWidth.takeIf { it > 0 } ?: DEFAULT_ROW_WIDTH, chips.size)
         chips.forEachIndexed { index, chip ->
             if (index > 0) add(Box.createHorizontalStrut(CHIP_GAP))
             add(ChipView(chip, width, onPick, onClose))
@@ -189,8 +189,36 @@ internal class SessionChips(
         super.doLayout()
     }
 
+    /**
+     * 这一排要占多宽 —— **只由胶囊个数算出来**，不看自己被排了多宽。
+     *
+     * 这是「＋」能紧跟最后一个胶囊的关键（2026-09-16）：`buildTopRow` 把这一排、
+     * 「＋」与弹簧放进同一个横向 `BoxLayout`，BoxLayout 按**首选宽**分配、富余
+     * 全归弹簧 —— 所以"这一排多宽"**必须在排版之前就答得出来**。
+     *
+     * 交给 BoxLayout 默认那一套（= 各子项首选宽之和）不行：子项的首选宽是上一次
+     * `render` 按**当时**的宽度定的，与"这一排多宽"互为因果 —— 窗口拖宽之后
+     * 它会一直沿用上一次的宽度，胶囊不跟着长（而 `doLayout` 又会因为宽度没变
+     * 而不再重算，正好卡住）。两边都只看个数就没有这个循环。
+     */
+    override fun getPreferredSize(): Dimension = Dimension(rowWidth(CHIP_MAX_WIDTH), CHIP_HEIGHT)
+
+    /** 最小 = 每颗都挤到下限。再窄就压到这儿为止 —— 规矩仍是"先挤标签，不动按钮"。 */
+    override fun getMinimumSize(): Dimension = Dimension(rowWidth(CHIP_MIN_WIDTH), CHIP_HEIGHT)
+
+    /** 最大 = 首选：每颗都到上限了，再长就是胶囊右边多出一截点不着的白。 */
+    override fun getMaximumSize(): Dimension = preferredSize
+
+    /** 一排 n 颗、每颗 [perChip] 宽时的总宽（含之间的间距）。 */
+    private fun rowWidth(perChip: Int): Int =
+        if (chips.isEmpty()) 0 else chips.size * perChip + CHIP_GAP * (chips.size - 1)
+
     private companion object {
-        /** 还没上屏时的兜底宽度：420 的工具窗口减掉两个图标按钮那一段。 */
+        /**
+         * 还没上屏时的兜底：第一次 `render` 排在 `doLayout` 之前，那时 `width` 还是 0。
+         * 它只影响"第一次render 时每颗分多宽"，而 `doLayout` 一上屏就会按真实宽度
+         * 重算一遍，所以这个数不必准，取个"420 的工具窗口减掉按钮那一段"即可。
+         */
         val DEFAULT_ROW_WIDTH = JBUI.scale(340)
     }
 }

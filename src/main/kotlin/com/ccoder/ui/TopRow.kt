@@ -23,37 +23,17 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * 右上角两个图标按钮之间的间距 —— **就是看得见的那一段白**。
+ * 「＋」与齿轮之间的**最小**间隔。
  *
- * 两个按钮都不画边框底、横向内边距为 0，图标又是自绘的（见 [TopRowIcon]），
- * 盒子的边界即墨迹。于是"两个图标隔多远"与"两个按钮的矩形隔多远"成了同一件事，
- * 全由这一个常量说了算：单测里那句
- * `gear.x - (plus.x + plus.width) == TOP_ROW_GAP` 量的就是用户眼睛看到的那一段。
- * **想再调，只改这一个数**；别在按钮内边距或别处再添白。
+ * 排满 5 个标签时，胶囊会把这一行吃到只剩这点地方 —— 不给它的话两个按钮会
+ * **贴在一起**（2026-09-16 在 `top-row-probe-five.png` 上一眼看见：五颗胶囊
+ * 吞掉整行，弹簧被挤成 0，「＋」直接顶住齿轮，点错率高）。富余的时候弹簧会把
+ * 它们拉得比这远得多，所以平时看不出这个数在起作用。
  *
- * ## 这段间距改过五次，每次的教训都不一样
- *
- * - **2026-09-14**：用户说"间隔太大"。那 6px 不是这里给的 —— 两个按钮各自
- *   默认边框带着 3px 内边距，边框画都不画（`isBorderPainted = false`），
- *   内边距却照样占着。横向那部分去掉，改由这个常量显式给。
- * - **2026-09-15 上午**：还是"太宽"，于是收到 0。仍然宽 —— 因为剩下的白在
- *   **字体**里：全角 U+FF0B 的「＋」字形盒 15.5px，真画出来的十字只有 11.7px，
- *   两侧各 1.9px，而且**跟着字体与 DPI 放大**。
- * - **2026-09-15 下午**：按墨迹去裁按钮宽度 —— **错了**。JButton 判"放不下"
- *   用的是**文字排版宽度**（advance），不是墨迹；裁到 13.7px 之后它把「＋」
- *   画成了「…」。探头图上看得清清楚楚，可惜当时只量了数字没看图。
- * - **自绘落地之后**：用户仍说"宽" —— 自绘确实把字体那层不可控的白拿掉了，
- *   可按钮自己还留着 1px 横向内边距**×2**，加上这 2px，墨迹之间仍是 4px。
- *   于是把内边距也归零，白只剩这一处出处，落到 **2**。
- * - **2026-09-15 傍晚**：前面四轮改的是一个**根本没在屏幕上生效**的数 —— New UI
- *   给所有 `JButton` 兜了 72px 最小宽度，图标各自在 72px 的透明盒子里居中，
- *   真机看到的一直是 62px（见 [TopRowIconButton]）。把盒子钉死在图标上之后，
- *   用户**第一次真的看到 2px**，说"改为 6px"。
- *
- * 也就是说：**前四轮"太宽/太窄"的反馈都是在看那 62px**，只有最后这一次
- * （6px）是看过真实间距之后给的判断。再要调仍然只改这一个数。
+ * 它与胶囊之间那个 [CHIP_GAP] 不是一回事：那个是"两颗胶囊之间挨多近"，
+ * 这个是"两个按钮再怎么挤也不许贴上"。
  */
-internal val TOP_ROW_GAP: Int = JBUI.scale(6)
+internal val MIN_BUTTON_SEPARATION = JBUI.scale(6)
 
 /** 图标盒边长。与字体无关 —— 它就是个固定的框。 */
 private const val ICON_SIDE = 12
@@ -62,15 +42,30 @@ private const val ICON_SIDE = 12
 private const val ICON_STROKE = 1.5f
 
 /**
- * 顶部一行：会话标签占满中间（长标题自己打省略号），两个图标按钮在最右。
+ * 顶部一行：**会话胶囊在开头，「＋」紧跟在最后一个胶囊后面**，齿轮占最右角，
+ * 中间那一段富余归弹簧。
  *
- * 抽成独立函数是为了可测 —— [ClaudePanel] 依赖 `Project`，起不了单测，
- * 而"这两个按钮挨多近""谁在左"恰好是这里改过三次的两件事。探针
- * [TopRowRenderProbe] 画的也是这一份，不是画一份长得像的。
+ * 抽成独立函数是为了可测 —— [ClaudePanel] 依赖 `Project`，起不了单测，而
+ * "谁挨着谁"恰好是这里改过几次的事。探针 [TopRowRenderProbe] 画的也是这一份，
+ * 不是画一份长得像的。
  *
- * **顺序：「＋」在左、齿轮占最右角**（2026-09-14 用户要求对调，原为齿轮在左）。
- * 顺序写进这个函数而不是留给调用处，是为了让上面那句话**能被测到** ——
- * 调用处只有一行，测不着。
+ * ## 「＋」为什么从齿轮旁边挪到了胶囊后面（2026-09-16）
+ *
+ * 用户原话：「新建会话的按钮应该时刻跟随在最后一个胶囊的后面」。
+ * 设计稿 `docs/design/session-tabs.html` 里给方案 B 列的那条"什么在哪儿"
+ * 也正是这么写的：「『＋』跟在最后一个胶囊后面」—— 同时写着齿轮"挪到右上角"。
+ *
+ * 齿轮**挪不进平台的标题栏**（那一行不归我们画），所以它留在这一行的最右角，
+ * 中间的空档交给 `Box.createHorizontalGlue()`。这样"＋ 咬住胶囊"与"齿轮贴住
+ * 右边缘"两件事由同一个弹簧保证，不用各写各的。
+ *
+ * 随之作废的是原来那个 `TOP_ROW_GAP` —— 它管的是"两个图标之间隔多远"，
+ * 而这两个图标已经不挨着了。但它换来的那条规矩仍然有效、也仍被用例钉着：
+ * **图标的盒子必须等于图标本身**。New UI 给每个 `JButton` 兜的 72px 最小宽度
+ * 一旦插进来，屏幕上就是中间空着一大截（见 [TopRowIconButton] 里那张对照表）。
+ *
+ * 这一行的白只有两处出处：胶囊与「＋」之间的 [CHIP_GAP]（与"两颗胶囊之间"
+ * 是同一个数），以及那个弹簧。别在按钮内边距或别处再添白。
  */
 internal fun buildTopRow(
     sessionLabel: JComponent,
@@ -78,19 +73,23 @@ internal fun buildTopRow(
     newSessionButton: JComponent,
 ): JPanel = JPanel(BorderLayout()).apply {
     border = JBUI.Borders.empty(4, 8)
-    add(sessionLabel, BorderLayout.CENTER)
     add(
         JPanel().apply {
-            // X_AXIS 且容器宽度就给首选宽（BorderLayout 的 EAST 槽）：
-            // 两个按钮不会被拉伸，所以"挨多近"完全由下面的间距说了算
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
+            add(sessionLabel)
+            // 与胶囊之间用同一个间距 —— "胶囊与＋"和"两颗胶囊之间"本来就是一回事
+            add(Box.createHorizontalStrut(CHIP_GAP))
             add(newSessionButton)
-            add(Box.createHorizontalStrut(TOP_ROW_GAP))
-            add(settingsButton)
+            // 排满时这里是弹簧被挤成 0 之后的**唯一**退路，见 [MIN_BUTTON_SEPARATION]
+            add(Box.createHorizontalStrut(MIN_BUTTON_SEPARATION))
+            // 富余**全给这一段**：它同时把「＋」顶到胶囊后面、把齿轮顶到最右角。
+            // （换成一个居中的容器就做不到 —— 那样"＋ 在哪儿"会随窗口宽度漂）
+            add(Box.createHorizontalGlue())
         },
-        BorderLayout.EAST,
+        BorderLayout.CENTER,
     )
+    add(settingsButton, BorderLayout.EAST)
 }
 
 /** 自绘图标的两种形状。 */
@@ -99,7 +98,7 @@ internal enum class TopRowGlyph { Plus, Gear }
 /**
  * 两个按钮上画的图形。**自绘，不用字形**。
  *
- * 用字符（「＋」U+FF0B / 「⚙」U+2699）的代价在 [TOP_ROW_GAP] 顶上写着：
+ * 用字符（「＋」U+FF0B / 「⚙」U+2699）的代价写在 [buildTopRow] 顶上：
  * 字形盒的边距不可控、随字体与 DPI 变，压得紧了还会被 LAF 判成"放不下"
  * 而画成省略号。自绘之后，**这个盒子的边界就是墨迹** —— 间距想给多少给多少。
  *
@@ -171,8 +170,8 @@ internal class TopRowIcon(private val glyph: TopRowGlyph) : Icon {
  *
  * 有一处不是随手写的：那个 `border`。默认边框的 3px 内边距**两个方向待遇不同**：
  *  - **横向**：纯粹是空隙，**归零** —— 图标自己那 12px 盒子的边已经是墨迹了，
- *    再留一点就是两个图标之间白多出来的那一截（见 [TOP_ROW_GAP] 第四轮）。
- *    归零还有个好处：两个按钮的可点矩形**紧挨着**，中间不留一条点不着的缝；
+ *    再留一点就是图标旁边白多出来的一截（那正是 2026-09-15 前后五轮"间隔太大"
+ *    的根子）。归零还有个好处：可点矩形一直顶到图标墨迹，不留点不着的缝；
  *  - **竖向**：那是**点击区域的高度**，留着。一起去掉的话按钮会比这一行矮
  *    6px，可点的地方明显变小 —— 而这件事在截图上看不出来。
  *
@@ -209,7 +208,8 @@ internal open class TopRowIconButton(glyph: TopRowGlyph) : JButton() {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         // 先读后改：改完再读就是 0 了
         val vPad = insets.top
-        // 横向 0：按钮的左右边界就落在图标墨迹上，图标之间的白只剩 TOP_ROW_GAP
+        // 横向 0：按钮的左右边界就落在图标墨迹上 —— 于是"图标旁边有多白"只由
+        // 布局那一层的间距决定（见 buildTopRow），不在这里凭空长出来
         border = JBUI.Borders.empty(vPad, 0)
     }
 

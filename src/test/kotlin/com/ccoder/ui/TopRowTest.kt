@@ -8,6 +8,7 @@ import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.Container
 import java.awt.Cursor
 import javax.swing.JButton
@@ -52,11 +53,12 @@ class TopRowTest {
 
     private class Laid(
         val row: JPanel,
-        /** 中间那一格 —— 2026-09-16 起是一排会话胶囊（原来是单个会话标签）。 */
-        val center: JComponent,
+        /** 那一排会话胶囊（2026-09-16 起顶行的开头那一格）。 */
+        val chips: JComponent,
         val gear: JButton,
         val plus: JButton,
-        val cluster: JPanel,
+        /** 胶囊行 + 「＋」 + 弹簧 那一段。**齿轮不在里面**（它在 row 的 EAST 槽）。 */
+        val left: JPanel,
     )
 
     /**
@@ -65,20 +67,24 @@ class TopRowTest {
      * 不给尺寸就直接量 bounds 的话全是 0 —— 一条永远通过的断言比没有断言更糟。
      * 所以这里撑到真实宽度（工具窗口默认 420）再读坐标。
      */
-    private fun laidOut(width: Int = 420, title: String? = "重构 extractor 的指纹计算"): Laid {
+    private fun laidOut(
+        width: Int = 420,
+        title: String? = "重构 extractor 的指纹计算",
+        tabs: Int = 1,
+    ): Laid {
         lateinit var out: Laid
         onEdt {
             val chips = SessionChips({}, {}).apply {
                 render(
-                    listOf(
+                    (0 until tabs).map { i ->
                         TabChip(
                             owner = JPanel(),
                             title = title,
                             state = TabState.Idle,
-                            current = true,
-                            canClose = false,
+                            current = i == 0,
+                            canClose = tabs > 1,
                         )
-                    )
+                    }
                 )
             }
             val gear = settingsGearButton {}
@@ -88,9 +94,12 @@ class TopRowTest {
             val outer = JPanel(BorderLayout()).apply { isOpaque = true }
             outer.add(row)
             outer.setSize(width, 200)
+            // 排两遍：第一遍把 row 的首选高度定下来（它挂在 NORTH，
+            // 高度取自 preferred），第二遍各子项才拿到真实尺寸
+            layoutAll(outer)
             layoutAll(outer)
 
-            out = Laid(row, chips, gear, plus, row.getComponent(1) as JPanel)
+            out = Laid(row, chips, gear, plus, row.getComponent(0) as JPanel)
         }
         return out
     }
@@ -100,17 +109,25 @@ class TopRowTest {
         for (child in c.components) if (child is Container) layoutAll(child)
     }
 
-    /** 按钮在 row 坐标系里的左右边界（两个按钮各在 cluster 里，差一层偏移）。 */
-    private fun Laid.leftOf(b: JButton) = cluster.x + b.x
-    private fun Laid.rightOf(b: JButton) = cluster.x + b.x + b.width
+    /**
+     * 组件在 row 坐标系里的左右边界。
+     *
+     * 不能写死一层偏移：胶囊与「＋」在 `left` 里（差一层），齿轮直接在 `row` 里。
+     * `parent.x + x` 两种情况都对，而所有比较都发生在 row 内部，不用管 row 自己
+     * 在 outer 里的位置。
+     */
+    private fun Laid.leftOf(c: Component) = (c.parent as Component).x + c.x
+    private fun Laid.rightOf(c: Component) = leftOf(c) + c.width
 
     // ---- 顺序 ----
 
     @Test
-    fun `「＋」在齿轮左边`() {
+    fun `「＋」紧跟在最后一个胶囊后面`() {
+        // 用户原话（2026-09-16）：「新建会话的按钮应该时刻跟随在最后一个胶囊的后面」。
+        // 间距用 CHIP_GAP —— 与"两颗胶囊之间"是同一个数（设计稿里那个 .chips 的 gap）
         val r = laidOut()
 
-        assertTrue(r.leftOf(r.plus) < r.leftOf(r.gear), "「＋」应该在齿轮左边")
+        assertEquals(CHIP_GAP, r.leftOf(r.plus) - r.rightOf(r.chips))
     }
 
     @Test
@@ -123,25 +140,24 @@ class TopRowTest {
     // ---- 间距 ----
 
     @Test
-    fun `两个按钮之间只隔 TOP_ROW_GAP`() {
-        // 量的是**盒子**之间。所以它单独并不能保证"眼睛看到的就是 TOP_ROW_GAP"——
-        // 盒子被 LAF 撑宽时它照样绿（撑宽的是盒子内部）。下面那条
-        // `按钮盒子就是图标盒子` 才是配对的另一半
+    fun `富余的空白全落在「＋」与齿轮之间`() {
+        // 这三者的位置由**同一个**弹簧决定：富余归它 → 「＋」咬住胶囊、齿轮贴住
+        // 右边缘。挪成居中容器之类的话，"＋ 在哪儿"会随窗口宽度漂
         val r = laidOut()
 
-        assertEquals(TOP_ROW_GAP, r.gear.x - (r.plus.x + r.plus.width))
+        assertTrue(
+            r.rightOf(r.plus) < r.leftOf(r.gear),
+            "「＋」顶到齿轮上了，「＋」应当在最后一个胶囊后面",
+        )
     }
 
     @Test
-    fun `这一簇没有藏起来的横向边距`() {
-        // 当初"间隔太大"的根子就在这里：按钮默认边框的 3px 横向内边距画都不画，
-        // 但照样占地方 —— 两个字形之间于是白多出 6px
+    fun `胶囊从这一行最左边开始，前面没有藏起来的白`() {
+        // 当初"间隔太大"的根子就在这类地方：按钮默认边框的 3px 横向内边距
+        // 画都不画，但照样占地方。这条钉的是"左边那一段白只有 row 自己的边距"
         val r = laidOut()
 
-        assertEquals(
-            r.plus.preferredSize.width + TOP_ROW_GAP + r.gear.preferredSize.width,
-            r.cluster.width,
-        )
+        assertEquals(r.row.insets.left, r.leftOf(r.chips))
     }
 
     @Test
@@ -198,7 +214,7 @@ class TopRowTest {
      * **这一行只有胶囊可点，所以行高必须就是胶囊高 + 内边距。**
      *
      * 2026-09-16 用户报「这一行的高度拉高一点，现在太矮了点击不方便」—— 原来胶囊
-     * 22px。这条钉的是竖直方向的那条规矩（同 [TOP_ROW_GAP] 第五轮那条的竖直版）：
+     * 22px。这条钉的是竖直方向的那条规矩（"白只有标出来的那几处出处"的竖直版）：
      * 哪天有人在别处再补一层竖直内边距，多出来的那几像素**看着是这一行的一部分**，
      * 点下去却什么都不会发生 —— 而截图上看不出区别。
      *
@@ -214,7 +230,7 @@ class TopRowTest {
             r.row.preferredSize.height,
             "行高 ≠ 胶囊高 + 内边距 —— 多出来的是点不着的白",
         )
-        assertEquals(CHIP_HEIGHT, r.center.preferredSize.height, "胶囊没占满这一格")
+        assertEquals(CHIP_HEIGHT, r.chips.preferredSize.height, "胶囊没占满这一格")
     }
 
     @Test
@@ -238,7 +254,21 @@ class TopRowTest {
         )
 
         assertTrue(r.rightOf(r.gear) <= r.row.width - r.row.insets.right, "齿轮被挤出这一行了")
-        assertTrue(r.center.x + r.center.width <= r.leftOf(r.plus), "胶囊行压到按钮上了")
+        assertTrue(r.rightOf(r.chips) <= r.leftOf(r.plus), "胶囊行压到「＋」上了")
+    }
+
+    @Test
+    fun `排满 5 个标签时「＋」与齿轮也不许贴在一起`() {
+        // 2026-09-16 探头图 `top-row-probe-five.png` 上抓到的：五颗胶囊把这一行
+        // 吃到只剩按钮的位置，弹簧被挤成 0，「＋」直接顶住齿轮 —— 两个都点不准。
+        // 这条钉的是那道**最小**间隔，它在富余的时候看不出来（归弹簧管）
+        val r = laidOut(tabs = MAX_SESSION_TABS)
+
+        assertTrue(
+            r.leftOf(r.gear) - r.rightOf(r.plus) >= MIN_BUTTON_SEPARATION,
+            "「＋」与齿轮贴上了：间隔只有 ${r.leftOf(r.gear) - r.rightOf(r.plus)}px",
+        )
+        assertTrue(r.rightOf(r.chips) <= r.leftOf(r.plus), "胶囊压到「＋」上了")
     }
 
     @Test
@@ -246,12 +276,10 @@ class TopRowTest {
         // 工具窗口能拖得很窄。这一行的规矩是"先挤标签，不动按钮"
         val r = laidOut(width = 260)
 
-        assertEquals(
-            r.plus.preferredSize.width + TOP_ROW_GAP + r.gear.preferredSize.width,
-            r.cluster.width,
-            "两个按钮被压缩了 —— 那样它们就不一样宽了",
-        )
+        assertEquals(r.plus.preferredSize.width, r.plus.width, "「＋」被压缩了")
+        assertEquals(r.gear.preferredSize.width, r.gear.width, "齿轮被压缩了")
         assertEquals(260 - r.row.insets.right, r.rightOf(r.gear))
+        assertTrue(r.rightOf(r.chips) <= r.leftOf(r.plus), "挤到「＋」压住胶囊了")
     }
 
     @Test
