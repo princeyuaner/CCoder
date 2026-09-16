@@ -18,15 +18,29 @@
     Requires the Claude Code CLI (claude) and Node.js installed on your machine.
     ]]></description>
 
+    <!-- 口径：**只写相对上一个已上架版本（0.2.16）的增量**，中英各一份（§八）。
+         多标签那几笔修复（平台多画一行页签、＋ 出来带着历史、胶囊太矮、
+         圆角不是半圆、＋ 的位置）改的都是**从没发布过**的东西 —— 用户第一次
+         见到的就是修好的样子，所以并进第 1、2 条，不单独占行。 -->
     <change-notes><![CDATA[
     <h3>0.2.17</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.16 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (b43262b).</li>
+      <li><b>Multiple sessions at once</b> &mdash; open up to 5 sessions in one CCoder window; each runs on its own, so Claude can write code in one while you dig through logs in another.</li>
+      <li><b>Session chips</b> &mdash; the session-name row is now the tab strip: a colored dot shows at a glance which session is running, which is waiting for your approval, and which is idle.</li>
+      <li><b>"+" opens a tab</b> &mdash; new tabs start empty; click another chip to switch, and a &#10005; appears on hover to close one.</li>
+      <li><b>The same session cannot be open twice</b> &mdash; sessions already open in another tab are marked and cannot be picked again.</li>
+      <li><b>Closing a busy tab asks first</b> &mdash; closing a tab whose session is running or waiting on a permission asks for confirmation instead of cutting it off silently.</li>
+      <li><b>Polish</b> &mdash; the settings dialog got the dividers it was missing, and the status cards and input box have softer corners.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 <b>0.2.16</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>b43262b</code>）。</li>
+      <li><b>同时开多个会话</b> &mdash;&mdash; 一个 CCoder 窗口里最多开 <b>5</b> 条会话，各自独立跑：一条让 Claude 写代码，另一条查日志，不用等。</li>
+      <li><b>会话胶囊行</b> &mdash;&mdash; 会话名那一行就是标签行；一颗状态点看出哪条在跑、哪条在等你批准、哪条空闲。</li>
+      <li><b>「＋」＝开新标签</b> &mdash;&mdash; 新标签是空的；点别的胶囊切过去，悬停出现 &#10005; 可关。</li>
+      <li><b>同一条会话不会开在两个标签里</b> &mdash;&mdash; 已经开着的那条在列表里标「已打开」，点不动。</li>
+      <li><b>关掉还在跑的标签会先问一句</b> &mdash;&mdash; 正在跑 / 有待决权限 / 正在启动的，关之前弹一句确认。</li>
+      <li><b>细节</b> &mdash;&mdash; 设置对话框补上漏掉的分隔线；状态卡与输入框的圆角收圆了一点。</li>
     </ul>
     ]]></change-notes>
 
