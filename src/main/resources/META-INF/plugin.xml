@@ -6,30 +6,194 @@
          （2026-09-15，理由见 docs 里那次搜索实测）。 -->
     <name>CCoder (Claude Code Assistant)</name>
     <!-- 市场审核指南要"vendor 网站有效可访问、邮箱有效"。邮箱填了（git 里的提交邮箱）；
-         url 空着：没有主页也没有公开仓库（2026-09-15 确认），不编一个指到别人家的网址。
-         若审核因此打回，补一个 url="..." 即可。名字 ccoder 是插件页上显示的那个。 -->
+         url 仍空着。注：仓库 2026-09-17 已确认公开（github.com/princeyuaner/CCoder，
+         市场 Technical Information 里的 source code 链接就是它），要挂主页可以从这里填；
+         不填也不缺什么。名字 ccoder 是插件页上显示的那个。 -->
     <vendor email="594954848@qq.com">ccoder</vendor>
 
+    <!-- 描述在**两处**：这里是源码侧的权威副本（随包发上去），
+         docs/marketplace-description.md 是同一份的 Markdown —— 市场后台
+         （General Information → Description）从 2025-09 起可以直接改描述，
+         **不用重传包**，而那个编辑器只吃 Markdown。两处改一处，另一处跟着改。
+         口径：英文在前（指南要求首 40 字符是英文，预览卡就取这一段）、
+         中英各一份（§八）。**不写 <h1>~<h6>** —— 后台存的是 HTML，标题标签
+         在论坛上有出问题的报告，粗体小标题一样的用。 -->
     <description><![CDATA[
-    Runs the Claude Code CLI inside a PyCharm tool window: ask against the project
-    you are already editing, see every file edit as a diff before it is applied,
-    and approve or deny the commands that touch your machine.
+    <p>Claude Code in a PyCharm tool window: chat against the project you are editing,
+    see every file edit as a diff before it lands, and approve the commands that touch
+    your machine.</p>
 
-    Requires the Claude Code CLI (claude) and Node.js installed on your machine.
+    <p>CCoder runs the Claude Code CLI (<code>claude</code>) you already have installed
+    &mdash; it is not another AI backend and ships no key of its own. It works on the
+    project you have open: its files, its <code>CLAUDE.md</code>, its settings.</p>
+
+    <p><b>Working in the project</b></p>
+    <ul>
+      <li><code>@</code> references files and the code you selected in the editor (both
+          show as one-line tokens and expand when sent); <code>#</code> references
+          project symbols such as classes and functions. Completion is fuzzy &mdash;
+          <code>cmprk</code> finds <code>ComposerMode.kt</code>.</li>
+      <li><code>/</code> opens slash commands and the preset prompts you saved.</li>
+      <li>Ctrl+V pastes a screenshot straight into the input box.</li>
+      <li>Type while Claude is working and your message is queued, sent when the turn ends.</li>
+    </ul>
+
+    <p><b>Changes you can see &mdash; and stop</b></p>
+    <ul>
+      <li>Every file edit is shown as a diff before it is applied.</li>
+      <li>Commands that touch your machine (shell, writes outside the project) wait for
+          your Allow or Deny.</li>
+      <li>Six permission modes, from read-only Plan and Auto-accept-edits to a
+          classifier-driven Auto that judges each prompt and still asks when unsure.</li>
+      <li>Plan approvals are laid out as Markdown, in dialogs you can resize.</li>
+    </ul>
+
+    <p><b>Sessions</b></p>
+    <ul>
+      <li>Up to five sessions at once in one window; each has its own chip, with a status
+          dot for running / waiting on you / idle.</li>
+      <li>Sessions are named after your first message; resume, rename or delete them from
+          the list. Closing a tab that is still working asks first.</li>
+    </ul>
+
+    <p><b>Bring your own model</b> &mdash; choose the model and the thinking effort;
+    model profiles point at your own gateway or endpoint.</p>
+
+    <p><b>Project configuration</b></p>
+    <ul>
+      <li>MCP panel: read and edit the project's <code>.mcp.json</code>, with the live
+          connection status of every server.</li>
+      <li>Hooks panel: read and edit hooks in the project's <code>.claude/settings.json</code>
+          &mdash; nothing else in that file is touched.</li>
+    </ul>
+
+    <p><b>Requirements</b></p>
+    <ul>
+      <li>PyCharm 2025.3 or newer.</li>
+      <li>Claude Code CLI (<code>claude</code>) &mdash; <b>not bundled</b>; CCoder drives
+          the copy you installed.</li>
+      <li>Node.js.</li>
+      <li>An Anthropic account, subscription or API key &mdash; whatever the CLI itself uses.</li>
+    </ul>
+
+    <p><b>Notes</b></p>
+    <ul>
+      <li>The plugin talks only to the CLI it launches; your code and prompts go where
+          that CLI is configured to send them.</li>
+      <li>The CCoder interface is currently in Chinese; Claude's replies follow your
+          prompt's language.</li>
+      <li>Not affiliated with Anthropic. "Claude" and "Claude Code" are trademarks of
+          Anthropic PBC.</li>
+      <li>MIT licensed. Source and issue tracker:
+          <a href="https://github.com/princeyuaner/CCoder">github.com/princeyuaner/CCoder</a></li>
+    </ul>
+
+    <p><b>中文</b></p>
+
+    <p>在 PyCharm 的工具窗口里跑 Claude Code：就着你正在编辑的项目提问，每次改文件都先给你看
+    diff，会动你机器的命令由你放行或拒绝。</p>
+
+    <p>CCoder 驱动的是你自己已经装好的 Claude Code CLI（<code>claude</code>）&mdash;&mdash;
+    它不是另一个 AI 后端，也不自带任何密钥。它就在你打开的那个项目里干活：项目里的文件、
+    它的 <code>CLAUDE.md</code>、它的设置。</p>
+
+    <p><b>在这个项目里干活</b></p>
+    <ul>
+      <li><code>@</code> 引用文件，以及在编辑器里选中的代码（都显示成一行记号，发送时才展开）；
+          <code>#</code> 引用项目里的类、函数等符号。补全是模糊的 &mdash;&mdash; 敲
+          <code>cmprk</code> 也能找到 <code>ComposerMode.kt</code>。</li>
+      <li><code>/</code> 打开斜杠命令，以及你在设置里存下的预置 prompt。</li>
+      <li>Ctrl+V 把截图贴进输入框。</li>
+      <li>Claude 干活时你照样能打字：消息排进队列，当前这轮一结束就发出去。</li>
+    </ul>
+
+    <p><b>看得到、也拦得住的改动</b></p>
+    <ul>
+      <li>每次改文件都先给你看 diff。</li>
+      <li>会动你机器的命令（shell、项目外的写入）由你放行或拒绝。</li>
+      <li>六种权限模式，从只读的「仅规划」、「自动接受编辑」，到由模型逐条判定的
+          「自动判定」&mdash;&mdash; 拿不准的仍会询问。</li>
+      <li>计划审批按 Markdown 排版，框可以拉伸。</li>
+    </ul>
+
+    <p><b>会话</b></p>
+    <ul>
+      <li>一个窗口里最多同时开 5 条会话；每条一颗胶囊，一颗状态点在跑 / 等你 / 空闲。</li>
+      <li>会话名取你说的第一句；列表里可恢复、改名、删除。关掉还在干活的标签会先问一句。</li>
+    </ul>
+
+    <p><b>自带模型</b> &mdash;&mdash; 选模型与思考档位；模型配置（profile）还能指向你自己的
+    网关或端点。</p>
+
+    <p><b>项目配置</b></p>
+    <ul>
+      <li>MCP 面板：读写项目级 <code>.mcp.json</code>，每个 server 的连接状态实时可见。</li>
+      <li>hooks 面板：读写项目级 <code>.claude/settings.json</code> 里的 hooks &mdash;&mdash;
+          同文件别的内容一个字节不动。</li>
+    </ul>
+
+    <p><b>需要什么</b></p>
+    <ul>
+      <li>PyCharm 2025.3 或更新版本。</li>
+      <li>Claude Code CLI（<code>claude</code>）&mdash;&mdash; <b>不随插件分发</b>，
+          驱动的是你已经装好的那份。</li>
+      <li>Node.js。</li>
+      <li>CLI 本身要的东西：Anthropic 账号 / 订阅 / API key。</li>
+    </ul>
+
+    <p><b>说明</b></p>
+    <ul>
+      <li>插件只和它启动的那个 CLI 说话；你的代码与 prompt 去向由那个 CLI 的配置决定。</li>
+      <li>与 Anthropic 无关；"Claude" 与 "Claude Code" 是 Anthropic PBC 的商标。</li>
+      <li>MIT 许可。源码与问题反馈：
+          <a href="https://github.com/princeyuaner/CCoder">github.com/princeyuaner/CCoder</a></li>
+    </ul>
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本（0.2.18）的增量**，中英各一份（§八）。
-         已知风险：0.2.18 还在审核中。**万一它没过审，本版就是首个公开版本** ——
-         那时要把 0.2.18 那四条（d342e45）并进来，按 a936a6d 那次的做法。 -->
+         0.2.18 已过审上架（2026-09-17 用户确认），所以它那四条（d342e45）**不**并进来 ——
+         用户更新到 0.2.18 时已经看过那四条了。 -->
     <change-notes><![CDATA[
     <h3>0.2.19</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.18 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (d342e45).</li>
+      <li><b>The Environment tab finds what is missing &mdash; and installs it</b> &mdash; a new
+          Runtime dependencies block checks for Node.js and the <code>claude</code> CLI, shows the
+          version it found, and offers to install whichever one is absent. It shows the exact
+          command first (winget will raise a UAC prompt), streams the output, and re-checks when
+          it is done. Where it cannot install for you &mdash; Linux, or a machine with no package
+          manager it knows &mdash; it hands you the command and the official download page instead.</li>
+      <li><b>When a session cannot start, the error tells you where to go</b> &mdash; "claude not
+          found" now points at Settings &rarr; Environment &rarr; Runtime dependencies, instead of
+          leaving you to guess what is missing.</li>
+      <li><b>A new tab for getting in touch</b> &mdash; Settings has a 群交流 tab with a QR code:
+          scan it to reach me on WeChat with questions, ideas, or a bug.</li>
+      <li><b>Clear the whole history in one go</b> &mdash; the session list gets a 清空全部 in its
+          corner: one confirmation clears this project's sessions. Anything still open in a tab is
+          kept (its transcript is being written right now) and the result tells you how many.</li>
+      <li><b>The delete button's box fits the word again</b> &mdash; hovering 删除 used to draw a
+          frame that was too short, with its edges cutting straight through the characters.</li>
+      <li><b>After an update, a once-only note on what changed</b> &mdash; the first time you open
+          CCoder after an upgrade it shows this list; it does not come back for the same version.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 <b>0.2.18</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>d342e45</code>）。</li>
+      <li><b>环境页：缺什么一看就知道，还能就地装</b> &mdash;&mdash; 设置 &rarr; 环境 顶部多了一块
+          「运行依赖」：检测 Node.js 与 <code>claude</code> CLI 并显示找到的版本；缺哪个，那颗按钮
+          就替你跑安装 —— 先把确切的命令摆给你看（winget 会弹 UAC 提权），装着时输出实时滚，
+          装完自动复检。装不了的环境（Linux，或者机器上没有它认识的包管理器）退化成
+          「复制命令 + 打开官方下载页」。</li>
+      <li><b>会话起不来时，报错直接指路</b> &mdash;&mdash; 找不到 <code>claude</code> 时那句提示
+          现在直接指向「设置 &rarr; 环境 &rarr; 运行依赖」，不用再猜缺了什么。</li>
+      <li><b>新页签「群交流」</b> &mdash;&mdash; 设置里多了一页，放着一张二维码：有问题、有建议，
+          或者只是想聊聊怎么用，扫码加我微信。</li>
+      <li><b>一键清空历史会话</b> &mdash;&mdash; 会话列表右上角多了「清空全部」：确认一次就清掉
+          这个项目的历史。正在标签里跑着的那些会保留（它的记录正被写着），清完之后会告诉你
+          保留了几条。</li>
+      <li><b>删除按钮那个框不再横穿文字</b> &mdash;&mdash; 指针停在「删除」上时画出来的框原先
+          太矮，上下两条边正好划过字形。</li>
+      <li><b>更新之后弹一次更新日志</b> &mdash;&mdash; 升级后第一次打开 CCoder，会弹一窗写清
+          这一版变了什么；同一个版本只弹一次。</li>
     </ul>
     ]]></change-notes>
 
