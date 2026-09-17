@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 文件回滚 · 界面</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量，
+   与 session-tabs.html / session-list-v2.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#2b2d30;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --scrim:rgba(8,8,10,.62);
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --scrim:rgba(52,54,58,.28);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased; transition: background .2s, color .2s;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+            padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 76ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; transition: background .15s, color .15s; }
+.toggle button.on { background: var(--accent); color: var(--accent-fg); }
+
+.intro { margin: 40px 0 8px; display:grid; grid-template-columns: repeat(auto-fit, minmax(270px,1fr)); gap: 16px; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); letter-spacing:.06em; text-transform:uppercase; color: var(--page-dim); font-weight:600; }
+.card p { margin: 0; font-size: 13.5px; color: var(--page-fg); }
+.card.warn { border-left: 3px solid var(--warn); }
+.card.ok { border-left: 3px solid var(--ok); }
+.card.bad { border-left: 3px solid var(--danger); }
+
+.variant { margin: 72px 0 0; padding-top: 34px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap: 14px; flex-wrap:wrap; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.1em; text-transform:uppercase; padding: 4px 9px; border-radius: 5px;
+       background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.tag.q { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.tag.done { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.variant h2 { font-family: var(--serif); font-size: 24px; margin: 0; font-weight: 600; }
+.vsub { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 80ch; }
+.split { display:grid; grid-template-columns: 420px minmax(300px,1fr); gap: 34px; margin-top: 26px; align-items:start; }
+.split.wide { grid-template-columns: minmax(520px,1fr) minmax(280px,380px); }
+@media (max-width: 900px){ .split, .split.wide { grid-template-columns: 1fr; } }
+.row2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap: 22px; margin-top: 26px; align-items:start; }
+
+/* ---------------- 工具窗口 mock（420px，与产品一致） ---------------- */
+.win { width: 420px; border:1px solid var(--border); border-radius: 6px; overflow:hidden; background: var(--panel);
+       box-shadow: 0 10px 34px rgba(0,0,0,.22); }
+[data-theme="light"] .win { box-shadow: 0 10px 34px rgba(0,0,0,.10); }
+.win-head { display:flex; align-items:center; gap:8px; padding: 7px 10px; background: var(--panel);
+            border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text); }
+.win-head .dot3 { color: var(--dim); letter-spacing: 2px; font-size: 13px; }
+.win-head .ttl { font-weight: 500; }
+.win-head .grow { flex:1; }
+.win-head .ico { width: 18px; height: 18px; border-radius: 4px; background: var(--code); color: var(--dim);
+                 display:grid; place-items:center; font-size: 11px; }
+
+/* 胶囊行（0.2.17 现状） */
+.chips { display:flex; align-items:center; gap:6px; padding: 8px 10px 4px; overflow:hidden; }
+.chip { display:flex; align-items:center; gap:6px; min-width:0; max-width: 138px; padding: 4px 8px; border-radius: 999px;
+        border:1px solid var(--border); background: var(--code); color: var(--dim); font-size: 12px; }
+.chip .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); }
+.chip .st { width:7px; height:7px; border-radius:50%; flex:none; background: var(--dim); }
+.chip .st.run { background: var(--accent); }
+.chip .plus { color: var(--dim); font-size: 13px; padding: 0 2px; }
+
+/* ---------------- 转写区（按 web/src/styles.css 的真实规格） ---------------- */
+.body { background: var(--editor); border-top: 1px solid var(--border-soft); padding: 12px 12px 14px; }
+.body.tall { padding-bottom: 20px; }
+.brow { display:flex; margin: 0 0 4px; position: relative; }
+.brow.user { justify-content: flex-end; }
+.bubble { border-radius: 12px; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+.bubble.u { background: var(--accent); color: #fff; max-width: 85%; }
+.bubble.a { background: var(--surface); border: 1px solid var(--border); color: var(--text); max-width: 100%; }
+.timestamp { font-size: 11px; color: var(--dim); margin: 0 0 12px; }
+.timestamp.right { text-align: right; }
+.tool { border:1px solid var(--border); border-radius: 7px; padding: 7px 9px; margin: 0 0 10px; background: var(--panel); }
+.tool .h { font-size: 11.5px; color: var(--dim); display:flex; gap:6px; align-items:center; font-family: var(--mono); }
+.tool .h .ok { color: var(--ok); }
+.tool .code { font-family: var(--mono); font-size: 11.5px; color: var(--text); margin-top: 5px; }
+.tool .code .add { color: var(--ok); }
+.tool .code .del { color: var(--danger); }
+.sysnote { font-size: 12px; color: var(--dim); border-left: 2px solid var(--border);
+           padding: 3px 0 3px 9px; margin: 2px 0 12px; }
+.sysnote b { color: var(--text); font-weight: 500; }
+
+/* ↺ 入口：气泡左边、垂直居中，悬停浮出 */
+.undo { position:absolute; left: -2px; top: 50%; transform: translateY(-50%);
+        width: 22px; height: 22px; border-radius: 6px; display:grid; place-items:center;
+        font-size: 14px; color: var(--dim); background: transparent; }
+.undo.hot { color: var(--text); background: var(--code); border: 1px solid var(--border); }
+.undo.ghost { opacity: 0; }
+.undo.off { color: var(--border); }
+.bubble.u.lead { max-width: 78%; }   /* 给 ↺ 让出左侧那 22px */
+
+/* 悬停三种态的展示条 */
+.states { display:flex; gap: 18px; margin-top: 14px; flex-wrap:wrap; }
+.state { border:1px solid var(--border); border-radius: 8px; padding: 10px 12px 12px; background: var(--editor); min-width: 200px; }
+.state .cap { font-family: var(--mono); font-size: 10.5px; letter-spacing:.08em; text-transform:uppercase; color: var(--dim); margin: 0 0 8px; }
+.state .demo { display:flex; align-items:center; gap: 10px; }
+.state .b { background: var(--accent); color:#fff; border-radius: 12px; padding: 7px 11px; font-size: 12px; }
+.state .b.dim { background: color-mix(in srgb, var(--accent) 45%, var(--editor)); color: color-mix(in srgb, #fff 70%, transparent); }
+
+/* 输错/忙态的说明行 */
+.hintline { display:flex; gap: 8px; align-items:center; margin: 10px 0 0; padding: 7px 10px;
+            border:1px solid var(--border); border-radius: 7px; background: var(--code);
+            font-size: 12px; color: var(--dim); }
+.hintline .k { color: var(--text); }
+
+.inbar { display:flex; align-items:center; gap:8px; margin: 10px 12px 12px; padding: 8px 10px; border-radius: 8px;
+         border:1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--dim); }
+.inbar.busy { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.inbar .grow { flex:1; }
+.stop { width: 22px; height: 22px; border-radius: 6px; background: var(--code); border: 1px solid var(--border);
+        color: var(--text); display:grid; place-items:center; font-size: 10px; }
+.send { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); display:grid; place-items:center; font-size: 12px; }
+
+/* ---------------- 模态框（IDE 全景 + 遮罩） ---------------- */
+.ide { position: relative; border:1px solid var(--border); border-radius: 8px; overflow:hidden; background: var(--editor); }
+.ide-top { display:flex; align-items:center; gap: 8px; padding: 6px 10px; background: var(--panel);
+           border-bottom:1px solid var(--border); font-size: 12px; color: var(--dim); }
+.ide-top .dots { display:flex; gap:5px; }
+.ide-top .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display:block; }
+.ide-main { display:grid; grid-template-columns: 1fr 340px; min-height: 380px; }
+@media (max-width: 760px){ .ide-main { grid-template-columns: 1fr; } .ide-main .toolcol { display:none; } }
+.editor { background: var(--editor); padding: 16px 18px; font-family: var(--mono); font-size: 12px; color: var(--text); line-height: 1.9; }
+.editor .c { color: var(--dim); font-style: italic; }
+.editor .k { color: #cf8e6d; } .editor .fn { color: #56a8f5; } .editor .s { color: #6aab73; }
+[data-theme="light"] .editor .k { color:#0033b3; } [data-theme="light"] .editor .fn { color:#00627a; } [data-theme="light"] .editor .s { color:#067d17; }
+.toolcol { background: var(--panel); border-left: 1px solid var(--border); padding: 10px; }
+.toolcol .tab { font-size: 11.5px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 7px; margin-bottom: 10px; }
+.bar { height: 9px; border-radius: 4px; background: var(--border-soft); margin-bottom: 8px; }
+.bar.w80{width:80%}.bar.w60{width:60%}.bar.w45{width:45%}
+.composer { height: 46px; border:1px dashed var(--border); border-radius: 6px; margin-top: 14px; }
+
+.scrim { position:absolute; inset:0; background: var(--scrim); backdrop-filter: blur(1.5px); z-index: 5; }
+
+.pop { position:absolute; z-index: 6; background: var(--panel); border:1px solid var(--border); border-radius: 10px;
+       box-shadow: 0 18px 60px rgba(0,0,0,.45); overflow:hidden; }
+.pop.pos-center { left:50%; top: 44%; transform: translate(-50%,-50%); width: 640px; max-width: calc(100% - 40px); }
+.pop-head { display:flex; align-items:center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+.pop-head .ttl { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.pop-head .badge { font-size: 11px; color: var(--dim); border:1px solid var(--border); border-radius: 99px; padding: 1px 8px; }
+.pop-head .x { margin-left: auto; color: var(--dim); font-size: 12px; }
+.pop-body { padding: 13px 14px 4px; }
+.pop-body p { margin: 0 0 9px; font-size: 13px; color: var(--text); }
+.pop-body .lead { font-size: 13.5px; }
+.pop-body .sub { color: var(--dim); font-size: 12.5px; }
+.anchor { border:1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 6px;
+          background: var(--code); padding: 8px 10px; font-size: 12.5px; color: var(--text); margin: 0 0 12px; }
+.anchor .who { display:block; font-size: 11px; color: var(--dim); margin-bottom: 3px; }
+
+.warnbox { display:flex; gap: 8px; border:1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+           background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 7px;
+           padding: 9px 11px; font-size: 12.5px; color: var(--text); margin: 0 0 12px; }
+.warnbox .ic { color: var(--warn); }
+.listhead { display:flex; align-items:baseline; gap:8px; margin: 0 0 6px; }
+.listhead .t { font-size: 12px; font-family: var(--mono); letter-spacing:.06em; text-transform:uppercase; color: var(--dim); }
+.listhead .n { font-size: 11.5px; color: var(--dim); }
+.flist { border:1px solid var(--border); border-radius: 7px; overflow:hidden; margin: 0 0 12px; }
+.frow { display:flex; align-items:center; gap: 9px; padding: 7px 10px; font-size: 12.5px; color: var(--text);
+        border-bottom: 1px solid var(--border-soft); }
+.frow:last-child { border-bottom: 0; }
+.frow .kind { font-family: var(--mono); font-size: 10.5px; color: var(--dim); border:1px solid var(--border);
+              border-radius: 4px; padding: 0 5px; flex:none; }
+.frow .p { font-family: var(--mono); font-size: 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.frow .cnt { margin-left:auto; font-family: var(--mono); font-size: 11px; color: var(--dim); flex:none; }
+.frow .del { margin-left:auto; flex:none; font-size: 11px; color: var(--danger); font-family: var(--mono); }
+.pop-foot { display:flex; align-items:center; gap: 8px; padding: 11px 14px 13px; border-top: 1px solid var(--border); background: var(--panel); }
+.pop-foot .spacer { flex:1; }
+.pop-foot .hint { font-size: 11.5px; color: var(--dim); }
+.btn { font: inherit; font-size: 12.5px; border:1px solid var(--border); background: var(--code); color: var(--text);
+       border-radius: 6px; padding: 6px 18px; cursor: default; }
+.btn.ghost { background: transparent; color: var(--dim); border-color: transparent; }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+.btn.danger { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); color: var(--danger); background: transparent; }
+.btn.focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 尺寸标注 */
+.measure { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 8px; }
+
+/* 说明栏 */
+.spec { margin: 0; }
+.spec dt { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); margin: 16px 0 4px; }
+.spec dd { margin: 0; font-size: 13.5px; color: var(--page-fg); }
+.spec dd b { color: var(--page-fg); }
+.spec .bad { color: var(--danger); }
+.spec .good { color: var(--ok); }
+.spec ul { margin: 4px 0 0; padding-left: 18px; }
+.spec li { margin: 3px 0; }
+
+.verdict { margin-top: 52px; padding: 24px 26px; border:1px solid var(--page-line); border-radius: 14px;
+           background: var(--page-card); border-left: 3px solid var(--warn); }
+.verdict h2 { font-family: var(--serif); margin: 0 0 10px; font-size: 21px; }
+.verdict p { margin: 0 0 10px; font-size: 14px; }
+.verdict table { width:100%; border-collapse: collapse; font-size: 13.5px; margin-top: 6px; }
+.verdict th, .verdict td { text-align:left; padding: 9px 12px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+.verdict th { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); font-weight: 600; }
+.note { color: var(--page-dim); font-size: 12.5px; }
+
+/* 设置页的开关行 */
+.setrow { display:flex; align-items:flex-start; gap: 14px; padding: 12px 14px; border:1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.setrow + .setrow { margin-top: 10px; }
+.setrow .t { font-size: 13px; color: var(--text); }
+.setrow .d { font-size: 12px; color: var(--dim); margin-top: 3px; max-width: 52ch; }
+.sw { margin-left:auto; flex:none; width: 34px; height: 19px; border-radius: 99px; background: var(--accent); position: relative; }
+.sw::after { content:""; position:absolute; top:2px; left:17px; width:15px; height:15px; border-radius:50%; background:#fff; }
+.sw.off { background: var(--border); }
+.sw.off::after { left: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-17</p>
+      <h1>文件回滚：界面该长什么样</h1>
+      <p class="lede">
+        spec（<code>2026-09-15-rewind-presets-mcp-design.md</code> 第一章）已定了形态：每条<strong>本会话发出的</strong>用户消息挂一个 ↺，
+        点击弹确认框，框里两段 —— <b>将要恢复的文件清单</b> 与 <b>一句语义说明</b>。
+        这份图把那两段画实，并把规格没写死的几处摊开问。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="t-dark" class="on" onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" onclick="setTheme('light')">Light</button>
+    </div>
+  </header>
+
+  <section class="intro">
+    <div class="card warn">
+      <h3>约束一</h3>
+      <p>清单<b>不能来自 SDK</b>：探针事实 5 —— <code>filesChanged</code> 恒为空（dryRun 回 <code>[]</code>、真回滚回 <code>null</code>）。
+      只能从转写区自己算：那条消息之后的 <code>Write</code> / <code>Edit</code> / <code>MultiEdit</code> 工具卡。</p>
+    </div>
+    <div class="card bad">
+      <h3>约束二</h3>
+      <p>回滚<b>连这条消息自己的改动一起撤销</b>，且之后<b>新建的文件会被删掉</b>；
+      但<b>对话一个字都不变</b>（<code>rewindFiles</code> 只动文件）。三件事三句话，少一句就是让用户误解。</p>
+    </div>
+    <div class="card ok">
+      <h3>约束三</h3>
+      <p><code>resume</code> 恢复进来的历史消息<b>没有 uuid</b>（不经我们的 <code>send</code>）——
+      挂上 ↺ 却点不动比不挂更糟，所以历史消息<b>不挂</b>。</p>
+    </div>
+  </section>
+
+  <!-- ================= A · 入口 ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag done">A · 规格已定</span>
+      <h2>入口：↺ 挂在用户气泡左边</h2>
+    </div>
+    <p class="vsub">420px 宽下，用户气泡封顶 85%，左剩下约 60px —— 一个 22px 的 ↺ 放得下且不挤正文。垂直居中贴气泡，不另起一行。</p>
+
+    <div class="split">
+      <div>
+        <div class="win">
+          <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+          <div class="chips">
+            <span class="chip on"><span class="st run"></span><span class="nm">重构 extractor 的指纹</span></span>
+            <span class="chip"><span class="st"></span><span class="nm">查日志</span></span>
+            <span class="plus">＋</span>
+          </div>
+          <div class="body tall">
+
+            <!-- 历史消息：没有 ↺ -->
+            <div class="brow user">
+              <div class="bubble u lead">顺手把 logging 那层也理一下</div>
+            </div>
+            <div class="timestamp right">昨天 18:40 · 恢复进来的历史</div>
+
+            <!-- 本会话消息 1：悬停态（图上故意画成悬停，好看见） -->
+            <div class="brow user">
+              <span class="undo hot" title="回滚文件">↺</span>
+              <div class="bubble u lead">把 extractor 的指纹改成跨块的</div>
+            </div>
+            <div class="timestamp right">今天 10:12</div>
+
+            <div class="tool">
+              <div class="h"><span class="ok">✓</span> Edit &nbsp;·&nbsp; src/extractor.py</div>
+              <div class="code"><span class="del">−</span> return sha1(chunk)</div>
+              <div class="code"><span class="add">+</span> return rolling_fingerprint(chunk)</div>
+            </div>
+            <div class="tool">
+              <div class="h"><span class="ok">✓</span> Write &nbsp;·&nbsp; tests/test_fingerprint.py</div>
+              <div class="code">def test_rolling(): …</div>
+            </div>
+            <div class="brow">
+              <div class="bubble a">改完了：sha1 换成按块流式累加，旧数据仍能校验。</div>
+            </div>
+          </div>
+          <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+        </div>
+      </div>
+
+      <dl class="spec">
+        <dt>为什么贴左边</dt>
+        <dd>右边是时间戳（<code>.row--user + .timestamp</code> 右对齐），上面是气泡。左侧那块留白是唯一不打架的位置。</dd>
+        <dt>历史消息</dt>
+        <dd class="bad">不挂 ↺。「昨天那条」在图上就是光秃秃的 —— 这是刻意的，不是漏画。</dd>
+        <dt>忙时不点</dt>
+        <dd>回滚要在空闲时做。忙时 ↺ 变灰（见 C·3），点了给一句说明，不是静默。</dd>
+        <dt>出现时机</dt>
+        <dd class="bad">悬停才浮出，还是常显？—— 见文末问题 1。</dd>
+      </dl>
+    </div>
+
+    <div class="states">
+      <div class="state">
+        <p class="cap">常态 · 不悬停</p>
+        <div class="demo"><span style="width:22px"></span><span class="b">把 extractor 的指纹改成跨块的</span></div>
+      </div>
+      <div class="state">
+        <p class="cap">悬停</p>
+        <div class="demo"><span class="undo hot">↺</span><span class="b">把 extractor 的指纹改成跨块的</span></div>
+      </div>
+      <div class="state">
+        <p class="cap">会话忙 · 禁用</p>
+        <div class="demo"><span class="undo off">↺</span><span class="b dim">把 extractor 的指纹改成跨块的</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= B · 确认框 ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag done">B · 规格已定</span>
+      <h2>确认框：清单 + 语义，两段</h2>
+    </div>
+    <p class="vsub">
+      尺寸跟 0.2.16 的权限/计划框同源：<b>宽 640、可拉伸</b>（清单长起来需要），Esc / 关窗 = 取消。
+      框里顺序：先锚定<b>回滚到哪条消息</b>，再说<b>会发生什么</b>，最后才是清单 —— 用户要审的是"后果"，不是文件名。
+    </p>
+
+    <div class="ide">
+      <div class="ide-top">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span>CCoder — PyCharm</span>
+      </div>
+      <div class="ide-main">
+        <div class="editor">
+          <div><span class="c">// 回滚只动文件；这段代码会被改回</span></div>
+          <div><span class="c">// 「发出那条消息之前」的样子</span></div>
+          <div><span class="k">def</span> <span class="fn">fingerprint</span>(chunk):</div>
+          <div>&nbsp;&nbsp;return <span class="fn">rolling_fingerprint</span>(chunk)</div>
+          <div>&nbsp;</div>
+          <div><span class="c">// tests/test_fingerprint.py 会被整个删掉</span></div>
+          <div><span class="c">// —— 它是在那条消息之后才新建的</span></div>
+        </div>
+        <div class="toolcol">
+          <div class="tab">CCoder</div>
+          <div class="bar w80"></div><div class="bar"></div><div class="bar w60"></div><div class="bar w45"></div>
+          <div class="composer"></div>
+        </div>
+      </div>
+
+      <div class="scrim"></div>
+      <div class="pop pos-center">
+        <div class="pop-head">
+          <span class="ttl">回滚文件</span>
+          <span class="badge">此操作不可撤销</span>
+          <span class="x">✕</span>
+        </div>
+        <div class="pop-body">
+          <div class="anchor">
+            <span class="who">回滚到这条消息之前 —— 你发的：</span>
+            把 extractor 的指纹改成跨块的
+          </div>
+
+          <p class="lead">这些文件会<b>恢复到你发出这条消息那一刻</b>的状态。</p>
+          <p class="sub">之后新建的文件会被删除。对话不会变化 —— 聊天记录与上下文原样保留。</p>
+
+          <div class="listhead">
+            <span class="t">这条消息之后改过的文件</span>
+            <span class="n">2 个 · 来自本会话的工具记录</span>
+          </div>
+          <div class="flist">
+            <div class="frow">
+              <span class="kind">Edit ×3</span>
+              <span class="p">src/extractor.py</span>
+              <span class="cnt">恢复</span>
+            </div>
+            <div class="frow">
+              <span class="kind">Write</span>
+              <span class="p">tests/test_fingerprint.py</span>
+              <span class="del">会被删除</span>
+            </div>
+          </div>
+
+          <div class="warnbox">
+            <span class="ic">⚠</span>
+            <span>系统会先核对检查点是否可用（<code>dryRun</code>）。不可用时这里会变成一行原文错误，回滚按钮消失。</span>
+          </div>
+        </div>
+        <div class="pop-foot">
+          <span class="hint">回车不执行，焦点在这颗「取消」上</span>
+          <span class="spacer"></span>
+          <button class="btn focus">取消</button>
+          <button class="btn primary">回滚</button>
+        </div>
+      </div>
+    </div>
+    <p class="measure">640px × 可拉伸 · 弹窗本体 ≈ 360px 高（清单 2 行时）；清单超长约 8 行后内部滚动</p>
+
+    <div class="row2">
+      <div>
+        <p class="vsub" style="margin-top:0"><b>B′ · 配额争议：清单要不要标「会被删除」？</b><br>
+        上面那版标了 —— 删除是这里最重的后果，藏进一句话里不如标到行上。但转写区只能<b>推断</b>
+        （那条之后首次出现是 <code>Write</code>、之后没有 <code>Edit</code>），<b>不保证准</b>。不准的行标错了，比不标更伤信任。</p>
+        <div class="win" style="width:100%">
+          <div class="body" style="border-top:0">
+            <div class="flist">
+              <div class="frow"><span class="kind">Edit ×3</span><span class="p">src/extractor.py</span><span class="cnt">3 次改动</span></div>
+              <div class="frow"><span class="kind">Write</span><span class="p">tests/test_fingerprint.py</span><span class="cnt">1 次改动</span></div>
+            </div>
+            <p class="note" style="margin:0">B″ · 只报次数，删除只在那句话里说 —— 保守、绝不说谎。</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="vsub" style="margin-top:0"><b>B‴ · 清单从哪里算起？</b><br>
+        spec 原文：「那条消息之后的 <code>Write</code>/<code>Edit</code>/<code>MultiEdit</code> 工具卡里出现过的文件」——
+        这句在<b>连续回滚</b>与<b>被拒绝的工具</b>上有歧义（拒绝掉的没动过文件）。清单口径要按"实际执行且有结果"取。</p>
+        <div class="win" style="width:100%">
+          <div class="body" style="border-top:0">
+            <div class="tool" style="margin-bottom:10px">
+              <div class="h"><span class="ok">✓</span> Edit &nbsp;·&nbsp; src/extractor.py</div>
+            </div>
+            <div class="tool" style="opacity:.55; margin-bottom:10px">
+              <div class="h"><span style="color:var(--danger)">✕</span> Edit &nbsp;·&nbsp; src/cache.py &nbsp;<span style="color:var(--dim)">被拒绝</span></div>
+            </div>
+            <p class="note" style="margin:0">被拒绝的那张<b>不进清单</b> —— 它没改过盘上的文件。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= C · 边界四态 ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag done">C · 规格已定</span>
+      <h2>四个边界：都不静默</h2>
+    </div>
+    <p class="vsub">spec §1.5 的失败表，逐个画出来。共同点：<b>每一态都有一句话</b>，没有"点了没反应"。</p>
+
+    <div class="row2">
+      <!-- C1 canRewind=false -->
+      <div>
+        <p class="vsub" style="margin-top:0"><b>C·1　检查点没开（<code>canRewind=false</code>）</b><br>设置里把开关关了、或 CLI 侧没启用时。</p>
+        <div class="win" style="width:100%">
+          <div class="pop" style="position:static; width:100%; max-width:100%;">
+            <div class="pop-head"><span class="ttl">回滚文件</span><span class="x">✕</span></div>
+            <div class="pop-body">
+              <div class="anchor"><span class="who">回滚到这条消息之前 —— 你发的：</span>把 extractor 的指纹改成跨块的</div>
+              <div class="warnbox" style="border-color:color-mix(in srgb, var(--danger) 45%, var(--border)); background:color-mix(in srgb, var(--danger) 9%, transparent);">
+                <span class="ic" style="color:var(--danger)">✕</span>
+                <span>无法回滚：<code>File rewinding is not enabled.</code><br>
+                <span class="note">到「设置 → CCoder → 会话」把「文件检查点」打开后重试。</span></span>
+              </div>
+            </div>
+            <div class="pop-foot"><span class="spacer"></span><button class="btn focus">关闭</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C2 没有文件改动 -->
+      <div>
+        <p class="vsub" style="margin-top:0"><b>C·2　那条之后没有任何文件改动</b><br>纯问答的消息也会挂 ↺ —— 框照弹，把话说白。</p>
+        <div class="win" style="width:100%">
+          <div class="pop" style="position:static; width:100%; max-width:100%;">
+            <div class="pop-head"><span class="ttl">回滚文件</span><span class="x">✕</span></div>
+            <div class="pop-body">
+              <div class="anchor"><span class="who">回滚到这条消息之前 —— 你发的：</span>这个报错是什么原因？</div>
+              <p class="lead">这条消息之后<b>没有文件改动</b>，回滚不会改变任何东西。</p>
+            </div>
+            <div class="pop-foot"><span class="spacer"></span><button class="btn focus">关闭</button><button class="btn" disabled style="opacity:.5">回滚</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- C3 忙时点击 -->
+      <div>
+        <p class="vsub" style="margin-top:0"><b>C·3　会话忙时点 ↺</b><br>入口是灰的，但"点不动"必须配一句解释（与 session-switch §5.1 同源）。</p>
+        <div class="win" style="width:100%">
+          <div class="body" style="border-top:0">
+            <div class="brow user">
+              <span class="undo off">↺</span>
+              <div class="bubble u lead">把 extractor 的指纹改成跨块的</div>
+            </div>
+            <div class="hintline"><span class="k">回滚</span>要在会话空闲时做 —— Claude 还在跑，等它停下来再点。</div>
+          </div>
+          <div class="inbar busy"><span class="grow">Claude 正在工作…</span><span class="stop">■</span></div>
+        </div>
+      </div>
+
+      <!-- C4 中途被中断 -->
+      <div>
+        <p class="vsub" style="margin-top:0"><b>C·4　回滚中途会话被中断</b><br>回滚已经在跑，这时用户按了停止。</p>
+        <div class="win" style="width:100%">
+          <div class="body" style="border-top:0">
+            <div class="sysnote" style="border-color:var(--danger); color:var(--danger)">回滚被中断 —— 部分文件可能没恢复完，请检查后再继续。</div>
+            <div class="tool" style="margin-bottom:0">
+              <div class="h"><span class="ok">✓</span> Edit &nbsp;·&nbsp; src/extractor.py</div>
+            </div>
+          </div>
+          <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= D · 回滚之后 ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag done">D · 规格已定</span>
+      <h2>回滚之后：往转写区追加一条系统提示</h2>
+    </div>
+    <p class="vsub">
+      文案：「已回滚到这条消息之前（N 个文件）」—— N 来自我们自己那份清单，不来自回执。
+      注意它是<b>系统提示</b>不是助手气泡：回滚不是 Claude 说的话。原消息与工具卡<b>留在原地不删</b>（对话不动），回滚这件事只有这一行留痕。
+    </p>
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="chips">
+          <span class="chip on"><span class="st run"></span><span class="nm">重构 extractor 的指纹</span></span>
+          <span class="plus">＋</span>
+        </div>
+        <div class="body tall">
+          <div class="brow user">
+            <span class="undo hot">↺</span>
+            <div class="bubble u lead">把 extractor 的指纹改成跨块的</div>
+          </div>
+          <div class="timestamp right">今天 10:12</div>
+          <div class="tool">
+            <div class="h"><span class="ok">✓</span> Edit &nbsp;·&nbsp; src/extractor.py</div>
+            <div class="code"><span class="del">−</span> return sha1(chunk)</div>
+            <div class="code"><span class="add">+</span> return rolling_fingerprint(chunk)</div>
+          </div>
+          <div class="tool">
+            <div class="h"><span class="ok">✓</span> Write &nbsp;·&nbsp; tests/test_fingerprint.py</div>
+          </div>
+          <div class="sysnote">已回滚到这条消息之前（<b>2 个文件</b>）</div>
+          <div class="brow"><div class="bubble a">接着要做什么？extractor 现在是原来的样子。</div></div>
+        </div>
+        <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+      </div>
+      <dl class="spec">
+        <dt>工具卡为什么还在</dt>
+        <dd>回滚不动对话，转写区是从会话历史重放的 —— 卡片留着才是真相。系统提示是唯一的新行。</dd>
+        <dt>N 怎么数</dt>
+        <dd>与确认框清单同一份算法（纯函数，有单测）。名单上没有的，一个都不算。</dd>
+        <dt>再回滚一次会怎样</dt>
+        <dd>同一颗 ↺ 还能再点 —— 语义是「回到那一刻」，重复执行是幂等的。</dd>
+        <dt>恢复会话后</dt>
+        <dd class="bad">看不出发生过 —— CLI 的历史里不留痕，这行提示不落盘。spec §1.8 认了这件事。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= E · 设置开关 ================= -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag done">E · 规格已定</span>
+      <h2>设置里那颗检查点开关</h2>
+    </div>
+    <p class="vsub"><code>enableFileCheckpointing</code> 默认<b>开</b>，可关；关掉时行为与今天一字不差。代价照实说：开 = 每个被改的文件在改之前先备份一份。</p>
+    <div class="split">
+      <div style="max-width:560px">
+        <div class="setrow">
+          <div>
+            <div class="t">文件检查点</div>
+            <div class="d">让 ↺ 回滚可用。开启后，Claude 每改一个文件前会先存一份备份 —— 代价是每个被改文件的额外一份磁盘副本。</div>
+          </div>
+          <span class="sw"></span>
+        </div>
+        <div class="setrow">
+          <div>
+            <div class="t">关闭后</div>
+            <div class="d">↺ 仍然显示，点了会说明「文件回滚未启用」并给出回到这里的路。已发生的改动手动处理。</div>
+          </div>
+          <span class="sw off"></span>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>为什么默认开</dt>
+        <dd>用户已定。不开的话 ↺ 装上就是死的 —— 一个永远点不动的东西不配上界面。</dd>
+        <dt>已知未知</dt>
+        <dd class="bad">备份开销的上限没量出来（单会话样本不足以外推）—— 写进 spec 的"已知未知"一栏。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= 待决问题 ================= -->
+  <section class="verdict">
+    <h2>规格没写死、这张图也没替你定的四处</h2>
+    <table>
+      <tr>
+        <th style="width:190px">问题</th>
+        <th>两面</th>
+        <th style="width:270px">图上的倾向</th>
+      </tr>
+      <tr>
+        <td><b>1. ↺ 悬停浮出还是常显？</b></td>
+        <td>悬停：干净，但"可回滚"这件事藏起来了，第一次用不知道有这功能。<br>常显：一排灰 ↺ 挂在每条消息边上，长会话里很吵。</td>
+        <td>倾向<b>悬停</b>——产品先例同源（会话列表的删除 ✕ 就是悬停浮出），且回滚是低频动作。</td>
+      </tr>
+      <tr>
+        <td><b>2. 清单标「会被删除」吗？</b></td>
+        <td>标：最重的后果直接进视线。<br>不标：转写区只能<b>推断</b>新建，标错一行伤信任。</td>
+        <td>倾向<b>先不标</b>（B″），删除只在那句话里说 —— 探针事实 5 的教训：拿不到的就是拿不到，不装。</td>
+      </tr>
+      <tr>
+        <td><b>3. 默认焦点与按钮色</b></td>
+        <td>此刻图上：焦点在「取消」（回车不执行），「回滚」是主按钮蓝 —— 但它会删文件。</td>
+        <td>倾向焦点留「取消」（与权限框「回车不批准」同规）；「回滚」要不要换 danger 红，待定。</td>
+      </tr>
+      <tr>
+        <td><b>4. header 里那句「此操作不可撤销」</b></td>
+        <td>留着：说清没有退路。<br>删掉：<code>rewindFiles</code> 不留痕、也确实没有 undo，但同一颗 ↺ 可以再点一次回滚到别的消息 —— 有点像"能退"，容易说岔。</td>
+        <td>倾向留着，但把它降级成正文里的半句，不占 header 徽章的位置。</td>
+      </tr>
+    </table>
+    <p class="note" style="margin-top:14px">
+      依据：spec <code>2026-09-15-rewind-presets-mcp-design.md</code> 第一章（§1.2 十条探针事实、§1.3 语义、§1.5 UI）；探针可重跑：<code>node sidecar/tools/probe-rewind.mjs</code>。
+    </p>
+  </section>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('t-dark').classList.toggle('on', t === 'dark');
+  document.getElementById('t-light').classList.toggle('on', t === 'light');
+}
+setTheme('dark');
+</script>
+</body>
+</html>
