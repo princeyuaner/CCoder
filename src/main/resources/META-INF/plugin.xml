@@ -18,15 +18,22 @@
     Requires the Claude Code CLI (claude) and Node.js installed on your machine.
     ]]></description>
 
+    <!-- 口径：**只写相对上一个已上架版本（0.2.17）的增量**，中英各一份（§八）。 -->
     <change-notes><![CDATA[
     <h3>0.2.18</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.17 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (a936a6d).</li>
+      <li><b>Clear the session from the card</b> &mdash; a broom sits in the corner of the Connection card: one click starts a fresh session, exactly like typing <code>/clear</code>. Nothing is deleted &mdash; the old session stays on disk.</li>
+      <li><b>Compact from the card</b> &mdash; the Context card gets a matching icon for <code>/compact</code>, so it is one click away instead of a command you have to remember. While it runs, that card says "Compacting&hellip;".</li>
+      <li><b>A receipt for every compaction</b> &mdash; when it finishes, the transcript shows what it bought you: <code>31.5k &rarr; 1.6k (17s)</code>.</li>
+      <li><b>Links are readable again</b> &mdash; transcript link and tool-badge colors are now picked by contrast against the bubble background. The old blue measured 2.5:1 on dark themes: visible, but not readable.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 <b>0.2.17</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>a936a6d</code>）。</li>
+      <li><b>卡上直接清空会话</b> &mdash;&mdash; 连接卡右上角多了一颗扫把：点一下就是开一条新会话，与敲 <code>/clear</code> 完全同一条路。<b>不删任何东西</b>，旧会话还在磁盘上。</li>
+      <li><b>卡上直接压缩上下文</b> &mdash;&mdash; 上下文卡多了一颗对应的图标（＝ <code>/compact</code>），不用再记命令；压缩期间那一格写「压缩中…」。</li>
+      <li><b>压缩完给一张回执</b> &mdash;&mdash; 转写区会写一行 <code>31.5k → 1.6k（用时 17s）</code>，这次压得值不值一眼看得见。</li>
+      <li><b>链接读得清了</b> &mdash;&mdash; 转写区里链接与工具徽标的颜色改成按对比度挑：深色主题下原来那一支对气泡底只有 <b>2.5:1</b>，看得见、读不了。</li>
     </ul>
     ]]></change-notes>
 
