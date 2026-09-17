@@ -150,50 +150,19 @@
     </ul>
     ]]></description>
 
-    <!-- 口径：**只写相对上一个已上架版本（0.2.18）的增量**，中英各一份（§八）。
-         0.2.18 已过审上架（2026-09-17 用户确认），所以它那四条（d342e45）**不**并进来 ——
-         用户更新到 0.2.18 时已经看过那四条了。 -->
+    <!-- 口径：**只写相对上一版（0.2.19）的增量**，中英各一份（§八）。
+         已知风险：0.2.19 已上传市场、**还在审核中**。万一它没过审，本版就是首个
+         公开版本 —— 那时要把 0.2.19 那六条（3a9a6f3）并进来，按 a936a6d 那次的做法。
+         （0.2.18 → 0.2.19 那次是同一个形状，只是当时那条风险没有应验。） -->
     <change-notes><![CDATA[
-    <h3>0.2.19</h3>
+    <h3>0.2.20</h3>
     <ul>
-      <li><b>The Environment tab finds what is missing &mdash; and installs it</b> &mdash; a new
-          Runtime dependencies block checks for Node.js and the <code>claude</code> CLI, shows the
-          version it found, and offers to install whichever one is absent. It shows the exact
-          command first (winget will raise a UAC prompt), streams the output, and re-checks when
-          it is done. Where it cannot install for you &mdash; Linux, or a machine with no package
-          manager it knows &mdash; it hands you the command and the official download page instead.</li>
-      <li><b>When a session cannot start, the error tells you where to go</b> &mdash; "claude not
-          found" now points at Settings &rarr; Environment &rarr; Runtime dependencies, instead of
-          leaving you to guess what is missing.</li>
-      <li><b>A new tab for getting in touch</b> &mdash; Settings has a 群交流 tab with a QR code:
-          scan it to reach me on WeChat with questions, ideas, or a bug.</li>
-      <li><b>Clear the whole history in one go</b> &mdash; the session list gets a 清空全部 in its
-          corner: one confirmation clears this project's sessions. Anything still open in a tab is
-          kept (its transcript is being written right now) and the result tells you how many.</li>
-      <li><b>The delete button's box fits the word again</b> &mdash; hovering 删除 used to draw a
-          frame that was too short, with its edges cutting straight through the characters.</li>
-      <li><b>After an update, a once-only note on what changed</b> &mdash; the first time you open
-          CCoder after an upgrade it shows this list; it does not come back for the same version.</li>
+      <li>TODO: this version's changes, written as the delta against 0.2.19 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (3a9a6f3).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>环境页：缺什么一看就知道，还能就地装</b> &mdash;&mdash; 设置 &rarr; 环境 顶部多了一块
-          「运行依赖」：检测 Node.js 与 <code>claude</code> CLI 并显示找到的版本；缺哪个，那颗按钮
-          就替你跑安装 —— 先把确切的命令摆给你看（winget 会弹 UAC 提权），装着时输出实时滚，
-          装完自动复检。装不了的环境（Linux，或者机器上没有它认识的包管理器）退化成
-          「复制命令 + 打开官方下载页」。</li>
-      <li><b>会话起不来时，报错直接指路</b> &mdash;&mdash; 找不到 <code>claude</code> 时那句提示
-          现在直接指向「设置 &rarr; 环境 &rarr; 运行依赖」，不用再猜缺了什么。</li>
-      <li><b>新页签「群交流」</b> &mdash;&mdash; 设置里多了一页，放着一张二维码：有问题、有建议，
-          或者只是想聊聊怎么用，扫码加我微信。</li>
-      <li><b>一键清空历史会话</b> &mdash;&mdash; 会话列表右上角多了「清空全部」：确认一次就清掉
-          这个项目的历史。正在标签里跑着的那些会保留（它的记录正被写着），清完之后会告诉你
-          保留了几条。</li>
-      <li><b>删除按钮那个框不再横穿文字</b> &mdash;&mdash; 指针停在「删除」上时画出来的框原先
-          太矮，上下两条边正好划过字形。</li>
-      <li><b>更新之后弹一次更新日志</b> &mdash;&mdash; 升级后第一次打开 CCoder，会弹一窗写清
-          这一版变了什么；同一个版本只弹一次。</li>
+      <li>待写：本版相对 <b>0.2.19</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>3a9a6f3</code>）。</li>
     </ul>
     ]]></change-notes>
 
