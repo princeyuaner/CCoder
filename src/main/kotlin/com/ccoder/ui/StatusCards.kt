@@ -21,7 +21,13 @@ internal enum class Tone { Ok, Warn, Danger, Idle }
 internal sealed interface Indicator {
     object None : Indicator
 
-    /** 比例条。fraction 恒在 0..1。 */
+    /**
+     * 比例条。fraction 恒在 0..1。
+     *
+     * **不需要自己带颜色**：`IndicatorView.paintMeter` 的规矩是"只有警示色调才
+     * 覆盖指示器颜色"（见 [Tone]）—— 压缩中那张卡整体就是 Warn，条子自己会转琥珀色。
+     * 2026-09-17 试过加一个 `warn` 参数，发现是重复的，撤了。
+     */
     data class Meter(val fraction: Double) : Indicator
 
     /** 分段。分母真实 —— 就是任务清单的条数。 */
@@ -55,6 +61,15 @@ internal data class StatusCardModel(
 
 /** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
 internal const val CARD_IDLE_TEXT = "空闲"
+
+/**
+ * 压缩中，上下文卡值行写什么（spec §3.8）。
+ *
+ * 与连接卡的忙态同一族（"正在做一件事"）——所以色调走 Warn 而不是上下文
+ * 平时的 Idle/危险分档：那分档说的是"上下文有多满"，而这一刻它在被改写，
+ * 两个语义同时显示会互相盖。
+ */
+internal const val CARD_COMPACTING_TEXT = "压缩中…"
 
 /** 点数封顶。数字才是权威，点只是让"2"变得看得见。 */
 internal const val MAX_DOTS = 6
@@ -140,9 +155,22 @@ internal fun elapsedText(seconds: Int): String = "${seconds}s"
  * 我们只是没测过。显示 0 至少是个能被纠正的数字（新会话本来就近乎空），
  * 而「空闲」是一句说反了的话。
  */
-internal fun contextCardOf(usage: ContextUsage?): StatusCardModel {
+internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): StatusCardModel {
     val u = usage ?: ContextUsage(usedTokens = 0, windowTokens = 0)
     val percent = contextPercentOf(u)
+
+    // 压缩中：值行让给进度语义（spec §3.8），比例条留着 —— 它是**最后测到**的
+    // 数，抹掉的话卡上会突然什么都没有，而读者并不知道那是"暂时"。色调走 Warn：
+    // 条子跟着变琥珀（paintMeter 的规矩），表示"这个数正在被改写"。
+    if (compacting) {
+        return StatusCardModel(
+            label = "上下文",
+            value = CARD_COMPACTING_TEXT,
+            tone = Tone.Warn,
+            sub = if (u.windowTokens > 0) contextRatioText(u) else null,
+            indicator = if (percent != null) Indicator.Meter(percent / 100.0) else Indicator.None,
+        )
+    }
     return StatusCardModel(
         label = "上下文",
         value = if (percent != null) "$percent%" else formatTokenCount(u.usedTokens),
