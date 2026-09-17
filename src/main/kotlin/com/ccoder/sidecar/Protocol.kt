@@ -1,6 +1,7 @@
 package com.ccoder.sidecar
 
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -158,6 +159,21 @@ sealed interface SidecarMessage {
     data class SessionDeleted(val requestId: String, val sessionId: String) : SidecarMessage
 
     /**
+     * `clearSessions` 的回执：这个项目的历史会话被清了一批。
+     *
+     * [deleted] 与 [failed] **都要带 id 列表**，不只是计数：
+     *  - [deleted] 决定界面上哪几行消失（不能只说"删了 35 条"就自己猜是哪 35 条）
+     *  - [failed] 决定哪几行留着，并把没删掉的原因说出来
+     *
+     * 缺 `id` 的整条丢弃（同 [SessionDeleted]）—— 没有配对 id 就没有等它的那个回调。
+     */
+    data class SessionsCleared(
+        val requestId: String,
+        val deleted: List<String>,
+        val failed: List<ClearFailure>,
+    ) : SidecarMessage
+
+    /**
      * `listCommands` 的应答。
      *
      * [commands] 是**显示信息**（名字、描述、参数提示、别名）；
@@ -204,7 +220,7 @@ data class McpServerStatus(
 /**
  * 会话列表中的一条。
  *
- * 字段是从 SDK 的 `SDKSessionInfo` 里**裁剪**出来的（sdk.d.ts:5154）：
+ * 字段是从 SDK 的 `SDKSessionInfo` 里**裁剪**出来的（sdk.d.ts:5455）：
  * 只留界面要用的四个。`gitBranch` 等刻意不带过来 —— 实测本机全部会话
  * 都在同一分支，没有信息量（spec §9.5）。
  */
@@ -223,6 +239,14 @@ data class SessionInfo(
 )
 
 /**
+ * 批量清空时**没删掉**的一条。
+ *
+ * 带 [reason] 是为了把原因说出来：单条失败不中断整批（见 `clearSessions`），
+ * 但"删了 35 条、1 条没删掉"必须能说清是哪条、为什么。
+ */
+data class ClearFailure(val sessionId: String, val reason: String?)
+
+/**
  * 一个子代理。
  *
  * [toolUseId] 是它与界面上"运行中的任务"对上号的凭据 —— 任务那一侧的 id
@@ -238,7 +262,7 @@ data class SubagentInfo(
 /**
  * 一条可补全的命令。
  *
- * 字段裁自 SDK 的 `SlashCommand`（sdk.d.ts:8453）。**`name` 是显示名，
+ * 字段裁自 SDK 的 `SlashCommand`（sdk.d.ts:8843）。**`name` 是显示名，
  * 不一定是可发送的字符串** —— 实测 `/Debug Issue`（空格大写）对应的可发送名
  * 是 `debug-issue`。可发送名来自 init 事件，见设计稿 §4.1。
  */
@@ -427,6 +451,22 @@ object Protocol {
                 else SidecarMessage.SessionDeleted(requestId, sessionId)
             }
 
+            // 缺 id 就无从配对，整条丢弃 —— 同 sessions / sessionDeleted。
+            // 两个数组**缺了当空**（不是丢弃）：`deleted` 空 + `failed` 空是合法的
+            // 回执（一条都没删，比如 keep 覆盖了全部），界面照实说"没有可清空的"
+            "sessionsCleared" -> obj.str("id")?.let { rid ->
+                SidecarMessage.SessionsCleared(
+                    requestId = rid,
+                    deleted = obj.arr("deleted")?.mapNotNull { it.strOrNull() } ?: emptyList(),
+                    failed = obj.arr("failed")?.mapNotNull { el ->
+                        if (!el.isJsonObject) return@mapNotNull null
+                        val o = el.asJsonObject
+                        // 没有 sessionId 的失败项毫无用处（不知道是哪条没删掉），跳过
+                        o.str("sessionId")?.let { ClearFailure(it, o.str("reason")) }
+                    } ?: emptyList(),
+                )
+            }
+
             // 缺 id 就无从配对，整条丢弃 —— 同 sessions
             "commands" -> obj.str("id")?.let { rid ->
                 SidecarMessage.Commands(
@@ -471,6 +511,18 @@ object Protocol {
 
     fun encodeDeleteSession(id: String, sessionId: String): String =
         line(id, "deleteSession", JsonObject().apply { addProperty("sessionId", sessionId) })
+
+    /**
+     * 清空这个项目的历史会话。
+     *
+     * [keep] 是**要留下**的那些（正在被标签跑着的，见 [com.ccoder.ui.OpenSessions]）——
+     * sidecar 只删这个列表以外的。空数组是合法取值（全删），字段照发。
+     */
+    fun encodeClearSessions(id: String, dir: String, keep: List<String>): String =
+        line(id, "clearSessions", JsonObject().apply {
+            addProperty("dir", dir)
+            add("keep", JsonArray().apply { keep.forEach { add(it) } })
+        })
 
     /**
      * 给会话改个名字。
@@ -540,6 +592,7 @@ object Protocol {
         is SidecarMessage.SessionList -> msg.requestId
         is SidecarMessage.History -> msg.requestId
         is SidecarMessage.SessionDeleted -> msg.requestId
+        is SidecarMessage.SessionsCleared -> msg.requestId
         is SidecarMessage.Commands -> msg.requestId
         is SidecarMessage.McpServers -> msg.requestId
         is SidecarMessage.ContextUsageReport -> msg.requestId
@@ -626,7 +679,7 @@ object Protocol {
      *
      * [updatedInput] 是 `AskUserQuestion` 回传答案的路：允许这个工具调用时
      * **改写它的入参**，把选中的答案塞进去（SDK 的 `PermissionResult`，
-     * 见 sdk.d.ts:2340）。为 null 时不写这个字段 —— 传空对象等于
+     * 见 sdk.d.ts:2380）。为 null 时不写这个字段 —— 传空对象等于
      * "显式把入参改写成空"，语义完全不同。
      */
     fun encodePermissionDecision(
@@ -768,4 +821,8 @@ object Protocol {
 
     private fun JsonObject.arr(key: String): JsonArray? =
         get(key)?.takeIf { it.isJsonArray }?.asJsonArray
+
+    /** 数组元素版的容错取串（判定同 [str]）—— `deleted` 里混进非字符串时跳过那一个。 */
+    private fun JsonElement.strOrNull(): String? =
+        takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
 }

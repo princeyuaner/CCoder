@@ -17,6 +17,7 @@ import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.BorderFactory
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -39,6 +40,38 @@ import javax.swing.SwingUtilities
  * 实现与测试共用这一个常量，免得两边各写一份然后漂移。
  */
 internal const val DELETE_TEXT = "删除"
+
+/**
+ * 顶部那行右上角的入口上写什么（2026-09-17）。
+ *
+ * 「清空全部」而不是「清空」：这一列里每个会话都有自己的一颗「删除」，
+ * 少一个字会读成"清空当前这条"。
+ */
+internal const val CLEAR_ALL_TEXT = "清空全部"
+
+/** 确认态里那颗真正动手的按钮。与行内确认同一个词：那一刻问的是同一件事。 */
+internal const val CLEAR_CONFIRM_TEXT = "清空"
+
+/** 顶部那行左边那三个字。有它，右边那颗「清空全部」才像一条工具栏而不是飘着的动作。 */
+internal const val LIST_TITLE_TEXT = "历史会话"
+
+/**
+ * 顶部那一行的组件名。
+ *
+ * 唯一的用处是让**用例**能把它认出来排除掉：列表的直接子件里从此既有会话行
+ * 也有这一行，而按 `components[0]` 取第一行的老用例会取到它 —— 它不是会话，
+ * 点它什么都不会发生（2026-09-17 加这一行时，三条用例当场红了）。
+ */
+internal const val SESSION_LIST_HEADER_NAME = "ccoder.sessionListHeader"
+
+/**
+ * 一次列几个会话（查询上限，不是显示上限）。
+ *
+ * 2026-09-17 从 `ClaudePanel.SESSION_LIST_LIMIT` 搬到这里：列表页要知道
+ * "列出来的条数是不是全量"，才能把「清空全部」的确认语说准（见
+ * [clearAllConfirmPrompt] 的 `moreThanListed`）。
+ */
+internal const val SESSION_LIST_QUERY_LIMIT = 50
 
 /**
  * 弹层宽度上限（未缩放 px）。
@@ -140,6 +173,12 @@ internal fun buildSessionList(
     onDelete: (SessionInfo) -> Unit = {},
     onRename: (SessionInfo, String) -> Unit = { _, _ -> },
     onTag: (SessionInfo, String?) -> Unit = { _, _ -> },
+    /**
+     * 顶部右上角那颗「清空全部」被确认之后才调用（2026-09-17）。
+     *
+     * 与 [onDelete] 同一条规矩：**确认不是装饰**，不确认这里不会被调到。
+     */
+    onClearAll: () -> Unit = {},
     onPick: (SessionInfo) -> Unit = {},
 ): JComponent {
     val root = ListColumn().apply { border = JBUI.Borders.empty(4, 4) }
@@ -147,13 +186,26 @@ internal fun buildSessionList(
     switchBlockNotice(block)?.let { root.add(noticeRow(it)) }
 
     if (sessions.isEmpty()) {
+        // 没有会话时**不画**那一行：右上角挂一颗"清空全部"去清一个空列表，
+        // 只会让人怀疑列表是不是没加载出来
         root.add(noteRow("没有找到历史会话"))
         return root
     }
 
     val now = System.currentTimeMillis()
-    // 整列共用一个确认槽：同一时刻只允许一行在确认态
+    // 整列共用一个确认槽：同一时刻只允许**一个**确认态 —— 一行或者整列，
+    // 谁后进谁把前一个收回（删除不可逆，界面上同时挂着两个待确认的删除更糟）
     val confirmSlot = ConfirmSlot()
+    root.add(
+        clearAllRow(
+            sessions = sessions,
+            block = block,
+            takenIds = takenIds,
+            currentSessionId = currentSessionId,
+            onClearAll = onClearAll,
+            confirmSlot = confirmSlot,
+        ),
+    )
     sessions.forEach { s ->
         root.add(
             sessionRow(
@@ -200,6 +252,175 @@ private fun scrolledList(column: JPanel, width: Int, height: Int): JComponent =
         verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
         preferredSize = Dimension(width, height)
     }
+
+/**
+ * 行里那种"文字按钮"（「删除」/「清空全部」）。
+ *
+ * 常驻可见但**不画框**：平时就是一行次要色的字，指针停到它上面才变红并长出
+ * 按钮框（见 [paintDanger]）—— 这样它读起来像文字，但认得出是个动作。
+ *
+ * 尺寸不由它自己定：它照常给出首选尺寸，由外面的槽钉住。槽**不能**压扁它 ——
+ * 压扁了那个框会横穿字形（2026-09-17 用户报的「轮廓太矮」，见 `deleteSlot`）。
+ */
+private fun textAction(text: String, tooltip: String, font: Font): JButton = JButton(text).apply {
+    this.font = font
+    foreground = UIUtil.getInactiveTextColor()
+    isContentAreaFilled = false
+    isBorderPainted = false
+    isFocusable = false
+    toolTipText = tooltip
+    margin = JBUI.emptyInsets()
+}
+
+/**
+ * 三档强调。破坏性动作（删除一行 / 清空全部）共用这一个写法：
+ * 光标越靠近它，信号越强。
+ *
+ * @param danger 指针就在按钮上：变红 + 长出按钮框
+ * @param strong 指针在这一行上：提亮到正常前景色
+ */
+private fun paintDanger(button: JButton, danger: Boolean, strong: Boolean) {
+    button.foreground = when {
+        danger -> DELETE_DANGER
+        strong -> UIUtil.getLabelForeground()
+        else -> UIUtil.getInactiveTextColor()
+    }
+    button.isContentAreaFilled = danger
+    button.isBorderPainted = danger
+    button.repaint()
+}
+
+/**
+ * 列表顶部那一行：左边「历史会话」，右边「清空全部」（2026-09-17）。
+ *
+ * ## 为什么在弹层里而不是面板上
+ *
+ * 用户原话：「右上角需要增加一个一键清空所有历史对话的功能」。清的是**这个项目的
+ * 历史**，而"这个项目有哪些历史"只有弹层在说 —— 把入口放在弹层的右上角，
+ * 它管的东西就在它下面。
+ *
+ * ## 与行内删除同一套写法
+ *
+ * 文字按钮、平时次要色、指针停上去变红；点下去**就地**变成一句问句 +
+ * `[取消] [清空]` —— 不可逆的动作不给"点一下就走完"。
+ * 确认槽与行内**共用**（见 [ConfirmSlot]）：一行在确认时点这里、或者反过来，
+ * 前者都会先收回原样。
+ *
+ * 忙时（[block] 非 None）**不露入口**：那时整列都不可点，冒一个能点的出来
+ * 就成了唯一的例外（同行内那颗删除，`deleteButton.isVisible = clickable`）。
+ */
+private fun clearAllRow(
+    sessions: List<SessionInfo>,
+    block: SwitchBlock,
+    takenIds: Set<String>,
+    currentSessionId: String?,
+    onClearAll: () -> Unit,
+    confirmSlot: ConfirmSlot,
+): JComponent {
+    val base = UIUtil.getLabelFont()
+    val row = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        name = SESSION_LIST_HEADER_NAME
+        // 下面那条线（同设置框里那几处 hairline）：有它，这一行才像一条工具栏，
+        // 而不是列表里多出来的第一行
+        border = BorderFactory.createCompoundBorder(
+            JBUI.Borders.customLineBottom(lineColor()),
+            JBUI.Borders.empty(2, 6, 4, 6),
+        )
+    }
+
+    val title = JLabel(LIST_TITLE_TEXT).apply {
+        font = base
+        foreground = UIUtil.getInactiveTextColor()
+    }
+
+    // 「正在使用中」的条数：清空时会跳过它们，确认语里要说清有几条。
+    // 口径与行内那颗删除一致 —— 被占的会话连删除入口都没有
+    val kept = sessions.count { it.sessionId in takenIds || it.sessionId == currentSessionId }
+
+    val action = textAction(CLEAR_ALL_TEXT, "清空这个项目的历史会话", base)
+    // 槽照抄按钮的首选尺寸，一个数都不改（同 deleteSlot 那条：压扁了框会横穿字形）。
+    // 不用 hover 整行提亮那一档：这一行除了它没有别的可点动作，
+    // 两档（安静 ↔ 指针停在按钮上）就够了
+    val actionSlot = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        preferredSize = action.preferredSize
+        add(action, BorderLayout.WEST)
+    }
+    action.addMouseListener(
+        object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) = paintDanger(action, danger = true, strong = true)
+            override fun mouseExited(e: MouseEvent) = paintDanger(action, danger = false, strong = false)
+        }
+    )
+
+    fun showNormal() {
+        row.removeAll()
+        action.isVisible = block == SwitchBlock.None
+        // 强调也一并归零：按钮被隐藏时不会再收到 mouseExited，停在它上面的
+        // 那一档红色会一直留着（下次显示出来就是红的）
+        paintDanger(action, danger = false, strong = false)
+        row.add(title, BorderLayout.CENTER)
+        row.add(actionSlot, BorderLayout.EAST)
+        row.revalidate()
+        row.repaint()
+    }
+
+    fun enterConfirm() {
+        confirmSlot.swap { showNormal() }
+
+        // 问句与两颗按钮**挤在同一行**：弹层的尺寸是打开那一刻定死的
+        // （`showTogglePopup` → `setResizable(false)`），这一行一长高就再也长不出来。
+        //
+        // 试过的那一版是"问句占一整行、按钮另起一行"：出图一看，那一行比原来高
+        // 26px，而弹层没跟着长 —— 问句被挤成了负高度，图上直接缺一块。
+        // 所以文案必须短到能和按钮并排放下（见 [clearAllConfirmPrompt]）。
+        //
+        // 也**不套 HTML 定宽**：JLabel 装不下是**裁**不是折行，
+        // 而 HTML 的 `width` 只影响排版、不影响它报出来的首选宽（量过：
+        // 写 250 时首选仍是那一行的自然宽 325）—— 等于白写还多一层壳。
+        // "放得下"这件事改由用例钉住（见 SessionListTest 里那条量宽的）。
+        val prompt = JLabel(
+            clearAllConfirmPrompt(
+                count = sessions.size,
+                keptCount = kept,
+                moreThanListed = sessions.size >= SESSION_LIST_QUERY_LIMIT,
+            ),
+        ).apply { font = base }
+
+        val cancel = JButton("取消").apply {
+            font = base
+            isFocusable = false
+            addActionListener { showNormal() }
+        }
+        val confirm = JButton(CLEAR_CONFIRM_TEXT).apply {
+            font = base
+            isFocusable = false
+            addActionListener { onClearAll() }
+        }
+
+        row.removeAll()
+        row.add(prompt, BorderLayout.CENTER)
+        row.add(
+            JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+                isOpaque = false
+                add(cancel)
+                add(confirm)
+            },
+            BorderLayout.EAST,
+        )
+        row.revalidate()
+        row.repaint()
+
+        // 焦点落在「取消」（同行内确认、PermissionCard.kt:26-28）：清空是这一列里
+        // 唯一一个"按错就没了"的动作，默认焦点绝不能停在「清空」上
+        SwingUtilities.invokeLater { cancel.requestFocusInWindow() }
+    }
+
+    action.addActionListener { enterConfirm() }
+    showNormal()
+    return row
+}
 
 /**
  * 一列会话行。
@@ -312,42 +533,20 @@ private fun sessionRow(
 
     // 按钮藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
     // 监听器在下面函数定义之后再挂 —— Kotlin 的局部函数不支持前向引用
-    val deleteButton = JButton(DELETE_TEXT).apply {
-        // **常驻可见**，不再"悬停才浮出来"。
-        //
-        // 设计稿 §二 A 选的是悬停才出现（列表最干净），但实测反馈**三轮**：
-        // 悬停才出来 → "看不清楚"；改成常驻的 `✕` → 还是"看不见"；
-        // 2026-09-15 用户给了答案：「按钮直接叫文字的 删除就好了」——
-        // 卡着的从来不是显不显眼，而是**它得先被认出来是个删除**。
-        //
-        // 字号就是标签字号（`✕` 那版是 +2f）：文字不需要放大就有存在感，
-        // 放大反而会盖过标题。层次仍靠颜色：平时次要色 → 指针到这一行上提亮 →
-        // 停在按钮上时变红并长出一个真的按钮框（危险信号 + 可点 affordance）。
-        font = base
-        foreground = UIUtil.getInactiveTextColor()
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusable = false
-        toolTipText = "删除这个会话"
-        margin = JBUI.emptyInsets()
-    }
+    //
+    // **常驻可见**，不再"悬停才浮出来"。
+    //
+    // 设计稿 §二 A 选的是悬停才出现（列表最干净），但实测反馈**三轮**：
+    // 悬停才出来 → "看不清楚"；改成常驻的 `✕` → 还是"看不见"；
+    // 2026-09-15 用户给了答案：「按钮直接叫文字的 删除就好了」——
+    // 卡着的从来不是显不显眼，而是**它得先被认出来是个删除**。
+    //
+    // 字号就是标签字号（`✕` 那版是 +2f）：文字不需要放大就有存在感，
+    // 放大反而会盖过标题。层次仍靠颜色：平时次要色 → 指针到这一行上提亮 →
+    // 停在按钮上时变红并长出一个真的按钮框（危险信号 + 可点 affordance）。
+    val deleteButton = textAction(DELETE_TEXT, "删除这个会话", base)
 
-    /**
-     * 三档强调。删除不可逆，光标越靠近它信号越强。
-     *
-     * @param danger 指针就在按钮上：变红 + 长出按钮框
-     * @param strong 指针在这一行上：提亮到正常前景色
-     */
-    fun paintDelete(danger: Boolean, strong: Boolean) {
-        deleteButton.foreground = when {
-            danger -> DELETE_DANGER
-            strong -> UIUtil.getLabelForeground()
-            else -> UIUtil.getInactiveTextColor()
-        }
-        deleteButton.isContentAreaFilled = danger
-        deleteButton.isBorderPainted = danger
-        deleteButton.repaint()
-    }
+    fun paintDelete(danger: Boolean, strong: Boolean) = paintDanger(deleteButton, danger, strong)
 
     deleteButton.addMouseListener(
         object : MouseAdapter() {
@@ -358,9 +557,20 @@ private fun sessionRow(
 
     val deleteSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
-        // 宽度按按钮自己量：文字比 `✕` 宽（26 对 16）——写死一个数的话，
-        // 换字体/换语言时又会对不上，而这槽的意义就是"勾/按钮怎么变，时间都不跳"
-        preferredSize = Dimension(deleteButton.preferredSize.width, base.size)
+        // 尺寸**整个照抄按钮自己的首选尺寸**，一个数都不改。
+        //
+        // 宽度按按钮量：文字比 `✕` 宽（26 对 16）——写死一个数的话，
+        // 换字体/换语言时又会对不上，而这槽的意义就是"勾/按钮怎么变，时间都不跳"。
+        //
+        // 高度也必须按按钮量。2026-09-17 之前这里写的是**字号**（`base.size`，
+        // 实测 12），而按钮首选高是 22（字高 16 + 平台边框上下各 3）——
+        // 于是按钮被压成 12px 高，悬停时那个"长出按钮框"的强调就画在一个
+        // 12px 的盒子里：**上下边框正好横穿这两个字**，看着像划掉，
+        // 左右也贴着字形。用户的原话是"轮廓不对，太矮了"。
+        //
+        // 这个框的尺寸只由这里决定，所以它同时也是"行高"的决定者（见下面那条
+        // "行高按排出来的那一行量"）—— 按钮不再压扁之后，行高仍是 22，没有变。
+        preferredSize = deleteButton.preferredSize
         add(deleteButton, BorderLayout.WEST)
     }
 

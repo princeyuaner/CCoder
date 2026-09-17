@@ -90,6 +90,14 @@ internal fun hairlineRight(): Border = JBUI.Borders.customLineRight(lineColor())
 internal fun hairlineTop(): Border = JBUI.Borders.customLineTop(lineColor())
 
 /**
+ * 块与块之间的那条，画在**上一块的下沿**上。
+ *
+ * 用在环境页：「运行依赖」与下面的「额外目录」是两件事，同色的两段糊在一起
+ * 会读成一张表（同 2026-09-16 补那三条线的理由）。
+ */
+internal fun hairlineBottom(): Border = JBUI.Borders.customLineBottom(lineColor())
+
+/**
  * 列表栏与表单栏之间的那条 —— 设计稿的 `.lcol { border-right }`。
  *
  * 线画在**表单栏的左沿**而不是列表栏的右沿：`BorderLayout` 里表单栏在 `EAST`、

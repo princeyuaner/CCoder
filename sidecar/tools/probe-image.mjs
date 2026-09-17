@@ -2,7 +2,7 @@
 /**
  * 探针：**这条链路到底收不收图**。
  *
- * 为什么必须问：SDK 的类型说明收（`sdk.d.ts:5464`：content 可以是 text / image /
+ * 为什么必须问：SDK 的类型说明收（`sdk.d.ts:5850`：content 可以是 text / image /
  * document 的数组），CLI 自己也有一整套图片政策（`claude.exe` 里的
  * `rk = { maxWidth:2000, maxHeight:2000, maxBase64Size:5242880 }`）—— 但本插件跑的
  * 是**第三方网关**（`~/.claude/settings.json` 的 ANTHROPIC_BASE_URL 指向

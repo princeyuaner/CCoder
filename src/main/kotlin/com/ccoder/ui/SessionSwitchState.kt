@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.ClearFailure
 import com.ccoder.sidecar.RequestOutcome
 import com.ccoder.sidecar.SessionInfo
 import com.ccoder.sidecar.SidecarMessage
@@ -250,3 +251,56 @@ internal fun deleteConfirmPrompt(session: SessionInfo, isCurrent: Boolean): Stri
     } else {
         "删除「${sessionTitle(session)}」？"
     }
+
+/**
+ * 「清空全部」的确认语。
+ *
+ * 三件事要说清：**几条**、**哪几条不会删**（[keptCount] 条正被标签跑着）、
+ * 以及列表被截断时"更早的也会删"。
+ *
+ * ## 为什么这么短（2026-09-17 出图之后改的）
+ *
+ * 这一句与两颗按钮**挤在同一行**里 —— 而弹层的尺寸是**打开那一刻定死的**
+ * （`showTogglePopup` 到 `createComponentPopupBuilder`，`setResizable(false)`），
+ * 长出来的那部分直接看不见。试过"问句自己占一行、按钮另起一行"，出图那一版
+ * 因为那一行变高被挤成了负数高度（图上就是缺一块）。
+ *
+ * 所以：**必须在一行里放下**，剩下的交给另外两处 ——
+ * 入口那颗的 tooltip 写全了范围（"清空这个项目的历史会话"），
+ * 结果那句话（[clearAllResultText]）里也再说一遍。
+ */
+internal fun clearAllConfirmPrompt(count: Int, keptCount: Int, moreThanListed: Boolean): String {
+    // 截断时**不能报条数**：列出来的 50 条不是要删的全部，报了就是个错数
+    val scope = if (moreThanListed) "清空这个项目的历史会话？" else "清空这 $count 条？"
+    return if (keptCount > 0) "$scope $keptCount 条正在使用，保留。" else scope
+}
+
+/**
+ * 清空之后那句话。
+ *
+ * **保留了几条必须说出来**（[kept]）：不说的话，用户数一遍列表发现还剩几条，
+ * 会读成"没删干净"；而它其实是安全约束 —— 那几条正被标签跑着。
+ *
+ * 一条都没删也要说出来，且原因不同（[deleted] 为 0 而 [kept] 非 0 是"都被占着"，
+ * 静默的话用户会以为点了没反应）。
+ */
+internal fun clearAllResultText(deleted: Int, kept: Int): String = when {
+    deleted == 0 && kept > 0 -> "没有可清空的会话：这个项目的 $kept 条都正在使用，都保留了"
+    kept > 0 -> "已清空这个项目的 $deleted 条历史会话（$kept 条正在使用，保留）"
+    else -> "已清空这个项目的 $deleted 条历史会话"
+}
+
+/**
+ * 有没删掉的那些时的错误项。
+ *
+ * 条数要说（"1 条"与"8 条"是两件事），原因只说第一条 —— 一批删除里
+ * 通常只有一个原因（磁盘只读、文件被占），把 N 条原因全铺开反而看不清。
+ */
+internal fun clearAllFailedText(failed: List<ClearFailure>): String {
+    val reason = failed.firstOrNull()?.reason ?: "未知原因"
+    return if (failed.size == 1) {
+        "有 1 条历史会话没删掉：$reason"
+    } else {
+        "有 ${failed.size} 条历史会话没删掉，第一条的原因：$reason"
+    }
+}

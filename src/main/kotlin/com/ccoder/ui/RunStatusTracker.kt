@@ -27,7 +27,7 @@ internal data class RunningTask(
  *
  * ## 为什么成员集合用电平信号而不是加减
  *
- * `background_tasks_changed` 带的是**当前全部**在跑的任务（sdk.d.ts:3422），
+ * `background_tasks_changed` 带的是**当前全部**在跑的任务（sdk.d.ts:3478），
  * SDK 文档专门警告过要用它**整集替换**，而不是拿 `task_started` 加一、
  * `task_notification` 减一：
  *
@@ -277,7 +277,7 @@ internal class RunStatusTracker {
 
     /**
      * 文档对 ambient 的定义是"不是活动的任务"，并点名 **每一个 skip_transcript
-     * 任务都算 ambient**（sdk.d.ts:5318）。不过滤的话监视类任务会让指示器永不归零。
+     * 任务都算 ambient**（sdk.d.ts:3487）。不过滤的话监视类任务会让指示器永不归零。
      */
     private fun isAmbient(o: JsonObject): Boolean = o.bool("ambient") || o.bool("skip_transcript")
 

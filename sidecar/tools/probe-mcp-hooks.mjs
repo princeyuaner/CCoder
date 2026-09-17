@@ -8,7 +8,7 @@
  *      仓库里 `mcpServers` / `.mcp.json` 也是零命中。面板要写这个文件，
  *      格式只能实测。
  *   2. hooks 的 JSON 形态。`Options.hooks` 收的是 **JS 回调**（`HookCallback`
- *      是函数，sdk.d.ts:869-871），函数过不了 NDJSON 线，所以插件只能把 hooks
+ *      是函数，sdk.d.ts:891），函数过不了 NDJSON 线，所以插件只能把 hooks
  *      写进文件或走 `Options.settings`（flag 层）。这两种载体的字段名与行为
  *      必须实测确认。
  *

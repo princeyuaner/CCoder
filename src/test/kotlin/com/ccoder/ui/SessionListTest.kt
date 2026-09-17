@@ -6,6 +6,7 @@ import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -53,6 +54,15 @@ class SessionListTest {
      */
     private fun clickableRows(root: Container): List<Component> =
         root.components.filter { it is Container && it.mouseListeners.isNotEmpty() }
+
+    /**
+     * 列表里的**会话行**，不含顶部那一行。
+     *
+     * 顶部那行是「历史会话 / 清空全部」（2026-09-17 加的），它是列表的第一个子件 ——
+     * 直接按 `components[0]` 取会取到它，而它没有标题、点它也不会切会话。
+     */
+    private fun sessionRows(list: JComponent): List<Component> =
+        list.components.filter { it.name != SESSION_LIST_HEADER_NAME }
 
     /** 树里所有的 JLabel —— 要按文字找某个具体标签时用。 */
     private fun textsAndComponents(root: Container): List<JLabel> {
@@ -165,7 +175,7 @@ class SessionListTest {
         // 命中路径，所以全绿。
         val picked = mutableListOf<String>()
         val list = buildSessionList(sessions, "s1", SwitchBlock.None) { picked += it.sessionId }
-        val row = list.components.filterIsInstance<JComponent>()[0]
+        val row = sessionRows(list)[0] as Container
         val title = textsAndComponents(row).first { it.text.contains("这是什么项目") }
 
         click(title)
@@ -251,7 +261,7 @@ class SessionListTest {
         // 2026-09-15 用户给了答案：**写「删除」两个字**。
         // 这条守的就是"不悬停也看得见、而且认得出来"，别再改回去。
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
-        val row = list.components.filterIsInstance<JComponent>()[0]
+        val row = sessionRows(list)[0]
         val x = deleteButtonOf(list, 0)
 
         assertEquals(DELETE_TEXT, x.text, "按钮上是字，不是一个符号")
@@ -276,12 +286,43 @@ class SessionListTest {
         )
     }
 
+    /**
+     * 2026-09-17 用户报的「删除按钮轮廓不对，太矮了」。
+     *
+     * 悬停到按钮上时平台会画出一个按钮框（`isBorderPainted`），而那个框**画在
+     * 按钮自己的边界里**。槽高原先写的是字号（实测 12），按钮的首选高却是 22
+     * （字高 16 ＋ 平台边框上下各 3）—— 于是框被压成一条横线，正好横穿
+     * 「删除」两个字，看着像被划掉。
+     *
+     * 这条钉死的是**槽 = 按钮自己的首选尺寸，一个数都不改**：宽和高都只能
+     * 来自 `preferredSize`。谁再往这儿写一个"看着差不多"的数，这条会红。
+     */
+    @Test
+    fun `删除按钮按自己的首选尺寸摆，不被压扁`() {
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        val button = deleteButtonOf(list, 0)
+        val slot = button.parent as JComponent
+
+        assertEquals(button.preferredSize.width, slot.preferredSize.width, "槽宽不等于按钮的首选宽")
+        assertEquals(
+            button.preferredSize.height,
+            slot.preferredSize.height,
+            "槽把按钮压扁了 —— 悬停时那个按钮框会横穿字形（用户报的「轮廓太矮」）",
+        )
+        // 反过来说：首选高必须**高于**字号，那多出来的正是平台边框。
+        // 哪天它俩相等了，说明这个平台版本不再给按钮留边框，上面两条也就没意义了
+        assertTrue(
+            button.preferredSize.height > button.font.size,
+            "按钮首选高只等于字号（${button.font.size}），平台边框没算进去",
+        )
+    }
+
     @Test
     fun `悬停不会让时间标签左右跳`() {
         // 删除按钮藏在固定宽度的槽里。若直接把它从布局里拿掉拿进，
         // 时间标签会左右跳一下 —— 那是能看见的抖动
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
-        val row = list.components.filterIsInstance<JComponent>()[0]
+        val row = sessionRows(list)[0]
         val before = row.preferredSize.width
 
         hover(row, entered = true)
@@ -356,6 +397,148 @@ class SessionListTest {
             textsIn(list).any { it.contains("还可以做什么功能") },
             "取消后标题没回来：${textsIn(list)}",
         )
+    }
+
+    // ---- 清空全部（2026-09-17）----
+
+    /** 顶部那颗「清空全部」。 */
+    private fun clearAllButton(list: JComponent) =
+        buttonsIn(list).firstOrNull { it.text == CLEAR_ALL_TEXT }
+
+    @Test
+    fun `顶部有「清空全部」，点了要先确认`() {
+        // 用户原话：「右上角需要增加一个一键清空所有历史对话的功能」。
+        // 这颗管的是**整列**，按错的代价比删一行大得多 —— 不给"点一下就走完"
+        var cleared = 0
+        val list = buildSessionList(
+            twoSessions, currentSessionId = null, block = SwitchBlock.None,
+            onClearAll = { cleared++ },
+        )
+        val button = clearAllButton(list)
+        assertNotNull(button, "顶部没有「清空全部」：${textsIn(list)}")
+        assertTrue(button!!.isVisible, "不忙时它该看得见")
+
+        button.doClick()
+
+        assertEquals(0, cleared, "确认之前就清空了")
+        // 进了确认态的证据是那两颗按钮（行内确认那颗写的是「删除」，不会混）
+        assertTrue(
+            buttonsIn(list).any { it.text == "取消" } &&
+                buttonsIn(list).any { it.text == CLEAR_CONFIRM_TEXT },
+            "没有进入确认态：${textsIn(list)}",
+        )
+    }
+
+    @Test
+    fun `清空确认之后才回调 onClearAll`() {
+        var cleared = 0
+        val list = buildSessionList(
+            twoSessions, currentSessionId = null, block = SwitchBlock.None,
+            onClearAll = { cleared++ },
+        )
+
+        clearAllButton(list)!!.doClick()
+        // 确认态那颗按钮写的是「清空」（与行内确认同一个词）
+        buttonsIn(list).first { it.text == CLEAR_CONFIRM_TEXT }.doClick()
+
+        assertEquals(1, cleared)
+    }
+
+    @Test
+    fun `清空的确认态里那颗「取消」什么都不做`() {
+        var cleared = 0
+        val list = buildSessionList(
+            twoSessions, currentSessionId = null, block = SwitchBlock.None,
+            onClearAll = { cleared++ },
+        )
+
+        clearAllButton(list)!!.doClick()
+        buttonsIn(list).first { it.text == "取消" }.doClick()
+
+        assertEquals(0, cleared)
+        assertNotNull(clearAllButton(list), "取消后「清空全部」没回来")
+    }
+
+    @Test
+    fun `行内确认与清空确认同一时刻只挂一个`() {
+        // 两处共用同一个确认槽。点了某行的删除再点清空全部（或者反过来），
+        // 前一个必须先收回 —— 否则界面上同时挂着两个待确认的删除
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+
+        deleteButtonOf(list, 0).doClick()
+        clearAllButton(list)!!.doClick()
+
+        val rowConfirm = textsIn(list).count { it.contains("删除「") }
+        assertEquals(0, rowConfirm, "行内确认没收回去：${textsIn(list)}")
+
+        // 反过来：从清空确认点回行内删除，清空那个问句也得消失
+        deleteButtonOf(list, 0).doClick()
+        assertFalse(
+            textsIn(list).any { it.contains("清空这个项目") },
+            "清空的确认没收回去：${textsIn(list)}",
+        )
+    }
+
+    @Test
+    fun `忙时顶部不露清空入口`() {
+        // 忙时整列不可点，删除入口本来就藏起来 —— 清空也得守同一条，
+        // 不然它会成为这一列里唯一一个还亮着的动作
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.TurnRunning)
+
+        assertFalse(
+            clearAllButton(list)?.isVisible ?: false,
+            "忙时还露着「清空全部」",
+        )
+    }
+
+    @Test
+    fun `没有会话时顶部没有清空入口`() {
+        // 清一个空列表只会让人怀疑列表是不是没加载出来
+        val list = buildSessionList(emptyList(), currentSessionId = null, block = SwitchBlock.None)
+
+        assertNull(clearAllButton(list), "空列表上挂着「清空全部」：${textsIn(list)}")
+    }
+
+    @Test
+    fun `清空的确认语把正在使用的条数算进去`() {
+        // 被别的标签占着的那条不会删（jsonl 正被写），确认语里要说清有几条，
+        // 否则清完发现还剩一条会像是没删干净
+        val list = buildSessionList(
+            twoSessions, currentSessionId = "s1", block = SwitchBlock.None,
+            takenIds = setOf("s2"),
+        )
+
+        clearAllButton(list)!!.doClick()
+
+        assertTrue(
+            textsIn(list).any { it.contains("2 条正在使用") },
+            "确认语没算上正在使用的那两条：${textsIn(list)}",
+        )
+    }
+
+    @Test
+    fun `清空的问句不被裁掉`() {
+        // **这条是量出来的**：JLabel 装不下文案是"裁"，不是折行、也不报错 ——
+        // 第一版（问句占一整行、按钮另起一行）出图时被切掉了一截，
+        // 而当时的用例全是绿的。量和容量的关系只有真排过一次版才知道。
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        clearAllButton(list)!!.doClick()
+        layoutDeep(list, JBUI.scale(SESSION_LIST_WIDTH) - JBUI.scale(8))
+
+        val prompt = textsAndComponents(list).first { it.text.contains("清空") }
+        assertTrue(
+            prompt.width >= prompt.preferredSize.width,
+            "问句被裁了：要 ${prompt.preferredSize.width}px，只给了 ${prompt.width}px",
+        )
+    }
+
+    /** 按给定宽度**真排一次版**（单测里没有窗口，组件不会自己排）。 */
+    private fun layoutDeep(c: Container, w: Int) {
+        c.setSize(w, c.preferredSize.height)
+        c.doLayout()
+        for (child in c.components) {
+            if (child is Container) layoutDeep(child, child.width)
+        }
     }
 
     @Test
@@ -512,8 +695,15 @@ class SessionListTest {
             scroll.viewport.view.preferredSize.height > viewportH,
             "内容没比视口高，滚不动：内容 ${scroll.viewport.view.preferredSize.height} vs 视口 $viewportH",
         )
-        // 上限是"行高 × 10 + 上下内边距"，不是写死的常数 —— 字体一变它跟着变
-        assertTrue(viewportH <= JBUI.scale(22) * SESSION_LIST_MAX_ROWS + JBUI.scale(8) + JBUI.scale(4), "高没封住：$viewportH")
+        // 上限是"行高 × 10 + 上下内边距"，不是写死的常数 —— 行高得**量**出来：
+        // 字体、缩放、行里最高的那个子件都会影响它（2026-09-17 删除按钮改成
+        // 按自己的首选高摆之后，行高就从 22 变成了 28）
+        val content = scroll.viewport.view as Container
+        val rowH = content.components.last().preferredSize.height
+        assertTrue(
+            viewportH <= rowH * SESSION_LIST_MAX_ROWS + JBUI.scale(16),
+            "高没封住：视口 $viewportH，行高 $rowH",
+        )
     }
 
     @Test

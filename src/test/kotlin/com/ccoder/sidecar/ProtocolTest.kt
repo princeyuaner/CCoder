@@ -676,6 +676,87 @@ class ProtocolTest {
         )
     }
 
+    // ---- 清空这个项目的历史（2026-09-17）----
+
+    @Test
+    fun `encodeClearSessions 带 id、dir 与 keep`() {
+        val line = Protocol.encodeClearSessions("r9", "/proj", listOf("a", "b"))
+        val obj = JsonParser.parseString(line.trim()).asJsonObject
+
+        assertEquals("r9", obj.get("id").asString)
+        assertEquals("clearSessions", obj.get("method").asString)
+        val params = obj.getAsJsonObject("params")
+        assertEquals("/proj", params.get("dir").asString)
+        assertEquals(listOf("a", "b"), params.getAsJsonArray("keep").map { it.asString })
+    }
+
+    @Test
+    fun `encodeClearSessions 没有要留的也照发空数组`() {
+        // 空数组是合法取值（全删）。**字段不能省** —— 省了 sidecar 收到的就是
+        // undefined，而它与"用户说要全删"是两件事，不该靠默认值去猜
+        val obj = JsonParser.parseString(Protocol.encodeClearSessions("r9", "/proj", emptyList()).trim())
+            .asJsonObject
+
+        assertTrue(obj.getAsJsonObject("params").has("keep"), "keep 字段被省掉了")
+        assertEquals(0, obj.getAsJsonObject("params").getAsJsonArray("keep").size())
+    }
+
+    @Test
+    fun `sessionsCleared 解析出删掉的与失败的`() {
+        val line = """
+            {"type":"sessionsCleared","id":"r9","deleted":["a","c"],
+             "failed":[{"sessionId":"b","reason":"磁盘只读"}]}
+        """.trimIndent()
+
+        val msg = Protocol.parse(line) as SidecarMessage.SessionsCleared
+
+        assertEquals("r9", msg.requestId)
+        assertEquals(listOf("a", "c"), msg.deleted)
+        assertEquals(1, msg.failed.size)
+        assertEquals("b", msg.failed[0].sessionId)
+        assertEquals("磁盘只读", msg.failed[0].reason)
+    }
+
+    @Test
+    fun `sessionsCleared 缺数组时当空，不丢弃整条`() {
+        // 「一条都没删掉」是合法结果（比如 keep 覆盖了全部）。丢弃的话
+        // 界面会一直等到超时，然后报一句与事实不符的"没有回执"
+        val msg = Protocol.parse("""{"type":"sessionsCleared","id":"r9"}""")
+
+        assertTrue(msg is SidecarMessage.SessionsCleared)
+        assertEquals(emptyList<String>(), (msg as SidecarMessage.SessionsCleared).deleted)
+        assertTrue(msg.failed.isEmpty())
+    }
+
+    @Test
+    fun `sessionsCleared 缺 id 时丢弃`() {
+        assertNull(Protocol.parse("""{"type":"sessionsCleared","deleted":["a"]}"""))
+    }
+
+    @Test
+    fun `sessionsCleared 里坏掉的条目跳过而非废掉整条`() {
+        // 与 sessions 的分页容错同一条：一个坏元素不该让另外两条都看不见。
+        // deleted 里混进数字、failed 里混进字符串与缺 sessionId 的对象
+        val line = """
+            {"type":"sessionsCleared","id":"r9","deleted":["a",7,"c"],
+             "failed":["x",{"reason":"没有 id"},{"sessionId":"b","reason":"磁盘只读"}]}
+        """.trimIndent()
+
+        val msg = Protocol.parse(line) as SidecarMessage.SessionsCleared
+
+        assertEquals(listOf("a", "c"), msg.deleted)
+        assertEquals(listOf("b"), msg.failed.map { it.sessionId })
+    }
+
+    @Test
+    fun `responseIdOf 认得 sessionsCleared`() {
+        // 不认的话清空那一下会一直挂到超时，然后界面报"没有回执"
+        assertEquals(
+            "r9",
+            Protocol.responseIdOf(SidecarMessage.SessionsCleared("r9", emptyList(), emptyList())),
+        )
+    }
+
     @Test
     fun `commands 消息解析出命令与技能两组`() {
         val line = """

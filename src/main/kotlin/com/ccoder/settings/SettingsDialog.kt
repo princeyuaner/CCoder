@@ -49,12 +49,13 @@ fun showSettingsDialog(project: Project) {
         profiles = ModelProfiles.getInstance(),
         presets = PromptPresets.getInstance(),
         mcpStatus = McpStatus.getInstance(project),
+        deps = RuntimeDepsService.getInstance(project),
     ).show()
 }
 
 /**
  * 设置对话框（设计稿方案 C，2026-09-15）。
- * 七页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks。
+ * 八页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 群交流。
  *
  * ## 从三栏到四页签
  *
@@ -87,6 +88,18 @@ internal class SettingsDialog(
     private val presets: PromptPresets,
     private val mcpStatus: McpStatus,
     /**
+     * 运行依赖的检测结果与安装进度。**不给默认值**：默认值只能写成
+     * `RuntimeDepsService.getInstance(project)`，而用例里没有平台服务（会抛），
+     * 更糟的是任何忘了注入的用例都会去**真跑** `claude --version` —— 又慢又不确定。
+     * 签名上多一个必填参数，换的是用例的确定性。
+     */
+    private val deps: RuntimeDepsService,
+    /**
+     * 「运行依赖」那块的确认框/剪贴板/浏览器外壳。生产用默认值；渲染探针换掉它
+     * （要画"这台机器上装不了"那一屏就得把平台与工具一起换掉）。
+     */
+    private val depsUi: DepsUi = DepsUi(),
+    /**
      * 项目根。默认取 [project] 的 basePath。
      *
      * 可注入是为了让渲染探针指定一个临时目录 —— 它的假 Project 是个
@@ -105,10 +118,13 @@ internal class SettingsDialog(
             PermissionSettingsPage(settings),
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——
             // 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了
-            EnvironmentSettingsPage(settings) { models.refreshConflictWarning() },
+            EnvironmentSettingsPage(project, settings, deps, depsUi) { models.refreshConflictWarning() },
             // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
             McpSettingsPage(baseDir, mcpStatus),
             HooksSettingsPage(baseDir),
+            // 一页只放一张二维码（2026-09-17）。它不读写任何配置，放最后 ——
+            // 前面七页是"把插件配成你要的样子"，这一页是"找人"
+            GroupChatSettingsPage(),
         )
     }
 

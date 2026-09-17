@@ -50,7 +50,7 @@ test('send 的内容以 SDKUserMessage 形状进入输入流', async () => {
 
 // ---- 贴图（2026-09-15）----
 //
-// 形状来自 sdk.d.ts:5464（SDKUserMessage.message 就是 Messages API 的 MessageParam，
+// 形状来自 sdk.d.ts:5849-5852（SDKUserMessage.message 就是 Messages API 的 MessageParam，
 // content 可以是字符串或 content blocks 数组），而图这个 block 的具体写法与
 // "这条链路收不收图"是两件事 —— 后者由 tools/probe-image.mjs 实测钉住。
 
@@ -282,7 +282,7 @@ test('setEffort 走 applyFlagSettings 把档位原样转发', async () => {
 
 test('setEffort(null) 传的是显式 null —— 省略等于什么都没做', async () => {
   // SDK 文档：undefined 会被 JSON 序列化丢掉、没有任何效果。
-  // 要"回到默认"必须显式传 null（sdk.d.ts:2695-2700）。
+  // 要"回到默认"必须显式传 null（sdk.d.ts:2749-2751）。
   // 写成 `{ effortLevel: level ?? undefined }` 或 `if (level) {...}` 的话这条会挂
   const applied = [];
   const q = fakeQuery([], {

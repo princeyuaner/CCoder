@@ -21,7 +21,7 @@ import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
 import { applyProjectKey } from './project-key.js';
 
 /**
- * SDK 的 EffortLevel 联合类型（sdk.d.ts:601）。
+ * SDK 的 EffortLevel 联合类型（sdk.d.ts:623）。
  *
  * 与插件侧的 `EffortSetting` 枚举是**同一份知识的两个副本**，看着像冗余，
  * 但这里挡的是另一种错：CLI 对认不出的**字符串**未必报错，可能直接忽略 ——
@@ -29,7 +29,7 @@ import { applyProjectKey } from './project-key.js';
  * 也不要界面上出现一个没生效的档位。
  *
  * `'max'` 只在 applyFlagSettings 这条路上被接受，持久化的 Settings.effortLevel
- * 里没有它（sdk.d.ts:2700-2703）—— 我们走的正是这条路，所以它同样合法。
+ * 里没有它（sdk.d.ts:2744-2750）—— 我们走的正是这条路，所以它同样合法。
  */
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -73,6 +73,56 @@ function subagentMeta(dir, agentId) {
   } catch {
     return {};
   }
+}
+
+/**
+ * 分页列全某个项目的会话。
+ *
+ * **为什么要分页**：`listSessions` 默认有上限，而"清空所有历史"必须覆盖到
+ * 界面上根本没列出来的那些（会话列表只取 50 条，见 `SESSION_LIST_LIMIT`）。
+ * 一页 200，翻到不满一页为止。
+ *
+ * 先**列全再删**，不在翻页的过程中删：边删边翻会让 offset 在已经变短的
+ * 结果集上错位，漏掉一些、重复一些。
+ */
+async function listAllSessions(sessionApi, dir) {
+  const PAGE = 200;
+  /** 翻页的硬上限（100 × 200 = 两万条会话）。真到了这个数，多出来的下次再清。 */
+  const MAX_PAGES = 100;
+  const all = [];
+  for (let offset = 0; offset < PAGE * MAX_PAGES; offset += PAGE) {
+    const page = await sessionApi.listSessions({ dir, limit: PAGE, offset });
+    const rows = page ?? [];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return all;
+}
+
+/**
+ * 清空某个项目的历史会话，除了 `keep` 里的那些。
+ *
+ * **单条失败不中断整批**：一条坏数据不该让另外 36 条都留着。失败的收进
+ * `failed` 连原因一起回给界面 —— "删了 35 条、1 条没删掉"必须说得清是哪条。
+ *
+ * `keep` 是**正在被标签跑着**的那些（见插件侧 `OpenSessions`）：它们的 jsonl
+ * 正被一个活着的 CLI 进程写着，删文件是拿正在写的会话冒险。
+ */
+async function clearProjectSessions(sessionApi, dir, keep) {
+  const deleted = [];
+  const failed = [];
+  for (const s of await listAllSessions(sessionApi, dir)) {
+    const id = s?.sessionId;
+    // 没有 id 的条目不知道删的是谁，跳过（同 listSessions 的容错口径）
+    if (typeof id !== 'string' || id === '' || keep.has(id)) continue;
+    try {
+      await sessionApi.deleteSession(id);
+      deleted.push(id);
+    } catch (err) {
+      failed.push({ sessionId: id, reason: String(err?.message ?? err) });
+    }
+  }
+  return { deleted, failed };
 }
 
 /**
@@ -253,6 +303,27 @@ export function createDispatcher({
         Promise.resolve(sessionApi.deleteSession(sessionId))
           .then(() => out({ type: 'sessionDeleted', id: msg.id, sessionId }))
           .catch((err) => fail('DELETE_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      case 'clearSessions': {
+        // 与 deleteSession 同一条：列表上的动作，不需要活会话
+        const { dir, keep } = params;
+        if (typeof dir !== 'string' || dir === '') {
+          fail('CLEAR_FAILED', '清空会话缺少 dir', false);
+          return session;
+        }
+        // keep 里的非字符串一律忽略而不是整条回执作废：它是**保护名单**，
+        // 多一个认不出的名字顶多少删一条，反过来（把请求判死）会让用户
+        // 点了清空什么都没发生
+        const keepSet = new Set(
+          (Array.isArray(keep) ? keep : []).filter((id) => typeof id === 'string' && id !== ''),
+        );
+        clearProjectSessions(sessionApi, dir, keepSet)
+          .then(({ deleted, failed }) =>
+            out({ type: 'sessionsCleared', id: msg.id, deleted, failed }),
+          )
+          .catch((err) => fail('CLEAR_FAILED', String(err?.message ?? err), false));
         return session;
       }
 

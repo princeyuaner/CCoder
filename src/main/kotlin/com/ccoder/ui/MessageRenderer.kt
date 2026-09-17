@@ -263,7 +263,7 @@ object MessageRenderer {
     /**
      * 逐 token 增量。
      *
-     * 载荷是 Messages API 的原始流事件（sdk.d.ts:4901），文本要下钻到
+     * 载荷是 Messages API 的原始流事件（sdk.d.ts:5147），文本要下钻到
      * `event.delta.text`。只有 content_block_delta 带内容 ——
      * message_start / content_block_start / content_block_stop / message_stop
      * 都是无内容的边界帧，多产生渲染项会让 UI 出现空行。

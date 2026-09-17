@@ -28,6 +28,10 @@ import com.ccoder.settings.PromptPreset
 import com.ccoder.settings.PromptPresets
 import com.ccoder.settings.displayName
 import com.ccoder.settings.showSettingsDialog
+import com.ccoder.update.ChangelogStore
+import com.ccoder.update.PropertiesChangelogStore
+import com.ccoder.update.maybeShowChangelog
+import com.ccoder.update.showChangelogDialog
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.notification.NotificationGroupManager
@@ -101,6 +105,16 @@ class ClaudePanel(
 ) : JPanel(BorderLayout()), SidecarListener, Disposable {
 
     private val transcriptView = ClaudeTranscriptView(project)
+
+    /**
+     * "更新日志给这个用户看过哪个版本"存哪儿（见 `com.ccoder.update`）。
+     *
+     * 是个 `var` 而不是构造器参数：**这个类是 public 的**，而 [ChangelogStore]
+     * 是 internal 的 —— 放进构造器签名编译器不让过（"public function exposes its
+     * internal parameter type"）。用例与探针在这里换一个假实现，
+     * 因为生产实现读应用级 `PropertiesComponent`，那玩意儿在无头测试里拿不到。
+     */
+    internal var changelogStore: ChangelogStore = PropertiesChangelogStore()
 
     /**
      * 连接状态的**文字源**。
@@ -765,6 +779,7 @@ class ClaudePanel(
             // 第一次上屏默认回到最近那条会话 —— 用户要的是"接着上次聊"，
             // 而不是每次开窗都从零开始（旧行为见 session-switch spec §1.3）
             startSession(pickMostRecent = consumeFirstShow())
+            checkChangelogOnUpdate()
         }
     }
 
@@ -776,7 +791,10 @@ class ClaudePanel(
         // 装监听之前，不会有事件再来。延后一拍再判 isShowing，避开布局未完成的时刻。
         ApplicationManager.getApplication().invokeLater {
             LOG.info("CCoder 面板上屏：isShowing=$isShowing，据此决定是否建会话")
-            if (isShowing) startSession(pickMostRecent = consumeFirstShow())
+            if (isShowing) {
+                startSession(pickMostRecent = consumeFirstShow())
+                checkChangelogOnUpdate()
+            }
             // 切到这个标签（或者它刚建出来）：把**本会话**的 MCP 状态重新发布 ——
             // 设置页右栏读的是那个单槽服务，不发布的话它显示的是上一个标签的
             publishMcpStatus()
@@ -798,6 +816,27 @@ class ClaudePanel(
         firstShowDone = true
         // 只有**开工具窗口时建的那个**面板该恢复最近会话；「＋」开出来的必须是空的
         return resumeOnFirstShow(firstShow = true, openedByPlus = openedByPlus)
+    }
+
+    /**
+     * 更新之后弹一次这一版的更新日志（2026-09-17，设计稿见
+     * `docs/superpowers/specs/2026-09-17-changelog-on-update-design.md`）。
+     *
+     * **挂在"面板真的显示出来"这一点上**（同 [consumeFirstShow] 的两个触发点）：
+     * 用户完全可能开着 IDE 一整天也不点开这个工具窗口，而这一步的语义正是
+     * "他开始用了"。判断与写标记都在 EDT 上，所以**多标签、多项目也只弹一次**
+     * （先后执行，第二个看到标记就跳过）。
+     *
+     * 卸载/异常一律吞掉：这是"顺带说一句"的功能，不该在谁的启动路径上抛异常。
+     */
+    private fun checkChangelogOnUpdate() {
+        runCatching {
+            val decision = maybeShowChangelog(
+                store = changelogStore,
+                show = { changelog -> showChangelogDialog(project, changelog) },
+            )
+            LOG.info("CCoder 更新日志：$decision（已看过 ${changelogStore.shownVersion()}）")
+        }.onFailure { LOG.warn("CCoder 更新日志弹窗没成", it) }
     }
 
     override fun removeNotify() {
@@ -1469,7 +1508,7 @@ class ClaudePanel(
         }
 
         val reqId = nextId()
-        c.request(reqId, Protocol.encodeListSessions(reqId, dir, SESSION_LIST_LIMIT, 0)) { outcome ->
+        c.request(reqId, Protocol.encodeListSessions(reqId, dir, SESSION_LIST_QUERY_LIMIT, 0)) { outcome ->
             // 回调在读取线程上，碰 Swing 必须回到 EDT
             ApplicationManager.getApplication().invokeLater {
                 when (outcome) {
@@ -1502,6 +1541,9 @@ class ClaudePanel(
             onDelete = { s -> requestDeleteSession(s) },
             onRename = { s, title -> requestRenameSession(s.sessionId, title) },
             onTag = { s, tag -> requestTagSession(s.sessionId, tag) },
+            // 顶部右上角那颗「清空全部」（2026-09-17）。确认在列表里做完了，
+            // 到这里就是"用户已经确认过"
+            onClearAll = { requestClearAllSessions() },
         ) { picked ->
             sessionPopup?.cancel()
             sessionPopup = null
@@ -1654,6 +1696,70 @@ class ClaudePanel(
                 }
                 refreshSessionList()
             }
+        }
+    }
+
+    /**
+     * 清空这个项目的历史会话（用户已在列表顶部确认过）。
+     *
+     * ## 为什么是一次请求而不是循环调 [requestDeleteSession]
+     *
+     * 列表只取了前 [SESSION_LIST_QUERY_LIMIT] 条，而"清空所有"要覆盖到没列出来的
+     * 那些 —— 循环删就得在这边自己再做一遍分页；而且部分失败要有"删掉几条、
+     * 哪几条没删掉"，N 个回调里自己记账等于把 sidecar 的活搬到界面线程上。
+     *
+     * ## keep：**正在被标签跑着的会话不删**
+     *
+     * 那条 jsonl 正被一个活着的 CLI 进程写着，删文件是拿正在写的会话冒险。
+     * 行内那颗删除早就有同样的规矩（被占的行连入口都不给），这里只是把它
+     * 说给 sidecar 听。当前会话另外再保一份：万一它还没来得及登记
+     * （登记在 `init` 时做，见 [confirmOwnership]），那一条同样不能删。
+     */
+    private fun requestClearAllSessions() {
+        val c = client
+        if (c == null) {
+            pushItem(RenderItem.ErrorItem("清空历史会话失败：会话通道已关闭"))
+            return
+        }
+        val dir = project.basePath
+        if (dir == null) {
+            pushItem(RenderItem.ErrorItem("清空历史会话失败：项目没有 basePath"))
+            return
+        }
+        val keep = OpenSessions.getInstance(project).takenIds().toMutableSet()
+        currentSessionId?.let { keep.add(it) }
+
+        val id = nextId()
+        c.request(id, Protocol.encodeClearSessions(id, dir, keep.toList())) { outcome ->
+            // 回调在读取线程上，碰 Swing 必须回到 EDT
+            ApplicationManager.getApplication().invokeLater { onClearOutcome(outcome, keep.size) }
+        }
+    }
+
+    private fun onClearOutcome(outcome: RequestOutcome, keptCount: Int) {
+        val msg = (outcome as? RequestOutcome.Answered)?.message
+        if (msg !is SidecarMessage.SessionsCleared) {
+            // 行**不动**（它本来就在），只报错 —— 同删除那一条：
+            // 失败时把行摘掉才是撒谎，用户会以为删掉了
+            pushItem(
+                RenderItem.ErrorItem(
+                    "清空历史会话失败：${(outcome as? RequestOutcome.Failed)?.reason ?: "没有回执"}",
+                ),
+            )
+            return
+        }
+
+        val gone = msg.deleted.toSet()
+        if (gone.isNotEmpty()) sessionListCache = sessionListCache.filterNot { it.sessionId in gone }
+        // 删的正是当前会话（兜底：它一般都在 keep 里）：与删一行那条同路 ——
+        // 停会话、清转写区、回新会话
+        val current = currentSessionId
+        if (current != null && current in gone) startNewSession()
+        refreshSessionList()
+
+        pushItem(RenderItem.SystemNote(clearAllResultText(deleted = gone.size, kept = keptCount)))
+        if (msg.failed.isNotEmpty()) {
+            pushItem(RenderItem.ErrorItem(clearAllFailedText(msg.failed)))
         }
     }
 
@@ -2036,13 +2142,23 @@ class ClaudePanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             // spec §5.3：node 与 claude 的缺失各有独立原因，
             // "没装 node"和"启动失败"的修复动作完全不同
-            when (val node = NodeCheck.verify()) {
+            //
+            // 先三级解析（2026-09-17）：装完 node 之后 IDE 的 PATH 不会刷新，
+            // winget/brew 装出来的那份只有"已知安装目录"那一级找得到
+            val nodePath = NodeCheck.resolve()
+            when (val node = NodeCheck.verify(nodePath ?: "node")) {
                 is NodeStatus.NotFound -> {
-                    fail("未找到 node。CCoder 的 sidecar 需要 Node.js ${NodeCheck.MIN_MAJOR} 或更高版本。")
+                    fail(
+                        "未找到 node。CCoder 的 sidecar 需要 Node.js ${NodeCheck.MIN_MAJOR} 或更高版本。" +
+                            "设置 → 环境 → 运行依赖 里可以一键检测与安装。"
+                    )
                     return@executeOnPooledThread
                 }
                 is NodeStatus.TooOld -> {
-                    fail("node 版本过低（${node.version}），需要 ${NodeCheck.MIN_MAJOR} 或更高。")
+                    fail(
+                        "node 版本过低（${node.version}），需要 ${NodeCheck.MIN_MAJOR} 或更高。" +
+                            "设置 → 环境 → 运行依赖 里可以升级。"
+                    )
                     return@executeOnPooledThread
                 }
                 is NodeStatus.Ok -> Unit
@@ -2050,7 +2166,7 @@ class ClaudePanel(
 
             try {
                 val sidecarDir = SidecarLocator.resolve(base)
-                val p = SidecarProcess(sidecarDir, nodePath = "node") { exit ->
+                val p = SidecarProcess(sidecarDir, nodePath = nodePath ?: "node") { exit ->
                     // 回调在看门狗线程上，碰 Swing 必须回 EDT
                     ApplicationManager.getApplication().invokeLater {
                         // 已经换过会话了，这条死讯属于上一个进程
@@ -2098,7 +2214,7 @@ class ClaudePanel(
                 val reqId = nextId()
                 c.request(
                     reqId,
-                    Protocol.encodeListSessions(reqId, base, SESSION_LIST_LIMIT, 0),
+                    Protocol.encodeListSessions(reqId, base, SESSION_LIST_QUERY_LIMIT, 0),
                 ) { outcome ->
                     // 回调在读取线程上，碰 Swing 必须回到 EDT
                     ApplicationManager.getApplication().invokeLater {
@@ -2508,7 +2624,7 @@ class ClaudePanel(
                     // 请求失败了，"等着回执"这件事就结束了 —— 不清掉的话
                     // 下一次真的读数（哪怕不是同一档）会被误当成"用户刚点的"
                     requestedMode = null
-                    pushItem(RenderItem.ErrorItem(failureHint(msg.code, msg.message)))
+                    pushItem(RenderItem.ErrorItem(failureHintText(msg.code, msg.message)))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
                         setConnection("已断开")
@@ -2627,6 +2743,7 @@ class ClaudePanel(
                 is SidecarMessage.SessionList,
                 is SidecarMessage.History,
                 is SidecarMessage.SessionDeleted,
+                is SidecarMessage.SessionsCleared,
                 is SidecarMessage.Commands,
                 -> Unit
 
@@ -2635,39 +2752,7 @@ class ClaudePanel(
         }
     }
 
-    /**
-     * 错误码 → 可操作的提示。
-     *
-     * spec §5.3：认证失败要附带提示。实测最常见的原因是环境变量污染（spec §11.1），
-     * 但用户看到 "authentication_failed" 无从下手。
-     *
-     * 模式切换失败同理：光说"切换失败"没用，得指出往哪儿走。
-     */
-    private fun failureHint(code: String?, message: String): String = when (code) {
-        "AUTH_FAILED" ->
-            "$message\n\n请检查 ~/.claude/settings.json 的 env 块是否包含有效的 " +
-                "ANTHROPIC_AUTH_TOKEN 与 ANTHROPIC_BASE_URL。\n" +
-                "若配置无误，可能是宿主环境变量污染——CCoder 已剥离 " +
-                "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST 等 10 个变量（设计文档 §3.2）。"
-
-        // 资格位现在启动时一律带上（见 session.js），所以"这条会话不是以绕过
-        // 启动的"已经不是失败原因。剩下的是 CLI 侧真把它关了 ——
-        // settings.json 的 permissions.disableBypassPermissionsMode，或受限配置
-        "SET_MODE_FAILED" ->
-            "$message\n\n权限模式没有切换，本会话仍按原来的模式跑。" +
-                "若要切到「绕过权限」而被拒：CCoder 启动时已带好可切换的资格，" +
-                "被拒说明它被设置或策略禁用了 —— 查 ~/.claude/settings.json 的 " +
-                "permissions.disableBypassPermissionsMode，以及是否有托管配置。"
-
-        // 切档失败的常见原因是 CLI 太老 —— applyFlagSettings 是较新的控制请求，
-        // 老版本上根本没有。不把原因说死：也可能是会话没建起来
-        "SET_EFFORT_FAILED" ->
-            "$message\n\n思考深度没有改变，这一轮仍按原来的档位跑。" +
-                "会话中途改档位需要较新版本的 claude 可执行文件；" +
-                "可以升级它，或在设置里改好后重开会话。"
-
-        else -> message
-    }
+    // 错误码 → 可操作的提示：抽成纯函数了（`FailureHint.kt`），用例直接打
 
     // ---- 渲染 ----
 
@@ -3510,9 +3595,6 @@ class ClaudePanel(
          */
         const val HINT_FILE = "再打一个字找文件"
         const val HINT_SYMBOL = "再打一个字找符号"
-
-        /** 一屏够看了。不做翻页 —— 实测本机 19 条会话。 */
-        const val SESSION_LIST_LIMIT = 50
 
         val LOG = Logger.getInstance(ClaudePanel::class.java)
     }

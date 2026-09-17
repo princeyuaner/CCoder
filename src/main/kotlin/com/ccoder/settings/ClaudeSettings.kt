@@ -14,7 +14,7 @@ import kotlin.io.path.absolutePathString
  *
  * wireValue 必须与 SDK 的 PermissionMode 联合类型**逐字**一致：
  * `'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto'`
- * （sdk.d.ts:2327）。拼错不会报错，只会被 CLI 静默忽略。
+ * （sdk.d.ts:2366）。拼错不会报错，只会被 CLI 静默忽略。
  */
 enum class PermissionModeSetting(
     val wireValue: String,
@@ -48,7 +48,7 @@ enum class PermissionModeSetting(
     PLAN("plan", "仅规划", "只读：只做计划，不执行工具"),
     DONT_ASK("dontAsk", "不询问", "不询问；未预先允许的一律拒绝"),
 
-    /** SDK 要求同时设置 allowDangerouslySkipPermissions（sdk.d.ts:1852-1856）。 */
+    /** SDK 要求同时设置 allowDangerouslySkipPermissions（sdk.d.ts:1890-1894）。 */
     BYPASS_PERMISSIONS(
         "bypassPermissions",
         "绕过权限",
@@ -78,7 +78,7 @@ internal fun effectivePermissionMode(
  * 思考深度。
  *
  * wireValue 必须与 SDK 的 `EffortLevel` 联合类型**逐字**一致：
- * `'low' | 'medium' | 'high' | 'xhigh' | 'max'`（sdk.d.ts:594）。
+ * `'low' | 'medium' | 'high' | 'xhigh' | 'max'`（sdk.d.ts:623）。
  * 拼错不会报错，只会被 CLI 静默忽略 —— 与 [PermissionModeSetting] 同一个坑。
  *
  * [DEFAULT] 的 wireValue 是 **null**，语义是「不干预」：不下发这个字段，
@@ -98,10 +98,10 @@ enum class EffortSetting(
     MEDIUM("medium", "中"),
     HIGH("high", "高"),
 
-    /** 比「高」更深。SDK 原话：不支持的模型上**静默降级为 high**（sdk.d.ts:597）。 */
+    /** 比「高」更深。SDK 原话：不支持的模型上**静默降级为 high**（sdk.d.ts:620）。 */
     XHIGH("xhigh", "极高"),
 
-    /** 只有少数模型认（sdk.d.ts:598）。 */
+    /** 只有少数模型认（sdk.d.ts:621）。 */
     MAX("max", "最大"),
     ;
 

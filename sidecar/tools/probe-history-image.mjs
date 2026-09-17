@@ -8,7 +8,7 @@
  * CLI 可以把图存下来，也可以存成一个占位文本（`[Image #1]`）。
  *
  * SDK 的类型定义在这一处**不作承诺**：`SessionMessage.message` 是 `unknown`
- * （sdk.d.ts:5666），所以只能实测。
+ * （sdk.d.ts:6050-6054），所以只能实测。
  *
  * 做法：起一个会话 → 发一张图（红蓝各半，答错一眼看得出）→ 拿 init 里的
  * sessionId → 用 `getSessionMessages`（插件的 loadHistory 用的就是它）读回来

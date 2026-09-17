@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
@@ -9,6 +10,7 @@ import java.awt.Cursor
 import java.awt.Dimension
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.ScrollPaneConstants
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.table.DefaultTableModel
@@ -35,7 +37,11 @@ private val EXTRA_DIRS_COLUMNS = arrayOf("额外目录")
 private val ENV_VARS_COLUMNS = arrayOf("变量名", "值")
 
 /**
- * 环境页：额外目录 · 环境变量 · 冲突提示。
+ * 环境页：运行依赖 · 额外目录 · 环境变量 · 冲突提示。
+ *
+ * 「运行依赖」那块（2026-09-17）是这一页顶上的一段，自成一个
+ * [RuntimeDepsSection] —— 它管的是"这台机器上有没有 node 与 claude"，
+ * 与下面两张表（管 CLI 怎么跑）是两件事，中间画了条线。
  *
  * ## 两张表都是**改一格就落库**
  *
@@ -57,12 +63,31 @@ private val ENV_VARS_COLUMNS = arrayOf("变量名", "值")
  * 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了。
  */
 internal class EnvironmentSettingsPage(
+    private val project: Project?,
     private val settings: ClaudeSettings,
+    /** 运行依赖的检测结果与安装进度（项目级服务，活得比这个对话框长）。 */
+    private val deps: RuntimeDepsService,
+    /** 「运行依赖」那块的确认框/剪贴板/浏览器外壳。默认生产实现，探针与用例换掉它。 */
+    private val depsUi: DepsUi = DepsUi(),
     /** envOverrides 变了就喊一声：模型页那条冲突警告要跟着重算。 */
     private val onEnvOverridesChanged: () -> Unit = {},
 ) : SettingsPage {
 
     override val title: String = "环境"
+
+    /**
+     * 顶部那块「运行依赖」（2026-09-17 加）。设计稿 §3.7。
+     *
+     * 它自带整块的订阅与退订，所以这一页只需转发 [dispose] 与 [reload]。
+     */
+    private val depsSection = RuntimeDepsSection(
+        deps = deps,
+        confirm = depsUi.confirm ?: { plan -> confirmInstall(project, plan) },
+        copy = depsUi.copy,
+        browse = depsUi.browse,
+        os = depsUi.os,
+        tools = depsUi.tools,
+    )
 
     private val extraDirsModel = DefaultTableModel(EXTRA_DIRS_COLUMNS, 0)
     private val envModel = DefaultTableModel(ENV_VARS_COLUMNS, 0)
@@ -86,6 +111,7 @@ internal class EnvironmentSettingsPage(
         envModel.addTableModelListener { save() }
 
         val column = settingsColumn().apply {
+            add(depsSection.component())
             add(conflictSlot)
             add(labeledField(EXTRA_DIRS_LABEL, tableBox(JBTable(extraDirsModel))))
             add(
@@ -102,7 +128,19 @@ internal class EnvironmentSettingsPage(
                 )
             )
         }
-        return settingsPageBody(column).also { reload() }
+        // 这一页比别的页高（运行依赖那一段 + 两张定高的表，量出来 581–677px，
+        // 而对话框是定高的、可用不到 500px）。**不套滚动条的话，底部那行说明会被
+        // 直接切掉**（2026-09-17 出图时看出来的）。
+        //
+        // 横向滚动条关掉：内容的宽度是算好的（PAGE_CONTENT_WIDTH），
+        // 纵向滚动条吃掉的是右边那 20px 内边距，盖不到内容。
+        return JBScrollPane(settingsPageBody(column)).apply {
+            border = JBUI.Borders.empty()
+            isOpaque = false
+            viewport.isOpaque = false
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBar.unitIncrement = JBUI.scale(16)
+        }.also { reload() }
     }
 
     /**
@@ -171,6 +209,10 @@ internal class EnvironmentSettingsPage(
         }
     }
 
+    override fun dispose() {
+        depsSection.dispose()
+    }
+
     override fun reload() {
         loading = true
         try {
@@ -182,6 +224,9 @@ internal class EnvironmentSettingsPage(
             loading = false
         }
         refreshConflict()
+        // 每次打开设置重查一遍两个依赖。服务里那份缓存会先画出来（不会白屏），
+        // 查完再由服务通知这一页重画 —— 页里不开线程
+        depsSection.recheck()
     }
 
     private fun save() {

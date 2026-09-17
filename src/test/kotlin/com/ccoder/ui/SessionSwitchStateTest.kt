@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.sidecar.ClearFailure
 import com.ccoder.sidecar.RequestOutcome
 import com.ccoder.sidecar.SessionInfo
 import com.ccoder.sidecar.SidecarMessage
@@ -325,5 +326,79 @@ class SessionSwitchStateTest {
     fun `任一边缺了就当作没换`() {
         assertFalse(isSessionSwitch("aaa", null))
         assertFalse(isSessionSwitch(null, null))
+    }
+
+    // ---- 清空全部的确认语与回话（2026-09-17）----
+
+    @Test
+    fun `清空的确认语说清条数与会被保留的`() {
+        val prompt = clearAllConfirmPrompt(count = 37, keptCount = 2, moreThanListed = false)
+
+        assertTrue(prompt.contains("37"), "没说清几条：$prompt")
+        assertTrue(prompt.contains("2 条正在使用"), "没说清哪几条不会删：$prompt")
+    }
+
+    @Test
+    fun `列表被截断时不报条数`() {
+        // 列表只取了前 50 条，报"清空 50 条"会少报实际要删的条数 ——
+        // 宁可不报数，也不能报一个错的。范围那句这时要说全（"这个项目"），
+        // 因为列表之外还有多少条谁也说不准
+        val prompt = clearAllConfirmPrompt(count = 50, keptCount = 0, moreThanListed = true)
+
+        assertFalse(prompt.contains("50"), "截断时报了条数，那是个错数：$prompt")
+        assertTrue(prompt.contains("这个项目"), "范围没说清：$prompt")
+    }
+
+    @Test
+    fun `确认语短到能与两颗按钮并排放下`() {
+        // **这条是量出来的**（2026-09-17）：确认那一行与两颗按钮挤在同一行，
+        // 而弹层的尺寸是打开那一刻定死的 —— 这一行一长高就再也长不出来。
+        // 试过"问句另起一行"，出图里它被挤成了负高度。所以文案长度是**硬约束**：
+        // 12px 字号下，汉字按 12px、其余按 7px 粗算，留够按钮那 128px 之后
+        // 还剩约 250px
+        val longest = clearAllConfirmPrompt(count = 99, keptCount = 9, moreThanListed = false)
+        val width = longest.sumOf { if (it.code > 0x2E80) 12 else 7 }
+
+        assertTrue(width <= 250, "确认语太长（粗算 ${'$'}width px > 250）：${'$'}longest")
+    }
+
+    @Test
+    fun `没有被占的会话时确认语不提保留`() {
+        val prompt = clearAllConfirmPrompt(count = 3, keptCount = 0, moreThanListed = false)
+
+        assertFalse(prompt.contains("保留"), "没有要保留的却说了保留：$prompt")
+    }
+
+    @Test
+    fun `清空之后必须说出保留了几条`() {
+        // 不说的话，用户数一遍列表发现还剩几条，会读成"没删干净"；
+        // 而它其实是安全约束：那几条正被标签跑着
+        val text = clearAllResultText(deleted = 35, kept = 2)
+
+        assertTrue(text.contains("35"), "没说删了几条：$text")
+        assertTrue(text.contains("2") && text.contains("保留"), "没说保留了几条：$text")
+    }
+
+    @Test
+    fun `一条都没清掉时说清为什么`() {
+        // 全是正在使用的会话。静默的话用户会以为点了没反应
+        val text = clearAllResultText(deleted = 0, kept = 3)
+
+        assertTrue(text.contains("3") && text.contains("保留"), "实际：$text")
+    }
+
+    @Test
+    fun `没有保留的那种就直说删了几条`() {
+        assertEquals("已清空这个项目的 12 条历史会话", clearAllResultText(deleted = 12, kept = 0))
+    }
+
+    @Test
+    fun `有没删掉的要说条数与原因`() {
+        val one = clearAllFailedText(listOf(ClearFailure("a", "磁盘只读")))
+        assertTrue(one.contains("1 条") && one.contains("磁盘只读"), "实际：$one")
+
+        val many = clearAllFailedText(listOf(ClearFailure("a", "磁盘只读"), ClearFailure("b", null)))
+        assertTrue(many.contains("2 条"), "实际：$many")
+        assertTrue(many.contains("磁盘只读"), "实际：$many")
     }
 }

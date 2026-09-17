@@ -134,6 +134,10 @@ class SessionListRenderProbe {
         tagged: Boolean = false,
         /** 正被**别的标签**跑着的那些会话（多标签，2026-09-16）。 */
         taken: Set<String> = emptySet(),
+        /** 指针停在**删除按钮本身**上（三档强调里的 danger 档），见 [draw]。 */
+        dangerRow: Int = -1,
+        /** 点一下顶部的「清空全部」，停在确认态，见 [draw]。 */
+        clearConfirm: Boolean = false,
     ) {
         val sessions = listOf(
             // s1 **两句都有**：显示的是自己说的第一句（firstPrompt 优先于 summary，
@@ -154,8 +158,33 @@ class SessionListRenderProbe {
                 SessionInfo("s4", "重构 extractor 的指纹计算，顺便把跨块的 CR 边界也一起处理掉", null, now - 5 * 86_400_000)
             },
         )
-        draw(path, sessions, block, current = "s2", hoverRow = hoverRow, taken = taken)
+        draw(
+            path, sessions, block,
+            current = "s2", hoverRow = hoverRow, taken = taken,
+            dangerRow = dangerRow, clearConfirm = clearConfirm,
+        )
     }
+
+    /**
+     * **指针停在删除按钮上**那一版（2026-09-17，用户报的"轮廓太矮"）。
+     *
+     * 与上面那张悬停图的差别是**档位**：悬停整行只提亮文字，停在按钮上才画出
+     * 那个按钮框。框画得对不对（包不包得住这两个字）只有这一档看得出来 ——
+     * 用户截的图就是这一档。
+     */
+    @Test
+    fun `把指针停在删除按钮上的那一行画成图片`() =
+        render("build/session-list-probe-delete-hover.png", SwitchBlock.None, dangerRow = 1)
+
+    /**
+     * **顶部「清空全部」的确认态**（2026-09-17）。
+     *
+     * 要看的：那句问句有没有把这一行撑变形（它是定宽 HTML，会换行）、
+     * 两颗按钮与下面的行是不是一家人、下面那些会话行有没有被挤掉。
+     */
+    @Test
+    fun `把清空全部的确认态画成图片`() =
+        render("build/session-list-probe-clear.png", SwitchBlock.None, clearConfirm = true)
 
     /**
      * 画的那一半：建列表、可选地制造悬停态、**按 420px 的真实宽度**排版、出图。
@@ -171,6 +200,8 @@ class SessionListRenderProbe {
         current: String? = "s2",
         hoverRow: Int = -1,
         taken: Set<String> = emptySet(),
+        dangerRow: Int = -1,
+        clearConfirm: Boolean = false,
     ) {
         SwingUtilities.invokeAndWait {
             val list = buildSessionList(
@@ -183,11 +214,30 @@ class SessionListRenderProbe {
             // 悬停态：往那一行派发 MOUSE_ENTERED，删除按钮就会提亮
             if (hoverRow >= 0) {
                 val row = list.components.filterIsInstance<java.awt.Component>()[hoverRow]
-                row.dispatchEvent(
-                    java.awt.event.MouseEvent(
-                        row, java.awt.event.MouseEvent.MOUSE_ENTERED,
-                        System.currentTimeMillis(), 0, 5, 5, 0, false,
-                    )
+                row.dispatchEvent(enterEvent(row))
+            }
+
+            // 清空确认态：真点一下顶部那颗（走的是与真机同一条路径：
+            // doClick → ActionListener → enterConfirm）
+            if (clearConfirm) {
+                val action = findButton(list) { it.text == CLEAR_ALL_TEXT }
+                    ?: error("顶部没有「$CLEAR_ALL_TEXT」—— 探针的假设不成立了")
+                action.doClick()
+            }
+
+            // 危险态：把 MOUSE_ENTERED 派给**按钮自己**（不是它所在这行）。
+            // 按钮的监听器收到后调 paintDelete(danger = true)，画出按钮框
+            if (dangerRow >= 0) {
+                val row = list.components.filterIsInstance<java.awt.Component>()[dangerRow]
+                val button = (row as? java.awt.Container)?.let { findDeleteButton(it) }
+                    ?: error("第 $dangerRow 行里没有「$DELETE_TEXT」按钮 —— 探针的假设不成立了")
+                button.dispatchEvent(enterEvent(button))
+                // 量尺（打印不断言）：按钮**首选**与**槽**是不是同一个数。2026-09-17
+                // 那次"轮廓太矮"就是这两个数不一样 —— 槽高写的是字号，按钮要被压扁
+                println(
+                    "[删除按钮量尺] 首选=${button.preferredSize} 槽=${(button.parent as java.awt.Component).preferredSize} " +
+                        "文字宽=${button.getFontMetrics(button.font).stringWidth(DELETE_TEXT)} " +
+                        "字高=${button.getFontMetrics(button.font).height}",
                 )
             }
 
@@ -206,6 +256,20 @@ class SessionListRenderProbe {
             layoutAll(outer)
 
             println("[会话列表探针] ${File(path).name} 列表首选=${list.preferredSize}")
+            if (clearConfirm) {
+                // 量尺：问句**要**多宽、行**给了**多宽。这两个数一相等才没被裁
+                // （2026-09-17 第一版就是"要 325、给 250"，图上切掉一截）
+                fun walk(c: java.awt.Container, out: MutableList<java.awt.Component>) {
+                    c.components.forEach { out += it; if (it is java.awt.Container) walk(it, out) }
+                }
+                val all = mutableListOf<java.awt.Component>()
+                walk(outer, all)
+                all.filterIsInstance<javax.swing.JLabel>()
+                    .filter { it.text?.contains("清空") == true }
+                    .forEach { l ->
+                        println("[确认行量尺] 问句要 ${l.preferredSize.width}px，给了 ${l.width}px")
+                    }
+            }
 
             val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
             val g = img.createGraphics()
@@ -221,4 +285,23 @@ class SessionListRenderProbe {
             if (child is java.awt.Container) layoutAll(child)
         }
     }
+
+    private fun enterEvent(target: java.awt.Component) = java.awt.event.MouseEvent(
+        target, java.awt.event.MouseEvent.MOUSE_ENTERED,
+        System.currentTimeMillis(), 0, 5, 5, 0, false,
+    )
+
+    /** 递归找第一个满足条件的按钮（删除按钮藏在 `tail` → `deleteSlot` 两层壳里）。 */
+    private fun findButton(
+        c: java.awt.Container,
+        match: (javax.swing.JButton) -> Boolean,
+    ): javax.swing.JButton? {
+        for (child in c.components) {
+            if (child is javax.swing.JButton && match(child)) return child
+            if (child is java.awt.Container) findButton(child, match)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findDeleteButton(c: java.awt.Container) = findButton(c) { it.text == DELETE_TEXT }
 }

@@ -1,7 +1,7 @@
 /**
  * 探针：权限模式里的 'auto' —— CLI 收不收，闸门拉下时是拒绝还是静默忽略。
  *
- * 起因（2026-09-16）：SDK 的 PermissionMode 有六个值（sdk.d.ts:2327 —
+ * 起因（2026-09-16）：SDK 的 PermissionMode 有六个值（sdk.d.ts:2366 —
  * default / acceptEdits / bypassPermissions / plan / dontAsk / **auto**），
  * 插件的枚举只接了五个，'auto' 一直没有界面入口。接之前要量清楚两件事，
  * 都不是读类型定义能读出来的：

@@ -217,7 +217,7 @@ test('permissionDecision 拒绝时带 message', () => {
 
 test('permissionDecision 透传 updatedInput', () => {
   // AskUserQuestion 的答案就是这么回传的：允许这个工具调用时改写它的入参。
-  // PermissionResult 的 allow 分支带 updatedInput（sdk.d.ts:2340）
+  // PermissionResult 的 allow 分支带 updatedInput（sdk.d.ts:2380）
   const sf = fakeSessionFactory();
   const d = createDispatcher({ sessionFactory: sf.factory, out: () => {} });
   d.handle(START);
@@ -930,6 +930,134 @@ test('删除失败回 error，且不回 sessionDeleted', async () => {
 
   assert.ok(out.some((m) => m.type === 'error' && m.code === 'DELETE_FAILED'));
   assert.ok(!out.some((m) => m.type === 'sessionDeleted'), '失败了不该回成功回执');
+});
+
+// ---- 清空这个项目的历史（2026-09-17）----
+
+/**
+ * 假会话 API：一堆 id，可指定哪几条删不掉、一页给几条。
+ *
+ * `pageSize` 用来验分页 —— 真的 `listSessions` 一页最多 200，
+ * 而"清空所有"必须翻到不满一页为止。
+ */
+function fakeSessionList(ids, { failsOn = [], pageSize = 0 } = {}) {
+  const calls = [];
+  return {
+    calls,
+    api: {
+      listSessions: async (opts) => {
+        calls.push(['listSessions', opts]);
+        if (pageSize <= 0) return ids.map((id) => ({ sessionId: id }));
+        const from = opts?.offset ?? 0;
+        return ids.slice(from, from + pageSize).map((id) => ({ sessionId: id }));
+      },
+      deleteSession: async (sid) => {
+        calls.push(['deleteSession', sid]);
+        if (failsOn.includes(sid)) throw new Error('磁盘只读');
+      },
+    },
+  };
+}
+
+test('clearSessions 删掉这个项目的会话，keep 里的那几条留着', async () => {
+  const fa = fakeSessionList(['a', 'b', 'c']);
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r9', method: 'clearSessions', params: { dir: '/proj', keep: ['b'] } });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'sessionsCleared');
+  assert.ok(ack, '没有回 sessionsCleared');
+  assert.equal(ack.id, 'r9');
+  assert.deepEqual(ack.deleted.sort(), ['a', 'c']);
+  assert.deepEqual(ack.failed, []);
+  // 按 dir 列，且**没有**删掉 keep 里那条 —— 它正被一个活着的标签跑着
+  assert.equal(fa.calls[0][0], 'listSessions');
+  assert.equal(fa.calls[0][1].dir, '/proj');
+  assert.ok(
+    !fa.calls.some((c) => c[0] === 'deleteSession' && c[1] === 'b'),
+    'keep 里的会话被删了 —— 那是一条正在写的 jsonl',
+  );
+});
+
+test('clearSessions 单条失败不中断整批，失败的连原因一起回传', async () => {
+  // 一条坏数据不该让另外两条都留着；但"删了 2 条、1 条没删掉"必须说得清是哪条
+  const fa = fakeSessionList(['a', 'b', 'c'], { failsOn: ['b'] });
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r10', method: 'clearSessions', params: { dir: '/proj', keep: [] } });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'sessionsCleared');
+  assert.deepEqual(ack.deleted.sort(), ['a', 'c']);
+  assert.equal(ack.failed.length, 1);
+  assert.equal(ack.failed[0].sessionId, 'b');
+  assert.match(ack.failed[0].reason, /磁盘只读/);
+});
+
+test('clearSessions 翻页列全：界面只列 50 条，清空的必须更多', async () => {
+  // 这是"清空所有"最容易被想漏的一处：会话列表的 limit 是 50，
+  // 而 clean 要把 50 条以外的也删掉
+  const ids = Array.from({ length: 203 }, (_, i) => `s${i}`);
+  const fa = fakeSessionList(ids, { pageSize: 200 });
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r11', method: 'clearSessions', params: { dir: '/proj', keep: [] } });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'sessionsCleared');
+  assert.equal(ack.deleted.length, 203);
+  const offsets = fa.calls.filter((c) => c[0] === 'listSessions').map((c) => c[1].offset);
+  // 0 与 200 两页，且第二页不满（203 % 200 = 3）就该停
+  assert.deepEqual(offsets, [0, 200]);
+});
+
+test('clearSessions 缺 dir 回错误，不静默假装清空', async () => {
+  const fa = fakeSessionList(['a']);
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r12', method: 'clearSessions', params: { keep: [] } });
+  await tick();
+
+  assert.ok(out.some((m) => m.type === 'error' && m.code === 'CLEAR_FAILED'));
+  assert.ok(!out.some((m) => m.type === 'sessionsCleared'), '失败了不该回成功回执');
+  assert.equal(fa.calls.length, 0, '缺 dir 时不该去动 SDK');
+});
+
+test('clearSessions 不需要活会话也能应答', async () => {
+  // 与 deleteSession / listSessions 同一条：删除是列表上的动作
+  const fa = fakeSessionList(['a']);
+  const out = [];
+  const d = createDispatcher({
+    sessionFactory: fakeSessionFactory().factory,
+    out: (m) => out.push(m),
+    sessionApi: fa.api,
+  });
+
+  d.handle({ id: 'r13', method: 'clearSessions', params: { dir: '/proj' } });
+  await tick();
+
+  assert.ok(out.some((m) => m.type === 'sessionsCleared'));
 });
 
 test('listCommands 把命令与技能一并上报', async () => {

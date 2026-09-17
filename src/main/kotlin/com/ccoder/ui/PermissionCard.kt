@@ -25,11 +25,11 @@ import javax.swing.SwingUtilities
  *
  * 落实 spec §6.2 的三条 SDK 明文规则：
  *
- * 规则②（sdk.d.ts:245-248）：不能被误触批准。批准只能显式点击按钮，
+ * 规则②（sdk.d.ts:263-267）：不能被误触批准。批准只能显式点击按钮，
  * **不绑任何键盘快捷键**（按钮刻意不设 mnemonic —— 助记符就是键盘捷径）；
  * 卡片获得焦点时焦点落在"拒绝"上。
  *
- * 规则③（sdk.d.ts:249-253）：那个"不再询问"的入口仅在
+ * 规则③（sdk.d.ts:268-272）：那个"不再询问"的入口仅在
  * [PermissionOptions.allowsAlwaysAllow] 为真时**渲染**（不是渲染后禁用）。
  *
  * 规则①由调用方保证 —— 任何终止路径都要 resolve，见 [PermissionQueue.cancelAll]。

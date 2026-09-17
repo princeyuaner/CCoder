@@ -104,7 +104,7 @@ object PermissionOptions {
     /**
      * 是否显示"总是允许"。
      *
-     * sdk.d.ts:249-253 原文要求：某些请求写一条持久规则会授予比本次询问
+     * sdk.d.ts:268-272 原文要求：某些请求写一条持久规则会授予比本次询问
      * 更大的权限，此时不该提供"不再问"选项。因此必须同时满足
      * suppressAlwaysAllowRule=false 且 suggestions 非空。
      */
@@ -124,7 +124,7 @@ object PermissionOptions {
     /**
      * 卡片主文案。
      *
-     * sdk.d.ts:228-233：SDK 已把 title 渲染为完整问句，
+     * sdk.d.ts:247-252：SDK 已把 title 渲染为完整问句，
      * 应优先使用而非从 toolName+input 重拼。缺失时才逐级降级。
      *
      * 2026-09-15 补一条：「把工具名念一遍」不算问句。用户截了 `ExitPlanMode` 的框
@@ -154,7 +154,7 @@ object PermissionOptions {
     /**
      * 「允许」那颗按钮上写什么。
      *
-     * sdk.d.ts:234-238 说 displayName 是"给按钮用的动作短语"（例子是 `"Read file"`），
+     * sdk.d.ts:253-257 说 displayName 是"给按钮用的动作短语"（例子是 `"Read file"`），
      * 所以原先直接拿它当按钮文案。但 2026-09-15 用户看到的按钮上写着**「Bash」** ——
      * CLI 对内置工具给的就是工具名本身，于是那颗按钮读起来像"点它就运行 Bash"，
      * 而不是"允许这一次"。（同一天 AutoAllowRenderProbe 与 PermissionCardTest 的

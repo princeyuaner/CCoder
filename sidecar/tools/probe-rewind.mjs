@@ -3,11 +3,13 @@
  *
  * 回滚整套设计押在两件事上，而这两件事**都不能从 .d.ts 读出来**：
  *
- *   1. SDK 的 `SDKUserMessage`（往输入流里推的那个类型）**没有 uuid 字段**
- *      （sdk.d.ts:5461-5535），只有回放事件 `SDKUserMessageReplay` 才有（:5600）。
- *      所以"插件自己铸一个 uuid 塞进去、之后拿它回滚"是一条**未文档化**的路
- *      —— probe-queue.mjs 只证明了那个字段被**接受**，没证明 uuid 被**采纳**
- *      （它用的是 'client-A' 这种假串，而 CLI 对 uuid 是有校验的）。
+ *   1. SDK 的 `SDKUserMessage`（往输入流里推的那个类型）在 0.3.268 时**没有
+ *      uuid 字段**，只有回放事件 `SDKUserMessageReplay` 才有 ——
+ *      **0.3.274 起 SDKUserMessage 自己也带上了 `uuid?: UUID`**（sdk.d.ts:5910；
+ *      回放事件仍是 :5923）。但**类型收下不等于 CLI 采纳**：probe-queue.mjs 只
+ *      证明了那个字段被**接受**（用的是 'client-A' 这种假串，而 CLI 对 uuid
+ *      是有校验的），所以"插件自己铸一个 uuid 塞进去、之后拿它回滚"这条路
+ *      照旧要实测。
  *   2. rewind 只改文件、不动对话。用户心里的"回滚"多半来自 CLI 的 /rewind
  *      （连对话一起回），界面文案必须与真实语义对齐，否则就是我们让他误解。
  *

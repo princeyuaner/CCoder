@@ -24,7 +24,7 @@ function assertAsyncIterable(q) {
  * 必须使用流式输入模式（prompt 传 AsyncIterable 而非 string）：
  * SDK 的 Query 接口上 interrupt() / setPermissionMode() / setModel()
  * 的文档明确写着 "only supported when streaming input/output is used"
- * （sdk.d.ts:2614-2616）。传字符串等于永久放弃这些能力。
+ * （sdk.d.ts:2655-2659）。传字符串等于永久放弃这些能力。
  */
 export function createSession({
   cwd,
@@ -117,7 +117,7 @@ export function createSession({
   // 会话永远是死路。真要以绕过**启动**仍由设置里那个"我明白风险"把关
   // （见 ClaudeSettings.effectivePermissionMode），CLI 侧的禁用配置
   // （permissions.disableBypassPermissionsMode / restricted）也照旧生效；
-  // sdk.d.ts:1853-1856 要求的"用 bypassPermissions 必须设它"一并满足。
+  // sdk.d.ts:1891-1894 要求的"用 bypassPermissions 必须设它"一并满足。
   //
   // 实测：tools/probe-bypass-switch.mjs —— 不带它上面那条报错，带上切换成功。
   //

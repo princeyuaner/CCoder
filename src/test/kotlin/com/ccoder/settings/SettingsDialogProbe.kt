@@ -1,6 +1,10 @@
 package com.ccoder.settings
 
+import com.ccoder.sidecar.DepStatus
 import com.ccoder.sidecar.McpServerStatus
+import com.ccoder.sidecar.Os
+import com.ccoder.sidecar.RunEvent
+import com.ccoder.sidecar.RuntimeDep
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBPasswordField
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -309,6 +313,59 @@ class SettingsDialogProbe {
     )
 
     /**
+     * 环境页顶部的「运行依赖」，**四种状态各一张**（2026-09-17）。
+     *
+     * 看图只回答四件事：两行的状态文字有没有对齐、输出区高不高得离谱、
+     * 等宽体与周围是不是一家人、与下面两张表之间的分隔线够不够。
+     */
+    @Test
+    fun `把两个依赖都可用画成图片`() = render(
+        "build/probe/settings-environment-deps-ok.png",
+        page = "环境",
+        nodeStatus = DepStatus.Ok("C:\\Program Files\\nodejs\\node.exe", "24.13.1"),
+        claudeStatus = DepStatus.Ok("C:\\Users\\CY\\AppData\\Roaming\\npm\\claude.cmd", "2.1.268"),
+    )
+
+    /** 两个都缺：两颗「安装 …」都在，状态是那支危险色。这是新用户的第一眼。 */
+    @Test
+    fun `把两个依赖都缺失画成图片`() = render(
+        "build/probe/settings-environment-deps-missing.png",
+        page = "环境",
+    )
+
+    /** 装到一半：输出区在刷、那颗动作变成「取消」。 */
+    @Test
+    fun `把安装中的样子画成图片`() = render(
+        "build/probe/settings-environment-deps-installing.png",
+        page = "环境",
+        nodeStatus = DepStatus.TooOld("C:\\Program Files\\nodejs\\node.exe", "16.20.2", 18),
+        claudeStatus = DepStatus.NotFound,
+        installingLog = listOf(
+            "已找到现有 Node.js 安装（24.13.1）",
+            "正在尝试更新……",
+            "正在下载 https://cdn.example.com/node-v24.19.0.msi（28.4 MB）",
+            "正在安装 node-v24.19.0 (x64)……",
+        ),
+    )
+
+    /** 这台机器上装不了：动作改说「复制命令并打开安装页」。最长的那颗字，最容易挤爆。 */
+    @Test
+    fun `把兜底那条路画成图片`() = render(
+        "build/probe/settings-environment-deps-manual.png",
+        page = "环境",
+        noPackageManager = true,
+    )
+
+    /**
+     * 群交流页：一句说明 + 一张二维码（2026-09-17）。
+     *
+     * 看图只回答三件事：码够不够大（手机扫得动不）、有没有被拉变形、
+     * 整页是不是空得发慌。
+     */
+    @Test
+    fun `把群交流页画成图片`() = render("build/probe/settings-group-chat.png", page = "群交流")
+
+    /**
      * 预置页。两条预设、其中一条正文多行 —— 内容框的高度封没封住、
      * 长名字在列表栏里怎么收，只有图上看得出来。
      */
@@ -402,6 +459,13 @@ class SettingsDialogProbe {
         mcpServers: List<McpServerStatus> = emptyList(),
         /** 写进临时项目根的 `.claude/settings.json`。null = 那份文件不存在。 */
         hooksFile: String? = null,
+        /** 「运行依赖」两行的状态。默认两个都缺 —— 那是最该看的一屏。 */
+        nodeStatus: DepStatus = DepStatus.NotFound,
+        claudeStatus: DepStatus = DepStatus.NotFound,
+        /** 非空 = 画「装到一半」那一屏：把这几行灌进输出区，且**不落终态**。 */
+        installingLog: List<String> = emptyList(),
+        /** true = 这台机器上装不了（没有 npm/winget/brew），两行都走兜底那条路。 */
+        noPackageManager: Boolean = false,
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -420,12 +484,31 @@ class SettingsDialogProbe {
                 Files.writeString(base.resolve(".claude").resolve("settings.json"), it)
             }
             val mcpStatus = McpStatus().apply { if (mcpServers.isNotEmpty()) set(mcpServers) }
+
+            // 「运行依赖」：假服务 + 假执行器，探针不真跑 `claude --version`，也不真装任何东西
+            var fakeRun: FakeRun? = null
+            val deps = depsService(
+                probe = { dep, _ -> if (dep == RuntimeDep.NODE) nodeStatus else claudeStatus },
+                newRunner = { _, onEvent -> FakeRun(onEvent).also { fakeRun = it } },
+            )
+            val tools = if (noPackageManager) ToolSet(null, null, null) else TOOLS_WINDOWS
+            // 探针的 runAsync 是同步的，所以这一下就把两行的状态落定（同页面 reload() 里那步）
+            deps.refreshAll()
+            if (installingLog.isNotEmpty()) {
+                deps.startInstall(
+                    installPlan(RuntimeDep.CLAUDE, claudeStatus, tools, Os.WINDOWS, null, null),
+                )
+                installingLog.forEach { fakeRun!!.emit(RunEvent.Line(it)) }
+            }
+
             val dialog = SettingsDialog(
                 fakeProject(),
                 settings,
                 service,
                 PromptPresets().apply { presets.forEach { upsert(it) } },
                 mcpStatus,
+                deps,
+                DepsUi(os = Os.WINDOWS, tools = { tools }),
                 base,
             )
 
@@ -511,7 +594,9 @@ class SettingsDialogSaveTest {
         lateinit var service: ModelProfiles
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
-            dialog = SettingsDialog(fakeProject(), settingsWith(), service, PromptPresets(), McpStatus())
+            dialog = SettingsDialog(
+                fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(), TEST_DEPS_UI,
+            )
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }
         return dialog to service
