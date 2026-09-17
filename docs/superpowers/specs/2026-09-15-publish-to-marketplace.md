@@ -98,6 +98,11 @@ JetBrains 账号 → plugins.jetbrains.com → Profile → Add new plugin → �
 **2026-09-17 更新**：0.2.18 **已过审上架**（用户确认）。所以 0.2.19 的 change-notes 按
 "相对 0.2.18 的增量"写，**不**并 0.2.18 那四条（d342e45）—— 用户更新到 0.2.18 时已经看过了。
 
+**2026-09-18 更新**：0.2.19 **也已过审上架**（这次不是"用户确认"，是查出来的 ——
+`api/searchPlugins` 拿到 id 34281，`api/plugins/34281/updates` 上 `approve: true`、
+`listed: true`、`version: 0.2.19` 就是线上那一版）。所以 0.2.20 同样只写增量，不并
+0.2.19 那六条（3a9a6f3）。这条查法留着：以后开版时先打一次这个 API，别靠记忆。
+
 ## 六、还没解决的前提
 
 插件包里带着 `@anthropic-ai/claude-agent-sdk` 的 6035 个文件，而它的 `LICENSE.md` 只有一行：

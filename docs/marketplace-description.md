@@ -23,7 +23,7 @@ CCoder runs the Claude Code CLI (`claude`) you already have installed — it is 
 
 - `@` references files and the code you selected in the editor (both show as one-line tokens and expand when sent); `#` references project symbols such as classes and functions. Completion is fuzzy — `cmprk` finds `ComposerMode.kt`.
 - `/` opens slash commands and the preset prompts you saved.
-- Ctrl+V pastes a screenshot straight into the input box.
+- Ctrl+V pastes a screenshot straight into the input box — click a thumbnail to open it full size.
 - Type while Claude is working and your message is queued, sent when the turn ends.
 
 **Changes you can see — and stop**
@@ -31,7 +31,7 @@ CCoder runs the Claude Code CLI (`claude`) you already have installed — it is 
 - Every file edit is shown as a diff before it is applied.
 - Commands that touch your machine (shell, writes outside the project) wait for your Allow or Deny.
 - Six permission modes, from read-only Plan and Auto-accept-edits to a classifier-driven Auto that judges each prompt and still asks when unsure.
-- Plan approvals are laid out as Markdown, in dialogs you can resize.
+- Plan approvals are laid out as Markdown (tables included), in dialogs you can resize.
 
 **Sessions**
 
