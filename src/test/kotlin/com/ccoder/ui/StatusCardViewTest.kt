@@ -3,6 +3,7 @@ package com.ccoder.ui
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
@@ -287,5 +288,200 @@ class StatusCardViewTest {
             if (child is Container) n += indicatorCount(child)
         }
         return n
+    }
+    // ---- 动作图标（2026-09-17）----
+
+    /**
+     * 悬停 / 移开，**只喂我们自己的监听器**。
+     *
+     * 不走 `dispatchEvent`：设过 tooltip 的组件会被 `ToolTipManager` 注册成一个
+     * 监听器（`JComponent.setToolTipText` 的副作用），它一收到**移出**事件就起一个
+     * `javax.swing.Timer`（dismiss 延迟），平台的测试夹具在收尾时把它判成
+     * "Not disposed javax.swing.Timer" —— 2026-09-17 那两条"移开还原"的用例
+     * 就是这么红的（只悬停进入、不移出的用例全绿，因为注册发生在进入那一刻之后）。
+     *
+     * 要验的是我们的监听器，平台那层 tooltip 定时器不该被拖进来。
+     */
+    private fun hoverOurListeners(c: Component, entered: Boolean) {
+        val e = MouseEvent(
+            c,
+            if (entered) MouseEvent.MOUSE_ENTERED else MouseEvent.MOUSE_EXITED,
+            System.currentTimeMillis(), 0, 5, 5, 0, false,
+        )
+        c.mouseListeners
+            .filterNot { it.javaClass.name.startsWith("javax.swing.") }
+            .forEach { if (entered) it.mouseEntered(e) else it.mouseExited(e) }
+    }
+
+    /**
+     * 排版一次 —— 点击路由靠几何，没排版就没有 bounds。
+     *
+     * 97×50 是真实那一排里的格子尺寸（404px / 4，减间隙）。
+     */
+    private fun laidOut(card: StatusCardView): StatusCardView {
+        card.setSize(97, 50)
+        card.doLayout()
+        card.components.filterIsInstance<Container>().forEach { it.doLayout() }
+        return card
+    }
+
+    private fun clearAction(enabled: Boolean = true) =
+        CardAction(CardActionKind.Clear, "清空会话", "提示", danger = true, enabled = enabled)
+
+    private fun clickAt(card: StatusCardView, x: Int, y: Int) {
+        card.dispatchEvent(
+            MouseEvent(
+                card, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
+                0, x, y, 1, false, MouseEvent.BUTTON1,
+            )
+        )
+    }
+
+    /** 点右上角那颗图标的正中心。 */
+    private fun clickIcon(card: StatusCardView) {
+        val b = card.actionIconBoundsForTest()
+        clickAt(card, b.x + b.width / 2, b.y + b.height / 2)
+    }
+
+    /** 点卡片中下部 —— 离右上角那块远着，是"别处"。 */
+    private fun clickElsewhere(card: StatusCardView) {
+        clickAt(card, card.width / 2, card.height * 3 / 4)
+    }
+
+    /**
+     * 把指针挪到某个点。
+     *
+     * 与 [hoverOurListeners] 同一个理由：只喂我们自己的监听器 ——
+     * 走 `dispatchEvent` 会把事件送给 `ToolTipManager`，它随即起一个定时器，
+     * 平台的测试夹具收尾时判成 "Not disposed javax.swing.Timer"。
+     */
+    private fun movePointer(card: StatusCardView, x: Int, y: Int) {
+        val e = MouseEvent(card, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, x, y, 0, false)
+        card.mouseMotionListeners
+            .filterNot { it.javaClass.name.startsWith("javax.swing.") }
+            .forEach { it.mouseMoved(e) }
+    }
+
+    /** 卡片里的所有后代组件（含孙辈 —— 标签在行面板里）。 */
+    private fun descendantsOf(root: Container): List<Component> {
+        val out = mutableListOf<Component>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return out
+    }
+
+    @Test
+    fun `值行永远显示模型的值 —— 动作不占它的位子`() {
+        // "悬停时把值行换成按钮"是 2026-09-17 被用户否掉的那一版：
+        // 指针往按钮去的路上，悬停就被子件偷走了（报回原文：「鼠标放在边框上
+        // 按钮才出现，挪到中间就消失」）。现在动作常驻在右上角，值行不动
+        val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = {}))
+        card.setModel(connectionCardOf("已连接"))
+        card.setAction(clearAction())
+
+        hoverOurListeners(card, entered = true)
+
+        assertEquals("已连接", card.valueTextForProbe(), "值行被动作顶掉了")
+    }
+
+    @Test
+    fun `点中右上角那颗图标 → 执行动作`() {
+        var cleared = 0
+        val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = { cleared++ }))
+        card.setModel(connectionCardOf("已连接"))
+        card.setAction(clearAction())
+
+        clickIcon(card)
+
+        assertEquals(1, cleared)
+    }
+
+    @Test
+    fun `点卡片别处 → 不执行动作`() {
+        // 清空不设确认框的安全垫就是这条：误触得正好点中右上角那 16×16
+        var cleared = 0
+        val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = { cleared++ }))
+        card.setModel(connectionCardOf("已连接"))
+        card.setAction(clearAction())
+
+        clickElsewhere(card)
+
+        assertEquals(0, cleared)
+    }
+
+    @Test
+    fun `灰着的动作点图标也不动`() {
+        var cleared = 0
+        val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = { cleared++ }))
+        card.setModel(connectionCardOf("已连接"))
+        card.setAction(clearAction(enabled = false))
+
+        clickIcon(card)
+
+        assertEquals(0, cleared, "灰着的图标不该能点 —— tooltip 里已经说清为什么")
+    }
+
+    @Test
+    fun `有详情的卡：点图标是动作，点别处仍是详情`() {
+        var compacted = 0
+        var opened = 0
+        val card = laidOut(
+            StatusCardView(icon = CardIcon.Context, onOpen = { opened++ }, onAction = { compacted++ })
+        )
+        card.setModel(contextCardOf(ContextUsage(12300, 200000)))
+        card.setAction(
+            CardAction(CardActionKind.Compact, "压缩上下文", "提示", danger = false, enabled = true)
+        )
+
+        clickIcon(card)
+        clickElsewhere(card)
+
+        assertEquals(1, compacted, "图标那块该归动作")
+        assertEquals(1, opened, "别处仍该开详情")
+    }
+
+    @Test
+    fun `指针压在图标上才换成动作的 tooltip`() {
+        val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = {}))
+        card.setModel(connectionCardOf("已连接").copy(sub = "12.3k / 200k"))
+        card.setAction(clearAction())
+
+        val icon = card.actionIconBoundsForTest()
+        movePointer(card, icon.x + icon.width / 2, icon.y + icon.height / 2)
+        assertTrue(card.isIconHotForProbe(), "指针在图标上，该判定为压着")
+        assertEquals("提示", card.toolTipText, "压在图标上时该说动作的说明")
+
+        movePointer(card, card.width / 2, card.height * 3 / 4)
+        assertFalse(card.isIconHotForProbe())
+        assertEquals("12.3k / 200k", card.toolTipText, "离开图标后该还原成副值")
+    }
+
+    @Test
+    fun `后代组件一个 tooltip 都不许挂 —— 挂了就会把卡片的事件偷走`() {
+        // 根因（2026-09-17 实测）：`JComponent.setToolTipText` 会把 `ToolTipManager`
+        // 注册成**那个组件的鼠标监听器**，而 Swing 把事件派发给"最深的有监听器的
+        // 组件"—— 子件一旦成为事件目标，指针移到卡片中间时卡片就收到 `mouseExited`。
+        //
+        // tooltip 本身照样弹：`ToolTipManager` 问的是 `event.getSource()`（那时正是
+        // 卡片），不往父级找 —— 所以"只给卡片挂"既够用、又是唯一不打架的做法
+        val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = {}))
+        card.setModel(connectionCardOf("已连接").copy(sub = "12.3k / 200k"))
+        card.setAction(clearAction())
+
+        descendantsOf(card).forEach { child ->
+            assertNull(
+                (child as javax.swing.JComponent).toolTipText,
+                "子件挂了 tooltip，会偷走卡片的事件：${child.javaClass.simpleName}",
+            )
+            assertTrue(
+                child.mouseListeners.isEmpty(),
+                "子件成了鼠标事件目标：${child.javaClass.simpleName}",
+            )
+        }
     }
 }
