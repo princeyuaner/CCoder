@@ -5,7 +5,10 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.Container
+import java.awt.GridLayout
+import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -86,7 +89,7 @@ class StatusCardsRenderProbe {
         waitingSeconds: Int? = null,
     ) {
         SwingUtilities.invokeAndWait {
-            val cards = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
+            val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(
                     when {
                         waitingSeconds != null -> waitingCardOf(waitingSeconds)
@@ -147,6 +150,132 @@ class StatusCardsRenderProbe {
             g.dispose()
             ImageIO.write(img, "png", File(path))
         }
+    }
+
+    // ---- 动作图标（2026-09-17）----
+
+    /** 几张动作图各画什么。 */
+    private enum class ActionShot { Available, IconHot, Disabled, Compacting, Waiting }
+
+    /**
+     * **两颗动作图标常驻在右上角**那一版。
+     *
+     * 注意：图上不是"悬停才出现"——常驻正是这一版的要点（悬停那一版被用户否掉，
+     * 指针往按钮去的路上悬停就被子件偷走了）。这里画的是可用状态。
+     */
+    @Test
+    fun `把常驻的两颗动作图标画成图片`() =
+        renderActions("build/status-cards-probe-actions.png", ActionShot.Available)
+
+    /** 指针压在图标上：只有底色亮起来，图标本身不动。 */
+    @Test
+    fun `把压着图标的悬停底色画成图片`() =
+        renderActions("build/status-cards-probe-actions-hot.png", ActionShot.IconHot)
+
+    /** 忙时：两颗**灰的**（点了没反应）—— 灰着不解释，用户只会以为坏了。 */
+    @Test
+    fun `把忙时灰掉的两颗动作图标画成图片`() =
+        renderActions("build/status-cards-probe-actions-disabled.png", ActionShot.Disabled)
+
+    /** 压缩中：上下文卡的值行让给「压缩中…」、图标整个消失；连接卡那颗照忙态灰着。 */
+    @Test
+    fun `把压缩中的上下文卡画成图片`() =
+        renderActions("build/status-cards-probe-compacting.png", ActionShot.Compacting)
+
+    /**
+     * **「等待响应」那一版单独出一张**：连接卡的标签是四字（最长的一档），
+     * 而右上角多了一颗 16px 的图标 —— 挤不挤只有看图才知道。
+     *
+     * 这一档只在等第一口 token 时出现（实测 P99 38.8s），但它是四张卡里
+     * 标签行最宽的一刻，宽度问题都集中在这里暴露。
+     */
+    @Test
+    fun `把等待响应时带动作图标的连接卡画成图片`() =
+        renderActions("build/status-cards-probe-actions-waiting.png", ActionShot.Waiting)
+
+    /**
+     * 动作图标那一排。
+     *
+     * **不是 [StatusCardsRow]，是四张卡自己拼的**：[StatusCardsRow] 会把回调接上去，
+     * 而这里只要画得出来 —— 真实接线由 ClaudePanel 做。
+     *
+     * 悬停直接驱动监听器（与 [hover] 同一条路）：走 `dispatchEvent` 会把事件送给
+     * 平台注册的 `ToolTipManager`，它起的定时器会被测试夹具判成 "Not disposed"。
+     *
+     * **跑在真机 LAF 下**（[IdeLaf.withRealLaf]）—— 本文件里其它的 `render(...)` 是
+     * 2026-09-14 写的，还没跟上 09-15 那条"探针不许在 Metal 下跑"的规矩（见
+     * [IdeLaf] 的说明），新加的这一段按新规矩来。
+     */
+    private fun renderActions(path: String, shot: ActionShot) = IdeLaf.withRealLaf {
+        SwingUtilities.invokeAndWait {
+            val busy = shot == ActionShot.Disabled
+            val compacting = shot == ActionShot.Compacting
+
+            val connection = StatusCardView(icon = CardIcon.Link, onAction = {})
+            val context = StatusCardView(icon = CardIcon.Context, onOpen = {}, onAction = {})
+            val todos = StatusCardView(icon = CardIcon.Tasks, onOpen = {})
+            val running = StatusCardView(icon = CardIcon.Agents, onOpen = {})
+
+            // 压缩中会话也是忙的（压缩是一个回合）—— 连接卡照忙态画，
+            // 否则图上会出现"压缩中而清空还亮着"这种现实里不存在的组合
+            val connBusy = busy || compacting
+            connection.setModel(
+                when {
+                    shot == ActionShot.Waiting -> waitingCardOf(42)
+                    connBusy -> activityCardOf(ACTIVITY_RUNNING)
+                    else -> connectionCardOf("已连接")
+                }
+            )
+            context.setModel(contextCardOf(ContextUsage(12300, 200000), compacting = compacting))
+            todos.setModel(todoCardOf(null))
+            running.setModel(runningCardOf(emptyList()))
+
+            connection.setAction(clearActionOf(ready = true, busy = connBusy))
+            context.setAction(compactActionOf(ready = true, busy = busy, compacting = compacting))
+
+            val cards = JPanel(GridLayout(1, 4, JBUI.scale(5), 0)).apply {
+                isOpaque = false
+                add(connection); add(context); add(todos); add(running)
+            }
+
+            val outer = JPanel(BorderLayout()).apply {
+                isOpaque = true
+                background = runCatching {
+                    EditorColorsManager.getInstance().globalScheme.defaultBackground
+                }.getOrDefault(UIUtil.getPanelBackground())
+                border = JBUI.Borders.empty(8)
+                add(cards, BorderLayout.NORTH)
+            }
+
+            val w = 420
+            val h = outer.preferredSize.height
+            outer.setSize(w, h)
+            layoutAll(outer)
+
+            // 指针压在连接卡那颗图标上（真实鼠标只能在一张上；一张图看全形态）
+            if (shot == ActionShot.IconHot) {
+                val b = connection.actionIconBoundsForTest()
+                val e = MouseEvent(
+                    connection, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(),
+                    0, b.x + b.width / 2, b.y + b.height / 2, 0, false,
+                )
+                connection.mouseMotionListeners
+                    .filterNot { it.javaClass.name.startsWith("javax.swing.") }
+                    .forEach { it.mouseMoved(e) }
+            }
+
+            val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+            val g = img.createGraphics()
+            outer.paint(g)
+            g.dispose()
+            ImageIO.write(img, "png", File(path))
+        }
+    }
+
+    /** 直接驱动监听器：离屏组件收不到真实的鼠标进出事件。 */
+    private fun hover(component: Component) {
+        val e = MouseEvent(component, MouseEvent.MOUSE_ENTERED, System.currentTimeMillis(), 0, 5, 5, 0, false)
+        component.mouseListeners.forEach { it.mouseEntered(e) }
     }
 
     private fun stub(id: String) =

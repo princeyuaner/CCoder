@@ -133,6 +133,27 @@ class MessageRendererTest {
     }
 
     @Test
+    fun `compact_boundary 渲染成压缩回执 —— 实时与恢复历史都走这条`() {
+        // 回放同样走 renderer（ClaudePanel.replayItems），而落盘那份的字段名是
+        // camelCase（spec 事实 12）—— 两种形状都得在这儿出现在系统提示里
+        val live = MessageRenderer.render(
+            event(
+                """{"type":"system","subtype":"compact_boundary",
+                    "compact_metadata":{"trigger":"manual","pre_tokens":30409,"post_tokens":1666,"duration_ms":17219}}"""
+            )
+        )
+        assertEquals("已压缩上下文：30.4k → 1.7k（用时 17s）", (live[0] as RenderItem.SystemNote).text)
+
+        val replayed = MessageRenderer.render(
+            event(
+                """{"type":"system","subtype":"compact_boundary",
+                    "compactMetadata":{"trigger":"manual","preTokens":30402,"postTokens":1182,"durationMs":9704}}"""
+            )
+        )
+        assertEquals("已压缩上下文：30.4k → 1.2k（用时 10s）", (replayed[0] as RenderItem.SystemNote).text)
+    }
+
+    @Test
     fun `permission 消息不产生渲染项`() {
         // 权限由 PermissionCard 处理，不走消息流
         val items = MessageRenderer.render(

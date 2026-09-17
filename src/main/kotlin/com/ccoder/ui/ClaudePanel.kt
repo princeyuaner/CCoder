@@ -118,11 +118,24 @@ class ClaudePanel(
     private var activity: String? = null
 
     /**
+     * CLI 正在压缩上下文（由 status 事件驱动，spec 事实 9）。
+     *
+     * 它不是"忙"的另一种写法：压缩中上下文卡的值行要让给「压缩中…」、动作按钮
+     * 整个撤掉（spec §3.5），而忙只让按钮变灰。**自动压缩**也走这一档 ——
+     * 那种情况我们没发过任何命令，只有 CLI 的实况能告诉我们。
+     */
+    private var compacting = false
+
+    /**
      * 四张状态卡。**常驻** —— 没内容的格子收边，不隐藏。
      *
      * 卡一会儿出现一会儿消失，输入框就会在会话中途上下跳；稳定比安静重要。
      */
     private val statusCards = StatusCardsRow(
+        // 两颗动作按钮发的就是两条命令本身 —— 与在输入框里敲它们完全相同的那条路
+        // （[sendText] → [submit]）。清空的清理动作因此一行都不新写（spec §3.6）
+        onClear = { sendText("/clear") },
+        onCompact = { sendText("/compact") },
         onOpenContext = { toggleDetail(DetailCard.Context) },
         onOpenTodos = { toggleDetail(DetailCard.Todos) },
         onOpenRunning = { toggleDetail(DetailCard.Running) },
@@ -983,9 +996,25 @@ class ClaudePanel(
         // 忙时这张卡改说"在干什么"：转写区是滚动区，长任务跑起来最新的那条
         // 早就滚上去了，抬头一眼能看见的只有这里
         refreshConnectionCard()
-        statusCards.context.setModel(contextCardOf(lastUsage))
+        // 压缩中：值行让给「压缩中…」，比例条跟着转 Warn（spec §3.8）
+        statusCards.context.setModel(contextCardOf(lastUsage, compacting = compacting))
         statusCards.todos.setModel(todoCardOf(runStatus.todos))
         statusCards.running.setModel(runningCardOf(runStatus.running))
+        refreshCardActions()
+    }
+
+    /**
+     * 两颗动作按钮的可用性。
+     *
+     * **与卡面分开刷**：卡面的四份数据各有各的来源，而动作只跟"会话活着吗 /
+     * 忙不忙 / 在压缩吗"三件事走 —— 忙闲切换时卡面数据一个字都没变，
+     * 但按钮必须跟着灰（spec §3.5）。漏调一次就会出现"按钮亮着、点了没反应"。
+     */
+    private fun refreshCardActions() {
+        statusCards.connection.setAction(clearActionOf(ready = ready, busy = busy))
+        statusCards.context.setAction(
+            compactActionOf(ready = ready, busy = busy, compacting = compacting)
+        )
     }
 
     /**
@@ -1936,6 +1965,8 @@ class ClaudePanel(
         // 但它**不再**跟着忙闲走（多标签之后新建不停当前会话，见 [onNewSession]）
         newSessionButton.setTabState(SessionTabs.getInstance(project).tabCount)
         refreshMainButton()
+        // 忙闲直接决定两颗动作按钮的可用性 —— 它不经过卡面刷新（spec §3.5）
+        refreshCardActions()
     }
 
     /** fatal 断开后重开：只换会话，转写历史留在界面上供参考。 */
@@ -2450,6 +2481,19 @@ class ClaudePanel(
                         // 用户自己点的那次切换由回执那条负责说明（见 ModeReadback）
                         if (action == ModeReadback.Announce) {
                             pushItem(RenderItem.SystemNote("CLI 报的实际权限模式是「${reported.label}」，与刚才显示的不同 —— 已按实际更正"))
+                        }
+                    }
+
+                    // 压缩中/已结束：同一条 status 事件里带着（spec 事实 9、11）。
+                    // 取 CLI 的实况而不是"我们刚发了什么"——**自动压缩**也要能在卡上
+                    // 看见，而那种情况我们没发过任何命令。结束认 status 回到 null，
+                    // **不等 compact_boundary**：实测它更晚（在 init 之后），
+                    // 卡上的"压缩中"不该多挂一秒
+                    compactStateOfStatus(msg.event)?.let { phase ->
+                        val next = phase == CompactState.Compacting
+                        if (next != compacting) {
+                            compacting = next
+                            refreshStatusCards()
                         }
                     }
 
@@ -3249,6 +3293,28 @@ class ClaudePanel(
         // 图也是同一时刻搬走：取在上面、清在这里，中间不许有第二条路把输入框读空
         attachments.clear()
 
+        submit(text, typed, images)
+    }
+
+    /**
+     * 状态卡上那颗动作按钮的入口（spec `2026-09-17-card-actions-design.md` §3.6）：
+     * 把 `/clear`、`/compact` 当一条普通消息发出去。
+     *
+     * **什么都不带**：没有图片、没有引用记号、不进 ↑/↓ 历史（那是"用户敲过的"，
+     * 按钮点出来的不是）。别的全走 [submit] —— 清空的清理动作一行都不新写，
+     * 那种"两条路各清各的"迟早会出现两套互相打架的状态。
+     */
+    private fun sendText(text: String) {
+        submit(text, typed = text, images = emptyList())
+    }
+
+    /**
+     * 两条发送路径**共同的去路**：忙时入队 / 未就绪先起会话再暂存 / 否则发出去。
+     *
+     * 抽出来只为一件事：让"按钮点的"和"手敲的"在**所有分岔上**行为一致 ——
+     * 包括那些今天还没被走到、将来会被改的分岔。
+     */
+    private fun submit(text: String, typed: String, images: List<AttachedImage>) {
         // 忙时入队（spec §5.2）—— 不回退成"什么都不做"：用户敲的这句话本来就该
         // 有个去处。**不推转写区**：它还没发出去，而转写区是"跟模型说过什么"的
         // 记录（spec §4）。发出去的那一刻才补一条 [RenderItem.UserText]。

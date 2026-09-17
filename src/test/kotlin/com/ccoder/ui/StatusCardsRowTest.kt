@@ -13,7 +13,7 @@ class StatusCardsRowTest {
 
     private val quietTodos = StatusCardModel(label = "子任务", value = CARD_IDLE_TEXT, quiet = true)
 
-    private fun row() = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
+    private fun row() = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
 
     private fun layoutAll(c: Container) {
         c.doLayout()
@@ -35,13 +35,19 @@ class StatusCardsRowTest {
     }
 
     @Test
-    fun `三张卡可点，连接卡不可点`() {
+    fun `四张卡都挂了监听器 —— 连接卡那一个只为动作按钮而挂`() {
+        // 2026-09-17 改：连接卡多了一颗动作按钮（悬停值行 →「清空会话」），
+        // 监听器因此必须挂 —— 它从 v2 起一直是四张里唯一没有监听器的那张。
+        //
+        // **"没有更多可看的"那条没变**：连接卡仍然没有详情，值行之外点了
+        // 什么都不会发生。那条路由（Action / OpenDetail / None）由
+        // `cardClickTargetOf` 的三个用例钉着，这里只管"监听器挂没挂"
         val r = row()
 
         assertTrue(r.context.mouseListeners.isNotEmpty(), "上下文卡该可点（点开看用量明细）")
         assertTrue(r.todos.mouseListeners.isNotEmpty(), "子任务卡该可点")
         assertTrue(r.running.mouseListeners.isNotEmpty(), "子代理卡该可点")
-        assertTrue(r.connection.mouseListeners.isEmpty(), "连接卡没有更多可看的，不该可点")
+        assertTrue(r.connection.mouseListeners.isNotEmpty(), "连接卡要有监听器，动作按钮才亮得起来")
     }
 
     @Test

@@ -36,7 +36,7 @@ class ComposerRenderProbe {
 
     private fun render(path: String, mode: PermissionModeSetting) {
         SwingUtilities.invokeAndWait {
-            val cards = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
+            val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(connectionCardOf("已连接"))
                 context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
                 todos.setModel(

@@ -23,8 +23,9 @@ private const val CARD_GAP = 5
  *
  * ## 参数顺序
  *
- * 两个 `() -> Unit` 都在最后。**将来加参数一律加到它们前面** ——
- * 尾随 lambda 会静默绑到最后一个参数上，这个坑本项目里踩过两次。
+ * 五个 `() -> Unit` 都在最后。**将来加参数一律加到它们前面** ——
+ * 尾随 lambda 会静默绑到最后一个参数上，这个坑本项目里踩过两次
+ * （2026-09-17 加 `onClear` / `onCompact` 时就是照这条办的）。
  *
  * ## 加第五张卡之前先算宽度
  *
@@ -35,13 +36,22 @@ private const val CARD_GAP = 5
  * 想再加之前，先看那张测试会不会红。
  */
 internal class StatusCardsRow(
+    onClear: () -> Unit,
+    onCompact: () -> Unit,
     onOpenContext: () -> Unit,
     onOpenTodos: () -> Unit,
     onOpenRunning: () -> Unit,
 ) : JPanel(GridLayout(1, 4, JBUI.scale(CARD_GAP), 0)) {
 
-    internal val connection = StatusCardView(icon = CardIcon.Link)
-    internal val context = StatusCardView(icon = CardIcon.Context, onOpen = onOpenContext)
+    /** 连接卡多了个动作（右上角那颗扫把＝清空会话）—— 它从 v2 起连监听器都没有。 */
+    internal val connection = StatusCardView(icon = CardIcon.Link, onAction = onClear)
+
+    /** 上下文卡：点别处开详情、点右上角那颗图标压缩 —— 分流见 [cardClickTargetOf]。 */
+    internal val context = StatusCardView(
+        icon = CardIcon.Context,
+        onOpen = onOpenContext,
+        onAction = onCompact,
+    )
     internal val todos = StatusCardView(icon = CardIcon.Tasks, onOpen = onOpenTodos)
     internal val running = StatusCardView(icon = CardIcon.Agents, onOpen = onOpenRunning)
 

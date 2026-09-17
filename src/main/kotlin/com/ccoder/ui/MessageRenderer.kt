@@ -334,6 +334,12 @@ object MessageRenderer {
                 listOf(RenderItem.SystemNote("会话 $sid · 模型 $model"))
             }
 
+            // 压缩的回执（2026-09-17，spec §3.7）。**实时与恢复历史都从这一条路进来**：
+            // 落进会话文件的那份用的是另一套字段名（camelCase），[compactReceiptOf]
+            // 两种都认 —— 只认一种就是"现场有、历史里没有"的半边功能（spec 事实 12）
+            "compact_boundary" ->
+                listOfNotNull(compactReceiptOf(event)?.let { RenderItem.SystemNote(it) })
+
             else -> emptyList()
         }
 

@@ -120,7 +120,7 @@ class QueueStripRenderProbe {
                 if (expanded) setExpanded(true)
             }
 
-            val cards = StatusCardsRow(onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
+            val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
                 .apply {
                     connection.setModel(connectionCardOf("已连接"))
                     context.setModel(
