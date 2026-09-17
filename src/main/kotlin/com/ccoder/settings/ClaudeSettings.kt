@@ -246,7 +246,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
      * 那批变量同样会被 settings 那一层剥掉，不补的话主对话正常、后台活儿报模型不存在。
      *
      * 另外默认给上任务清单工具的开关（见 [taskToolsEnv]）—— 那套工具 CLI 只对
-     * 它认识的模型开放，第三方网关上不给的话「子任务」卡永远是空的。
+     * 它认识的模型开放，第三方网关上不给的话「任务列表」卡永远是空的。
      * 它是**默认值**：`envOverrides` 里手填过这个键就听手填的。
      *
      * 没有选中任何配置时，这里产出的东西与从前**一字不差**。

@@ -204,7 +204,7 @@ class RunStatusTrackerTest {
         assertEquals(listOf("t1"), t.running.map { it.id })
     }
 
-    // ---- 任务清单 ----
+    // ---- 任务列表 ----
 
     @Test
     fun `助手消息里的 TodoWrite 更新清单`() {
@@ -254,7 +254,7 @@ class RunStatusTrackerTest {
         assertNull(t.todos)
     }
 
-    // ---- 任务清单：新一代（TaskCreate / TaskUpdate / TaskList）----
+    // ---- 任务列表：新一代（TaskCreate / TaskUpdate / TaskList）----
     //
     // 事件形状全部照 2026-09-14 真实会话抓下来的样本写（CLI 2.1.268）。
     // 这一代是增量的：建一条一次调用、改状态另一次调用，而 **id 只在结果文本里**，

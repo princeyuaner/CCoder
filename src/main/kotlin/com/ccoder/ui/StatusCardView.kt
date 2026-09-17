@@ -27,6 +27,12 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingConstants
+import javax.swing.Timer
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * 卡片左上角那个图标。一排卡各一个。
@@ -91,7 +97,7 @@ private const val ACTION_INSET = 2
  * @param icon 左上角画哪个图标。四张卡固定，所以由**构造参数**而不是模型决定：
  *   模型是"这一刻的数据"，图标是"这一格是什么"，两者寿命不同。
  * @param onOpen 点卡片（动作图标之外）做什么。null = 这张卡没有详情（连接卡）。
- * @param onAction 右上角那颗图标做什么。null = 这张卡没有动作（默认；子任务/子代理就是）。
+ * @param onAction 右上角那颗图标做什么。null = 这张卡没有动作（默认；任务列表/子代理就是）。
  *   **不给空 lambda** —— 那会画出可点的东西却点不动，是在骗人。
  */
 internal class StatusCardView(
@@ -107,6 +113,30 @@ internal class StatusCardView(
 
     /** 指针此刻压在那颗动作图标上（只用来画悬停底色，与"能不能点"无关）。 */
     private var iconHot = false
+
+    // ---- 整卡水位的动画状态（今天只有上下文卡用得上）----
+
+    /** 屏幕上**现在**显示的水位；[targetLevel] 是模型给的那个数，两者之间靠计时器走。 */
+    private var displayedLevel = 0.0
+    private var targetLevel = 0.0
+
+    /** 波相位 0..1，每跳推进一点。 */
+    private var wavePhase = 0.0
+
+    /** 波纹还剩几跳。跑完就停 —— 这个动画**不是常驻**的（见 [startWater]）。 */
+    private var waveTicksLeft = 0
+
+    /** 数正在被改写（压缩中）：波纹一直跑，直到那次改写结束。 */
+    private var alwaysWaving = false
+
+    /**
+     * 水位那个计时器。
+     *
+     * 只在"有事发生"时跑（值变了 / 压缩中），跑完自己 `stop()` ——
+     * 常驻动画在 IDE 里既耗注意力又白烧 CPU，而"水位"这个隐喻在**变化的那一刻**
+     * 才最有信息量。
+     */
+    private val waterTimer = Timer(ANIM_TICK_MS) { onWaterTick() }
 
     private val labelView = JBLabel()
     private val valueView = JBLabel()
@@ -170,7 +200,7 @@ internal class StatusCardView(
         add(topRow)
         add(valueRow)
         // 竖直弹簧：GridLayout 把每张卡拉到同一高度，弹簧让**指示器贴底**。
-        // 没有它的话上下文卡的条会比子任务卡的点阵低一截，四张卡底边参差
+        // 没有它的话上下文卡的条会比任务列表卡的点阵低一截，四张卡底边参差
         add(Box.createVerticalGlue())
         add(indicatorRow)
 
@@ -283,16 +313,139 @@ internal class StatusCardView(
             g2.color = UIUtil.getPanelBackground()
             val arc = JBUI.scale(CARD_CORNER_ARC)
             g2.fillRoundRect(0, 0, width, height, arc, arc)
+            // 上下文卡：水位**长在卡片上**，不是那条 2px 的指示器（2026-09-17 方案 B）
+            (model?.indicator as? Indicator.Meter)?.let { paintWater(g2, arc) }
             paintActionIcon(g2)
         } finally {
             g2.dispose()
         }
     }
 
+    // ---- 整卡水位（2026-09-17 用户从七个方案里挑的 B，见 spec）----
+
+    /**
+     * 画水：从水面那条正弦线往下填到卡片底，**裁在卡片圆角里**。
+     *
+     * 不裁的话水会漫出四个角（"底比边圆"那类毛刺的又一种）；裁了之后水自己
+     * 就跟着圆角走，不必再算一遍弧。
+     *
+     * 振幅与波长都很小（1.6px / 22px）：这是**水位**，不是波浪动画片 ——
+     * 它得让"这格里的数在动"看得见，又不该把眼睛从数字上拽走。
+     */
+    private fun paintWater(g2: Graphics2D, arc: Int) {
+        val level = displayedLevel
+        if (level <= 0.0) return
+        val saved = g2.clip
+        g2.clip = RoundRectangle2D.Double(
+            0.0, 0.0, width.toDouble(), height.toDouble(), arc.toDouble(), arc.toDouble(),
+        )
+        val baseY = waterTopY(level, height).toDouble()
+        val amplitude = JBUI.scale(WATER_AMPLITUDE_X10) / 10.0
+        val waveLength = JBUI.scale(WATER_LENGTH).toDouble()
+        val path = Path2D.Double()
+        path.moveTo(0.0, waterSurfaceY(0, baseY, amplitude, waveLength, wavePhase))
+        for (x in 1..width) {
+            path.lineTo(x.toDouble(), waterSurfaceY(x, baseY, amplitude, waveLength, wavePhase))
+        }
+        path.lineTo(width.toDouble(), height.toDouble())
+        path.lineTo(0.0, height.toDouble())
+        path.closePath()
+        g2.color = waterColor()
+        g2.fill(path)
+        g2.clip = saved
+    }
+
+    /**
+     * 水色：面板底 + 强调色（或警告色）混一点点。
+     *
+     * 混而不是直接用强调色：**文字压在水上**（数字几乎总在水面附近），
+     * 满饱和的蓝压上去字就没了。0.16 这个比例是选型台上按 4.5:1 标尺量出来的。
+     * 警告色走既有的 [alertColor]：70% 琥珀、90% 红，与从前那条比例条同一支颜色。
+     */
+    private fun waterColor(): Color {
+        // 与从前那条比例条同一支颜色（见 [IndicatorView] 里的 alertColor）：
+        // 70% 琥珀、90% 红，其余是强调色
+        val accent = when (model?.tone) {
+            Tone.Warn -> warningColor()
+            Tone.Danger -> dangerColor()
+            else -> focusColor()
+        }
+        return mix(UIUtil.getPanelBackground(), accent, WATER_TINT)
+    }
+
+    /**
+     * 水位开始动。
+     *
+     * 值变了 → 从旧值走到新值（600ms）+ 波纹跑满一个周期（2.4s），然后停。
+     * [StatusCardModel.busy]（压缩中）→ 波纹**一直**跑，直到那次改写结束。
+     */
+    private fun startWater(level: Double, busy: Boolean) {
+        val next = level.coerceIn(0.0, 1.0)
+        if (next != targetLevel) {
+            targetLevel = next
+            waveTicksLeft = WAVE_TICKS
+        }
+        alwaysWaving = busy
+        if (!isShowing) {
+            // 还没上屏：直接落到目标值。动画是给"看得见的变化"准备的，而没上屏时
+            // 连一帧都没有 —— 卡在这里从 0 开始等着，第一帧就会画成空的
+            displayedLevel = targetLevel
+            return
+        }
+        if (!alwaysWaving && displayedLevel == targetLevel && waveTicksLeft <= 0) {
+            waterTimer.stop()
+            return
+        }
+        if (!waterTimer.isRunning) waterTimer.start()
+    }
+
+    private fun stopWater() {
+        waterTimer.stop()
+        waveTicksLeft = 0
+        alwaysWaving = false
+    }
+
+    private fun onWaterTick() {
+        wavePhase = nextPhase(wavePhase, WAVE_PHASE_STEP)
+        displayedLevel = stepTowards(displayedLevel, targetLevel, LEVEL_STEP)
+        if (waveTicksLeft > 0) waveTicksLeft--
+        if (!alwaysWaving && displayedLevel == targetLevel && waveTicksLeft <= 0) waterTimer.stop()
+        // 只重画卡片自己：那条水在卡片的 paintComponent 里，孩子（两行字）不跟着重绘
+        repaint()
+    }
+
+    /**
+     * 跳过动画直接落到某个水位。
+     *
+     * **给用例与探针**：它们要的是"34% 那一帧长什么样"，而不是等 600ms 之后再看。
+     */
+    internal fun settleWater(level: Double, phase: Double = 0.0) {
+        stopWater()
+        displayedLevel = level.coerceIn(0.0, 1.0)
+        targetLevel = displayedLevel
+        wavePhase = nextPhase(phase, 0.0)
+        repaint()
+    }
+
+    /**
+     * 离开层级就把计时器停掉 —— 与 `ComposerCard` 摘焦点监听器同一条规矩：
+     * 常驻的 Timer 会一直握着这个组件（每开一次工具窗口就漏一个）。
+     */
+    override fun removeNotify() {
+        waterTimer.stop()
+        super.removeNotify()
+    }
+
     /** 不叫 update：那会与 [java.awt.Component.update] 撞名。 */
     fun setModel(next: StatusCardModel) {
         model = next
         labelView.text = next.label
+        // 带水位的卡（今天只有上下文卡）标签用**正文色**：卡片被染色之后，那个灰标签
+        // 在浅色主题下会掉到 3.5–3.9:1（选型台上量过，spec §3）。其余三张照旧是灰的
+        val meter = next.indicator as? Indicator.Meter
+        labelView.foreground =
+            if (meter != null) UIUtil.getLabelForeground() else UIUtil.getInactiveTextColor()
+
         // 值那一行与 tooltip 归 [refreshActionLook] 管 —— 两处都写的话，
         // 悬停中刷新（连接卡的动作文字在跳）会把动作按钮又盖回成值
         refreshActionLook()
@@ -310,6 +463,9 @@ internal class StatusCardView(
 
         indicatorView.set(next.indicator, next.tone)
         indicatorView.isVisible = next.indicator != Indicator.None
+
+        // 水位：给新值就走一趟动画；不是水位卡就把计时器收干净
+        if (meter != null) startWater(meter.fraction, next.busy) else stopWater()
 
         revalidate()
         repaint()
@@ -665,24 +821,16 @@ internal class IndicatorView : JComponent() {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             when (val i = indicator) {
                 Indicator.None -> Unit
-                is Indicator.Meter -> paintMeter(g2, i)
+                // 比例条那条 2px 的线**没有了**：2026-09-17 起水位长在卡片自己身上
+                // （见 [StatusCardView.paintWater]）。尺寸契约一个字没动（Meter 仍占 2px、
+                // 指示器槽仍按点阵的 5px 算死），所以卡片高度纹丝不动
+                is Indicator.Meter -> Unit
                 is Indicator.Segments -> paintSegments(g2, i)
                 is Indicator.Dots -> paintDots(g2, i)
             }
         } finally {
             g2.dispose()
         }
-    }
-
-    private fun paintMeter(g2: Graphics2D, meter: Indicator.Meter) {
-        val h = height
-        g2.color = trackColor()
-        g2.fillRoundRect(0, 0, width, h, h, h)
-
-        val filled = (width * meter.fraction).toInt().coerceIn(0, width)
-        if (filled <= 0) return
-        g2.color = alertColor() ?: focusColor()
-        g2.fillRoundRect(0, 0, filled, h, h, h)
     }
 
     private fun paintSegments(g2: Graphics2D, segments: Indicator.Segments) {
@@ -792,3 +940,83 @@ private fun trackColor(): Color = JBColor.namedColor(
     "Component.borderColor",
     JBColor(Color(0x33, 0x36, 0x3B), Color(0xE0, 0xE2, 0xE7)),
 )
+
+// ---- 整卡水位（2026-09-17 用户从七个方案里挑的 B，见 spec）----
+//
+// 四条纯函数 + 一组常量。**都不碰 Swing**：几何与动画节奏能在单测里直接打，
+// 而"这一帧好不好看"交给 `ContextWaterRenderProbe` 出图。
+
+/** 水色相对面板底的混合比例。与选型台上那个 0.16 是同一个数（按 4.5:1 量出来的）。 */
+private const val WATER_TINT = 0.16
+
+/**
+ * 水面振幅，单位是**十分之一像素**。
+ *
+ * 用 1.6px 是因为"看得出在动"与"不晃眼"之间就在这一档；写成整数十分位是因为
+ * `JBUI.scale` 只收 `Int`（那对 `Float` 的重载已废弃）—— 高 DPI 下它照样按比例放大。
+ */
+private const val WATER_AMPLITUDE_X10 = 16
+
+/** 波长（未缩放 px）。22 约一个汉字宽 —— 波峰不会全挤在同一个字下面。 */
+private const val WATER_LENGTH = 22
+
+/** 动画帧间隔：33ms ≈ 30fps。 */
+private const val ANIM_TICK_MS = 33
+
+/** 水位每跳走多远：0.055 × 18 跳 ≈ 600ms 走完全程。 */
+private const val LEVEL_STEP = 0.055
+
+/** 波相位每跳走多远：1/72 跳 ≈ 2.4s 一个周期。 */
+private const val WAVE_PHASE_STEP = 1.0 / 72
+
+/** 一次数值变化之后，波纹再跑几跳（正好一个周期）。 */
+private const val WAVE_TICKS = 72
+
+/**
+ * 水位落在第几像素 —— 返回的是**水面那条线**的 y。
+ *
+ * [level] 0 = 空（水面就是底边）、1 = 满（顶边）。这里夹一次上下限：模型理论上
+ * 不会给出界外的数，但真出界了也不该把水画到卡片外面去。
+ */
+internal fun waterTopY(level: Double, height: Int): Int {
+    val clamped = level.coerceIn(0.0, 1.0)
+    return (height - clamped * height).roundToInt().coerceIn(0, height)
+}
+
+/**
+ * 水面上某一点的 y（正弦）。
+ *
+ * 相位按 **0..1** 走，一个周期就是一整条波 —— 调用点只关心"跑到哪儿了"，
+ * 那个 2π 是这里的内部细节。
+ */
+internal fun waterSurfaceY(
+    x: Int,
+    baseY: Double,
+    amplitude: Double,
+    waveLength: Double,
+    phase: Double,
+): Double =
+    if (waveLength <= 0.0) {
+        baseY
+    } else {
+        // 减号：屏幕坐标 y 向下长，波峰要在**上面**
+        baseY - amplitude * sin(2 * PI * (x / waveLength + phase))
+    }
+
+/**
+ * 步进：朝目标走 [step]，**不越过**。
+ *
+ * 越过就会在目标两旁来回抖（先过头再折回来），看着像卡了一下。
+ */
+internal fun stepTowards(shown: Double, target: Double, step: Double): Double = when {
+    step <= 0.0 -> target
+    abs(target - shown) <= step -> target
+    target > shown -> shown + step
+    else -> shown - step
+}
+
+/** 波相位推进一格，回绕到 0..1。 */
+internal fun nextPhase(phase: Double, step: Double): Double {
+    val raw = phase + step
+    return raw - floor(raw)
+}

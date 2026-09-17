@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SidecarMessage
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -55,6 +56,45 @@ class PermissionDialogRenderProbe {
      * 真机那份 `ExitPlanMode` 入参的形状（从会话记录里抄的字段名与量级）：
      * `{"plan": "<几千字的计划>", "planFilePath": "…"}`。
      */
+    /**
+     * 计划里带表格的那一版（2026-09-17 用户截图）。
+     *
+     * 四列、带 `code`、格子里是英文标识符 —— 要看的是"竖线有没有变成真表格"
+     * 与"这张表会不会把卡片挤爆"。入参用 [JsonObject] 直接搭，不走 JSON 文本：
+     * 计划里有换行、引号、反引号，手写转义迟早错一个（这份探针以前就那么错过）。
+     */
+    private fun tablePlanPermission() = SidecarMessage.Permission(
+        requestId = "r3",
+        toolName = "ExitPlanMode",
+        input = JsonObject().apply {
+            addProperty(
+                "plan",
+                """
+                # 收获判定
+
+                ## 三类重置
+
+                | 分类 | 配表判定 | 注册键 | 重置时机 |
+                | --- | --- | --- | --- |
+                | 不重置 | 两个 bool 都 False | `mutantFarmTarget_never` | 永不 |
+                | 每日 | isDailyCondition=True | `mutantFarmTarget_daily` | 跨天 |
+                | 每周 | isWeekCondition=True | `mutantFarmTarget_weekly` | 跨周 |
+
+                两个都勾按"每日"处理。
+                """.trimIndent(),
+            )
+            addProperty("planFilePath", "C:\\Users\\CY\\.claude\\plans\\harvest.md")
+        },
+        title = "ExitPlanMode",
+        displayName = "ExitPlanMode",
+        description = null,
+        blockedPath = null,
+        decisionReason = null,
+        defaultToNo = false,
+        suppressAlwaysAllowRule = false,
+        suggestions = null,
+    )
+
     private fun planPermission() = SidecarMessage.Permission(
         requestId = "r2",
         toolName = "ExitPlanMode",
@@ -108,6 +148,13 @@ class PermissionDialogRenderProbe {
         // 用户的原话是"里面的内容都看不到"。这一格就是盯着这件事的
         caption("④ ExitPlanMode：入参是整份计划 —— 标题说人话、正文按段落铺开")
         column.add(PermissionCard(planPermission(), queuedCount = 0) {})
+        column.add(Box.createVerticalStrut(14))
+
+        // ⑤ 2026-09-17 用户截图那一张：计划里有一张四列的 Markdown 表格。
+        // 改之前它被拍成流水文字（`| 分类 | 配表判定 |` 与 `|---|---|---|` 铺在脸上），
+        // 转写区那边却早就会渲染表格 —— 同一份计划两处长得很不一样
+        caption("⑤ 计划里的表格：竖线变真表格，不再铺在脸上")
+        column.add(PermissionCard(tablePlanPermission(), queuedCount = 0) {})
         column.add(Box.createVerticalGlue())
 
         // 画布跟着卡片宽度走（2026-09-16 方案 B：卡片 420 → 640）。

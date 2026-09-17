@@ -12,9 +12,18 @@ package com.ccoder.ui
  *
  * ## 只认计划里真会出现的那些记号
  *
- * 标题（`#`/`##`/`###`）、`**粗**`、`` `行内代码` ``、围栏代码块、两种列表、分隔线。
- * 表格、图片、链接、引用块一律**不解析** —— 解析不了就原样当文字留着，
+ * 标题（`#`/`##`/`###`）、`**粗**`、`` `行内代码` ``、围栏代码块、两种列表、分隔线、
+ * **表格**。图片、链接、引用块一律**不解析** —— 解析不了就原样当文字留着，
  * 而不是吃掉：这一屏是给人审批用的，宁可丑也不能少字。
+ *
+ * ## 表格是 2026-09-17 补的（用户截图："计划里这个展示的格式很难看"）
+ *
+ * 那一版把一张 GFM 表格拍成了流水文字：`| 分类 | 配表判定 |` 与 `|---|---|---|`
+ * 原样铺在脸上，四列数据挤成一行。转写区（web）那边**早就会渲染表格**，
+ * 于是同一个计划在两处长得完全不一样。
+ *
+ * 认的规则很窄（宁可漏认，也不要把普通文字吃成表格）：**当前行能切出两格以上、
+ * 且下一行是分隔行**（`|---|:--:|`）才算。分隔行不成立就整段退回普通文字。
  *
  * ## HTML 3.2 的边界（`java.swing.text.html` 只做到这里）
  *
@@ -26,6 +35,9 @@ internal fun planHtml(markdown: String, accentHex: String, dimHex: String): Stri
     var inFence = false
     var listTag: String? = null
     val paragraph = StringBuilder()
+    // 用下标而不是 for-in：表格要**向后看一行**（分隔行），还要一口气吃掉后面几行
+    val lines = markdown.split('\n')
+    var i = 0
 
     /**
      * 段落攒够了就吐出去。列表项与标题会把这件事提前做掉。
@@ -45,7 +57,13 @@ internal fun planHtml(markdown: String, accentHex: String, dimHex: String): Stri
         listTag = null
     }
 
-    for (raw in markdown.split('\n')) {
+    while (i < lines.size) {
+        val raw = lines[i]
+        // **下标在循环体开头就推进**，而不是在末尾 —— 这样每一处 `continue`
+        // 都天然是安全的。写成"末尾自增"的话，围栏那两条 `continue` 会跳过自增：
+        // 一遇到代码块就原地死循环，一路把 StringBuilder 撑到 OOM（真踩过：
+        // 12 条用例跑完，`围栏代码块` 那条直接把测试 JVM 干掉了）
+        i++
         val line = raw.trimEnd()
 
         if (line.trimStart().startsWith("```")) {
@@ -88,6 +106,22 @@ internal fun planHtml(markdown: String, accentHex: String, dimHex: String): Stri
                         .append(inlineHtml(escapeHtml(title.uppercase()), accentHex))
                         .append("</font></b></div>")
                 }
+            }
+
+            // 表格：当前行能切出两格以上，且下一行是分隔行（GFM 的形状）。
+            // 注意下标已经指向**下一行**了（循环体开头推进过），所以这里看的是 lines[i]
+            isTableRow(text) && i < lines.size && isDelimiterRow(lines[i].trim()) -> {
+                flushParagraph()
+                closeList()
+                val aligns = alignmentsOf(lines[i])
+                out.append("<table border=\"1\" cellspacing=\"0\" cellpadding=\"3\">")
+                out.append(rowHtml("th", tableCells(text), aligns, accentHex))
+                i++ // 分隔行
+                while (i < lines.size && isTableRow(lines[i].trim())) {
+                    out.append(rowHtml("td", tableCells(lines[i].trim()), aligns, accentHex))
+                    i++
+                }
+                out.append("</table>")
             }
 
             text == "---" || text == "***" || text == "___" -> {
@@ -135,6 +169,91 @@ internal fun planHtml(markdown: String, accentHex: String, dimHex: String): Stri
 
 private val BULLET = Regex("^[-*+] ")
 private val ORDERED = Regex("^\\d+[.)] ")
+
+/**
+ * 切一行表格的单元格。
+ *
+ * 首尾那两条竖线**可以省**（GFM 两种都收）；`\|` 是转义，写在格子里就是真竖线。
+ *
+ * 手写循环而不是 `split('|')`：转义那条用 split 做不干净 —— 先换成占位符再换回来，
+ * 而占位符选谁都不安全（选空格，切完每个空格都变成竖线；选 NUL，文件里就多了个
+ * 不可见字符）。直接扫一遍最省事。
+ */
+private fun tableCells(line: String): List<String> {
+    var body = line.trim()
+    if (body.startsWith("|")) body = body.substring(1)
+    // 结尾那条：`\|`（转义的）不算
+    if (body.endsWith("|") && !body.endsWith("\\|")) body = body.dropLast(1)
+
+    val cells = mutableListOf<String>()
+    val cur = StringBuilder()
+    var k = 0
+    while (k < body.length) {
+        val c = body[k]
+        when {
+            c == '\\' && k + 1 < body.length && body[k + 1] == '|' -> {
+                cur.append('|')
+                k += 2
+            }
+            c == '|' -> {
+                cells += cur.toString().trim()
+                cur.setLength(0)
+                k++
+            }
+            else -> {
+                cur.append(c)
+                k++
+            }
+        }
+    }
+    cells += cur.toString().trim()
+    return cells
+}
+
+/** 分隔行的一格：`---`、`:--`、`--:`、`:-:` 都算。 */
+private val DELIMITER_CELL = Regex("^:?-+:?$")
+
+/**
+ * 这一行是不是表格的**分隔行**。
+ *
+ * 至少两格：只有一格的话，单独一个 `-`（比如没写完的列表）也会被认成表格，
+ * 而一条竖线的"表格"本来也没有意义。
+ */
+private fun isDelimiterRow(line: String): Boolean {
+    val cells = tableCells(line)
+    return cells.size >= 2 && cells.all { DELIMITER_CELL.matches(it) }
+}
+
+/** 一行能切出两格以上才算表格行 —— `a | b` 这种省了首尾竖线的也认。 */
+private fun isTableRow(text: String): Boolean = tableCells(text).size >= 2
+
+/** 分隔行里的冒号表示对齐：`:--` 左、`--:` 右、`:-:` 居中、不写跟默认。 */
+private fun alignmentsOf(delimiter: String): List<String?> =
+    tableCells(delimiter).map {
+        when {
+            it.startsWith(":") && it.endsWith(":") -> "center"
+            it.endsWith(":") -> "right"
+            it.startsWith(":") -> "left"
+            else -> null
+        }
+    }
+
+/** 表格的一行。单元格里的记号（粗体、行内代码）照样解析，照样先转义。 */
+private fun rowHtml(
+    cellTag: String,
+    cells: List<String>,
+    aligns: List<String?>,
+    accentHex: String,
+): String = buildString {
+    append("<tr>")
+    cells.forEachIndexed { idx, cell ->
+        val align = aligns.getOrNull(idx)?.let { " align=\"$it\"" }.orEmpty()
+        append("<").append(cellTag).append(align).append(">")
+        append(inlineHtml(escapeHtml(cell), accentHex))
+        append("</").append(cellTag).append(">")
+    }
+    append("</tr>")
+}
 
 /** 行内记号：先转义再替换，两条都只认最简单的形状。 */
 internal fun inlineHtml(escaped: String, accentHex: String): String =

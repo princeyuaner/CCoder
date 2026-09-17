@@ -46,6 +46,23 @@ internal class AttachmentStrip(
     private val row = JPanel()
     private val hint = JLabel()
 
+    /**
+     * 现在摆着的缩略图，与 [items] 一一对应（[rebuild] 时重建）。
+     *
+     * 留着它是为了 [thumbViewAt] —— 用例要派发真事件，就得先拿到那个组件。
+     */
+    private val thumbViews = mutableListOf<ThumbView>()
+
+    /**
+     * 点缩略图**正文**（不是右上角的 ✕）—— 面板据此打开放大查看。
+     *
+     * 写成属性而不是构造参数，两个理由：一是与 [onChanged] 同一条（建带子的时候
+     * 面板还没拿到输入卡）；二是构造参数加在末尾会把既有用例那句
+     * `AttachmentStrip { changes++ }` 的尾随 lambda 抢走 —— 尾随 lambda 绑的
+     * 永远是**最后一个**参数，加参数等于悄悄改了所有调用点。
+     */
+    var onPreview: (List<AttachedImage>, Int) -> Unit = { _, _ -> }
+
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
@@ -109,12 +126,19 @@ internal class AttachmentStrip(
 
     private fun rebuild() {
         row.removeAll()
-        for (image in items) row.add(buildItem(image))
+        thumbViews.clear()
+        items.forEachIndexed { index, image -> row.add(buildItem(image, index)) }
         isVisible = items.isNotEmpty()
         revalidate()
         repaint()
         onChanged()
     }
+
+    /**
+     * 第 [index] 张的缩略图。**给用例**：拿到它才谈得上"派发一次真的点击"
+     * （见 `AttachmentStripTest` 里那三条）。越界返回 null。
+     */
+    internal fun thumbViewAt(index: Int): ThumbView? = thumbViews.getOrNull(index)
 
     private fun show(reason: String) {
         hint.text = reason
@@ -133,7 +157,7 @@ internal class AttachmentStrip(
     }
 
     /** 一张图 = 缩略图（右上角压着 ✕）+ 底下一行文件名。 */
-    private fun buildItem(image: AttachedImage): JComponent {
+    private fun buildItem(image: AttachedImage, index: Int): JComponent {
         val box = JPanel(null).apply {
             isOpaque = false
             // 名字那一行也要算进来，否则一排缩略图的长短会各不相同
@@ -141,11 +165,16 @@ internal class AttachmentStrip(
             maximumSize = preferredSize
             alignmentY = TOP_ALIGNMENT
         }
-        box.add(
-            ThumbView(image.thumb) { remove(image) }.apply {
-                setBounds(0, 0, JBUI.scale(THUMB_W), JBUI.scale(THUMB_H))
-            }
-        )
+        // 两个回调里捕获的 index 不会过期：列表一变 [rebuild] 就把这排视图整个重建了
+        val thumb = ThumbView(
+            image.thumb,
+            onRemove = { remove(image) },
+            onOpen = { onPreview(images, index) },
+        ).apply {
+            setBounds(0, 0, JBUI.scale(THUMB_W), JBUI.scale(THUMB_H))
+        }
+        thumbViews += thumb
+        box.add(thumb)
         box.add(
             JLabel(image.name).apply {
                 font = JBUI.Fonts.smallFont()
@@ -175,10 +204,15 @@ internal class AttachmentStrip(
  *
  * ✕ 自己画圆底（不用字形）——它压在缩略图上，没有底色的话在浅色截图
  * （白底的文档）上会整个看不见。圆的形状是设计稿里定的：方角块像补丁。
+ *
+ * 一击分两处：**✕ 删图、正文放大看**（2026-09-17 起，见 [thumbHit]）——
+ * 56px 认不出是哪张，而粘错比粘不上常见。
  */
-private class ThumbView(
+internal class ThumbView(
     private val image: BufferedImage,
     private val onRemove: () -> Unit,
+    /** 点了正文 —— 2026-09-17 起是"放大看"，从前这一块什么都不做。 */
+    private val onOpen: () -> Unit = {},
 ) : JComponent() {
 
     /** ✕ 的边长。与 [THUMB_W] 同单位，命中判定也用它 —— 画在哪就能点在哪。 */
@@ -187,20 +221,22 @@ private class ThumbView(
     init {
         preferredSize = Dimension(JBUI.scale(THUMB_W), JBUI.scale(THUMB_H))
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "点右上角的 ✕ 移除这张图"
+        toolTipText = "点图放大看，点右上角的 ✕ 移除"
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {
-                    // 只有点在 ✕ 上才算"移除"：缩略图本身占 56×42，整块都能删的话
-                    // 想拖一下或只是点着看图的人会误删
-                    if (inBadge(e.x, e.y)) onRemove()
+                    // 只认左键：右键点 ✕ 也把图删掉是说不通的（那半边留给以后的右键菜单）
+                    if (e.button != MouseEvent.BUTTON1) return
+                    when (thumbHit(e.x, e.y, width, badgeSide)) {
+                        // ✕ 与正文分开判：缩略图占 56×42，整块都能删的话，
+                        // 只是想点开看一眼的人会误删
+                        ThumbHit.REMOVE -> onRemove()
+                        ThumbHit.OPEN -> onOpen()
+                    }
                 }
             }
         )
     }
-
-    internal fun inBadge(x: Int, y: Int): Boolean =
-        x >= width - badgeSide && y <= badgeSide
 
     override fun paintComponent(g: Graphics) {
         val g2 = g.create() as Graphics2D
@@ -236,3 +272,20 @@ private class ThumbView(
         }
     }
 }
+
+/** 缩略图上那一击落在哪儿。 */
+internal enum class ThumbHit { REMOVE, OPEN }
+
+/**
+ * 这一点算点 ✕ 还是点正文。
+ *
+ * 与 [ThumbView] 的 `paintComponent` **用同一组数字**（`width` 与 `badgeSide`
+ * 就是画的时候用的那两个）—— 画在哪就能点在哪。**不要 `height`**：✕ 只占
+ * 右上角那一块（x 靠右、y 靠上），高的信息在判定里用不上。
+ *
+ * 抽成顶层纯函数是为了可测：原来是私有类里的 `internal fun inBadge`，
+ * `private` 类的成员对测试文件根本不可见，那条"想看一眼却误删"的规矩
+ * 一直没被钉住（2026-09-17 这版顺手修掉）。
+ */
+internal fun thumbHit(x: Int, y: Int, width: Int, badgeSide: Int): ThumbHit =
+    if (x >= width - badgeSide && y <= badgeSide) ThumbHit.REMOVE else ThumbHit.OPEN

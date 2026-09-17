@@ -85,7 +85,7 @@ class StatusCardsTest {
 
     @Test
     fun `还没收到用量时显示 0，不写「空闲」`() {
-        // 「空闲」的意思是"没在跑"（子任务/子代理用它是对的），而上下文恰恰不是
+        // 「空闲」的意思是"没在跑"（任务列表/子代理用它是对的），而上下文恰恰不是
         // 这回事 —— 恢复一场长对话之后它一点都不空闲，我们只是还没测过。
         // 显示 0 至少是个能被纠正的数字
         val card = contextCardOf(null)
@@ -124,7 +124,7 @@ class StatusCardsTest {
         assertEquals(Tone.Danger, contextCardOf(ContextUsage(usedTokens = 190000, windowTokens = 200000)).tone)
     }
 
-    // ---- 子任务 ----
+    // ---- 任务列表 ----
 
     @Test
     fun `没有清单时收边，且不画格子`() {

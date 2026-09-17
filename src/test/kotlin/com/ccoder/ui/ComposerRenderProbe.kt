@@ -34,7 +34,18 @@ class ComposerRenderProbe {
     fun `把绕过权限时的输入区画成图片`() =
         render("build/composer-probe-bypass.png", PermissionModeSetting.BYPASS_PERMISSIONS)
 
+    /**
+     * 真机 LAF（New UI 深色）底下画。
+     *
+     * 2026-09-17 补的：这个探针此前跑在测试 JVM 默认的 Metal 下，出的是**浅色**图 ——
+     * 而用户那台 PyCharm 是深色。底色一变，"工具栏底带够不够、显不显得脏"这类判断
+     * 就全都不作数了（[IdeLaf] 的注释里写着同一条教训）。
+     */
     private fun render(path: String, mode: PermissionModeSetting) {
+        IdeLaf.withRealLaf { renderUnder(path, mode) }
+    }
+
+    private fun renderUnder(path: String, mode: PermissionModeSetting) {
         SwingUtilities.invokeAndWait {
             val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(connectionCardOf("已连接"))

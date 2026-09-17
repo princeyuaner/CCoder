@@ -73,16 +73,16 @@ private fun detailBox() = JPanel().apply {
 }
 
 /**
- * 任务清单那一段。点"子任务"卡弹它。
+ * 任务列表那一段。点"任务列表"卡弹它。
  *
  * 与运行段分成两个函数而不是合成一个，是因为两段在 SDK 里是**两套不同的
- * 来源**：这里是模型自己声明的计划（TodoWrite），那里是真正在跑的东西
+ * 来源**：这里全是模型自己声明的计划（`TaskCreate` / `TodoWrite`），那里是真正在跑的东西
  * （task 消息族）。拆卡之后点哪张只看哪段，才不会让人以为清单里每一项
  * 都有个进程在跑。
  */
 internal fun buildTodoDetail(todos: TaskList): JComponent {
     val box = detailBox()
-    box.add(sectionHeader("任务清单", "${todos.completed}/${todos.total}"))
+    box.add(sectionHeader("任务列表", "${todos.completed}/${todos.total}"))
     todos.items.forEach { box.add(todoRow(it)) }
     return box
 }
@@ -148,12 +148,17 @@ private fun hint(text: String): JComponent = JBLabel(text).apply {
  * ## 为什么还有第二段
  *
  * [running] 是**现在在跑**的东西（事件流里的 task 消息），[subagents] 是
- * **这个会话跑过的全部子代理**（磁盘上的转写记录）。两套来源不同：
+ * **这个会话的全部子代理**（磁盘上的转写记录）。两套来源不同：
  * 跑完的子代理只在后者里。
  *
  * 同一件事会在两段里都出现一次 —— 那是**故意的**：上面回答"现在在跑什么"，
  * 下面回答"这个会话都干过什么"。靠 [SubagentInfo.toolUseId] 与任务的 id
  * 对上号（任务的 id 就是 tool_use id），于是上面那段的条目也能点开看转写。
+ *
+ * 第二段的标题是**「全部子代理」**，不是"跑过的"：转写是边跑边写的，
+ * 所以**还在跑的子代理也在这段里**。2026-09-17 之前它写的是「这个会话的子代理」——
+ * 准确，但整个浮层本来就是"这个会话"的，那四个字不区分任何东西
+ * （真正要区分的是上面那段"此刻在跑"）。
  *
  * @param onOpen 点某条 → 看它的转写。对不上号的（元信息没读到、或本来就不是
  *   子代理而是后台命令）不可点 —— 没有 agentId 就取不到转写
@@ -170,7 +175,7 @@ internal fun buildRunningDetail(
     }
 
     if (running.isNotEmpty()) {
-        box.add(sectionHeader("运行中", running.size.toString()))
+        box.add(sectionHeader(RUNNING_SECTION, running.size.toString()))
         running.forEach { task ->
             // 任务 → 子代理：靠 tool_use id 对上。对不上就还是普通一行
             box.add(taskRow(task, subagents.firstOrNull { it.toolUseId == task.id }, onOpen))
@@ -178,7 +183,7 @@ internal fun buildRunningDetail(
     }
 
     if (subagents.isNotEmpty()) {
-        box.add(sectionHeader("这个会话的子代理", subagents.size.toString()))
+        box.add(sectionHeader(SUBAGENTS_SECTION, subagents.size.toString()))
         subagents.forEach { box.add(subagentRow(it, onOpen)) }
     }
     return box
@@ -278,6 +283,19 @@ private fun JsonObject.str(key: String): String? =
 
 private fun JsonObject.obj(key: String): JsonObject? =
     get(key)?.takeIf { it.isJsonObject }?.asJsonObject
+
+/**
+ * 详情浮层里那两段的小标题。
+ *
+ * 写成常量（而不是两处字面量）：用例要按**文字**找到那个小标题，本仓惯例；
+ * 而且"这一段叫什么"就该只写在一个地方。
+ *
+ * [SUBAGENTS_SECTION] 原来叫「这个会话的子代理」——准确，但整个浮层本来就是
+ * "这个会话"的，那四个字不区分任何东西（真正要区分的是上面那段"此刻在跑"）。
+ * **也不能叫"跑过的"**：转写是边跑边写的，还在跑的子代理同样在这一段里。
+ */
+internal const val RUNNING_SECTION = "运行中"
+internal const val SUBAGENTS_SECTION = "全部子代理"
 
 private fun sectionHeader(title: String, count: String): JComponent =
     JPanel(BorderLayout()).apply {

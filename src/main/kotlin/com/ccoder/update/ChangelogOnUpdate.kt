@@ -122,9 +122,9 @@ internal fun changelogDecision(stored: String?, changelog: PluginChangelog?): Ch
 /**
  * 文案还是占位符吗。
  *
- * 0.2.19 的 change-notes 眼下就是 `TODO: this version's changes…`（见发布设计稿 §八）——
- * 没有这道闸，这一版装上去就会弹出一个写着 TODO 的框。写好之后它自动开始弹，
- * 不用改代码。
+ * 开版时 change-notes 是 `TODO: …` / `待写：…` 的占位（这形状见发布设计稿 §八）——
+ * 没有这道闸，装上去就会弹出一个写着 TODO 的框。写好之后它自动开始弹，不用改代码
+ * （0.2.19、0.2.20 都是这么放行的）。
  */
 internal fun isPlaceholder(notesHtml: String): Boolean {
     val text = notesHtml.trim()

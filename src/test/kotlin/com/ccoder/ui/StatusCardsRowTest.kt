@@ -11,7 +11,7 @@ import javax.swing.JPanel
 /** 四张卡怎么排。 */
 class StatusCardsRowTest {
 
-    private val quietTodos = StatusCardModel(label = "子任务", value = CARD_IDLE_TEXT, quiet = true)
+    private val quietTodos = StatusCardModel(label = "任务列表", value = CARD_IDLE_TEXT, quiet = true)
 
     private fun row() = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
 
@@ -45,7 +45,7 @@ class StatusCardsRowTest {
         val r = row()
 
         assertTrue(r.context.mouseListeners.isNotEmpty(), "上下文卡该可点（点开看用量明细）")
-        assertTrue(r.todos.mouseListeners.isNotEmpty(), "子任务卡该可点")
+        assertTrue(r.todos.mouseListeners.isNotEmpty(), "任务列表卡该可点")
         assertTrue(r.running.mouseListeners.isNotEmpty(), "子代理卡该可点")
         assertTrue(r.connection.mouseListeners.isNotEmpty(), "连接卡要有监听器，动作按钮才亮得起来")
     }

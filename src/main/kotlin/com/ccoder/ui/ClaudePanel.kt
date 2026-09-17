@@ -414,7 +414,7 @@ class ClaudePanel(
     /**
      * 挂着的那张详情卡。
      *
-     * 三张卡（子任务 / 子代理 / 上下文）共用一个浮层 —— 同一时刻只该有一个挂着，
+     * 三张卡（任务列表 / 子代理 / 上下文）共用一个浮层 —— 同一时刻只该有一个挂着，
      * 而这张记着是谁，好在关闭时把对应那张取消高亮。
      */
     private var openDetail: DetailCard? = null
@@ -682,6 +682,10 @@ class ClaudePanel(
         // 附件带展开/收起会改卡片高度 —— 得让布局重算，不然第一张图会压在
         // 输入框上画出来（附件带占的高度是凭空长出来的那一截）
         attachments.onChanged = { inputArea.revalidate() }
+        // 点缩略图放大看（只在这个框里看，不落临时文件、也不在编辑器里开 ——
+        // 见 ImagePreviewDialog 的说明）。框是模态的，开着的时候输入区冻着，
+        // 所以不存在"看着看着图被发出去"
+        attachments.onPreview = { images, index -> showImagePreview(project, images, index) }
 
         // 权限卡与状态卡共用 NORTH：两块都在输入卡**外面**、它的上方。
         // 顺序是权限卡在上（它更急）、状态卡紧贴输入框

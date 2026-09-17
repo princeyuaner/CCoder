@@ -104,7 +104,7 @@ class RunDetailTest {
         val todos = tracker(todosLabel("甲" to "completed", "乙" to "in_progress")).todos!!
         val labels = labelsIn(buildTodoDetail(todos))
 
-        assertTrue("任务清单" in labels, "要有段标题")
+        assertTrue("任务列表" in labels, "要有段标题")
         assertTrue("1/2" in labels, "要带进度计数：$labels")
     }
 
@@ -154,16 +154,16 @@ class RunDetailTest {
     @Test
     fun `点哪张卡只看哪一段，不再有合并浮层`() {
         // 旧版是一个浮层里两段。拆卡之后点哪张卡就该只看哪一段 ——
-        // 点"子任务"却弹出"运行中"会让人以为两边是一回事
+        // 点"任务列表"却弹出"运行中"会让人以为两边是一回事
         val t = tracker(todosLabel("甲" to "pending"), started("t1", "甲"))
 
         val todoLabels = labelsIn(buildTodoDetail(t.todos!!))
         val runningLabels = labelsIn(buildRunningDetail(t.running, emptyList()) {})
 
-        assertTrue("任务清单" in todoLabels)
+        assertTrue("任务列表" in todoLabels)
         assertTrue("运行中" !in todoLabels, "清单浮层里不该出现运行段：$todoLabels")
         assertTrue("运行中" in runningLabels)
-        assertTrue("任务清单" !in runningLabels, "运行浮层里不该出现清单段：$runningLabels")
+        assertTrue("任务列表" !in runningLabels, "运行浮层里不该出现清单段：$runningLabels")
     }
 
     // ---- 时长 ----
@@ -196,6 +196,31 @@ class RunDetailTest {
         val texts = labelsIn(box).joinToString("\n")
         assertTrue(texts.contains("Explore"), "实际：$texts")
         assertTrue(texts.contains("找调用点"), "实际：$texts")
+    }
+
+    @Test
+    fun `两段的小标题各自写清「运行中」与「全部子代理」`() {
+        // 2026-09-17 用户问过「这个会话的子代理」是什么意思 —— 浮层本来就是
+        // "这个会话"的，那四个字不区分任何东西（要区分的是上面那段"此刻在跑"）。
+        // 也不能写"跑过的"：转写是边跑边写的，还在跑的子代理同样在这一段里
+        val running = buildRunningDetail(
+            listOf(RunningTask("call_x", "local_bash", "跑测试", null, 0, 0)),
+            emptyList(),
+        ) {}
+        val subagents = buildRunningDetail(
+            emptyList(),
+            listOf(
+                SubagentInfo("a1", "Explore", "找调用点", "call_1"),
+                SubagentInfo("a2", "Plan", "设计一下", "call_2"),
+            ),
+        ) {}
+
+        assertEquals(RUNNING_SECTION, labelsIn(running).firstOrNull(), "实际：${labelsIn(running)}")
+        assertEquals(
+            listOf(SUBAGENTS_SECTION, "2"),
+            labelsIn(subagents).take(2),
+            "标题后面要跟条数：${labelsIn(subagents)}",
+        )
     }
 
     @Test

@@ -43,7 +43,7 @@ class StatusCardViewTest {
     }
 
     private val busy = StatusCardModel(
-        label = "子任务",
+        label = "任务列表",
         value = "3/7",
         indicator = Indicator.Segments(done = 3, total = 7),
     )
@@ -58,7 +58,7 @@ class StatusCardViewTest {
         card.setModel(busy.copy(sub = "12.3k / 200k"))
 
         val texts = labelsIn(card)
-        assertTrue("子任务" in texts, "少了标签：$texts")
+        assertTrue("任务列表" in texts, "少了标签：$texts")
         assertTrue("3/7" in texts, "少了值：$texts")
         assertFalse("12.3k / 200k" in texts, "副值不该再占卡面一行")
         assertEquals("12.3k / 200k", card.toolTipText, "副值该挂在悬停提示上")
@@ -79,10 +79,10 @@ class StatusCardViewTest {
 
     @Test
     fun `收边的卡也画边框与底 —— 那是"没数据"，不是"没有这格"`() {
-        // 2026-09-14 用户明确要求：子任务 / 子代理没数据时边框照常要有，
+        // 2026-09-14 用户明确要求：任务列表 / 子代理没数据时边框照常要有，
         // 四张卡看着是一排。quiet 只把值与图标压暗
         val card = StatusCardView()
-        card.setModel(StatusCardModel(label = "子任务", value = CARD_IDLE_TEXT, quiet = true))
+        card.setModel(StatusCardModel(label = "任务列表", value = CARD_IDLE_TEXT, quiet = true))
 
         assertTrue(borderColorOf(card).alpha > 0, "收边的卡不该把边框收掉")
     }
@@ -93,7 +93,7 @@ class StatusCardViewTest {
         card.setModel(busy)
         val busyInsets = card.border.getBorderInsets(card)
 
-        card.setModel(StatusCardModel(label = "子任务", value = CARD_IDLE_TEXT, quiet = true))
+        card.setModel(StatusCardModel(label = "任务列表", value = CARD_IDLE_TEXT, quiet = true))
 
         assertEquals(busyInsets, card.border.getBorderInsets(card), "收边改了 insets，布局会跳")
     }
@@ -483,5 +483,99 @@ class StatusCardViewTest {
                 "子件成了鼠标事件目标：${child.javaClass.simpleName}",
             )
         }
+    }
+
+    // ---- 整卡水位（2026-09-17 用户从七个方案里挑的 B）----
+
+    @Test
+    fun `水位线的高度：0 是空、1 是满、出界也不画到卡片外面`() {
+        assertEquals(56, waterTopY(0.0, 56), "空 = 水面就是底边")
+        assertEquals(0, waterTopY(1.0, 56), "满 = 顶边")
+        // 56 - 0.34×56 = 36.96 → 37
+        assertEquals(37, waterTopY(0.34, 56))
+        assertEquals(56, waterTopY(-1.0, 56), "负数不该把水面抬到卡片外")
+        assertEquals(0, waterTopY(2.0, 56))
+    }
+
+    @Test
+    fun `水面是正弦：一个波长走完峰谷各一次`() {
+        val base = 20.0
+        val a = 1.5
+        val len = 20.0
+
+        assertEquals(base, waterSurfaceY(0, base, a, len, 0.0), 1e-9, "起点在基准线上")
+        assertEquals(base - a, waterSurfaceY(5, base, a, len, 0.0), 1e-9, "四分之一波长 = 波峰（y 往上）")
+        assertEquals(base, waterSurfaceY(10, base, a, len, 0.0), 1e-9, "半波长回中线")
+        assertEquals(base + a, waterSurfaceY(15, base, a, len, 0.0), 1e-9, "四分之三 = 波谷")
+        assertEquals(
+            base + a,
+            waterSurfaceY(5, base, a, len, 0.5),
+            1e-9,
+            "相位推半个周期：原来的峰正好变成谷",
+        )
+    }
+
+    @Test
+    fun `步进朝目标走，一步都不许越过`() {
+        assertEquals(0.34, stepTowards(0.0, 0.34, 0.5), 1e-9, "一步能跨过去就**停在目标上**，别过头")
+        assertEquals(0.2, stepTowards(0.0, 0.34, 0.2), 1e-9)
+        assertEquals(0.7, stepTowards(0.9, 0.34, 0.2), 1e-9, "往下走同理")
+        assertEquals(0.34, stepTowards(0.4, 0.34, 0.2), 1e-9, "差一点点就直接落到目标上")
+        assertEquals(0.34, stepTowards(0.34, 0.34, 0.2), 1e-9, "已经在目标上就别动")
+    }
+
+    @Test
+    fun `相位回绕在 0 到 1 之间`() {
+        assertEquals(0.25, nextPhase(0.0, 0.25), 1e-9)
+        assertEquals(0.05, nextPhase(0.95, 0.1), 1e-9, "越过 1 要绕回来")
+        assertEquals(0.75, nextPhase(1.0, 0.75), 1e-9, "恰好整圈也是 0 起点")
+    }
+
+    @Test
+    fun `上下文卡画出来：底部是水、顶部是卡底、左下角被圆角切掉`() {
+        // 量像素而不是量属性 —— "水有没有漫出圆角""有没有画反方向"只有像素知道
+        val card = StatusCardView(icon = CardIcon.Context)
+        // **不调 settleWater**：这张卡还没上屏，第一帧就该是 34% ——
+        // "没上屏时直接落到目标值"那条规矩就靠这一步量出来（测试 JVM 里
+        // 卡片永远不是 showing，动画本来也不会起）
+        card.setModel(contextCardOf(ContextUsage(usedTokens = 68_000, windowTokens = 200_000)))
+        card.setSize(97, 56)
+
+        val img = java.awt.image.BufferedImage(97, 56, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        g.color = UIUtil.getPanelBackground()
+        g.fillRect(0, 0, 97, 56)
+        card.paint(g)
+        g.dispose()
+
+        val water = mix(UIUtil.getPanelBackground(), focusColor(), 0.16)
+        assertEquals(water, java.awt.Color(img.getRGB(48, 53)), "底部该是水")
+        assertEquals(
+            UIUtil.getPanelBackground(),
+            java.awt.Color(img.getRGB(48, 5)),
+            "水位在 34%，顶上不该有水",
+        )
+        // 圆角半径是 8（`drawRoundRect` 那对参数是**直径**，不是半径）——
+        // 于是"角上被切掉"的那一块只有几个像素，取样点得贴着最角上那一个
+        assertEquals(
+            UIUtil.getPanelBackground(),
+            java.awt.Color(img.getRGB(0, 55)),
+            "左下角落在圆角之外 —— 水位该被裁掉",
+        )
+    }
+
+    @Test
+    fun `带水位的卡标签用正文色，其余三张照旧是灰的`() {
+        // 卡片被染色之后，灰标签在浅色主题下只有 3.5–3.9:1（选型台量过，spec §3）
+        val context = StatusCardView(icon = CardIcon.Context)
+        context.setModel(contextCardOf(ContextUsage(usedTokens = 68_000, windowTokens = 200_000)))
+        val tasks = StatusCardView(icon = CardIcon.Tasks)
+        tasks.setModel(todoCardOf(TaskList(emptyList())))
+
+        val contextLabel = descendantsOf(context).filterIsInstance<JLabel>().first { it.text == "上下文" }
+        val tasksLabel = descendantsOf(tasks).filterIsInstance<JLabel>().first { it.text == "任务列表" }
+
+        assertEquals(UIUtil.getLabelForeground(), contextLabel.foreground)
+        assertEquals(UIUtil.getInactiveTextColor(), tasksLabel.foreground)
     }
 }

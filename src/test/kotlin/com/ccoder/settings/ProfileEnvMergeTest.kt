@@ -212,9 +212,9 @@ class ProfileEnvWiringTest {
     }
 
     @Test
-    fun `选中配置时默认打开任务清单工具`() {
+    fun `选中配置时默认打开任务列表工具`() {
         // 那套工具 CLI 只对它认识的模型开放，第三方网关上的名字它不认识。
-        // 不给这个变量，「子任务」卡永远是空的 —— 不是模型不用，是它调不到
+        // 不给这个变量，「任务列表」卡永远是空的 —— 不是模型不用，是它调不到
         val profiles = ModelProfiles(InMemorySecretStore())
         val s = settingsWith(
             profiles,

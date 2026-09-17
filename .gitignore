@@ -45,6 +45,9 @@ Desktop.ini
 # ---- 日志与临时文件 ----
 *.log
 *.tmp
+# JVM 堆转储：IDE 崩一次就在仓库根落一个 1GB+ 的文件，
+# 而它在 `git status` 里是未跟踪状态 —— 不挡一道，某次 `git add -A` 就把它带进去了
+*.hprof
 
 # 冒烟测试产物
 sidecar/smoke.jsonl

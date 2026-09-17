@@ -107,6 +107,20 @@ internal fun transcriptDataUrl(bytes: ByteArray, maxEdge: Int = TRANSCRIPT_EDGE)
 }
 
 /**
+ * 点开看图那一份：**把将要发出去的那份字节直接解回来**（2026-09-17 起输入框里
+ * 点缩略图会走到这儿）。
+ *
+ * 不是 [AttachedImage.thumb]（56px，放大就是糊的）、也不是 [transcriptDataUrl]
+ * （那是 JPEG q85，还要再过一次 base64）：放大查看同时就是**发送前的最后一眼**，
+ * 该看的正是真正要发的那一份。
+ *
+ * 解不开返回 null —— 字节是我们自己刚编出来的，理论上不该发生；真发生了调用方
+ * 给一句"打不开"，别让用户对着一个空白框猜。
+ */
+internal fun previewImageOf(bytes: ByteArray): BufferedImage? =
+    runCatching { ImageIO.read(bytes.inputStream()) }.getOrNull()
+
+/**
  * 这张来源能不能收。null = 可以；否则是一句能直接显示给用户的原因。
  *
  * 只判**原图体积**这一条：格式认不认得出、解出来多大，都要等解完才知道，

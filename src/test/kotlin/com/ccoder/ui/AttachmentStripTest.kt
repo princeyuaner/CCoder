@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.Container
+import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import javax.swing.JLabel
 import javax.swing.SwingUtilities
@@ -127,5 +128,67 @@ class AttachmentStripTest {
         strip.clear()
 
         assertEquals(2, changes)
+    }
+
+    // ---- 点缩略图（2026-09-17：✕ 删图、正文放大看）----
+    //
+    // 这里派发的是**真 MouseEvent**，不是直接调回调：要钉的恰恰是"哪一击走到
+    // 哪个回调"这条路由。判定本身（差一个像素算不算 ✕）在 `ImagePreviewTest`。
+
+    /** 在缩略图上点一下。坐标是组件内的像素。 */
+    private fun clickThumb(
+        strip: AttachmentStrip,
+        x: Int,
+        y: Int,
+        index: Int = 0,
+        button: Int = MouseEvent.BUTTON1,
+    ) {
+        val view = strip.thumbViewAt(index) ?: error("第 $index 张缩略图不见了（夹具问题）")
+        view.dispatchEvent(
+            MouseEvent(
+                view, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0,
+                x, y, 1, false, button,
+            )
+        )
+    }
+
+    @Test
+    fun `点正文一下 —— 回调拿到带上现在的图与第几张`() = onEdt {
+        val strip = AttachmentStrip()
+        strip.add(attachment(0))
+        strip.add(attachment(1))
+        var got: Pair<List<AttachedImage>, Int>? = null
+        strip.onPreview = { images, index -> got = images to index }
+
+        clickThumb(strip, x = 28, y = 21, index = 1)
+
+        assertEquals(2, got?.first?.size, "该把整条带子交出去（框里还要左右翻）")
+        assertEquals(1, got?.second, "点的哪一张就要说清")
+    }
+
+    @Test
+    fun `点 ✕ 只删图 —— 不叫放大那条路`() = onEdt {
+        val strip = AttachmentStrip()
+        strip.add(attachment(0))
+        var previews = 0
+        strip.onPreview = { _, _ -> previews++ }
+
+        clickThumb(strip, x = 55, y = 1)
+
+        assertEquals(0, strip.images.size, "该删的没删")
+        assertEquals(0, previews, "✕ 与正文是两条路，别互相串")
+    }
+
+    @Test
+    fun `右键点 ✕ 什么都不做 —— 删图只认左键`() = onEdt {
+        val strip = AttachmentStrip()
+        strip.add(attachment(0))
+        var previews = 0
+        strip.onPreview = { _, _ -> previews++ }
+
+        clickThumb(strip, x = 55, y = 1, button = MouseEvent.BUTTON3)
+
+        assertEquals(1, strip.images.size, "右键不该把图删掉")
+        assertEquals(0, previews, "右键也不该顺手把图点开")
     }
 }

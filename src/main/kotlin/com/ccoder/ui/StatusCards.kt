@@ -57,6 +57,14 @@ internal data class StatusCardModel(
     val sub: String? = null,
     val indicator: Indicator = Indicator.None,
     val quiet: Boolean = false,
+    /**
+     * 这张卡的数**正在被改写**（今天只有"压缩中"这一种）。
+     *
+     * 卡片拿它决定水位要不要**一直**动：普通的数值变化只跑一趟动画就停，
+     * 而"正在改写"没有确定的进度可言 —— 那件事本来就该看着在动
+     * （2026-09-17 水位那版的 spec §4）。
+     */
+    val busy: Boolean = false,
 )
 
 /** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
@@ -150,7 +158,7 @@ internal fun elapsedText(seconds: Int): String = "${seconds}s"
  * 阈值 70/90 是计划外新增：一个永远同色的进度条是装饰，而上下文写满
  * 是长会话里唯一会**静默**毁掉会话的事。
  *
- * **没有测量值时显示 0，不写「空闲」**：那个词的意思是"没在跑"（子任务、子代理
+ * **没有测量值时显示 0，不写「空闲」**：那个词的意思是"没在跑"（任务列表、子代理
  * 用它是对的），而上下文恰恰不是这回事 —— 恢复一场长对话之后它一点都不空闲，
  * 我们只是没测过。显示 0 至少是个能被纠正的数字（新会话本来就近乎空），
  * 而「空闲」是一句说反了的话。
@@ -159,9 +167,9 @@ internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): S
     val u = usage ?: ContextUsage(usedTokens = 0, windowTokens = 0)
     val percent = contextPercentOf(u)
 
-    // 压缩中：值行让给进度语义（spec §3.8），比例条留着 —— 它是**最后测到**的
+    // 压缩中：值行让给进度语义（spec §3.8），水位留着 —— 它是**最后测到**的
     // 数，抹掉的话卡上会突然什么都没有，而读者并不知道那是"暂时"。色调走 Warn：
-    // 条子跟着变琥珀（paintMeter 的规矩），表示"这个数正在被改写"。
+    // 水位跟着变琥珀，表示"这个数正在被改写"；`busy` 让那层水一直动。
     if (compacting) {
         return StatusCardModel(
             label = "上下文",
@@ -169,6 +177,7 @@ internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): S
             tone = Tone.Warn,
             sub = if (u.windowTokens > 0) contextRatioText(u) else null,
             indicator = if (percent != null) Indicator.Meter(percent / 100.0) else Indicator.None,
+            busy = true, // 水位一直动（见 busy 的注释）
         )
     }
     return StatusCardModel(
@@ -187,19 +196,19 @@ internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): S
     )
 }
 
-// ---- 子任务 ----
+// ---- 任务列表 ----
 
 /**
- * 子任务卡。
+ * 任务列表卡。
  *
  * `total == 0` 也收边：一条清单都没拆出来时画"0/0"或七个空格子，
  * 都是在说并不存在的事。
  */
 internal fun todoCardOf(todos: TaskList?): StatusCardModel {
-    if (todos == null || todos.total == 0) return quietCard("子任务")
+    if (todos == null || todos.total == 0) return quietCard("任务列表")
 
     return StatusCardModel(
-        label = "子任务",
+        label = "任务列表",
         value = "${todos.completed}/${todos.total}",
         indicator = Indicator.Segments(done = todos.completed, total = todos.total),
     )

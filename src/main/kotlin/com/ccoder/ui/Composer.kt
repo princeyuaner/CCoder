@@ -13,7 +13,12 @@ import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.KeyboardFocusManager
+import java.awt.RenderingHints
+import java.awt.geom.Area
+import java.awt.geom.Rectangle2D
+import java.awt.geom.RoundRectangle2D
 import java.awt.event.KeyEvent
 import javax.swing.BorderFactory
 import javax.swing.JComponent
@@ -207,6 +212,24 @@ internal class ComposerCard : JPanel(BorderLayout()) {
     }
 
     /**
+     * 工具栏那一行的底带（2026-09-17 用户："最下面这里我想加个背景，让他们感觉是一体的"）。
+     *
+     * **由卡片画而不是工具栏自己画**：底带要铺到卡片下沿、还要跟描边同一个圆心，
+     * 而工具栏的边界在卡片内边距**以内**（左右各 6、下面 5）——它连自己外面一个
+     * 像素都画不到。卡片知道自己的尺寸与圆角，也只有它能把这条带子画成
+     * "卡片的下半格面"。
+     *
+     * 底带的上沿 = SOUTH 那个组件（工具栏）的上沿，**现场问布局要**：工具栏多高
+     * 由它自己的字体和内边距决定，写死一个数迟早对不上。
+     * 还没布局过（bounds 全是 0）时什么都不画 —— [paintComposerFooter] 里挡着。
+     */
+    override fun paintComponent(g: Graphics) {
+        val band = (layout as? BorderLayout)?.getLayoutComponent(BorderLayout.SOUTH) ?: return
+        if (!band.isVisible) return
+        paintComposerFooter(g, width, height, band.bounds.y, composerFooterFill())
+    }
+
+    /**
      * 焦点落在卡片里的任何一个子组件（输入框、发送按钮）上，都算卡片聚焦。
      *
      * 监听器挂在全局的 KeyboardFocusManager 上，所以必须在离开层级时摘掉 ——
@@ -252,6 +275,65 @@ internal fun buildComposerCard(
 
 /** 卡片的常态描边。与 IDE 给输入类控件用的一条线同源。 */
 internal fun lineColor(): Color = JBColor.namedColor("Component.borderColor", JBColor.border())
+
+// ---- 工具栏底带（卡片下半格那层底）----
+
+/**
+ * 底带比面板底色亮多少 / 暗多少。
+ *
+ * 取一个**两边主题都成立**的数：[mix] 算的是"底色 → 文本色"，深色主题下文本色
+ * 是亮的（带子变亮一档）、浅色主题下是暗的（带子变暗一档），方向不用判明暗。
+ *
+ * 0.09 是"看得出这是一层"，同时也是"不抢"：0.03 几乎看不见（白加），
+ * 0.15 往上就开始像另一块面板了。档位见 `ComposerFooterRenderProbe` 出的对比图。
+ */
+internal const val FOOTER_TINT = 0.09
+
+/** 底带的颜色。 */
+internal fun composerFooterFill(): Color =
+    mix(UIUtil.getPanelBackground(), UIUtil.getLabelForeground(), FOOTER_TINT)
+
+/**
+ * 把底带画进 [g]（卡片坐标系）。
+ *
+ * **只圆下面两个角**，而且与卡片描边**同一个模子**：同样的矩形、同样的半径，
+ * 于是两条弧之间那圈间隙处处等宽。半径或矩形任一不同，四个角上就会露出来
+ * 一边宽一边窄的月牙 —— 这是"底比边圆"那类毛刺的同一种毛病
+ * （[StatusCardView] 的注释里记过）。
+ *
+ * 上沿是**直的**：那是输入区与工具栏的分界，有弧度反而像两个控件。
+ * 做法是**求交**：整块的圆角矩形 ∩ "从 [bandTop] 往下的直角矩形"，
+ * 留下的正好是"下圆上方"。
+ *
+ * > 别用"把圆角矩形往上挪一个半径、再用直角矩形盖掉上边"那种画法：
+ * > 盖的位置极易写反（2026-09-17 第一次就写反了 —— 盖的是 [bandTop] 下面
+ * > 那一段，于是带子从 `bandTop - 半径` 就开始铺，整整多出 16px 压在输入区上；
+ * > 探针图上一条凭空多出来的浅色横带当场把这事暴露了）。而且那种画法还得
+ * > 知道底色才盖得干净，求交不需要。
+ *
+ * 左右各留 1px、下边也留 1px：描边那条线画在那一圈上，底带铺到线底下会跟它
+ * 抢像素（描边是后画的，但抗锯齿的边缘上会出现两种颜色的锯齿）。
+ *
+ * 画不进去就什么都不画（尺寸还没定、或带子比两个半径还窄）。
+ */
+internal fun paintComposerFooter(g: Graphics, width: Int, height: Int, bandTop: Int, fill: Color) {
+    if (width <= 2 || height <= 2 || bandTop <= 0 || bandTop >= height - 2) return
+    val arc = JBUI.scale(CARD_CORNER_ARC).toDouble()
+    val g2 = g.create() as Graphics2D
+    try {
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        val rounded = Area(RoundRectangle2D.Double(1.0, 1.0, width - 2.0, height - 2.0, arc, arc))
+        // 与"从带子上沿往下的直角矩形"求交 → 上沿直、下面两个角圆
+        val below = Rectangle2D.Double(
+            1.0, bandTop.toDouble(), width - 2.0, (height - 1 - bandTop).toDouble(),
+        )
+        rounded.intersect(Area(below))
+        g2.color = fill
+        g2.fill(rounded)
+    } finally {
+        g2.dispose()
+    }
+}
 
 /** 聚焦描边。取平台色，取不到时退回 New UI 的一对蓝（浅色/深色各一）。 */
 internal fun focusColor(): Color = JBColor.namedColor(
