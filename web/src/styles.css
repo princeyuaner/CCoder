@@ -465,13 +465,16 @@ body {
  * 蓝与绿取自主题（与产品强调色、diff 的绿同一支）；琥珀与青是固定值：
  * New UI 的注入变量里没有这两支，而它们都是中间调，深浅主题下都读得出来。
  * 认不出的工具（MCP 那些）退回次要色 —— 它显示的是首字母，不该抢眼。
+ *
+ * 蓝走 `--accent-text` 而不是 `--accent`：它是 9px 的小字，得按文字的门槛量
+ * 对比度 —— 见 .md-link 那条注释。
  */
-.tool__badge--read  { color: var(--accent, #548af7); }
+.tool__badge--read  { color: var(--accent-text, #7fb0ff); }
 .tool__badge--write { color: var(--diff-add-fg, #5fad65); }
 .tool__badge--run   { color: #d9a343; }
 .tool__badge--net   { color: #3fa7c4; }
 .tool__badge--task  { color: #a06bd4; }
-.tool__badge--ask   { color: var(--accent, #548af7); }
+.tool__badge--ask   { color: var(--accent-text, #7fb0ff); }
 .tool__badge--other { color: var(--text-dim, #8c8c8c); }
 
 /* 有色调时边框跟着走 —— 15px 的小方块里，边框是唯一能把颜色放大的地方。
@@ -535,7 +538,7 @@ body {
 
 .tool__file:hover {
   /* 下划线跟着 currentColor 一起变，不用再写一遍 text-decoration */
-  color: var(--accent, #2f65ca);
+  color: var(--accent-text, #7fb0ff);
 }
 
 .tool__delta {
@@ -773,7 +776,7 @@ body {
   border: none;
   font: inherit;
   font-size: 11px;
-  color: var(--accent, #4a88c7);
+  color: var(--accent-text, #7fb0ff);
   cursor: pointer;
 }
 
@@ -1013,8 +1016,25 @@ body {
   padding: 1px 5px;
 }
 
+/* 链接的文字色。
+ *
+ * **不能用 `--accent`**：那是 `UIUtil.getTreeSelectionBackground` —— 按名字
+ * 就是"选中块的**底色**"。深色主题下它天生是深的（Darcula #2f65ca），压在
+ * 气泡底 #2b2d30 上只有 **2.5:1**，屏幕上就是"看得见、读不了"（2026-09-17
+ * 用户截图：转写区 `Sources:` 那串链接）。这与计划框里行内代码那个坑是
+ * 同一支颜色的同一个毛病，那边 2026-09-16 修过，网页层当时漏了。
+ *
+ * `--accent-text` 由 Kotlin 侧按 WCAG 对比度挑出来（见 ThemeInjector
+ * .accentTextFor / Contrast.pickReadable）：主题自己的色够读就用它，不够
+ * 才退到兜底蓝 —— 换主题（Darcula / Material / 高对比 / 浅色）都不用重挑。
+ *
+ * 落色 #7fb0ff 是**注入之前那一帧**的兜底（深色主题下的兜底亮蓝），
+ * 不是最终配色。
+ *
+ * 同一条规矩的另外四处：.tool__badge--read/--ask、.tool__file:hover、.tool__more。
+ * 边框与转圈的头仍用 `--accent` —— 那是图形，门槛是 3:1，不是 4.5:1。 */
 .md-link {
-  color: var(--accent, #2f65ca);
+  color: var(--accent-text, #7fb0ff);
   text-decoration: underline;
   cursor: pointer;
 }

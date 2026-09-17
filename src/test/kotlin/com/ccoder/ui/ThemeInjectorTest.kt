@@ -15,6 +15,7 @@ class ThemeInjectorTest {
         textDim = Color(0x8C8C8C),
         border = Color(0x393B40),
         accent = Color(0x2F65CA),
+        accentText = Color(0x7F, 0xB0, 0xFF),
         surface = Color(0x2B2D30),
         codeBg = Color(0x191A1C),
         refBg = Color(0x2C2540),
@@ -40,7 +41,7 @@ class ThemeInjectorTest {
         // 这份清单就是前端 styles.css 依赖的契约：少一个，那边就退回落色
         val css = ThemeInjector.buildCss(sample())
         for (name in listOf(
-            "--bg", "--text", "--text-dim", "--border", "--accent",
+            "--bg", "--text", "--text-dim", "--border", "--accent", "--accent-text",
             "--surface", "--code-bg", "--ref-bg", "--error-bg",
             "--diff-add-bg", "--diff-del-bg", "--diff-add-fg", "--diff-del-fg",
             "--thinking-fg",
@@ -124,6 +125,40 @@ class ThemeInjectorTest {
             val ratio = contrast(thinkingFgFor(text, bg), bg)
             assertTrue(ratio >= 4.5, "$name 主题下思考正文只有 ${"%.2f".format(ratio)}:1，低于 WCAG 正文门槛")
         }
+    }
+
+    @Test
+    fun `强调色的文字版在气泡底上够读`() {
+        // 守的是 2026-09-17 用户截图那个坑：`--accent` 是选中块的**底色**，
+        // 深色主题下拿来当文字色对气泡底只有 2.5:1 —— 屏幕上"看得见、读不了"。
+        // 网页层要的是**文字版**的强调色，门槛与正文同一条（WCAG AA 4.5:1）。
+        val cases = listOf(
+            // 主题强调色（树选中底）到气泡底：Darcula 深色 / 一种浅色
+            "深色" to (Color(0x2F65CA) to Color(0x2B2D30)),
+            "浅色" to (Color(0xA8C7FA) to Color(0xFFFFFF)),
+        )
+        for ((name, pair) in cases) {
+            val (accent, surface) = pair
+            val ratio = contrast(accentTextFor(accent, surface), surface)
+            assertTrue(
+                ratio >= 4.5,
+                "$name 主题下强调色文字只有 ${"%.2f".format(ratio)}:1，低于 WCAG 正文门槛",
+            )
+        }
+    }
+
+    @Test
+    fun `强调色本身够读时不另挑颜色`() {
+        // 主题自己的色排第一（跟 IDE 走）—— 够读就原样用，不无谓地换一支
+        val accent = Color(0x7F, 0xB0, 0xFF)
+        assertEquals(accent, accentTextFor(accent, Color(0x2B2D30)))
+    }
+
+    @Test
+    fun `深色底退亮蓝、浅色底退深蓝`() {
+        // 兜底不是 if 出来的，是量出来的：这两条钉住测量的结果
+        assertEquals(CODE_BLUE_BRIGHT, accentTextFor(Color(0x2F65CA), Color(0x2B2D30)))
+        assertEquals(CODE_BLUE_DEEP, accentTextFor(Color(0xA8C7FA), Color(0xFFFFFF)))
     }
 
     /** WCAG 相对亮度 —— 与 styles.css 里那几个对比度注释同一套算法。 */

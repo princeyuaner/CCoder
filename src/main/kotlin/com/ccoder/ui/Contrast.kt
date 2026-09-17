@@ -26,9 +26,13 @@ internal const val CONTRAST_AA = 4.5
 /**
  * 兜底的两个蓝：深色底上亮的赢、浅色底上深的赢 —— 由对比度算出来，不是 if 出来的。
  *
- * 到今天只有一处取色用它俩当最后一道：[PermissionCard] 的计划正文（HTML 里那点颜色）。
- * （2026-09-16 曾同时给 [ThemeInjector] 算过一份给网页层的，随"正文路径可点击"那版
- * 一起撤了 —— 网页那边现在仍用主题给的 `--accent` 当文字色。）
+ * 取色用它们当最后一道的有两处：[PermissionCard] 的计划正文（HTML 里那点颜色），
+ * 与 [ThemeInjector.accentTextFor]（网页层当文字色的强调色）。
+ *
+ * 后者这段历史值得记一笔：2026-09-16 修计划框时曾一并给网页层算过一份，
+ * 随"正文路径可点击"那版**一起撤了**，网页那边又退回用主题给的 `--accent`
+ * 当文字色 —— 于是 2026-09-17 用户截图，转写区的链接还是深蓝压深灰（2.5:1）。
+ * 修一处漏一处，账就是这么来的。
  */
 internal val CODE_BLUE_BRIGHT = Color(0x7F, 0xB0, 0xFF)
 internal val CODE_BLUE_DEEP = Color(0x1F, 0x6F, 0xEB)

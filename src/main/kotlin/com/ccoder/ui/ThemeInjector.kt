@@ -13,6 +13,13 @@ data class ThemeColors(
     val textDim: Color,
     val border: Color,
     val accent: Color,
+    /**
+     * **当文字色**用的强调色（链接、工具徽标的蓝、可点开的文件名）。
+     *
+     * 与 [accent] 分开是因为它俩的用途不同：[accent] 是选中块的**底色**，
+     * 深色主题下天生是深的，直接拿来印字就是深蓝压深灰（见 [accentTextFor]）。
+     */
+    val accentText: Color,
     val surface: Color,
     val codeBg: Color,
     /**
@@ -58,6 +65,7 @@ object ThemeInjector {
         append(" --text-dim: ${colors.textDim.hex()};")
         append(" --border: ${colors.border.hex()};")
         append(" --accent: ${colors.accent.hex()};")
+        append(" --accent-text: ${colors.accentText.hex()};")
         append(" --surface: ${colors.surface.hex()};")
         append(" --code-bg: ${colors.codeBg.hex()};")
         append(" --ref-bg: ${colors.refBg.hex()};")
@@ -109,13 +117,18 @@ object PlatformTheme {
     fun read(): ThemeColors {
         val bg = UIUtil.getPanelBackground()
         val text = UIUtil.getLabelForeground()
+        val accent = UIUtil.getTreeSelectionBackground(true)
+        val surface = surfaceFor(bg)
         return ThemeColors(
             bg = bg,
             text = text,
             textDim = UIUtil.getInactiveTextColor(),
             border = JBColor.border(),
-            accent = UIUtil.getTreeSelectionBackground(true),
-            surface = surfaceFor(bg),
+            accent = accent,
+            // 底色是 [surface]（转写区的气泡底），不是 [bg]：链接与徽标实际就画在
+            // 那上面，按真正的底去量才算数
+            accentText = accentTextFor(accent, surface),
+            surface = surface,
             codeBg = UIUtil.getTextFieldBackground(),
             // 就是输入框高亮用的那个常量：两处必须同色，读同一个出处
             refBg = refBackground,
@@ -195,6 +208,23 @@ internal fun mix(base: Color, fg: Color, ratio: Double): Color {
  */
 internal fun thinkingFgFor(text: Color, bg: Color): Color =
     mix(text, if (luminance(bg) < 128) THINK_ANCHOR_DARK else THINK_ANCHOR_LIGHT, 0.85)
+
+/**
+ * 强调色的**文字版** —— 挑一个在 [surface] 上读得出来的。
+ *
+ * 2026-09-17 用户截图：转写区里 `Sources:` 那串链接是深蓝压深灰，"看不清"。
+ * 数出来对气泡底约 **2.5:1** —— 不是审美问题，是读不了。而这与 2026-09-16
+ * 计划框那个坑**是同一支颜色的同一个毛病**：`UIUtil.getTreeSelectionBackground`
+ * 按名字就是"选中块的底色"，把它当文字色，深色主题下必翻车。当时只修了
+ * Swing 侧的计划框，网页层的账记在 [Contrast.CODE_BLUE_BRIGHT] 的注释里，
+ * 这次补上。
+ *
+ * 候选的**顺序就是优先级**（见 [pickReadable]）：主题自己的色排第一 —— 够读
+ * 就用它，跟 IDE 保持一致；不够才往兜底的亮蓝/深蓝退。所以 Darcula 这类深色
+ * 主题拿亮蓝、浅色主题拿深蓝，都不用 if 判明暗，是**量出来的**。
+ */
+internal fun accentTextFor(accent: Color, surface: Color): Color =
+    pickReadable(listOf(accent, CODE_BLUE_BRIGHT, CODE_BLUE_DEEP), surface)
 
 /** 暗底用的锚色（浅亚麻）。 */
 private val THINK_ANCHOR_DARK = Color(0xCD, 0xC5, 0xB2)
