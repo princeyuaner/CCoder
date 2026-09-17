@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 清空 / 压缩 · 两颗按钮往哪儿放</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色与图标照抄 status-cards-v2.html（当前线上就是那版方案甲）。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#2b2d30;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased; transition: background .2s, color .2s;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+            padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 76ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; transition: background .15s, color .15s; }
+.toggle button.on { background: var(--accent); color: var(--accent-fg); }
+
+.intro { margin: 40px 0 8px; display:grid; grid-template-columns: repeat(auto-fit, minmax(255px,1fr)); gap: 16px; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); letter-spacing:.06em; text-transform:uppercase; color: var(--page-dim); font-weight:600; }
+.card p { margin: 0; font-size: 13.5px; color: var(--page-fg); }
+.card.warn { border-left: 3px solid var(--warn); }
+.card.ok { border-left: 3px solid var(--ok); }
+.card.bad { border-left: 3px solid var(--danger); }
+
+.variant { margin: 72px 0 0; padding-top: 34px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap: 14px; flex-wrap:wrap; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.1em; text-transform:uppercase; padding: 4px 9px; border-radius: 5px;
+       background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.tag.pick { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.tag.q { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.variant h2 { font-family: var(--serif); font-size: 24px; margin: 0; font-weight: 600; }
+.vsub { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 80ch; }
+.split { display:grid; grid-template-columns: minmax(440px,1fr) minmax(280px,420px); gap: 34px; margin-top: 26px; align-items:start; }
+@media (max-width: 900px){ .split { grid-template-columns: 1fr; } }
+.row2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(420px,1fr)); gap: 26px; margin-top: 26px; align-items:start; }
+
+/* ---------------- 工具窗口 mock（420px，与产品一致） ---------------- */
+.win { width: 420px; border:1px solid var(--border); border-radius: 6px; overflow:hidden; background: var(--panel);
+       box-shadow: 0 10px 34px rgba(0,0,0,.22); }
+[data-theme="light"] .win { box-shadow: 0 10px 34px rgba(0,0,0,.10); }
+.win-head { display:flex; align-items:center; gap:8px; padding: 7px 10px; background: var(--panel);
+            border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text); }
+.win-head .dot3 { color: var(--dim); letter-spacing: 2px; font-size: 13px; }
+.win-head .ttl { font-weight: 500; }
+.win-head .grow { flex:1; }
+.win-head .ico { width: 18px; height: 18px; border-radius: 4px; background: var(--code); color: var(--dim);
+                 display:grid; place-items:center; font-size: 11px; }
+.chips { display:flex; align-items:center; gap:6px; padding: 8px 10px 4px; }
+.chip { display:flex; align-items:center; gap:6px; padding: 4px 8px; border-radius: 999px;
+        border:1px solid var(--border); background: var(--code); color: var(--dim); font-size: 12px; }
+.chip.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--text); }
+.chip .st { width:7px; height:7px; border-radius:50%; flex:none; background: var(--dim); }
+.chip .st.run { background: var(--accent); }
+
+/* 状态卡排（404px 可用宽 = 420 − 左右各 8） */
+.strip { display:grid; grid-template-columns: repeat(4, 1fr); gap:5px; padding: 6px 8px 0; }
+.sc { position:relative; border:1px solid var(--border); border-radius:6px; background: var(--panel);
+      height:50px; padding: 5px 6px 7px; display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:1px; overflow:hidden; }
+.sc__top { display:flex; align-items:center; gap:4px; max-width:100%; }
+.sc__lbl { font-size:10.5px; color:var(--dim); white-space:nowrap; }
+.sc__val { font-size:13px; color:var(--text); line-height:1.25; white-space:nowrap; }
+.ico { width:14px; height:14px; flex:0 0 auto; color: var(--dim); }
+.ico.acc { color: var(--accent); }
+.ico.ok { color: var(--ok); }
+.ico.warn { color: var(--warn); }
+.sc__gauge { position:absolute; left:1px; right:1px; bottom:1px; height:2px; border-radius:0 0 5px 5px; background: var(--border); overflow:hidden; }
+.sc__gauge i { display:block; height:100%; background: var(--accent); }
+
+.body { background: var(--editor); border-top: 1px solid var(--border-soft); margin-top: 8px; padding: 12px; }
+.body .line { font-size: 12.5px; color: var(--text); margin: 0 0 6px; }
+.body .dim { color: var(--dim); font-size: 12px; }
+.inbar { display:flex; align-items:center; gap:8px; margin: 0 12px 12px; padding: 8px 10px; border-radius: 8px;
+         border:1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--dim); }
+.body + .inbar { margin-top: 10px; }
+.inbar .grow { flex:1; }
+.send { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); display:grid; place-items:center; font-size: 12px; }
+
+/* 图上"鼠标在这"的暗示 */
+.cursor-badge { position:absolute; z-index:3; font-family:var(--mono); font-size:9.5px; letter-spacing:.06em;
+  background: var(--accent); color:#fff; border-radius: 4px; padding: 1px 5px; pointer-events:none; }
+
+/* ---------- 方案甲：悬停换值 ---------- */
+.sc.hov .sc__val { display:none; }
+.sc .btn-mini { display:none; }
+.sc.hov .btn-mini { display:inline-flex; }
+.btn-mini { align-items:center; justify-content:center; gap:4px; height:18px; padding:0 7px; border-radius:4px;
+  border:1px solid color-mix(in srgb, var(--accent) 70%, transparent); background: var(--accent-soft);
+  color: var(--text); font-size:11px; white-space:nowrap; }
+.btn-mini.danger { border-color: color-mix(in srgb, var(--danger) 65%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+/* ---------- 方案乙：常驻角标 ---------- */
+.sc__corner { position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:4px;
+  display:grid; place-items:center; color: var(--dim); }
+.sc__corner.hot { color: var(--warn); }
+.sc__corner svg { width:11px; height:11px; }
+
+/* ---------- 方案丙：第三行 ---------- */
+.sc.tall { height:68px; padding-bottom: 5px; }
+.sc.tall .btn-row { margin-top: 2px; }
+.sc.tall .btn-mini { display:inline-flex; }
+
+/* ---------- 方案丁：详情浮层 ---------- */
+.ide { position: relative; border:1px solid var(--border); border-radius: 8px; overflow:hidden; background: var(--editor); }
+.ide-top { display:flex; align-items:center; gap: 8px; padding: 6px 10px; background: var(--panel);
+           border-bottom:1px solid var(--border); font-size: 12px; color: var(--dim); }
+.ide-top .dots { display:flex; gap:5px; }
+.ide-top .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display:block; }
+.ide-main { display:grid; grid-template-columns: 1fr 320px; min-height: 300px; }
+.editor { background: var(--editor); padding: 16px 18px; font-family: var(--mono); font-size: 12px; color: var(--text); line-height: 1.9; }
+.editor .c { color: var(--dim); font-style: italic; }
+.editor .k { color: #cf8e6d; } .editor .fn { color: #56a8f5; }
+[data-theme="light"] .editor .k { color:#0033b3; } [data-theme="light"] .editor .fn { color:#00627a; }
+.toolcol { background: var(--panel); border-left: 1px solid var(--border); padding: 10px; overflow:hidden; }
+.scrim { position:absolute; inset:0; background: rgba(8,8,10,.5); z-index:5; }
+[data-theme="light"] .scrim { background: rgba(52,54,58,.22); }
+
+.pop { position:absolute; z-index:6; background: var(--panel); border:1px solid var(--border); border-radius: 10px;
+       box-shadow: 0 18px 60px rgba(0,0,0,.45); width: 300px; overflow:hidden; }
+.pop-head { display:flex; align-items:center; gap:8px; padding: 9px 12px; border-bottom:1px solid var(--border); font-size:12.5px; color:var(--text); }
+.pop-head .x { margin-left:auto; color: var(--dim); }
+.pop-body { padding: 10px 12px; }
+.kv { display:flex; gap:10px; font-size:12px; padding: 3px 0; }
+.kv .k2 { color: var(--dim); width: 62px; flex:none; }
+.kv .v2 { color: var(--text); font-family: var(--mono); font-size: 11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pop-foot { display:flex; gap:7px; padding: 9px 12px 11px; border-top:1px solid var(--border); }
+.btn { font:inherit; font-size:12px; border:1px solid var(--border); background: var(--code); color: var(--text);
+       border-radius:6px; padding: 5px 12px; }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+.btn.wide { flex:1; text-align:center; padding: 6px 10px; }
+.btn.warn { border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); background: transparent; color: var(--warn); }
+.pop-sub { font-size:11.5px; color: var(--dim); margin: 6px 0 0; line-height:1.5; }
+
+/* 说明栏 */
+.spec { margin: 0; }
+.spec dt { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); margin: 14px 0 4px; }
+.spec dd { margin: 0; font-size: 13.5px; color: var(--page-fg); }
+.spec .bad { color: var(--danger); }
+.spec .good { color: var(--ok); }
+.spec ul { margin: 4px 0 0; padding-left: 18px; }
+.spec li { margin: 3px 0; }
+
+.cap { font-family: var(--mono); font-size: 10.5px; letter-spacing:.08em; text-transform:uppercase;
+       color: var(--page-dim); margin: 0 0 8px; }
+.pane { border:1px solid var(--border); border-radius: 10px; padding: 14px; background: var(--editor); }
+
+.verdict { margin-top: 52px; padding: 24px 26px; border:1px solid var(--page-line); border-radius: 14px;
+           background: var(--page-card); border-left: 3px solid var(--warn); }
+.verdict h2 { font-family: var(--serif); margin: 0 0 10px; font-size: 21px; }
+.verdict table { width:100%; border-collapse: collapse; font-size: 13.5px; margin-top: 6px; }
+.verdict th, .verdict td { text-align:left; padding: 9px 12px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+.verdict th { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); font-weight: 600; }
+.note { color: var(--page-dim); font-size: 12.5px; }
+.dim-label { font-family: var(--mono); font-size:10px; color: var(--page-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-17</p>
+      <h1>清空 / 压缩：两颗按钮往哪儿放</h1>
+      <p class="lede">
+        诉求原文：<b>「连接卡片里加个按钮，点击后清空本次会话；上下文卡片里加个按钮，点击后压缩上下文 —— 这样就不用敲指令了。」</b>
+        功能本身两件都已经通了（`/clear`、`/compact` 都是现成命令，清空的整条路 0.2.13 就实现了）。这一版要解决的是
+        <b>往哪儿放</b>：一行 404px 里四张卡各 97×50px，v2 刚把卡面从 80px 收到 50px，两颗按钮得在这个数里挤出来。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="t-dark" class="on" onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" onclick="setTheme('light')">Light</button>
+    </div>
+  </header>
+
+  <section style="margin:26px 0 0; padding:14px 18px; border:1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+                  background: color-mix(in srgb, var(--ok) 8%, transparent); border-radius:12px;
+                  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap">
+    <span class="tag pick">已定 · 2026-09-17</span>
+    <span style="font-size:13.5px">
+      选 <b>甲（悬停换值）</b>。四个决定也都拍了：忙时<b>灰掉</b> · 压缩<b>不带</b>自定义指令 ·
+      清空<b>不弹</b>确认框（danger 色）· 压缩回执<b>接上</b>「31.5k → 1.9k」。
+      落地规格：<code>docs/superpowers/specs/2026-09-17-card-actions-design.md</code>
+    </span>
+  </section>
+
+  <section class="intro">
+    <div class="card warn">
+      <h3>约束一 · 空间</h3>
+      <p>420px 窗宽 − 左右各 8px = <b>404px</b>；四格等宽 + 3×5px 间隙 → 每格 <b>97×50px</b>。
+      卡面两行已经排满：图标 14 + 标签（最长 4 字≈42px）就占掉 60px。</p>
+    </div>
+    <div class="card bad">
+      <h3>约束二 · 有测试钉着</h3>
+      <p><code>StatusCardsRowTest</code> 里那条「八种连接文字都放得下」是量宽度的 —— 「等待响应」正是 4 字。
+      任何往标签行加宽度的做法都要先过它。</p>
+    </div>
+    <div class="card">
+      <h3>约束三 · 点击已各有归属</h3>
+      <p>上下文 / 子任务 / 子代理三张卡的点击<b>已经是"开详情浮层"</b>；连接卡今天没有任何点击行为。
+      往上下文卡里塞按钮 = 与既有交互抢地盘。</p>
+    </div>
+    <div class="card ok">
+      <h3>约束四 · 语义两边不对称</h3>
+      <p>清空 = 本地即刻完成（旧会话留在磁盘，能切回来）；压缩 = <b>一次模型调用</b>，实测 ~10s
+      （`compact_boundary.duration_ms:10165`），可被中断。一个瞬时、一个要等。</p>
+    </div>
+  </section>
+
+  <!-- ==================== 甲 ==================== -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag pick">甲 · 推荐</span>
+      <h2>悬停换值：值那一行变成按钮</h2>
+    </div>
+    <p class="vsub">
+      卡静止时<b>与今天一字不差</b>；鼠标移上来，值行（「已连接」/「42%」）整行换成一颗按钮。图标 + 标签留在原处 ——
+      你始终知道自己在哪张卡上。零永久占位，也就零测试风险。
+    </p>
+
+    <div class="split">
+      <div>
+        <p class="cap">静止 / 悬停 · 同一排卡</p>
+        <div class="win">
+          <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+          <div class="chips"><span class="chip on"><span class="st run"></span>重构 extractor 的…</span></div>
+
+          <div class="strip">
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+                <span class="sc__lbl">连接</span>
+              </div>
+              <span class="sc__val">已连接</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc__lbl">上下文</span>
+              </div>
+              <span class="sc__val">42%</span>
+              <div class="sc__gauge"><i style="width:42%"></i></div>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="sc__lbl">子任务</span>
+              </div>
+              <span class="sc__val">2/4</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+                <span class="sc__lbl">子代理</span>
+              </div>
+              <span class="sc__val">2</span>
+            </div>
+          </div>
+
+          <div class="body">
+            <p class="line dim">Claude：指纹那处改完了，旧数据仍能校验。</p>
+          </div>
+
+          <p class="cap" style="margin: 18px 8px 6px">悬停「连接卡」</p>
+          <div class="strip">
+            <div class="sc hov">
+              <div class="sc__top">
+                <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+                <span class="sc__lbl">连接</span>
+              </div>
+              <span class="btn-mini danger">清空会话</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc__lbl">上下文</span>
+              </div>
+              <span class="sc__val">42%</span>
+              <div class="sc__gauge"><i style="width:42%"></i></div>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="sc__lbl">子任务</span>
+              </div>
+              <span class="sc__val">2/4</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+                <span class="sc__lbl">子代理</span>
+              </div>
+              <span class="sc__val">2</span>
+            </div>
+          </div>
+
+          <p class="cap" style="margin: 18px 8px 6px">悬停「上下文卡」</p>
+          <div class="strip">
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+                <span class="sc__lbl">连接</span>
+              </div>
+              <span class="sc__val">已连接</span>
+            </div>
+            <div class="sc hov">
+              <div class="sc__top">
+                <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc__lbl">上下文</span>
+              </div>
+              <span class="btn-mini">压缩上下文</span>
+              <div class="sc__gauge"><i style="width:42%"></i></div>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="sc__lbl">子任务</span>
+              </div>
+              <span class="sc__val">2/4</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+                <span class="sc__lbl">子代理</span>
+              </div>
+              <span class="sc__val">2</span>
+            </div>
+          </div>
+          <div style="height:12px"></div>
+        </div>
+        <p class="note" style="margin-top:8px">三排都是 420px 真宽；「清空会话」4 字用 danger 描边（会丢上下文），「压缩上下文」5 字用强调色。</p>
+      </div>
+
+      <dl class="spec">
+        <dt>空间</dt>
+        <dd class="good">零。<code>StatusCardsRowTest</code> 一个字都不用改。</dd>
+        <dt>发现性</dt>
+        <dd class="bad">悬停才看见 —— 但你知道按钮在这两张卡上，鼠标扫过去就是确认一下，不是"找"。</dd>
+        <dt>误触</dt>
+        <dd class="good">最低。要先悬停、值行变按钮、再点，三步都与"手滑"无关。</dd>
+        <dt>与详情的冲突</dt>
+        <dd>上下文卡点击本是"开详情"。悬停态下<b>值行归按钮</b>，图标 + 标签行与卡片空白仍留给详情；
+        代价是同一张卡的点击含义随悬停而变 —— <b>这是本方案唯一的硬伤</b>。</dd>
+        <dt>实现</dt>
+        <dd>卡片加一个 <code>action</code> 槽位 + <code>MouseAdapter</code> 的 enter/exit 切换值行组件；Swing 侧与
+        <code>StatusCardView</code> 现有的 <code>onOpen</code> 走同一条路。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ==================== 乙 ==================== -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag">乙</span>
+      <h2>常驻角标：卡右上角一枚小图标</h2>
+    </div>
+    <p class="vsub">
+      不悬停也看得见，一击即中。代价写在下面那排里：把连接卡切到忙态（标签变「等待响应」，4 个字）就能看到
+      —— 角标与标签行开始贴脸。
+    </p>
+
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="chips"><span class="chip on"><span class="st run"></span>重构 extractor 的…</span></div>
+
+        <p class="cap" style="margin: 10px 8px 0">空闲态 · 高度只有 50px，角标不占行</p>
+        <div class="strip">
+          <div class="sc">
+            <span class="sc__corner"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M8 3v10" stroke-linecap="round" transform="rotate(45 8 8)"/></svg></span>
+            <div class="sc__top">
+              <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+              <span class="sc__lbl">连接</span>
+            </div>
+            <span class="sc__val">已连接</span>
+          </div>
+          <div class="sc">
+            <span class="sc__corner hot"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6.5 8 2.5l4 4M4 12.5v-5h8v5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="sc__top">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+              <span class="sc__lbl">上下文</span>
+            </div>
+            <span class="sc__val">42%</span>
+            <div class="sc__gauge"><i style="width:42%"></i></div>
+          </div>
+          <div class="sc">
+            <div class="sc__top">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="sc__lbl">子任务</span>
+            </div>
+            <span class="sc__val">2/4</span>
+          </div>
+          <div class="sc">
+            <div class="sc__top">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+              <span class="sc__lbl">子代理</span>
+            </div>
+            <span class="sc__val">2</span>
+          </div>
+        </div>
+
+        <p class="cap" style="margin: 18px 8px 0">忙态 · 连接卡标签是 4 字「等待响应」—— 角标与它贴脸</p>
+        <div class="strip">
+          <div class="sc" style="outline:1px dashed color-mix(in srgb, var(--warn) 60%, transparent); outline-offset:-2px">
+            <span class="sc__corner"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M8 3v10" stroke-linecap="round" transform="rotate(45 8 8)"/></svg></span>
+            <div class="sc__top">
+              <svg class="ico warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+              <span class="sc__lbl">等待响应</span>
+            </div>
+            <span class="sc__val">12s</span>
+          </div>
+          <div class="sc">
+            <span class="sc__corner hot"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6.5 8 2.5l4 4M4 12.5v-5h8v5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="sc__top">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+              <span class="sc__lbl">上下文</span>
+            </div>
+            <span class="sc__val">42%</span>
+            <div class="sc__gauge"><i style="width:42%"></i></div>
+          </div>
+          <div class="sc">
+            <div class="sc__top">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="sc__lbl">子任务</span>
+            </div>
+            <span class="sc__val">2/4</span>
+          </div>
+          <div class="sc">
+            <div class="sc__top">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+              <span class="sc__lbl">子代理</span>
+            </div>
+            <span class="sc__val">2</span>
+          </div>
+        </div>
+        <div style="height:12px"></div>
+      </div>
+
+      <dl class="spec">
+        <dt>空间</dt>
+        <dd class="bad">吃标签行。14（图标）+ 4 + 42（四字）= 60px 居中后右端到 <code>x≈78</code>，
+        角标在 <code>x≈79–95</code> —— 一像素都不剩。要么缩标签字号，要么角标压在边框上。</dd>
+        <dt>发现性</dt>
+        <dd class="good">最好。不悬停也看得见，这才是"不用敲指令"的完整形态。</dd>
+        <dt>视觉</dt>
+        <dd class="bad">四张卡里两张常驻小图标，且与 v2「两行居中」的对称打架 —— 一排里多出两个不对称元素。</dd>
+        <dt>分级提示</dt>
+        <dd class="good">上下文卡 ≥70% 时角标转 Warn 色，天然成为"该压缩了"的提示 —— 这是别的方案给不了的。</dd>
+        <dt>实现</dt>
+        <dd>卡角 <code>setBounds</code> 绝对放一枚 16px 按钮；要先跑 <code>StatusCardsRowTest</code> 那条宽度测试看红不红。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ==================== 丙 ==================== -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag">丙</span>
+      <h2>卡内第三行：50px → 68px</h2>
+    </div>
+    <p class="vsub">
+      两行之下加一行动作行，按钮全宽，最好点、最直白。<b>代价是四张卡一起长高 36%</b> ——
+      v2 那版"从 80 收到 50"的收益，一次退回一半。
+    </p>
+
+    <div class="split">
+      <div class="win">
+        <div class="win-head"><span class="dot3">⋯</span><span class="ttl">CCoder</span><span class="grow"></span><span class="ico">⚙</span></div>
+        <div class="chips"><span class="chip on"><span class="st run"></span>重构 extractor 的…</span></div>
+        <div class="strip" style="padding-top:8px">
+          <div class="sc tall">
+            <div class="sc__top">
+              <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2M8 2.4c-2.2 2.6-2.2 8.6 0 11.2"/></svg>
+              <span class="sc__lbl">连接</span>
+            </div>
+            <span class="sc__val">已连接</span>
+            <div class="btn-row"><span class="btn-mini danger">清空会话</span></div>
+          </div>
+          <div class="sc tall">
+            <div class="sc__top">
+              <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+              <span class="sc__lbl">上下文</span>
+            </div>
+            <span class="sc__val">42%</span>
+            <div class="btn-row"><span class="btn-mini">压缩上下文</span></div>
+            <div class="sc__gauge"><i style="width:42%"></i></div>
+          </div>
+          <div class="sc tall">
+            <div class="sc__top">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="2"/><path d="M4.8 8.2l1.6 1.6 3.2-3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="sc__lbl">子任务</span>
+            </div>
+            <span class="sc__val">2/4</span>
+          </div>
+          <div class="sc tall">
+            <div class="sc__top">
+              <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.6" r="2.2"/><path d="M2.4 12.6c0-2 1.6-3.2 3.6-3.2s3.6 1.2 3.6 3.2"/><circle cx="11.2" cy="6.4" r="1.7" stroke-opacity=".7"/><path d="M10 12.6c0-1.6 1.1-2.6 2.6-2.6" stroke-opacity=".7" stroke-linecap="round"/></svg>
+              <span class="sc__lbl">子代理</span>
+            </div>
+            <span class="sc__val">2</span>
+          </div>
+        </div>
+        <div class="body">
+          <p class="line dim">这排高的 18px，是从转写区拿的 —— 卡排是固定的抬头，转写区是滚动区。</p>
+        </div>
+        <div class="inbar"><span class="grow">问点什么…</span><span class="send">↑</span></div>
+      </div>
+
+      <dl class="spec">
+        <dt>空间</dt>
+        <dd class="bad">每格宽不变、高 +18px；整排 50 → 68px。四张卡都长，包括那两张没按钮的。</dd>
+        <dt>发现性</dt>
+        <dd class="good">最好，且按钮大、可写全 5 个字、点击目标 83×18px。</dd>
+        <dt>视觉</dt>
+        <dd class="bad">v2 的收益（80 → 50，省 37%）一次退回一半；且空着的两张卡多出一片空白，看着像"缺了个按钮"。</dd>
+        <dt>实现</dt>
+        <dd>最简单：卡片加一行，布局是现成的 BoxLayout；风险全在"要不要为两张卡升高四张卡"这个取舍上。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ==================== 丁 ==================== -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag">丁</span>
+      <h2>详情浮层里：零占位，顺着已有交互</h2>
+    </div>
+    <p class="vsub">
+      上下文卡的点击本来就是"开详情"—— 那按钮就放详情里。连接卡今天没有浮层，<b>给它做一个</b>：里面正好放
+      连接详情（cwd / 模型 / 进程 / 错误原文），清空按钮垫底。代价是两步，且连接卡要新做一层浮层。
+    </p>
+
+    <div class="split">
+      <div class="ide">
+        <div class="ide-top"><span class="dots"><i></i><i></i><i></i></span><span>CCoder — PyCharm</span></div>
+        <div class="ide-main">
+          <div class="editor">
+            <div><span class="c">// 浮层里点「压缩上下文」之后</span></div>
+            <div><span class="c">// 上下文卡会自己说"压缩中…"</span></div>
+            <div><span class="k">def</span> <span class="fn">fingerprint</span>(chunk):</div>
+            <div>&nbsp;&nbsp;return <span class="fn">rolling_fingerprint</span>(chunk)</div>
+          </div>
+          <div class="toolcol">
+            <p class="cap" style="margin:0 0 6px">工具窗口</p>
+            <div class="strip" style="padding:0 0 0; grid-template-columns: repeat(2, 1fr)">
+              <div class="sc" style="height:50px">
+                <div class="sc__top">
+                  <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2"/></svg>
+                  <span class="sc__lbl">连接</span>
+                </div>
+                <span class="sc__val">已连接</span>
+              </div>
+              <div class="sc" style="height:50px">
+                <div class="sc__top">
+                  <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                  <span class="sc__lbl">上下文</span>
+                </div>
+                <span class="sc__val">42%</span>
+                <div class="sc__gauge"><i style="width:42%"></i></div>
+              </div>
+            </div>
+            <p class="note" style="margin-top:10px">点上面两格中任意一张 → 开浮层</p>
+          </div>
+        </div>
+
+        <div class="scrim"></div>
+        <div class="pop" style="left:50%; top:50%; transform:translate(-50%,-50%)">
+          <div class="pop-head">连接详情 <span class="x">✕</span></div>
+          <div class="pop-body">
+            <div class="kv"><span class="k2">状态</span><span class="v2" style="color:var(--ok)">已连接</span></div>
+            <div class="kv"><span class="k2">工作目录</span><span class="v2">C:\Users\CY\Desktop\CCoder</span></div>
+            <div class="kv"><span class="k2">模型</span><span class="v2">自定义网关 · opus</span></div>
+            <div class="kv"><span class="k2">进程</span><span class="v2">node sidecar #4821</span></div>
+          </div>
+          <div class="pop-foot">
+            <span class="btn wide danger" style="border-color:color-mix(in srgb, var(--danger) 65%, transparent); color: var(--danger)">清空会话</span>
+          </div>
+          <p class="pop-sub" style="padding:0 12px 12px; margin:0">
+            开一条新会话（上下文清空）。<b>当前这条留在磁盘上</b>，随时能在会话列表里切回来。
+          </p>
+        </div>
+      </div>
+
+      <dl class="spec">
+        <dt>空间</dt>
+        <dd class="good">零。卡面一个字不动，宽度测试更不用管。</dd>
+        <dt>按钮能说的话</dt>
+        <dd class="good">最多。可以带一行说明（"当前这条留在磁盘上"），压缩那侧还能顺手显示压缩前后的 token 数。</dd>
+        <dt>步数</dt>
+        <dd class="bad">两步：点开卡 → 点按钮。想"省掉敲指令"，结果是省了打字、没省点击。</dd>
+        <dt>不一致</dt>
+        <dd class="bad">上下文卡今天点开是"用量详情"，现在要在同一层塞进一个动作按钮 —— 详情浮层变成"详情 + 操作"，
+        而子任务/子代理那两张还是纯详情。</dd>
+        <dt>实现</dt>
+        <dd>连接卡要新做浮层（今天没有）；压缩按钮挂在既有的上下文详情上，改动最小的一半在这儿。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ==================== 状态 ==================== -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="tag q">共用</span>
+      <h2>三颗按钮都要有的三种状态</h2>
+    </div>
+    <p class="vsub">
+      以甲为载体画；乙丙丁同样绕不开。<b>压缩不是瞬时的</b>（实测 ~10s，事件链
+      <code>status:requesting → status:compacting → compact_boundary</code>），所以"点了之后怎么样"必须画出来。
+    </p>
+    <div class="row2">
+      <div>
+        <p class="cap">① 会话忙 · 两颗按钮都在</p>
+        <div class="win" style="width:100%">
+          <div class="strip" style="padding-top:10px">
+            <div class="sc hov">
+              <div class="sc__top">
+                <svg class="ico warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2"/></svg>
+                <span class="sc__lbl">编辑文件</span>
+              </div>
+              <span class="btn-mini danger" style="opacity:.45">清空会话</span>
+            </div>
+            <div class="sc hov">
+              <div class="sc__top">
+                <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc__lbl">上下文</span>
+              </div>
+              <span class="btn-mini" style="opacity:.45">压缩上下文</span>
+              <div class="sc__gauge"><i style="width:42%"></i></div>
+            </div>
+          </div>
+          <div class="inbar" style="margin-top:12px"><span class="grow">停 · Claude 正在工作</span></div>
+        </div>
+        <p class="note" style="margin-top:8px">灰掉 + 悬停说明「会话空闲时可清空 / 可压缩」。</p>
+      </div>
+
+      <div>
+        <p class="cap">② 压缩中 · 上下文卡自己报进度</p>
+        <div class="win" style="width:100%">
+          <div class="strip" style="padding-top:10px">
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2"/></svg>
+                <span class="sc__lbl">连接</span>
+              </div>
+              <span class="sc__val">已连接</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc__lbl">上下文</span>
+              </div>
+              <span class="sc__val" style="color:var(--warn)">压缩中…</span>
+              <div class="sc__gauge"><i style="width:42%; background:var(--warn)"></i></div>
+            </div>
+          </div>
+          <div class="body" style="margin-top:10px">
+            <p class="line dim">上下文卡的值行改成「压缩中…」——沿用忙态那套（正在做一件事），按钮此时不可点。</p>
+          </div>
+        </div>
+        <p class="note" style="margin-top:8px">CLI 的 status 事件已经到插件了（权限模式读回就在解析它）。</p>
+      </div>
+
+      <div>
+        <p class="cap">③ 压缩完成 · 一条系统提示说清代价</p>
+        <div class="win" style="width:100%">
+          <div class="strip" style="padding-top:10px">
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico ok" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c2.2 2.6 2.2 8.6 0 11.2"/></svg>
+                <span class="sc__lbl">连接</span>
+              </div>
+              <span class="sc__val">已连接</span>
+            </div>
+            <div class="sc">
+              <div class="sc__top">
+                <svg class="ico acc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.6"/><path d="M8 8V2.4A5.6 5.6 0 0 1 13.6 8Z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+                <span class="sc__lbl">上下文</span>
+              </div>
+              <span class="sc__val">6%</span>
+              <div class="sc__gauge"><i style="width:6%"></i></div>
+            </div>
+          </div>
+          <div class="body" style="margin-top:10px">
+            <p class="line" style="border-left:2px solid var(--border); padding-left:9px; color:var(--dim); font-size:12px">
+              已压缩上下文：<b style="color:var(--text)">31.5k → 1.9k</b>（用时 10s）
+            </p>
+          </div>
+        </div>
+        <p class="note" style="margin-top:8px">数字来自 <code>compact_boundary</code> 的 <code>pre_tokens/post_tokens/duration_ms</code>
+        —— 2026-09-13 记下的"本次不做"，正好借这颗按钮接上。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 决策 ==================== -->
+  <section class="verdict">
+    <h2>四个方案之外的四个决定</h2>
+    <table>
+      <tr><th style="width:200px">问题</th><th>两面</th><th style="width:300px">倾向</th></tr>
+      <tr>
+        <td><b>1. 忙时点得动吗？</b></td>
+        <td>禁用：回滚那版同规矩（"回滚要在空闲时做"）；但 <code>/clear</code>、<code>/compact</code> 作为命令是
+        <b>能进排队</b>的（queued-input 版定的"照排，不特殊对待"）。<br>
+        排队：按钮与敲命令行为一致，忙时也不挡。</td>
+        <td>倾向<b>禁用</b>：压缩正在跑的会话语义暧昧（压的是"此刻之前"还是"跑完以后"说不清），
+        清空则会把进行中的回合连根拔了。命令入口保持原样（照排），按钮走严格档。</td>
+      </tr>
+      <tr>
+        <td><b>2. 压缩要支持自定义指令吗？</b></td>
+        <td><code>/compact &lt;说明&gt;</code> 可以带"保留什么"的指令。按钮发的是裸命令。<br>
+        支持的话，需要多一层输入（浮层里给个输入框）。</td>
+        <td>倾向<b>先不带</b>。真常用了再加：带参数的命令本来就能敲 —— 按钮服务的是"高频、无参数"的那一次。</td>
+      </tr>
+      <tr>
+        <td><b>3. 清空要确认框吗？</b></td>
+        <td>composer 版已定"<b>不做确认弹窗</b>"（误触代价低：旧会话在磁盘上，列表里能切回）。<br>
+        但那是"打字"入口 —— 按钮入口误触率高一个量级。</td>
+        <td>倾向<b>仍不弹</b>，但按钮用 danger 色 + 完成后系统提示照旧（"上下文已清空，这是一条新会话"）。
+        若你被误触过一次，随时补一个"行内二次确认"（会话列表删除那套，不新做模态）。</td>
+      </tr>
+      <tr>
+        <td><b>4. 压缩完的数字接不接？</b></td>
+        <td>接：一条系统提示写清省了多少（31.5k → 1.9k），代价是新增解析 <code>compact_boundary</code>。<br>
+        不接：卡上百分比自己会跳，但用户不知道"省了多少"。</td>
+        <td>倾向<b>接</b>。这是唯一能让用户判断"这次压缩值不值"的信息，且数据已在事件流里。</td>
+      </tr>
+    </table>
+    <p class="note" style="margin-top:14px">
+      依据：<code>docs/superpowers/specs/2026-09-14-status-cards-v2-design.md</code>（卡面规格）、<code>2026-09-13-composer-completion-design.md</code>
+      §5.1/§5.2/§10.4/§10.5（<code>/clear</code> 与 <code>/compact</code> 的实测事实）、<code>StatusCardsRowTest</code>（宽度钉）。
+    </p>
+  </section>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('t-dark').classList.toggle('on', t === 'dark');
+  document.getElementById('t-light').classList.toggle('on', t === 'light');
+}
+setTheme('dark');
+</script>
+</body>
+</html>

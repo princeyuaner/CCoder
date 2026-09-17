@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 动作图标候选</title>
+<style>
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97; --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236; --code:#2b2d30;
+  --accent:#548af7; --danger:#db5c5c; --ok:#5fad65; --warn:#d9a343;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e; --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed; --code:#f2f3f5;
+  --accent:#3574f0; --danger:#c0392b; --ok:#3d8b43; --warn:#b07d1a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page-bg); color: var(--page-fg); font-family: var(--ui); font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 48px 32px 120px; }
+h1 { font-family: var(--serif); font-size: 32px; margin: 0 0 10px; font-weight: 600; }
+.lede { color: var(--page-dim); max-width: 78ch; margin: 0 0 8px; }
+.lede b { color: var(--page-fg); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.toggle { position: fixed; top: 14px; right: 18px; display:inline-flex; border:1px solid var(--page-line); border-radius:8px; overflow:hidden; background: var(--page-card); z-index: 9; }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; padding: 8px 14px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; }
+.toggle button.on { background: var(--accent); color:#fff; }
+
+.sec { margin-top: 54px; }
+.sec h2 { font-family: var(--serif); font-size: 23px; margin: 0 0 6px; }
+.sec p.sub { color: var(--page-dim); margin: 0 0 22px; max-width: 82ch; }
+
+/* 一排候选 */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+.cand { background: var(--page-card); border: 1px solid var(--page-line); border-radius: 12px; padding: 14px 16px 16px; }
+.cand .name { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); margin: 0 0 12px; }
+.stage { display:flex; align-items:flex-end; gap: 18px; margin-bottom: 12px; }
+.real { width: 44px; height: 44px; display:grid; place-items:center; background: var(--panel); border:1px solid var(--border); border-radius: 7px; }
+.big { display:grid; place-items:center; }
+.cand.pick { border-color: color-mix(in srgb, var(--ok) 55%, var(--page-line)); }
+.pick-tag { font-family: var(--mono); font-size: 10px; letter-spacing:.06em; padding: 1px 6px; border-radius: 99px;
+            background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok);
+            border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent); margin-left: 6px; }
+.banner { margin: 22px 0 0; padding: 14px 18px; border-radius: 12px; font-size: 13.5px;
+          border:1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+          background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.hint { font-size: 12.5px; color: var(--page-dim); margin: 0; }
+.hint b { color: var(--page-fg); }
+
+/* 真尺寸对比条 */
+.row { display:flex; gap: 10px; align-items:center; background: var(--editor); border:1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 14px; }
+.tag { font-family: var(--mono); font-size: 10.5px; color: var(--page-dim); letter-spacing:.06em; text-transform:uppercase; }
+
+/* 卡片实景 */
+.strip { display:grid; grid-template-columns: repeat(4, 1fr); gap:5px; width: 404px; }
+.sc { position:relative; border:1px solid var(--border); border-radius:6px; background: var(--panel);
+      height:50px; padding: 5px 6px 7px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
+.sc__top { display:flex; align-items:center; gap:4px; }
+.sc__lbl { font-size:10.5px; color:var(--dim); }
+.sc__val { font-size:13px; color:var(--text); }
+.sc__ico { position:absolute; top:2px; right:2px; width:16px; height:16px; display:grid; place-items:center; }
+.win { width: 420px; border:1px solid var(--border); border-radius:6px; background: var(--panel); padding: 8px; }
+</style>
+</head>
+<body>
+<div class="toggle"><button id="t-dark" class="on" onclick="setTheme('dark')">Dark</button><button id="t-light" onclick="setTheme('light')">Light</button></div>
+<div class="wrap">
+
+  <h1>动作图标：候选表</h1>
+  <p class="lede">
+    连接卡右上角放「清空会话」、上下文卡右上角放「压缩上下文」。<b>常驻显示</b>（不靠悬停 —— 悬停那一版实测点不到）。
+    每张候选都按<b>真实尺寸 14px</b>（左边小框）与放大版（右边）各画一遍：小尺寸下读得出来的才算数。
+  </p>
+  <p class="lede">
+    灰色是常态色、红/蓝是悬停时的着色（悬停 = 指针压上去，底色亮起来）。
+    颜色只是提亮，<b>形状本身要能自己站住</b>。
+  </p>
+
+  <div class="banner">
+    <b>已定 · 2026-09-17</b>：清空 = <b>A 扫把（实心帚头）</b>，压缩 = <b>E 压进托盘</b>。
+    已按这两个图形实现（`StatusCardView.paintBroom` / `paintCompress`），
+    落地的规格在 <code>docs/superpowers/specs/2026-09-17-card-actions-design.md</code> §3.4。
+  </div>
+
+  <!-- ================= 清空 ================= -->
+  <section class="sec">
+    <h2>一 · 清空会话（连接卡）</h2>
+    <p class="sub">语义：开一条新会话、上下文清空 —— <b>不删任何东西</b>（旧会话留在磁盘上，列表里能切回来）。所以垃圾桶是错的：它承诺了"删掉"。</p>
+
+    <div class="grid">
+      <div class="cand pick">
+        <p class="name">A · 扫把（实心帚头）<span class="pick-tag">已选</span></p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.5" stroke-linecap="round"><path d="M13.6 2.4 10.4 5.6"/><path d="M9 4.9 11.8 7.7 9.7 11.2 5.1 6.6Z" fill="#db5c5c" stroke="none"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.5" stroke-linecap="round"><path d="M13.6 2.4 10.4 5.6"/><path d="M9 4.9 11.8 7.7 9.7 11.2 5.1 6.6Z" fill="#db5c5c" stroke="none"/></svg></div>
+        </div>
+        <p class="hint">最像扫把的一版：细柄 + 一块实心帚头。风险：小尺寸下柄与头容易糊成一个点。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">B · 扫把（鬃毛张开）</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.3" stroke-linecap="round"><path d="M13.4 2.4 10.2 5.2"/><path d="M10.2 5.2 4.4 6.6M10.2 5.2 4.8 9.6M10.2 5.2 6.2 11.8M10.2 5.2 8.8 12.8"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.3" stroke-linecap="round"><path d="M13.4 2.4 10.2 5.2"/><path d="M10.2 5.2 4.4 6.6M10.2 5.2 4.8 9.6M10.2 5.2 6.2 11.8M10.2 5.2 8.8 12.8"/></svg></div>
+        </div>
+        <p class="hint">"毛"的意思最足。风险：四根线在小尺寸下可能看着像扇形/火花。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">C · 掸子 / 鸡毛掸</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.3" stroke-linecap="round"><path d="M8 13.6 8 8.4"/><path d="M8 8.4 5.2 3.2M8 8.4 8 2.6M8 8.4 10.8 3.2"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.3" stroke-linecap="round"><path d="M8 13.6 8 8.4"/><path d="M8 8.4 5.2 3.2M8 8.4 8 2.6M8 8.4 10.8 3.2"/></svg></div>
+        </div>
+        <p class="hint">竖柄 + 三根张开的毛，比 B 稳（对称、粗）。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">D · 一抹 / 擦拭</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.4" stroke-linecap="round"><path d="M4.4 9.6 8.6 5.4a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L7.4 12.6Z" fill="#db5c5c" stroke="none"/><path d="M11.4 12.4 13.4 12.4" /></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.4" stroke-linecap="round"><path d="M4.4 9.6 8.6 5.4a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L7.4 12.6Z" fill="#db5c5c" stroke="none"/><path d="M11.4 12.4 13.4 12.4"/></svg></div>
+        </div>
+        <p class="hint">一块橡皮擦 + 一道擦过的痕。好认，但"清空"的意思要靠 tooltip 补。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">E · 重置箭头 ↺</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.4" stroke-linecap="round"><path d="M3.6 8a4.4 4.4 0 1 1 1.6 3.4"/><path d="M3.2 4.6 3.4 8.2 6.9 8.1"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.4" stroke-linecap="round"><path d="M3.6 8a4.4 4.4 0 1 1 1.6 3.4"/><path d="M3.2 4.6 3.4 8.2 6.9 8.1"/></svg></div>
+        </div>
+        <p class="hint">"重来一遍"最通用、最小尺寸下最稳。但它与"清空"的差别是：会话对象也换了。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">F · 垃圾桶（对照）</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.3" stroke-linecap="round"><path d="M3.6 5h8.8M6.4 5V3.6h3.2V5M4.8 5l.7 7.6h5l.7-7.6"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.3" stroke-linecap="round"><path d="M3.6 5h8.8M6.4 5V3.6h3.2V5M4.8 5l.7 7.6h5l.7-7.6"/></svg></div>
+        </div>
+        <p class="hint">最一眼认出的"删除"。<b>语义是错的</b>（我们不删东西），列在这儿当参照。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 压缩 ================= -->
+  <section class="sec">
+    <h2>二 · 压缩上下文（上下文卡）</h2>
+    <p class="sub">语义：把这段对话压成摘要、腾出上下文空间。<b>界面上的记录不动</b>，对话在 CLI 那边被总结。</p>
+
+    <div class="grid">
+      <div class="cand">
+        <p class="name">A · 对射实心三角（沙漏）</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M4.2 3.4 11.8 3.4 8 7.4Z" fill="#548af7"/><path d="M4.2 12.6 11.8 12.6 8 8.6Z" fill="#548af7"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16"><path d="M4.2 3.4 11.8 3.4 8 7.4Z" fill="#548af7"/><path d="M4.2 12.6 11.8 12.6 8 8.6Z" fill="#548af7"/></svg></div>
+        </div>
+        <p class="hint">现在实现的就是它。清楚、对称，但更像"沙漏/时间"。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">B · 对射箭头（带杆）</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v2.2M5.6 4.6 8 7l2.4-2.4M8 13.6v-2.2M5.6 11.4 8 9l2.4 2.4"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v2.2M5.6 4.6 8 7l2.4-2.4M8 13.6v-2.2M5.6 11.4 8 9l2.4 2.4"/></svg></div>
+        </div>
+        <p class="hint">带杆的箭头方向最明确（"往里挤"）。小尺寸下杆会短到看不见，只剩两个 V。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">C · 内折括号 ⊐⊏</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 3.4v3.2M2.6 5 5.4 5M13.4 3.4v3.2M13.4 5 10.6 5M2.6 12.6v-3.2M2.6 11 5.4 11M13.4 12.6v-3.2M13.4 11 10.6 11"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 3.4v3.2M2.6 5 5.4 5M13.4 3.4v3.2M13.4 5 10.6 5M2.6 12.6v-3.2M2.6 11 5.4 11M13.4 12.6v-3.2M13.4 11 10.6 11"/></svg></div>
+        </div>
+        <p class="hint">"从两头往中间收"——工业界面里很常见的压缩符号，最小尺寸下也稳。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">D · 双折角（unfold_less 标准形）</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.4 8 7.2 12 4.4M4 11.6 8 8.8 12 11.6"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.4 8 7.2 12 4.4M4 11.6 8 8.8 12 11.6"/></svg></div>
+        </div>
+        <p class="hint">与"展开"是一对官方反义图形。小尺寸下容易读成叉（实现时就是这样）。</p>
+      </div>
+
+      <div class="cand pick">
+        <p class="name">E · 压进托盘<span class="pick-tag">已选</span></p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v5.4M5.6 5.4 8 7.8l2.4-2.4M3 11.4h10M3 11.4v2h10v-2"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.4v5.4M5.6 5.4 8 7.8l2.4-2.4M3 11.4h10M3 11.4v2h10v-2"/></svg></div>
+        </div>
+        <p class="hint">"往下收进盒子"。意思到位，但小尺寸下托盘那两笔会糊。</p>
+      </div>
+
+      <div class="cand">
+        <p class="name">F · 两条横杠收拢</p>
+        <div class="stage">
+          <div class="real"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.6" stroke-linecap="round"><path d="M3.4 4.2h9.2M3.4 11.8h9.2"/><path d="M8 6.2v1.2M8 9.8V8.6" stroke-width="1.2"/></svg></div>
+          <div class="big"><svg width="64" height="64" viewBox="0 0 16 16" fill="none" stroke="#548af7" stroke-width="1.6" stroke-linecap="round"><path d="M3.4 4.2h9.2M3.4 11.8h9.2"/><path d="M8 6.2v1.2M8 9.8V8.6" stroke-width="1.2"/></svg></div>
+        </div>
+        <p class="hint">"两条边靠拢"最抽象，但也最安静 —— 不会和卡上别的图形抢注意力。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 实景 ================= -->
+  <section class="sec">
+    <h2>三 · 放回卡片里看（真尺寸 404px 一排）</h2>
+    <p class="sub">下面这排用 <b>A 组</b>（扫把实心 / 对射三角）示意位置与大小 —— 换成别的候选只是图形不同，位置一样。</p>
+    <div class="win">
+      <div class="strip">
+        <div class="sc">
+          <div class="sc__top"><span style="color:var(--ok)">◍</span><span class="sc__lbl">连接</span></div>
+          <span class="sc__val">已连接</span>
+          <div class="sc__ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#db5c5c" stroke-width="1.5" stroke-linecap="round"><path d="M13.6 2.4 10.4 5.6"/><path d="M9 4.9 11.8 7.7 9.7 11.2 5.1 6.6Z" fill="#db5c5c" stroke="none"/></svg></div>
+        </div>
+        <div class="sc">
+          <div class="sc__top"><span style="color:var(--accent)">◔</span><span class="sc__lbl">上下文</span></div>
+          <span class="sc__val">6%</span>
+          <div class="sc__ico"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M4.2 3.4 11.8 3.4 8 7.4Z" fill="#548af7"/><path d="M4.2 12.6 11.8 12.6 8 8.6Z" fill="#548af7"/></svg></div>
+        </div>
+        <div class="sc">
+          <div class="sc__top"><span style="color:var(--dim)">☑</span><span class="sc__lbl">子任务</span></div>
+          <span class="sc__val" style="color:var(--dim)">空闲</span>
+        </div>
+        <div class="sc">
+          <div class="sc__top"><span style="color:var(--dim)">⚇</span><span class="sc__lbl">子代理</span></div>
+          <span class="sc__val" style="color:var(--dim)">空闲</span>
+        </div>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:10px">
+      「等待响应」那一档（标签 4 字、最长）已单独渲染核对过：图标与文字之间还剩约 3px 空隙，不打架。
+    </p>
+  </section>
+
+</div>
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('t-dark').classList.toggle('on', t === 'dark');
+  document.getElementById('t-light').classList.toggle('on', t === 'light');
+}
+setTheme('dark');
+</script>
+</body>
+</html>
