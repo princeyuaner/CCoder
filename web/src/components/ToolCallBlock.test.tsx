@@ -150,21 +150,20 @@ describe('ToolCallBlock', () => {
     expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
   })
 
-  it('带子代理那块的卡自动展开一次，之后归用户管（A1）', async () => {
-    // 破例的唯一一处：今天那些卡是平铺在主流水里的，收起来等于"改完看不见了"
+  it('带子代理那块的卡也默认收着，不自动展开（2026-09-18 撤销 A1 那次破例）', () => {
+    // A1 当天曾给它破例：第一次冒出子项就自动开。装上一看，子代理的正文几百字
+    // 整块插在主线程叙述中间，把正文顶开 —— 用户："在文本中间输出，很难看"。
+    // 这条守的就是"别再给它加回去"。
     const { rerender } = render(
       <ToolCallBlock
         item={use('Task', { description: '找调用点' })}
         nested={<div data-testid="subagent-block">子代理的对话</div>}
       />,
     )
-    expect(screen.getByTestId('subagent-block')).toBeInTheDocument()
-
-    // 用户手动收起来（这张卡此刻是展开的，不能再用"找收起的那个"那个助手）
-    await userEvent.click(screen.getByRole('button', { expanded: true }))
     expect(screen.queryByTestId('subagent-block')).not.toBeInTheDocument()
+    expect(header()).toHaveAttribute('aria-expanded', 'false')
 
-    // 子代理又冒了新东西（nested 换了引用）—— 不许再自动弹开
+    // 子代理继续冒东西（nested 换引用）—— 仍不许自己弹开
     rerender(
       <ToolCallBlock
         item={use('Task', { description: '找调用点' })}
@@ -174,7 +173,18 @@ describe('ToolCallBlock', () => {
     expect(screen.queryByTestId('subagent-block')).not.toBeInTheDocument()
   })
 
-  it('没有子代理那块的卡照旧收着（自动展开只对 A1 那一种卡生效）', () => {
+  it('带子代理那块的卡点开还是能看到（收着不等于藏起来）', async () => {
+    render(
+      <ToolCallBlock
+        item={use('Task', { description: '找调用点' })}
+        nested={<div data-testid="subagent-block">子代理的对话</div>}
+      />,
+    )
+    await userEvent.click(header())
+    expect(screen.getByTestId('subagent-block')).toBeInTheDocument()
+  })
+
+  it('没有子代理那块的卡照旧收着', () => {
     render(<ToolCallBlock item={use('Task', { description: '找调用点' })} />)
     expect(header()).toHaveAttribute('aria-expanded', 'false')
   })

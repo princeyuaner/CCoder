@@ -16,7 +16,8 @@ describe('Transcript', () => {
     expect(screen.getByTestId('transcript')).toBeInTheDocument()
   })
 
-  it('子代理的项收进那张 Task 卡里，主流水不重复出现（A1）', () => {
+  it('子代理的项收进那张 Task 卡里，主流水不重复出现（A1）', async () => {
+    const user = userEvent.setup()
     render(
       <Transcript
         state={state(
@@ -29,6 +30,11 @@ describe('Transcript', () => {
         )}
       />,
     )
+
+    // 卡片默认收着（2026-09-18 撤销了 A1 那天的自动展开），先点开才看得到里面。
+    // 收起时 DOM 里只有 Task 这一张卡 —— 子代理那两张还没被渲染出来
+    expect(screen.queryByTestId('subagent-block')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { expanded: false }))
 
     // 子代理那一块在，且它里面确实装着那两条
     const block = screen.getByTestId('subagent-block')

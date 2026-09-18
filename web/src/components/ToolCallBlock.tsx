@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
@@ -189,25 +189,15 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   // 一律默认收着，**失败也不弹开**（2026-09-15 按用户要求改的，原先是失败自动
   // 展开）：失败要说的只是"这次没成"，卡面那个红 ✗ 已经说完了；输出是细节，
   // 想看的人自己点开。
+  //
+  // **子代理那块也收着**（2026-09-18 按用户要求改的，A1 当天撤销的那次破例）。
+  // 破例当初的理由是：A0 那些子代理工具卡平铺在主流水里、看得见，A1 把它们收进
+  // 卡片后若还收着就等于"改完看不见了"。装上一看不是那么回事 —— 子代理的正文能有
+  // 几百字，展开后整块插在主线程叙述**中间**，把正在读的正文顶开。用户的原话是
+  // "它在文本中间输出，很难看"。而它其实没有被藏起来：卡头写着 Task 与那句描述，
+  // 点一下就在。与"失败不弹开"同一个取舍 —— 默认收着，想看的人自己点开。
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
-
-  /**
-   * 子代理那块的**唯一例外**：它第一次冒东西出来时自动展开一次（A1）。
-   *
-   * 为什么破例：今天（A0）子代理跑的工具卡是**平铺在主流水里的**，看得见；A1 把它们
-   * 收进卡片之后，若这张卡还收着，就等于"改完之后看不见了" —— 那不是嵌套，是藏起来。
-   *
-   * 只自动开这**一次**：开了之后归用户管 —— 他手动收起来，后面再来多少条也不弹开
-   * （`openedOnce` 是 ref，不参与渲染）。**跑完也不自动收**：收起来会在你正读子代理
-   * 最后那句话时把它抽走。
-   */
-  const openedOnce = useRef(false)
-  useEffect(() => {
-    if (nested === undefined || openedOnce.current) return
-    openedOnce.current = true
-    setOpen(true)
-  }, [nested])
 
   // 从 item.input 派生的一切：只随参数变。六个函数各自 JSON.parse 一遍参数，
   // Write/Edit 还要按行切出 diff —— 卡片因任何原因重渲染（结果到达、收起展开）

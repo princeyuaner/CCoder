@@ -1012,10 +1012,31 @@ body {
   border-collapse: collapse;
 }
 
+/* 单元格。2026-09-18 重写 —— 用户截图"A 档"那张 4 列表格"怎么这么难看"。
+ * 难看不是错觉，是三条继承下来的规则在单元格里同时发作（探针见
+ * tools/table-style-probe.mjs，三条各自单跑过一遍）：
+ *
+ * 1. `overflow-wrap: anywhere` —— 它在 .bubble 上，而 overflow-wrap 是**继承**
+ *    属性。`anywhere` 与 `break-word` 的区别正在**内在尺寸**：前者会把
+ *    最小内容宽算成 1 个字，于是自动表格布局能把 "#" 那一列压到只放得下
+ *    半个数字 —— 截图里 17~23 全都断成上下两行（"1" / "7"）。
+ *    换 `break-word` 后长串仍然会断行，但列宽下限回到最长单词，列不再被压瘪。
+ * 2. `white-space: pre-wrap` —— 在 .bubble__text 上，同样是继承来的。
+ *    它是给正文还原模型换行的（见 Markdown.tsx 的 space token），
+ *    可表格单元格里的空格是**源码对齐用的**，原样保留就成了 `team  写`。
+ * 3. `vertical-align` 没写 —— td/th 继承 table 的 `middle`。行一高，
+ *    "#" 那个数字就飘在行中间，与右边顶头的文字对不上。
+ *
+ * 内边距 3px 是给单行短表格准备的；这里一行要放整段中文散文，
+ * 配合 line-height:1.5 才不糊成一坨。 */
 .bubble__text th,
 .bubble__text td {
   border: 1px solid var(--border, #393b40);
-  padding: 3px 8px;
+  padding: 5px 10px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: break-word;
+  vertical-align: top;
   /* 没写对齐行的表格默认左对齐；写了的话由行内样式覆盖 */
   text-align: left;
 }

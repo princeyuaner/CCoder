@@ -11,10 +11,12 @@
  * 所以这里量的就是产品里那套样式。标记按 `SubagentBlock` / `ToolCallBlock` 渲染出来的
  * 结构抄 —— 结构由单测钉，几何由这里量。
  *
- * 三样东西一张图：
+ * 四样东西一张图：
  *   ① 展开态：Task 卡里嵌着子代理的思考、三张工具卡、一句正文
  *   ② 收起态：卡面那个 `N 次工具调用` 是不是看得出来里面有事
  *   ③ 五层嵌套：再深一层时缩进还剩多少（420px 里缩两次就没地方了）
+ *   ④ **插在正文中间**（展开 / 收起对照）—— 2026-09-18 撤销自动展开的依据。
+ *      前两节把卡片孤零零摆着，看不出"它挤在正文里"是什么样；那一节画的就是那个。
  *
  * 顺带量四个数（打印出来；图看着不对时先看它们）：
  *   indent   嵌套块的左竖线相对卡片左边框的位移
@@ -72,17 +74,8 @@ const tool = (tone, letter, name, title, meta = '') => `
     </div>
   </div>`
 
-/** Task 卡 + 里面的子代理那一块（展开态）。 */
-const taskOpen = () => `
-  <div class="tool" id="task">
-    <div class="tool__head" role="button" tabindex="0" aria-expanded="true">
-      <span class="tool__chevron is-open">▸</span>
-      <span class="tool__badge tool__badge--task">T</span>
-      <span class="tool__name">Task</span>
-      <span class="tool__title">找一下 token 刷新的调用点</span>
-      <span class="tool__status"><span class="spin"></span></span>
-    </div>
-    <div class="tool__body">
+/** 子代理那一块的内容。抽出来是因为 ④ 要再用一次（那里不能用带 id 的那两份） */
+const subagentBody = () => `
       <div class="subagent" data-testid="subagent-block">
         <div class="subagent__head">子代理的对话<span class="subagent__count">3 次工具调用</span></div>
         <div class="thinking-block">
@@ -94,8 +87,19 @@ const taskOpen = () => `
         <div class="row row--assistant">
           <div class="bubble bubble--assistant"><div class="bubble__text">三处真调用点：TokenStore / SessionGate / LoginFlow。</div></div>
         </div>
-      </div>
+      </div>`
+
+/** Task 卡 + 里面的子代理那一块（展开态）。 */
+const taskOpen = () => `
+  <div class="tool" id="task">
+    <div class="tool__head" role="button" tabindex="0" aria-expanded="true">
+      <span class="tool__chevron is-open">▸</span>
+      <span class="tool__badge tool__badge--task">T</span>
+      <span class="tool__name">Task</span>
+      <span class="tool__title">找一下 token 刷新的调用点</span>
+      <span class="tool__status"><span class="spin"></span></span>
     </div>
+    <div class="tool__body">${subagentBody()}</div>
   </div>`
 
 /** 同一张卡，收起态 —— 卡面只剩一行。 */
@@ -108,6 +112,33 @@ const taskClosed = () => `
       <span class="tool__title">找一下 token 刷新的调用点</span>
       <span class="tool__status"><span class="spin"></span></span>
     </div>
+  </div>`
+
+/**
+ * ④ 用：同一张卡插在**主线程正文中间**。展开 / 收起各画一份。
+ *
+ * 这一节是 2026-09-18 那次撤销的依据。A1 当天给这张卡破过一次例：第一次冒出
+ * 子项就自动展开。装上一看不行 —— 子代理那块（上面那几百字）展开后整块插在
+ * 主线程叙述**中间**，把正在读的段落顶开。用户的原话："它在文本中间输出，很难看"。
+ *
+ * 两份并排：收起时它只是流水里的一行，展开时它把正文切成了两截。看不出差别的话，
+ * 就是这张图白画了。**不带 id** —— 上面 ① ② 那两份已经用了 `task` / `task-closed`，
+ * 重名会让量数字那段脚本取错元素。
+ */
+const inProse = (open) => `
+  <div class="panel">
+    <div class="row row--assistant"><div class="bubble bubble--assistant"><div class="bubble__text">先看一遍现有的 16 条覆盖到哪儿。我同时派一个 Explore 去找调用点，等它回来再决定要不要动 SessionGate。</div></div></div>
+    <div class="tool">
+      <div class="tool__head" role="button" tabindex="0" aria-expanded="${open}">
+        <span class="tool__chevron${open ? ' is-open' : ''}">▸</span>
+        <span class="tool__badge tool__badge--task">T</span>
+        <span class="tool__name">Task</span>
+        <span class="tool__title">找一下 token 刷新的调用点</span>
+        <span class="tool__status"><span class="spin"></span><span class="tool__time">12s</span></span>
+      </div>
+      ${open ? `<div class="tool__body">${subagentBody()}</div>` : ''}
+    </div>
+    <div class="row row--assistant"><div class="bubble bubble--assistant"><div class="bubble__text">结论：不用改 SessionGate。上面三处里只有一处走真刷新路径，另两处是缓存命中。</div></div></div>
   </div>`
 
 /** 再嵌一层（子代理里又派了一个）。 */
@@ -175,6 +206,12 @@ h2 { font-size: 13px; color: ${t.pageDim}; font-weight: 600; margin: 18px 0 8px;
   <h2>③ 再嵌一层：缩进还剩多少地方</h2>
   <div class="panel" id="p3">${nestedTwice()}</div>
 
+  <h2>④ 插在主线程正文中间 —— 上：展开（A1 曾自动变成这样）；下：收起（2026-09-18 改回）</h2>
+  <p style="width:420px;margin:0 0 8px;color:${t.pageDim}">子代理那张卡现在**不**自动展开了，但收起不等于藏起来：卡头写着 Task 与那句描述，
+     点一下就在。下面两份是同一段对话、同一张卡，只差一个开合。</p>
+  ${inProse(true)}
+  ${inProse(false)}
+
 <script>
   const r = (sel, fn) => { const el = document.querySelector(sel); return el ? fn(el) : null }
   const sub = document.querySelector('.subagent')
@@ -239,7 +276,9 @@ if (shotArg) {
     // 把 console 的那行塞进 title，截图前用 --virtual-time-budget 保证脚本跑完
     execFileSync(chromium, [
       '--headless=new', '--disable-gpu', '--no-sandbox',
-      '--window-size=520,1400', '--virtual-time-budget=1500',
+      // 高要装得下 ④ 那两份（展开那份很高）—— 只到 1400 的话收起那份永远不在图里，
+      // 而 ④ 的价值正在"两份并排看"（2026-09-18 实测：1400 时下面那份被裁掉）
+      '--window-size=520,2600', '--virtual-time-budget=1500',
       `--screenshot=${join(outDir, name)}`,
       '--enable-logging=stderr', '--v=0',
       'file:///' + target.replace(/\\/g, '/'),

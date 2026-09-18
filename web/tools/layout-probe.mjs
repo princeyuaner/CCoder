@@ -180,6 +180,37 @@ function buildPage(scenario) {
       '</div>'
     t.appendChild(d)
   }
+  // 一张 4 列表格。DOM 结构照抄 Markdown.tsx 的 table 分支：
+  // .md-table > table > thead/tbody，行内代码是 <code class="inline-code">。
+  // 内容和 2026-09-18 那张"A 档"表同型：首列是序号，其余列塞着长行内代码 + 中文散文
+  //
+  // 这张表是来钉**三条继承**的（当天用户截图："表格怎么这么难看"）：
+  //   overflow-wrap / white-space 都是从 .bubble / .bubble__text 继承进单元格的，
+  //   而「anywhere」会把列宽下限算成 1 个字 —— 自动布局随即把首列压到放不下 "17"，
+  //   数字断成上下两行。这类"单测全绿、装上看就是坏的"正是本探针存在的理由。
+  const tbl = document.createElement('div')
+  tbl.className = 'entry'
+  const CELL = (tag, html) => '<' + tag + '>' + html + '</' + tag + '>'
+  tbl.innerHTML = '<div class="row row--assistant"><div class="bubble bubble--assistant">' +
+    '<div class="bubble__text"><div class="md-table"><table>' +
+    '<thead><tr>' +
+    CELL('th', '#') + CELL('th', '指令') + CELL('th', '落点') + CELL('th', '为什么需要') +
+    '</tr></thead><tbody>' +
+    '<tr>' +
+    CELL('td', '17') +
+    CELL('td', '<code class="inline-code">种植指定作物 &lt;landSID&gt; &lt;cropSID&gt;</code>') +
+    CELL('td', 'team <code class="inline-code">cropcom.PlantCrop(player, land, cropSID)</code>（走占用兜底+广播）') +
+    CELL('td', '图鉴条目是按 <code class="inline-code">FarmCropData.itemSid</code> 对齐的，作物 3/4 号还要解锁等级+货币') +
+    '</tr>' +
+    '<tr>' +
+    CELL('td', '18') +
+    CELL('td', '<code class="inline-code">清空指定田地 &lt;landSID&gt;</code>') +
+    CELL('td', 'team <code class="inline-code">scene.RemoveCrop</code> + 广播') +
+    CELL('td', '现在只有 4（取消全部解锁）/6（整场重置），单田清理没有') +
+    '</tr>' +
+    '</tbody></table></div></div></div></div>'
+  t.appendChild(tbl)
+
   t.scrollTop = t.scrollHeight   // 真实页面也会自动滚到底
 
   const h = (sel) => {
@@ -233,6 +264,28 @@ function buildPage(scenario) {
       /* 无限动画不能 finish，与布局无关 */
     }
   }
+  // 表格：首列序号必须**一行装得下**。Range.getClientRects() 数的是行盒，
+  // 断了行就是 2 个 —— 比量高度准（行高会随字体变），也不受内边距干扰
+  const numCell = t.querySelector('.md-table tbody td')
+  const numRects = (() => {
+    if (!numCell) return -1
+    const r = document.createRange()
+    r.selectNodeContents(numCell)
+    return r.getClientRects().length
+  })()
+  const cellStyle = (() => {
+    if (!numCell) return null
+    const cs = getComputedStyle(numCell)
+    // 三条都必须是**显式写死在单元格上**的：继承来的任意一条都会让这张表回到
+    // 2026-09-18 那版难看的样子（见 styles.css 里单元格那段注释）
+    return cs.whiteSpace + ' | ' + cs.overflowWrap + ' | ' + cs.verticalAlign
+  })()
+  // 反面：正文的 pre-wrap 不能跟着一起被"顺手改掉" —— 它负责还原松散列表项
+  // 里那个空行（Markdown.tsx 的 space token），去掉之后列表会粘成一坨
+  const bubbleWhiteSpace = (() => {
+    const el = t.querySelector('.bubble__text')
+    return el ? getComputedStyle(el).whiteSpace : null
+  })()
   document.getElementById('measure').textContent = 'MEASURE ' + JSON.stringify({
     tool: h('.tool'),
     head: h('.tool__head'),
@@ -254,6 +307,9 @@ function buildPage(scenario) {
       const el = t.querySelector('.tool__file')
       return el ? getComputedStyle(el).textDecorationLine : null
     })(),
+    numRects: numRects,
+    cellStyle: cellStyle,
+    bubbleWhiteSpace: bubbleWhiteSpace,
     scrollH: t.scrollHeight,
     clientH: t.clientHeight,
   })
@@ -353,6 +409,31 @@ for (const scenario of SCENARIOS) {
     )
   }
 
+  // 表格（2026-09-18）。三条断言对应当天那张"难看"的表里同时发作的三处继承 ——
+  // 它们全都来自 .bubble / .bubble__text，光看单元格的 CSS 是看不出来的
+  const CELL_STYLE_OK = 'normal | break-word | top'
+  if (m.cellStyle !== CELL_STYLE_OK) {
+    problems.push(
+      `单元格计算样式 ${m.cellStyle} ≠ ${CELL_STYLE_OK} —— ` +
+      '这三条必须显式写在 th/td 上：white-space 与 overflow-wrap 都会继承，' +
+      'anywhere 会把列宽下限算成 1 个字（首列序号会断行），' +
+      'vertical-align 不写则继承 table 的 middle（数字飘在行中间）',
+    )
+  }
+  if (m.numRects > 1) {
+    problems.push(
+      `首列序号占了 ${m.numRects} 行 —— 列被压瘪了。` +
+      'overflow-wrap: anywhere 又回到单元格上了吗？',
+    )
+  }
+  if (m.bubbleWhiteSpace !== 'pre-wrap') {
+    problems.push(
+      `正文的 white-space 变成了 ${m.bubbleWhiteSpace} —— 它得是 pre-wrap，` +
+      '松散列表项里的空行靠它还原（Markdown.tsx 的 space token）。' +
+      '修表格要改在 th/td 上，不要动 .bubble__text',
+    )
+  }
+
   const status = problems.length ? '失败' : '通过'
   if (problems.length) failed++
   console.log(`[${status}] ${scenario.name} — ${scenario.note}`)
@@ -362,6 +443,7 @@ for (const scenario of SCENARIOS) {
     ` headOverflow=${m.headOverflow}` +
     ` bubbleW=${m.bubbleW}/${m.rowW} userW=${m.userW}` +
     ` thumbW=${m.thumbW} imagesOverflow=${m.imagesOverflow}` +
+    ` numRects=${m.numRects} cell=[${m.cellStyle}]` +
     ` scrollH=${m.scrollH} clientH=${m.clientH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)
