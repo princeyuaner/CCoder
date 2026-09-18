@@ -32,6 +32,7 @@ CCoder runs the Claude Code CLI (`claude`) you already have installed — it is 
 - Commands that touch your machine (shell, writes outside the project) wait for your Allow or Deny.
 - Six permission modes, from read-only Plan and Auto-accept-edits to a classifier-driven Auto that judges each prompt and still asks when unsure.
 - Plan approvals are laid out as Markdown (tables included), in dialogs you can resize.
+- Running subagents and background commands can be stopped one by one (Agents popup — the small ■ at the end of a row). Only that task stops; the conversation goes on.
 
 **Sessions**
 
@@ -69,7 +70,7 @@ CCoder 驱动的是你自己已经装好的 Claude Code CLI（`claude`）—— 
 
 - `@` 引用文件，以及在编辑器里选中的代码（都显示成一行记号，发送时才展开）；`#` 引用项目里的类、函数等符号。补全是模糊的 —— 敲 `cmprk` 也能找到 `ComposerMode.kt`。
 - `/` 打开斜杠命令，以及你在设置里存下的预置 prompt。
-- Ctrl+V 把截图贴进输入框。
+- Ctrl+V 把截图贴进输入框，点缩略图能看大图。
 - Claude 干活时你照样能打字：消息排进队列，当前这轮一结束就发出去。
 
 **看得到、也拦得住的改动**
@@ -77,7 +78,8 @@ CCoder 驱动的是你自己已经装好的 Claude Code CLI（`claude`）—— 
 - 每次改文件都先给你看 diff。
 - 会动你机器的命令（shell、项目外的写入）由你放行或拒绝。
 - 六种权限模式，从只读的「仅规划」、「自动接受编辑」，到由模型逐条判定的「自动判定」—— 拿不准的仍会询问。
-- 计划审批按 Markdown 排版，框可以拉伸。
+- 计划审批按 Markdown 排版（表格也是表格），框可以拉伸。
+- 在跑的子代理与后台命令可以逐个终止（「子代理」浮层 →「运行中」→ 行右端那颗 ■），停的只是那一个，聊天继续。
 
 **会话**
 

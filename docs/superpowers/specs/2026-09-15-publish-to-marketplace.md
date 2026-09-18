@@ -19,6 +19,10 @@ JetBrains 账号 → plugins.jetbrains.com → Profile → Add new plugin → �
 本仓库**没有任何**发布配置（无 token、无签名证书、`build.gradle.kts` 里没有 publishing / signing 块）。
 这没关系：上面那条规矩没满足之前，配了也用不上。
 
+**2026-09-18 更正**：这条已不成立 —— `build.gradle.kts` 后来补上了 publishing 块
+（token 从 `GRADLE_USER_HOME` 的 gradle.properties 读，**仍不进仓库**；没有签名证书，
+`signPlugin` 会自动跳过）。0.2.21 的上传走的就是 `./gradlew publishPlugin`。
+
 ## 二、描述符补了什么
 
 | 补的 | 依据（审核指南原句） |
@@ -103,6 +107,9 @@ JetBrains 账号 → plugins.jetbrains.com → Profile → Add new plugin → �
 `listed: true`、`version: 0.2.19` 就是线上那一版）。所以 0.2.20 同样只写增量，不并
 0.2.19 那六条（3a9a6f3）。这条查法留着：以后开版时先打一次这个 API，别靠记忆。
 
+**同日更晚**：0.2.20 **也已过审上架**（同一个 API 复核：`approve: true`、`listed: true`）。
+开 0.2.21 时因此按"0.2.20 已上架"写增量，b490a9d 那五条不并进来。
+
 ## 六、还没解决的前提
 
 插件包里带着 `@anthropic-ai/claude-agent-sdk` 的 6035 个文件，而它的 `LICENSE.md` 只有一行：
@@ -148,6 +155,14 @@ such new usages in a plugin and the version will not be published"。**这不是
 ```
 三侧测试 → buildPlugin → ./gradlew verifyPlugin → publishPlugin
 ```
+
+**2026-09-18 补（跑这条链之前先做的事）**：把 nodejs 目录塞到 PATH **最前** ——
+Git Bash 里 `export PATH="/c/Program Files/nodejs:$PATH"`，守护进程要
+`./gradlew --stop` 重建才吃到新 PATH。原因：系统 PATH 里有一条**带引号的坏项**
+（`…WBEM"`，旁边还有几条丢了反斜杠的），cmd 按名字找命令时遇到引号会把**它后面**
+的目录全废掉 —— nodejs 恰好在后面，于是 `npm.cmd` 的 shim 报
+"'node' 不是内部或外部命令"，而 `where node` 又找得到（它自己分词，不受影响）。
+0.2.21 这次就是被这个卡过一次 buildWebUi。
 
 两个坑：它**不能和别的 Gradle 构建并发跑**（会撞 "Timeout waiting to lock Artifact
 transforms cache"）；第一次跑要下 IDE 分发，慢。
