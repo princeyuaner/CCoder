@@ -22,9 +22,21 @@ sealed interface TranscriptItem {
         val images: List<String> = emptyList(),
     ) : TranscriptItem
 
-    data class Assistant(override val id: String, override val ts: Long, val text: String) : TranscriptItem
+    data class Assistant(
+        override val id: String,
+        override val ts: Long,
+        val text: String,
+        /** 非空 = 这句是**子代理**说的，值是主线程那条 `Task` 的 `toolUseId`。 */
+        val parent: String? = null,
+    ) : TranscriptItem
 
-    data class Thinking(override val id: String, override val ts: Long, val text: String) : TranscriptItem
+    data class Thinking(
+        override val id: String,
+        override val ts: Long,
+        val text: String,
+        /** 同 [Assistant.parent]。 */
+        val parent: String? = null,
+    ) : TranscriptItem
 
     /**
      * 一次工具调用。
@@ -38,6 +50,11 @@ sealed interface TranscriptItem {
         val toolUseId: String,
         val name: String,
         val input: String,
+        /**
+         * 非空 = 这一下是**子代理**跑的，值是主线程那条 `Task` 的 `toolUseId`；
+         * 界面据此把这张卡收进那张 Task 卡里（A1 嵌套）。
+         */
+        val parent: String? = null,
     ) : TranscriptItem
 
     /**

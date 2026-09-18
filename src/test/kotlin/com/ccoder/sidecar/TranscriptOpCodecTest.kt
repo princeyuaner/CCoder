@@ -43,7 +43,19 @@ class TranscriptOpCodecTest {
         assertEquals("user", withImages.get("kind").asString)
         assertEquals(2, withImages.getAsJsonArray("images").size())
 
-        assertEquals(14, kinds.size)
+        // 末尾三条是**子代理那层**（A1）：一张 Task 卡 + 它名下的一次工具与一句正文。
+        // 2026-09-18 补：此前夹具里一条都不带 parent，两端任何一侧把这个字段吃掉
+        // 都测不出来 —— 与 images 那次（见上）是同一类漏洞
+        val taskCard = array[14].asJsonObject.getAsJsonObject("item")
+        assertEquals("toolu_task", taskCard.get("toolUseId").asString)
+        assertTrue(!taskCard.has("parent"), "主线程那条 Task 卡不该带 parent")
+
+        val subTool = array[15].asJsonObject.getAsJsonObject("item")
+        assertEquals("toolu_task", subTool.get("parent").asString)
+        val subText = array[16].asJsonObject.getAsJsonObject("item")
+        assertEquals("toolu_task", subText.get("parent").asString)
+
+        assertEquals(17, kinds.size)
     }
 
     @Test
@@ -131,6 +143,38 @@ class TranscriptOpCodecTest {
         assertEquals("""{"file_path":"/a.txt"}""", item.get("input").asString)
         // 界面靠它把输出挂回这次调用
         assertEquals("toolu_1", item.get("toolUseId").asString)
+    }
+
+    @Test
+    fun `parent 只在子代理那几项上出现（主线程的报文一字不差）`() {
+        fun itemOf(op: TranscriptOp) = JsonParser.parseString(TranscriptOpCodec.encodeBatch(listOf(op)))
+            .asJsonArray[0].asJsonObject.getAsJsonObject("item")
+
+        // 主线程：字段**不出现**（不是 null）—— 老 web 侧不认识这个键，报文保持原样最安全
+        val plain = itemOf(
+            TranscriptOp.Append(TranscriptItem.ToolUse(id = "m", ts = 1L, toolUseId = "t1", name = "Read", input = "{}"))
+        )
+        assertTrue(!plain.has("parent"), "主线程的项不该带 parent")
+
+        // 子代理：三种项都要带上，界面才收得进那张 Task 卡
+        val subTool = itemOf(
+            TranscriptOp.Append(
+                TranscriptItem.ToolUse(
+                    id = "m", ts = 1L, toolUseId = "t2", name = "Grep", input = "{}", parent = "toolu_task",
+                )
+            )
+        )
+        assertEquals("toolu_task", subTool.get("parent").asString)
+
+        val subText = itemOf(
+            TranscriptOp.Append(TranscriptItem.Assistant(id = "m", ts = 1L, text = "找到了", parent = "toolu_task"))
+        )
+        assertEquals("toolu_task", subText.get("parent").asString)
+
+        val subThink = itemOf(
+            TranscriptOp.Append(TranscriptItem.Thinking(id = "m", ts = 1L, text = "想想", parent = "toolu_task"))
+        )
+        assertEquals("toolu_task", subThink.get("parent").asString)
     }
 
     @Test

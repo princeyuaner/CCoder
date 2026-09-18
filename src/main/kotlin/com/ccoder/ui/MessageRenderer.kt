@@ -12,21 +12,32 @@ sealed interface RenderItem {
      * 就绪前的暂存、排队后的补发都靠它把图一起带过去。
      */
     data class UserText(val text: String, val images: List<String> = emptyList()) : RenderItem
-    data class AssistantText(val text: String) : RenderItem
+    data class AssistantText(val text: String, val parent: String? = null) : RenderItem
 
     /** 逐 token 增量。面板把它累积到"进行中"的气泡里。 */
     data class AssistantDelta(val text: String) : RenderItem
     data class ThinkingDelta(val text: String) : RenderItem
 
-    data class Thinking(val text: String) : RenderItem
+    data class Thinking(val text: String, val parent: String? = null) : RenderItem
 
     /**
      * 一次工具调用。
      *
      * [id] 是 SDK 给的 `tool_use.id`，[ToolResult] 靠它与这次调用配对 ——
      * 界面上"把输出挂回那张卡片"全指望它。
+     *
+     * [parent] 是**子代理归属**：非空时它的值就是主线程那条 `Task` 的 `tool_use.id`，
+     * 界面据此把这一项收进那张卡里（A1，2026-09-18）。空 = 主线程自己跑的。
+     *
+     * 主线程消息上这个字段**在、值是 null**（实测，不是缺字段），所以 `.str()` 取到的
+     * 就是 null —— 两种来源在这里长得一样。
      */
-    data class ToolUse(val name: String, val input: String, val id: String) : RenderItem
+    data class ToolUse(
+        val name: String,
+        val input: String,
+        val id: String,
+        val parent: String? = null,
+    ) : RenderItem
 
     /**
      * 工具调用**刚开始**（参数还在生成）。
@@ -227,6 +238,11 @@ object MessageRenderer {
     private fun renderAssistant(event: JsonObject): List<RenderItem> {
         val out = mutableListOf<RenderItem>()
 
+        // 子代理归属：非空 = 这条消息是某个子代理说的/做的，值是主线程那条 Task 的
+        // tool_use.id（实测形状见 docs/superpowers/specs/2026-09-18-subagent-nesting-design.md）。
+        // 主线程的帧上这个键在、值是 null，所以两种情况在这儿都落到 null。
+        val parent = event.str("parent_tool_use_id")
+
         // error 字段必须最先检查：认证失败等情况下 content 里会有文本，
         // 但那是错误说明而非正常回复
         event.str("error")?.let { err ->
@@ -243,16 +259,17 @@ object MessageRenderer {
             val b = block.asJsonObject
             when (b.str("type")) {
                 "text" -> b.str("text")?.takeIf { it.isNotBlank() }
-                    ?.let { out += RenderItem.AssistantText(it) }
+                    ?.let { out += RenderItem.AssistantText(it, parent) }
 
                 "thinking" -> b.str("thinking")?.takeIf { it.isNotBlank() }
-                    ?.let { out += RenderItem.Thinking(it) }
+                    ?.let { out += RenderItem.Thinking(it, parent) }
 
                 "tool_use" -> out += RenderItem.ToolUse(
                     name = b.str("name") ?: "unknown",
                     input = b.get("input")?.toString() ?: "",
                     // 缺 id 不丢弃这一项：调用本身该显示出来，只是结果挂不回来
                     id = b.str("id") ?: "",
+                    parent = parent,
                 )
                 // 其他块类型（redacted_thinking、server_tool_use 等）忽略
             }

@@ -87,11 +87,14 @@ object TranscriptOpCodec {
             is TranscriptItem.Assistant -> {
                 obj.addProperty("kind", "assistant")
                 obj.addProperty("text", item.text)
+                // 只有子代理说的才带这个字段：主线程那条路上的报文与从前一字不差
+                item.parent?.let { obj.addProperty("parent", it) }
             }
 
             is TranscriptItem.Thinking -> {
                 obj.addProperty("kind", "thinking")
                 obj.addProperty("text", item.text)
+                item.parent?.let { obj.addProperty("parent", it) }
             }
 
             is TranscriptItem.Error -> {
@@ -109,6 +112,7 @@ object TranscriptOpCodec {
                 obj.addProperty("toolUseId", item.toolUseId)
                 obj.addProperty("name", item.name)
                 obj.addProperty("input", item.input)
+                item.parent?.let { obj.addProperty("parent", it) }
             }
 
             is TranscriptItem.ToolResult -> {

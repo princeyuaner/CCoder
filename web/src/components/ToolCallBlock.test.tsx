@@ -150,6 +150,35 @@ describe('ToolCallBlock', () => {
     expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
   })
 
+  it('带子代理那块的卡自动展开一次，之后归用户管（A1）', async () => {
+    // 破例的唯一一处：今天那些卡是平铺在主流水里的，收起来等于"改完看不见了"
+    const { rerender } = render(
+      <ToolCallBlock
+        item={use('Task', { description: '找调用点' })}
+        nested={<div data-testid="subagent-block">子代理的对话</div>}
+      />,
+    )
+    expect(screen.getByTestId('subagent-block')).toBeInTheDocument()
+
+    // 用户手动收起来（这张卡此刻是展开的，不能再用"找收起的那个"那个助手）
+    await userEvent.click(screen.getByRole('button', { expanded: true }))
+    expect(screen.queryByTestId('subagent-block')).not.toBeInTheDocument()
+
+    // 子代理又冒了新东西（nested 换了引用）—— 不许再自动弹开
+    rerender(
+      <ToolCallBlock
+        item={use('Task', { description: '找调用点' })}
+        nested={<div data-testid="subagent-block">子代理的对话，又长了一截</div>}
+      />,
+    )
+    expect(screen.queryByTestId('subagent-block')).not.toBeInTheDocument()
+  })
+
+  it('没有子代理那块的卡照旧收着（自动展开只对 A1 那一种卡生效）', () => {
+    render(<ToolCallBlock item={use('Task', { description: '找调用点' })} />)
+    expect(header()).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('展开后能看到完整命令', async () => {
     render(<ToolCallBlock item={use('Bash', { command: 'git log --oneline -15' })} />)
 

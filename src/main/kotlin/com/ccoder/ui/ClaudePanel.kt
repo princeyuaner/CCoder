@@ -2779,8 +2779,18 @@ class ClaudePanel(
                     TranscriptItem.User(nextMessageId(), now(), item.text, item.images)
                 )
 
-            // 最终消息是权威版本，用它收尾进行中的气泡
-            is RenderItem.AssistantText -> TranscriptOp.FinalizeDelta("assistant", item.text)
+            // 子代理说的正文**自成一项**，不往主线程那个"进行中"的气泡里塞：
+            // 它会带 parent（那张 Task 卡的 toolUseId），界面据此把它收进卡里。
+            // 它也**没有增量帧**（实测：子代理正文整段到达，且不会混进匿名的
+            // 增量流 —— 见设计稿事实 5 与 12），所以这里 Append 而不是 Finalize。
+            is RenderItem.AssistantText -> if (item.parent != null) {
+                TranscriptOp.Append(
+                    TranscriptItem.Assistant(nextMessageId(), now(), item.text, item.parent)
+                )
+            } else {
+                // 最终消息是权威版本，用它收尾进行中的气泡
+                TranscriptOp.FinalizeDelta("assistant", item.text)
+            }
 
             is RenderItem.AssistantDelta -> TranscriptOp.AppendDelta("assistant", item.text)
 
@@ -2792,11 +2802,15 @@ class ClaudePanel(
             is RenderItem.ThinkingDelta -> TranscriptOp.AppendDelta("thinking", item.text)
 
             is RenderItem.Thinking ->
-                TranscriptOp.Append(TranscriptItem.Thinking(nextMessageId(), now(), item.text))
+                TranscriptOp.Append(
+                    TranscriptItem.Thinking(nextMessageId(), now(), item.text, item.parent)
+                )
 
             is RenderItem.ToolUse ->
                 TranscriptOp.Append(
-                    TranscriptItem.ToolUse(nextMessageId(), now(), item.id, item.name, item.input)
+                    TranscriptItem.ToolUse(
+                        nextMessageId(), now(), item.id, item.name, item.input, item.parent,
+                    )
                 )
 
             // 结果单独成项，按 toolUseId 由界面挂回那张卡片 ——

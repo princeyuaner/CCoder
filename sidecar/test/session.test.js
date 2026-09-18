@@ -133,6 +133,15 @@ test('注册了 canUseTool 与 includePartialMessages', () => {
     '逐 token 流式显示依赖这个开关');
 });
 
+test('子代理那层的两个开关都开着（A1 嵌套 + B2 进行时）', () => {
+  const q = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  assert.equal(q.calls.options.forwardSubagentText, true,
+    '不开就只转发子代理的 tool_use/tool_result，转写区只能平铺（实测见 probe-subagent-text.mjs）');
+  assert.equal(q.calls.options.agentProgressSummaries, true,
+    '开了才有 task_progress.summary 那句话；没有它 B2 退到 description');
+});
+
 test('canUseTool 通过 onPermission 上报并挂起等待决定', async () => {
   const q = fakeQuery();
   const seen = [];

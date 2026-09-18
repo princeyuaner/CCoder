@@ -14,8 +14,8 @@ interface Base {
  * 是原图，尺寸和它不一样。空/缺省 = 纯文字，与从前一字不差。
  */
 export interface UserItem extends Base { kind: 'user'; text: string; images?: string[] }
-export interface AssistantItem extends Base { kind: 'assistant'; text: string }
-export interface ThinkingItem extends Base { kind: 'thinking'; text: string }
+export interface AssistantItem extends Base { kind: 'assistant'; text: string; parent?: string }
+export interface ThinkingItem extends Base { kind: 'thinking'; text: string; parent?: string }
 export interface ErrorItem extends Base { kind: 'error'; text: string }
 export interface SystemNoteItem extends Base { kind: 'systemNote'; text: string }
 /**
@@ -30,6 +30,13 @@ export interface ToolUseItem extends Base {
   toolUseId: string
   name: string
   input: string
+  /**
+   * **子代理归属**：非空时这一项是某个子代理干的，值是主线程那条 `Task` 的
+   * `toolUseId` —— 界面据此把它收进那张卡里（A1）。
+   *
+   * 缺省 = 主线程自己的（老版本 Kotlin 不送这个字段，那条路一字不差）。
+   */
+  parent?: string
 }
 
 /**

@@ -1,5 +1,6 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
+import { nestByParent, type NestedItem } from '../nesting'
 import { AssistantBubble } from './AssistantBubble'
 import { ErrorBubble } from './ErrorBubble'
 import { Markdown } from './Markdown'
@@ -33,12 +34,21 @@ const Item = memo(function Item({
   item,
   result,
   turnEnded = false,
+  nested,
 }: {
   item: TranscriptItem
   /** 只有 toolUse 项有：按 toolUseId 配好的结果。 */
   result?: ToolResultItem
   /** 只有 toolUse 项有：回合已结束仍没等到结果。 */
   turnEnded?: boolean
+  /**
+   * 只有 toolUse 项有：**子代理那一块**（A1）。
+   *
+   * 传的是**事先建好的节点**而不是子项数组：数组每次渲染都是新对象，memo 会当场失效，
+   * 于是每次流式增量都让所有卡片重绘 —— 那条账 2026-09-14 已经算过一次（见文件头）。
+   * 节点在 Transcript 的 useMemo 里随 items 一起重算，顺序与 items 同步。
+   */
+  nested?: ReactNode
 }) {
   switch (item.kind) {
     case 'user':
@@ -73,7 +83,7 @@ const Item = memo(function Item({
       return <ThinkingBlock text={item.text} />
 
     case 'toolUse':
-      return <ToolCallBlock item={item} result={result} turnEnded={turnEnded} />
+      return <ToolCallBlock item={item} result={result} turnEnded={turnEnded} nested={nested} />
 
     case 'toolResult':
       // 结果不单独成项：它已经挂进对应的那张工具卡片里了（见 resultsByToolUseId）。
@@ -117,6 +127,58 @@ function isAtBottom(el: HTMLElement): boolean {
  * 拿它当"用户刚发了一条"的判据。用 id 而不是"用户消息的条数"：`reset`
  * 与回放都会把 items 整个换掉，条数会在换会话时撞出假阳性。
  */
+/**
+ * 子代理那一块（A1）：缩进 + 左侧一条竖线，里面是**它自己的对话**。
+ *
+ * 数据来自 `parent` 分组（[nestByParent]）—— 不是另开一条流，也不是去读磁盘，
+ * 所以它是**边跑边长**的（唯一不长的是正文：实测子代理没有增量帧，整段到达）。
+ *
+ * 递归：子代理里再派子代理时，那一层会自己套一层（同一个 key：那张卡的 toolUseId）。
+ */
+function SubagentBlock({
+  nodes,
+  results,
+  ended,
+}: {
+  nodes: NestedItem[]
+  results: Map<string, ToolResultItem>
+  ended: Set<string>
+}) {
+  return (
+    <div className="subagent" data-testid="subagent-block">
+      <div className="subagent__head">
+        子代理的对话
+        <span className="subagent__count">{countTools(nodes)} 次工具调用</span>
+      </div>
+      {nodes.map((node) => (
+        <Item
+          key={node.item.id}
+          item={node.item}
+          result={
+            node.item.kind === 'toolUse' ? results.get(node.item.toolUseId) : undefined
+          }
+          turnEnded={node.item.kind === 'toolUse' && ended.has(node.item.toolUseId)}
+          nested={
+            node.children.length > 0 ? (
+              <SubagentBlock nodes={node.children} results={results} ended={ended} />
+            ) : undefined
+          }
+        />
+      ))}
+    </div>
+  )
+}
+
+/** 这一块里一共跑了几次工具（含更深那几层）—— 卡面上那个计数就是它。 */
+function countTools(nodes: NestedItem[]): number {
+  let n = 0
+  for (const node of nodes) {
+    if (node.item.kind === 'toolUse') n += 1
+    n += countTools(node.children)
+  }
+  return n
+}
+
 function lastUserItemIdOf(items: TranscriptItem[]): string | null {
   for (let i = items.length - 1; i >= 0; i--) {
     if (items[i].kind === 'user') return items[i].id
@@ -240,6 +302,25 @@ export function Transcript({ state }: { state: TranscriptState }) {
     }
   }, [])
 
+  // 子代理那一块：按 `parent` 把流水归位（A1）。两个 memo 都只依赖 items 与那两张表，
+  // 所以**流式的每一帧都不重算** —— 与上面那条 memo 同一条账。
+  const nestedNodes = useMemo(() => nestByParent(state.items), [state.items])
+  const nestedBlocks = useMemo(() => {
+    const map = new Map<string, ReactNode>()
+    for (const node of nestedNodes) {
+      if (node.children.length === 0) continue
+      map.set(
+        node.item.id,
+        <SubagentBlock
+          nodes={node.children}
+          results={resultsByToolUseId}
+          ended={endedToolUseIds}
+        />,
+      )
+    }
+    return map
+  }, [nestedNodes, resultsByToolUseId, endedToolUseIds])
+
   return (
     // 包装层只为了让按钮相对**视口**定位：按钮若放进 .transcript 会成为滚动
     // 内容的一部分，跟着内容一起滚走。
@@ -252,14 +333,21 @@ export function Transcript({ state }: { state: TranscriptState }) {
       >
         {/* 一次调用一张卡 —— 「归堆」已按用户要求撤销（2026-09-14）：
             并成一组之后，每次调用各自的描述与对应文件就看不见了 */}
-        {state.items.map((item) => (
+        {nestedNodes.map((node) => (
           <Item
-            key={item.id}
-            item={item}
+            key={node.item.id}
+            item={node.item}
             // 精确到这一条地取（不是把 map 传下去）：memo 靠 props 引用相等
             // 才跳得过重渲染，传 map 等于每来一条结果就让所有项一起失效
-            result={item.kind === 'toolUse' ? resultsByToolUseId.get(item.toolUseId) : undefined}
-            turnEnded={item.kind === 'toolUse' && endedToolUseIds.has(item.toolUseId)}
+            result={
+              node.item.kind === 'toolUse'
+                ? resultsByToolUseId.get(node.item.toolUseId)
+                : undefined
+            }
+            turnEnded={
+              node.item.kind === 'toolUse' && endedToolUseIds.has(node.item.toolUseId)
+            }
+            nested={nestedBlocks.get(node.item.id)}
           />
         ))}
         {/* 思考在正文之前 —— 与 SDK 给的块顺序一致 */}

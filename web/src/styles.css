@@ -791,6 +791,36 @@ body {
   white-space: pre;
 }
 
+/* ---- 子代理那一块（A1，2026-09-18）----
+   竖线的颜色**与 Task 徽标同色**（`.tool__badge--task` 那个 #a06bd4）：
+   两处认的是同一件事（"这是子代理"），各写一个紫迟早分叉。
+   左边距给足 10px：竖线贴着卡片边框的话，缩进就看不出层级了。
+   底色调一档 —— 420px 宽的面板里，靠底色区分"这是另一层"比靠边框省地方。 */
+.subagent {
+  margin: 2px 0 6px;
+  padding-left: 10px;
+  border-left: 2px solid #a06bd4;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.subagent__head {
+  font-size: 11px;
+  color: var(--text-dim, #8c8c8c);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* 计数用等宽、右对齐：换数字时长度不跳（同 .tool__time 那条账） */
+.subagent__count {
+  margin-left: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- 其他 ---- */
 
 .system-note,

@@ -144,6 +144,48 @@ class RunDetailTest {
     }
 
     @Test
+    fun `跑着的时候两行：任务名一行，进行时一行（B2）`() {
+        // task_progress 的 description 是"当前这一步"，每步都来、不要钱
+        // （实测见 docs/superpowers/specs/2026-09-18-subagent-nesting-design.md 事实 6）
+        val running = tracker(
+            started("t1", "找一下 token 刷新的调用点"),
+            """{"type":"system","subtype":"task_progress","task_id":"t1",
+                "description":"Reading TokenStore.kt",
+                "usage":{"total_tokens":12400,"duration_ms":80000}}""",
+        ).running
+        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+
+        // 第一行是任务名（**不**再被进行时顶掉），统计还在它右边
+        assertTrue(labels.any { it.contains("找一下 token 刷新的调用点") }, "任务名丢了：$labels")
+        // 第二行是进行时
+        assertTrue(labels.any { it == "Reading TokenStore.kt" }, "进行时没画出来：$labels")
+        assertTrue(labels.any { it == "12.4k tok · 1m20s" }, "统计丢了：$labels")
+    }
+
+    @Test
+    fun `没有进行时的时候就是一行 —— 与从前一字不差`() {
+        val running = tracker(started("t1", "查找 sidecar 启动路径")).running
+        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+
+        assertTrue(labels.any { it.contains("查找 sidecar 启动路径") }, "实际：$labels")
+        // 没有那句话就**不画**第二行（空行会让浮层里每条都多占一格）
+        assertEquals(1, labels.count { it.contains("查找 sidecar 启动路径") }, "实际：$labels")
+    }
+
+    @Test
+    fun `summary 比 description 优先（有那句人话就用它）`() {
+        val running = tracker(
+            started("t1", "找一下 token 刷新的调用点"),
+            """{"type":"system","subtype":"task_progress","task_id":"t1",
+                "description":"Reading TokenStore.kt","summary":"正在核对刷新路径"}""",
+        ).running
+        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+
+        assertTrue(labels.any { it == "正在核对刷新路径" }, "实际：$labels")
+        assertTrue(labels.none { it == "Reading TokenStore.kt" }, "两条都画了：$labels")
+    }
+
+    @Test
     fun `运行段空着时说实话，而不是给一个空框`() {
         // 卡上写"空闲"时不该弹得出来，但真弹出来了就得说实话
         assertEquals(listOf("当前没有任务"), labelsIn(buildRunningDetail(emptyList(), emptyList()) {}))

@@ -224,7 +224,11 @@ internal class RunStatusTracker {
                 val prev = byId[id] ?: return
                 val usage = event.obj("usage")
                 byId[id] = prev.copy(
-                    detail = event.str("summary") ?: prev.detail,
+                    // 进行时优先用 summary（模型写的一句话，每 ~30s 一条，要 CLI 开着
+                    // agentProgressSummaries），没有就用 **description** —— 那是
+                    // "当前这一步"（"Reading x.kt"），**每一步都来、不要钱**，
+                    // 于是短子代理也有第二行（B2 的两行读数就靠这两级）。
+                    detail = event.str("summary") ?: event.str("description") ?: prev.detail,
                     tokens = usage?.long("total_tokens") ?: prev.tokens,
                     durationMs = usage?.long("duration_ms") ?: prev.durationMs,
                 )

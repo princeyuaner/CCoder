@@ -195,6 +195,24 @@ function analyze(events, permCalls) {
     console.log(`  ${ts()} 正文样本：${JSON.stringify(t.slice(0, 140))}`);
   }
 
+  // **泄漏检查**：子代理那句正文是不是混在"不带 parent 的增量流"里。
+  // 单独一条流事件看不出这个 —— stream_event 的载荷里没有内容归属，
+  // 界面是把它拼进"当前那个气泡"的，一旦子代理的增量漏进来而 parent 是 null，
+  // 子代理说的话就会被写进主线程的气泡里（而且最终会被主线程的正文覆盖掉）。
+  const anonDelta = events
+    .filter((e) => !withParent(e.m) && e.m.type === 'stream_event'
+      && e.m.event?.type === 'content_block_delta'
+      && e.m.event?.delta?.type === 'text_delta')
+    .map((e) => e.m.event.delta.text ?? '')
+    .join('');
+  for (const s of subText.slice(0, 2)) {
+    const t = s.m.message.content.filter((b) => b?.type === 'text').map((b) => b.text).join(' ');
+    const frag = t.trim().slice(0, 24);
+    console.log(`  泄漏检查：子代理正文前 24 字 ${JSON.stringify(frag)} `
+      + `→ ${anonDelta.includes(frag) ? '**混进了主线程增量流**' : '没混进去'}`);
+  }
+  console.log(`  匿名增量流共 ${anonDelta.length} 字`);
+
   // 任务消息：summary 的原文与节奏
   const taskMsgs = events.filter((e) => ['task_started', 'task_progress', 'task_notification', 'task_updated']
     .includes(e.m.subtype) || ['task_started', 'task_progress', 'task_notification'].includes(e.m.type));
@@ -236,7 +254,15 @@ function analyze(events, permCalls) {
 
 const done = (r) => r.events.some((e) => e.m.type === 'result');
 
-if (process.argv.includes('--slow')) {
+if (process.argv.includes('--one')) {
+  // 只跑"开"的那一趟（快速场景）—— 泄漏检查问的只是这一趟
+  const B = await run('乙 · forwardSubagentText + agentProgressSummaries', {
+    forwardSubagentText: true,
+    agentProgressSummaries: true,
+  });
+  if (!done(B)) { console.log('\n**没跑完，结论不可用**'); process.exit(3); }
+  console.log('\n（单跑拿到了 result）');
+} else if (process.argv.includes('--slow')) {
   // 只跑"开"的那一趟 —— 对照臂第一跑已经答完了，这里要的是"撑够 30s 之后 summary 有没有"
   const S = await run('丙 · 慢子代理（75s，两个开关都开）', {
     forwardSubagentText: true,

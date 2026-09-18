@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
@@ -37,6 +37,11 @@ interface Props {
   result?: ToolResultItem
   /** 回合已结束（它之后再出现过 result 事件）—— 用来把等不到结果的卡片收尾。 */
   turnEnded?: boolean
+  /**
+   * 子代理那一块（A1）。由 [Transcript] 事先建好传下来 —— 卡片自己不分组、
+   * 也不认识 `nestByParent`，它只管把这块画在该在的位置。
+   */
+  nested?: ReactNode
 }
 
 /**
@@ -170,6 +175,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   item,
   result,
   turnEnded = false,
+  nested,
 }: Props) {
   // 结果必须与这次调用配上号才用（见文件头）
   const matched = result && result.toolUseId === item.toolUseId ? result : undefined
@@ -185,6 +191,23 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   // 想看的人自己点开。
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
+
+  /**
+   * 子代理那块的**唯一例外**：它第一次冒东西出来时自动展开一次（A1）。
+   *
+   * 为什么破例：今天（A0）子代理跑的工具卡是**平铺在主流水里的**，看得见；A1 把它们
+   * 收进卡片之后，若这张卡还收着，就等于"改完之后看不见了" —— 那不是嵌套，是藏起来。
+   *
+   * 只自动开这**一次**：开了之后归用户管 —— 他手动收起来，后面再来多少条也不弹开
+   * （`openedOnce` 是 ref，不参与渲染）。**跑完也不自动收**：收起来会在你正读子代理
+   * 最后那句话时把它抽走。
+   */
+  const openedOnce = useRef(false)
+  useEffect(() => {
+    if (nested === undefined || openedOnce.current) return
+    openedOnce.current = true
+    setOpen(true)
+  }, [nested])
 
   // 从 item.input 派生的一切：只随参数变。六个函数各自 JSON.parse 一遍参数，
   // Write/Edit 还要按行切出 diff —— 卡片因任何原因重渲染（结果到达、收起展开）
@@ -330,6 +353,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
 
       {open && (
         <div className="tool__body">
+          {/* 子代理那一块**排在最前**：它是这块卡片的"过程"，而下面那些
+              （命令 / diff / 输出）是这张卡片自己的参数与结果 —— Task 卡通常没有前者 */}
+          {nested}
+
           {command !== '' && (
             <div className="tool__cmd" data-testid="tool-command">
               <span className="tool__prompt">$ </span>

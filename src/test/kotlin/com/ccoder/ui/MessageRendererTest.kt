@@ -54,6 +54,46 @@ class MessageRendererTest {
     }
 
     @Test
+    fun `子代理的正文与工具带 parent（A1 嵌套靠它）`() {
+        // 形状照探针实测抄：子代理的帧多三个字段，其中 parent_tool_use_id 就是
+        // 主线程那条 Task 的 tool_use.id（见 probe-subagent-text.mjs / 设计稿事实 1）
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"assistant","parent_tool_use_id":"toolu_task_1",
+                 "subagent_type":"Explore","task_description":"找调用点",
+                 "message":{"content":[
+                   {"type":"text","text":"找到了三处"},
+                   {"type":"tool_use","id":"toolu_sub_1","name":"Grep","input":{"pattern":"x"}}]}}
+                """
+            )
+        )
+
+        val text = items[0] as RenderItem.AssistantText
+        assertEquals("找到了三处", text.text)
+        assertEquals("toolu_task_1", text.parent)
+
+        val tool = items[1] as RenderItem.ToolUse
+        assertEquals("toolu_task_1", tool.parent)
+        assertEquals("toolu_sub_1", tool.id)
+    }
+
+    @Test
+    fun `主线程的帧 parent 是 null（字段在、值为 null）`() {
+        // 实测：主线程消息上这个键**在**、值是 null —— 所以这里刻意把键写出来
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"assistant","parent_tool_use_id":null,
+                 "message":{"content":[{"type":"thinking","thinking":"想想"},{"type":"text","text":"好了"}]}}
+                """
+            )
+        )
+        assertEquals(null, (items[0] as RenderItem.Thinking).parent)
+        assertEquals(null, (items[1] as RenderItem.AssistantText).parent)
+    }
+
+    @Test
     fun `hook 事件不进入消息流`() {
         // 实测每次会话必现且无信息量（spec §11.2）
         assertEquals(0, MessageRenderer.render(event("""{"type":"system","subtype":"hook_started"}""")).size)

@@ -53,6 +53,14 @@ function stringArray(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string') : []
 }
 
+/**
+ * 子代理归属（`parent`）。空串、非字符串一律**当没有** —— 一个坏值不该让这一项
+ * 从转写区消失，最坏的结果就是它留在主流水里（与"配不上父项"同一条容忍口径）。
+ */
+function parentOf(it: Record<string, unknown>): { parent?: string } {
+  return typeof it.parent === 'string' && it.parent !== '' ? { parent: it.parent } : {}
+}
+
 function parseItem(raw: unknown): TranscriptItem | null {
   if (!raw || typeof raw !== 'object') return null
   const it = raw as Record<string, unknown>
@@ -77,6 +85,11 @@ function parseItem(raw: unknown): TranscriptItem | null {
 
     case 'assistant':
     case 'thinking':
+      // 只有这两种会带 parent（子代理说的）；error / systemNote 没有归属可言
+      return typeof it.text === 'string'
+        ? ({ ...base, kind: it.kind, text: it.text, ...parentOf(it) } as TranscriptItem)
+        : null
+
     case 'error':
     case 'systemNote':
       return typeof it.text === 'string'
@@ -93,6 +106,7 @@ function parseItem(raw: unknown): TranscriptItem | null {
             // 缺这个字段不丢整条：调用本身要显示出来，只是等不到输出
             // （老版本 Kotlin 不送它）
             toolUseId: typeof it.toolUseId === 'string' ? it.toolUseId : '',
+            ...parentOf(it),
           }
         : null
 

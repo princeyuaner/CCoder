@@ -63,6 +63,24 @@ export function createSession({
     permissionMode,
     env: buildChildEnv(process.env, envOverrides),
     includePartialMessages: true,
+
+    // 子代理那层（2026-09-18，用户从选型台上挑的 A1/B2）。
+    //
+    // 不开这个时，SDK 只转发子代理的 tool_use/tool_result（文档原话 "enough for a
+    // heartbeat counter"）—— 实测（tools/probe-subagent-text.mjs 甲跑）：带
+    // parent_tool_use_id 的 assistant 只有 2 条、正文 0、思考 0。开了之后子代理的
+    // 正文 1 条、思考 2 条也带 parent 过来（乙跑），转写区才能把它渲染成嵌套的一块。
+    //
+    // 一个必须知道的事：**子代理的正文没有流式增量帧**（三跑都量到 0 条
+    // stream_event 带 parent）。所以那块是"整段冒出来"，不会像主线程那样逐字长。
+    forwardSubagentText: true,
+    // 每 ~30s 让 CLI fork 一次子代理的对话，写一句"现在在干嘛"挂在
+    // task_progress.summary 上（丙跑实测：+42.4s、+72.9s 各一条）。文档说这个 fork
+    // 复用子代理自己的模型与提示缓存，"cost is typically minimal"。
+    //
+    // **不买也不会空着**：task_progress.description 每步都来（"Reading note-17.txt"），
+    // 插件侧 B2 那两行就是 summary ?: description。关掉它就是删这一行。
+    agentProgressSummaries: true,
     canUseTool: (toolName, input, opts) => {
       return new Promise((resolve) => {
         const requestId = opts.toolUseID;

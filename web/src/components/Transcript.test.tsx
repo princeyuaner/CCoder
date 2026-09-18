@@ -16,6 +16,29 @@ describe('Transcript', () => {
     expect(screen.getByTestId('transcript')).toBeInTheDocument()
   })
 
+  it('子代理的项收进那张 Task 卡里，主流水不重复出现（A1）', () => {
+    render(
+      <Transcript
+        state={state(
+          { kind: 'toolUse', id: 'm1', ts, name: 'Task', input: '{}', toolUseId: 'toolu_task' },
+          {
+            kind: 'toolUse', id: 'm2', ts, name: 'Grep', input: '{}',
+            toolUseId: 'toolu_sub', parent: 'toolu_task',
+          },
+          { kind: 'assistant', id: 'm3', ts, text: '找到了三处', parent: 'toolu_task' },
+        )}
+      />,
+    )
+
+    // 子代理那一块在，且它里面确实装着那两条
+    const block = screen.getByTestId('subagent-block')
+    expect(block).toBeInTheDocument()
+    expect(block).toHaveTextContent('子代理的对话')
+    expect(block).toHaveTextContent('1 次工具调用')
+    // **只有一份**：子代理的正文没有同时留在主流水里
+    expect(screen.getAllByText('找到了三处')).toHaveLength(1)
+  })
+
   it('渲染用户消息', () => {
     render(<Transcript state={state({ kind: 'user', id: 'u', ts, text: '你好' })} />)
     expect(screen.getByText('你好')).toBeInTheDocument()

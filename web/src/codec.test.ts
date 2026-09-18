@@ -30,7 +30,8 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    expect(ops).toHaveLength(14)
+    // 17 = 14 + 末尾三条子代理那层（A1，2026-09-18 补）
+    expect(ops).toHaveLength(17)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
   })
@@ -38,8 +39,8 @@ describe('契约 fixture', () => {
   it('fixture 能被完整应用到状态上而不丢内容', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
     const state = applyOps(emptyState(), ops)
-    // fixture 里有 10 条 append/finalize 产生的消息（含工具调用与它的结果）
-    expect(state.items).toHaveLength(10)
+    // fixture 里有 13 条 append/finalize 产生的消息（含工具调用与它的结果）
+    expect(state.items).toHaveLength(13)
     expect(state.live.assistant).toBeUndefined()
   })
 
@@ -48,6 +49,20 @@ describe('契约 fixture', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
     const use = ops.find((o) => o.op === 'append' && o.item.kind === 'toolUse')
     expect(use).toMatchObject({ item: { name: 'Read', toolUseId: 'toolu_1' } })
+  })
+
+  it('子代理的 parent 一路解析过来，主线程那条不带这个字段（A1）', () => {
+    // 夹具里那三条（m8/m9/m10）是这一版补的：不带 parent 的话，两端任何一侧
+    // 把它吃掉都测不出来 —— 与 2026-09-15 的 images 是同一类漏洞
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const appended = ops.filter((o) => o.op === 'append')
+    const taskCard = appended.find((o) => o.item.kind === 'toolUse' && o.item.toolUseId === 'toolu_task')
+    const subTool = appended.find((o) => o.item.kind === 'toolUse' && o.item.toolUseId === 'toolu_sub')
+    const subText = appended.find((o) => o.item.kind === 'assistant' && o.item.parent !== undefined)
+
+    expect(taskCard?.item).not.toHaveProperty('parent')
+    expect(subTool?.item).toMatchObject({ parent: 'toolu_task' })
+    expect(subText?.item).toMatchObject({ parent: 'toolu_task', text: '找到了三处' })
   })
 
   it('工具结果带着配对 id、正文与错误标记过来', () => {

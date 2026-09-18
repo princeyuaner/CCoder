@@ -356,23 +356,57 @@ private fun taskRow(
         )
     }
 
-    val label = listOfNotNull(task.kind, task.detail ?: task.label)
+    // 两行（B2，2026-09-18 用户从选型台上挑的）：
+    //
+    //   第一行 = 任务名（`task_started.description`，一直有）
+    //   第二行 = **现在在干嘛**，没有就不画这行
+    //
+    // 从前只有一行，而且用的是 `detail ?: label` —— 有进行时就**顶掉**任务名。
+    // 那在真机上是一句空话：`detail` 只从 `task_progress.summary` 来，而 summary
+    // 要 CLI 开 agentProgressSummaries 才生成（每 ~30s 一句），所以绝大多数时候
+    // 那一行就是任务名本身。改成两行之后两件事都在，代价是每条高一档。
+    val name = listOfNotNull(task.kind, task.label)
         .joinToString("  ")
         .ifBlank { task.id.take(8) }
-    add(JBLabel(label), BorderLayout.WEST)
 
     val meta = buildList {
         if (task.tokens > 0) add("${formatTokenCount(task.tokens)} tok")
         if (task.durationMs > 0) add(formatDuration(task.durationMs))
     }.joinToString(" · ")
-    if (meta.isNotEmpty()) {
-        add(
-            JBLabel(meta).apply {
-                foreground = UIUtil.getInactiveTextColor()
-                font = font.deriveFont(font.size2D - 1f)
-            },
-            BorderLayout.EAST,
-        )
+
+    val head = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        add(JBLabel(name), BorderLayout.WEST)
+        if (meta.isNotEmpty()) {
+            add(
+                JBLabel(meta).apply {
+                    foreground = UIUtil.getInactiveTextColor()
+                    font = font.deriveFont(font.size2D - 1f)
+                },
+                BorderLayout.EAST,
+            )
+        }
+    }
+
+    val detail = task.detail?.takeIf { it.isNotBlank() }
+    if (detail == null) {
+        // 没有进行时：与从前**一字不差**（一行，任务名在左、统计在右）
+        add(head, BorderLayout.CENTER)
+    } else {
+        val col = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(head)
+            add(
+                JBLabel(detail).apply {
+                    foreground = UIUtil.getInactiveTextColor()
+                    font = font.deriveFont(font.size2D - 1f)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                }
+            )
+        }
+        add(col, BorderLayout.CENTER)
     }
 }
 
