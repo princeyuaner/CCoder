@@ -152,48 +152,19 @@
     </ul>
     ]]></description>
 
-    <!-- 口径：**只写相对上一版（0.2.19）的增量**，中英各一份（§八）。
-         0.2.19 **已过审上架**（2026-09-18 查市场 API 确认：approve=true、listed=true，
-         线上就是它），所以那六条（3a9a6f3）不并进来 —— 用户更新到 0.2.19 时看过了。
-         上一版那条"万一没过审要带着走"的风险到期没应验。 -->
+    <!-- 口径：**只写相对上一版（0.2.20）的增量**，中英各一份（§八）。
+         0.2.20 已上传市场、**还在审核中**（2026-09-18 复核：`hasUnapprovedUpdate: true`）。
+         万一它没过审，本版就是首个公开版本 —— 那时要把 0.2.20 那五条（b490a9d）
+         并进来，按 a936a6d 那次的做法。 -->
     <change-notes><![CDATA[
-    <h3>0.2.20</h3>
+    <h3>0.2.21</h3>
     <ul>
-      <li><b>The context card holds water</b> &mdash; the slim 2px bar is gone: the card
-          itself fills from the bottom up to your context usage, with a slow wave along
-          the surface. It stirs when the number changes and keeps shimmering while a
-          compaction runs; past 70% it turns amber, past 90% red.</li>
-      <li><b>Pasted screenshots open full size</b> &mdash; click a thumbnail in the
-          input box and it opens in a viewer; the arrow keys flip through the batch and
-          Esc closes it. It shows the very bytes that are about to be sent, and never
-          blows a picture up past its own size.</li>
-      <li><b>Plan tables come out as tables</b> &mdash; a Markdown table inside an
-          approval prompt used to arrive as raw rows of <code>|</code>; it is laid out
-          as a table now &mdash; the same way the transcript has always done it.</li>
-      <li><b>Two names straightened out</b> &mdash; the 子任务 card is now 任务列表 (it
-          lists the model's own task list, and 子任务 read as if those were the
-          subagents), and the section header in the detail popup is 全部子代理 (the ones
-          still running are in that list too, so "跑过的" would have been wrong).</li>
-      <li><b>The bottom row of the input box has a background</b> &mdash; the model
-          picker, the permission mode and the rest sit on one band instead of floating
-          loose under the card.</li>
+      <li>TODO: this version's changes, written as the delta against 0.2.20 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (b490a9d).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>上下文卡改成「水位」</b> &mdash;&mdash; 那条 2px 的进度条撤了：卡片自己从底部往上
-          涨到你的上下文用量，水面上有一层缓慢起伏的波纹。数值变化时会荡一下，压缩上下文
-          期间一直在荡；过 70% 转琥珀，过 90% 转红。</li>
-      <li><b>贴进输入框的截图能点开看大图</b> &mdash;&mdash; 点一下缩略图就展开，方向键
-          翻这一批，Esc 关。看的是<b>正要发出去的那份字节</b>，也不会把图放大到超过它本来的尺寸。</li>
-      <li><b>计划审批里的表格终于是表格了</b> &mdash;&mdash; 审批框里那张 Markdown 表格原先
-          原样铺着 <code>|</code> 和一排 <code>---</code>，现在按表格排版 &mdash;&mdash;
-          转写区一直是这么排的，两处终于一致。</li>
-      <li><b>两处名字改准了</b> &mdash;&mdash; 「子任务」卡改叫<b>「任务列表」</b>（它列的是
-          模型自己的任务清单，而「子任务」读起来像在说子代理）；详情浮层里那段小标题改叫
-          <b>「全部子代理」</b>（还在跑的也在那一段里，所以不能说成"跑过的"）。</li>
-      <li><b>输入框最下面那排有底色了</b> &mdash;&mdash; 模型、权限模式这些控件落在同一块
-          浅色带上，看着是一组，而不是散在卡片底下。</li>
+      <li>待写：本版相对 <b>0.2.20</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>b490a9d</code>）。</li>
     </ul>
     ]]></change-notes>
 
