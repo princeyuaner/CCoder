@@ -419,6 +419,19 @@ class ClaudePanel(
      */
     private var openDetail: DetailCard? = null
 
+    /** 画「运行中」浮层用的两份输入 —— 清单变了重画时照用，子代理那段不重问 sidecar。 */
+    private var runningAgents: List<SubagentInfo> = emptyList()
+    private var shownRunning: List<RunningTask> = emptyList()
+
+    /**
+     * 此刻浮层里画的是**"运行中"清单**（而不是某个子代理的转写页）。
+     *
+     * 单独一面旗，而不是看 [openDetail]：转写页复用的也是"子代理"这张卡的
+     * 浮层，靠 openDetail 分不开。清单变了要重画，但**不能把人正看着的
+     * 转写页顶掉**。
+     */
+    private var runningListShown = false
+
     /** 哪张卡的详情浮层。连接卡没有详情，所以不在其中。 */
     private enum class DetailCard { Context, Todos, Running }
 
@@ -1044,6 +1057,9 @@ class ClaudePanel(
         statusCards.todos.setModel(todoCardOf(runStatus.todos))
         statusCards.running.setModel(runningCardOf(runStatus.running))
         refreshCardActions()
+        // 「运行中」浮层开着时，清单变了就重画 —— task_progress 每走一步、
+        // 终止后那一行被收掉，都会走到这儿
+        refreshRunningPopup()
     }
 
     /**
@@ -1102,7 +1118,7 @@ class ClaudePanel(
             DetailCard.Todos -> showDetailPopup(
                 view,
                 runStatus.todos?.let(::buildTodoDetail)
-                    ?: buildRunningDetail(emptyList(), emptyList()) {},
+                    ?: buildRunningDetail(emptyList(), emptyList(), {}, {}),
             )
 
             // 子代理那一段要问一次 sidecar —— 它的记录在磁盘上，不在事件流里。
@@ -1110,7 +1126,7 @@ class ClaudePanel(
             // 免得还要处理"弹出后再换内容"那套尺寸重算
             DetailCard.Running -> {
                 subagentsLoading = true
-                requestSubagents(view)
+                requestSubagents()
             }
         }
     }
@@ -1126,6 +1142,7 @@ class ClaudePanel(
         runDetailPopup?.cancel()
         runDetailPopup = null
         openDetail = null
+        runningListShown = false
         statusCards.context.setOpen(false)
         statusCards.todos.setOpen(false)
         statusCards.running.setOpen(false)
@@ -1137,13 +1154,13 @@ class ClaudePanel(
      * 拿不到会话或目录时**仍然把浮层弹出来**（只列运行中那段）：点了没反应
      * 比一个少一段的浮层更像坏了。
      */
-    private fun requestSubagents(card: StatusCardView) {
+    private fun requestSubagents() {
         val c = client
         val dir = project.basePath
         val sessionId = currentSessionId
         if (c == null || dir == null || sessionId == null) {
             subagentsLoading = false
-            showDetailPopup(card, buildRunningDetail(runStatus.running, emptyList()) {})
+            showRunningDetail(emptyList())
             return
         }
 
@@ -1160,12 +1177,58 @@ class ClaudePanel(
                     LOG.warn("列出子代理失败：${(outcome as? RequestOutcome.Failed)?.reason}")
                 }
                 val agents = (msg as? SidecarMessage.Subagents)?.agents ?: emptyList()
-                showDetailPopup(
-                    card,
-                    buildRunningDetail(runStatus.running, agents, ::openSubagentTranscript),
-                )
+                showRunningDetail(agents)
             }
         }
+    }
+
+    /**
+     * 把「运行中」清单画进浮层，并记下这次用的两份输入。
+     *
+     * 首次打开与"清单变了重画"共用这一条（[refreshRunningPopup] 也调它）。
+     */
+    private fun showRunningDetail(agents: List<SubagentInfo>) {
+        runningAgents = agents
+        shownRunning = runStatus.running
+        showDetailPopup(
+            statusCards.running,
+            buildRunningDetail(
+                runStatus.running,
+                agents,
+                ::stopRunningTask,
+                ::openSubagentTranscript,
+            ),
+        )
+        // 旗子**必须在 showDetailPopup 之后立**：它内部先 cancel 旧浮层，
+        // 那一刻的 onClosed 会走 closeDetail 把旗清掉
+        runningListShown = true
+    }
+
+    /**
+     * 清单变了就重画开着的「运行中」浮层。
+     *
+     * 少了它，点「终止」之后那一行得收起再打开才消失 —— 看起来就是"点了没反应"。
+     * 判等拿的是整个清单（含 detail / 时长），所以 task_progress 每走一步，
+     * 浮层里那两行也跟着活（B2 的"跑着的时候看得见"就是这个意思）。
+     *
+     * 只在**画着清单**时重画：子代理转写页复用的是同一张卡的浮层，
+     * 把人正看着的转写顶掉比不刷新坏得多。
+     */
+    private fun refreshRunningPopup() {
+        if (!runningListShown || runDetailPopup == null) return
+        if (runStatus.running == shownRunning) return
+        showRunningDetail(runningAgents)
+    }
+
+    /**
+     * 终止一个正在跑的任务（"运行中"浮层每行右端那颗）。
+     *
+     * 发完就走 —— 界面的反馈是那一行**自己消失**：CLI 发 task_notification、
+     * RunStatusTracker 把它收掉、[refreshRunningPopup] 重画浮层。
+     * 失败才出声（sidecar 报 STOP_TASK_FAILED，走 Failure 那条路进转写区）。
+     */
+    private fun stopRunningTask(taskId: String) {
+        client?.sendLine(Protocol.encodeStopTask(nextId(), taskId))
     }
 
     /**
@@ -1192,6 +1255,8 @@ class ClaudePanel(
                     return@invokeLater
                 }
                 showDetailPopup(statusCards.running, buildSubagentDetail(agent, msg.items))
+                // 换页之后画的不是清单了 —— 清单再变也不许把它顶掉
+                runningListShown = false
             }
         }
     }
@@ -1206,6 +1271,18 @@ class ClaudePanel(
             closeDetail()
         }
         card.setOpen(true)
+        // 取消旧浮层时 onClosed 把 openDetail 清掉了（见上面那句注释），
+        // 这里按新内容补回来 —— 不补的话换页/重画之后"再点一次收起"会失灵
+        // （点它变成重新打开）。2026-09-18 与「运行中」重画一起补的
+        detailOf(card)?.let { openDetail = it }
+    }
+
+    /** 浮层锚在哪张卡 → 它是哪一页。连接卡没有详情，给 null。 */
+    private fun detailOf(card: StatusCardView): DetailCard? = when (card) {
+        statusCards.context -> DetailCard.Context
+        statusCards.todos -> DetailCard.Todos
+        statusCards.running -> DetailCard.Running
+        else -> null
     }
 
     /**

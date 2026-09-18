@@ -675,6 +675,15 @@ object Protocol {
         line(id, "setModel", JsonObject().apply { addProperty("model", model) })
 
     /**
+     * 终止一个正在跑的任务（"运行中"浮层每行右端那颗）。
+     *
+     * [taskId] 与事件里 `task_started.task_id` 同源 —— 界面拿的就是它，
+     * 不需要另外对号（对子代理来说这个 id 同时就是它的 tool_use id）。
+     */
+    fun encodeStopTask(id: String, taskId: String): String =
+        line(id, "stopTask", JsonObject().apply { addProperty("taskId", taskId) })
+
+    /**
      * 权限决定。
      *
      * [updatedInput] 是 `AskUserQuestion` 回传答案的路：允许这个工具调用时

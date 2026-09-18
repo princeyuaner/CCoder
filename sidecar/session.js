@@ -232,6 +232,23 @@ export function createSession({
       await query?.interrupt?.();
     },
 
+    /**
+     * 终止一个正在跑的任务（子代理 / 后台命令）—— **会话与回合都不动**。
+     *
+     * 停完 CLI 会发一条 `task_notification`（status 'stopped'）：界面上
+     * "运行中"那一行靠它自己消失（RunStatusTracker 已有那条分支）。
+     *
+     * 与 [setModel] 同一条规矩：缺方法就抛、**不照抄** [setPermissionMode] 的
+     * 可选链 —— 那种写法在 `query` 为 null 时静默成功，用户点了个没用的
+     * 按钮却以为已经停掉了。
+     */
+    async stopTask(taskId) {
+      if (!query || typeof query.stopTask !== 'function') {
+        throw new Error('当前 CLI 不支持终止任务，需要更新 claude 可执行文件');
+      }
+      await query.stopTask(taskId);
+    },
+
     async setPermissionMode(mode) {
       await query?.setPermissionMode?.(mode);
     },

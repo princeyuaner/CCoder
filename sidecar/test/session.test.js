@@ -268,6 +268,29 @@ test('interrupt 保留会话 —— 与 stop 不同', async () => {
   assert.equal(r.behavior, 'allow', '中断后会话仍能处理新的权限询问');
 });
 
+test('stopTask 把 taskId 原样转发给 SDK Query', async () => {
+  // task id 对不上就会停错任务 —— 这条钉的是"原样"
+  const stopped = [];
+  const q = fakeQuery([], { stopTask: async (id) => { stopped.push(id); } });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await s.stopTask('t-1');
+
+  assert.deepEqual(stopped, ['t-1']);
+});
+
+test('没有 stopTask 时抛错，不静默成功', async () => {
+  // 可选链 `query?.stopTask?.()` 会 await 一个 undefined 而"成功"，
+  // 用户点了终止却什么都没发生 —— 与 setEffort 那条同一条规矩。
+  // 错误信息是**面向用户**的（会原样进转写区），所以钉中文而不是内部 API 名
+  const q = fakeQuery();
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await assert.rejects(() => s.stopTask('t-1'), /终止任务/);
+});
+
 test('setPermissionMode 转发到 SDK Query', async () => {
   const q = fakeQuery();
   const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });

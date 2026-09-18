@@ -12,6 +12,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -160,12 +161,16 @@ private fun hint(text: String): JComponent = JBLabel(text).apply {
  * 准确，但整个浮层本来就是"这个会话"的，那四个字不区分任何东西
  * （真正要区分的是上面那段"此刻在跑"）。
  *
+ * @param onStop 点每行右端那颗方块 → 终止这个任务（给的是任务的 id，即事件里那个
+ *   `task_id`）。放在 [onOpen] **前面**：尾随 lambda 只绑最后一个参数
+ *   （StatusCardsRow 的注释里记过这个坑），新参数一律加在它们前面。
  * @param onOpen 点某条 → 看它的转写。对不上号的（元信息没读到、或本来就不是
  *   子代理而是后台命令）不可点 —— 没有 agentId 就取不到转写
  */
 internal fun buildRunningDetail(
     running: List<RunningTask>,
     subagents: List<SubagentInfo>,
+    onStop: (String) -> Unit,
     onOpen: (SubagentInfo) -> Unit,
 ): JComponent {
     val box = detailBox()
@@ -178,7 +183,7 @@ internal fun buildRunningDetail(
         box.add(sectionHeader(RUNNING_SECTION, running.size.toString()))
         running.forEach { task ->
             // 任务 → 子代理：靠 tool_use id 对上。对不上就还是普通一行
-            box.add(taskRow(task, subagents.firstOrNull { it.toolUseId == task.id }, onOpen))
+            box.add(taskRow(task, subagents.firstOrNull { it.toolUseId == task.id }, onStop, onOpen))
         }
     }
 
@@ -342,6 +347,7 @@ private fun taskRow(
     task: RunningTask,
     /** 与它对应的子代理（按 tool_use id 对上）。null = 对不上，那就不可点。 */
     agent: SubagentInfo?,
+    onStop: (String) -> Unit,
     onOpen: (SubagentInfo) -> Unit,
 ): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
@@ -407,6 +413,92 @@ private fun taskRow(
             )
         }
         add(col, BorderLayout.CENTER)
+    }
+
+    // 右端那颗「终止」挂在**整行的** EAST（不是 head 里）：两行的任务也要
+    // 它贴着右沿，与单行那批对齐
+    add(TaskStopButton(task.id, onStop), BorderLayout.EAST)
+}
+
+/**
+ * 行右端那颗「终止」。
+ *
+ * 自绘一个小方块 —— 与发送键上的「停止」同一个形状语言（那个也是实心方块），
+ * 不为这个动作新引入一颗图标。**常驻可见**（很淡），悬停提亮：它的用途是
+ * "赶紧把在跑的东西停下来"，藏进悬停里等于让人先找一遍。
+ *
+ * 点它**不会**触发行上的"看它的转写"：Swing 的点击只发给最深的那个组件，
+ * 行上的监听器收不到子组件里的点击。
+ */
+internal class TaskStopButton(
+    private val taskId: String,
+    private val onStop: (String) -> Unit,
+) : JComponent() {
+
+    private var hovered = false
+
+    init {
+        isOpaque = false
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        toolTipText = "终止这个任务"
+        preferredSize = Dimension(JBUI.scale(SIDE_W), JBUI.scale(SIDE_H))
+        minimumSize = preferredSize
+        maximumSize = preferredSize
+        addMouseListener(
+            object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) {
+                    hovered = true
+                    repaint()
+                }
+
+                override fun mouseExited(e: MouseEvent) {
+                    hovered = false
+                    repaint()
+                }
+
+                override fun mouseClicked(e: MouseEvent) = onStop(taskId)
+            }
+        )
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            // 左边这段空是给方块与右边的统计数字（或第二行文字）透气用的。
+            // 它也在点击区里 —— 方块本身太小，不差这一下
+            val left = JBUI.scale(GAP)
+            val boxW = width - left
+
+            // 悬停给一层浅底，免得"提亮了"只体现在 8px 的方块上
+            if (hovered) {
+                g2.color = UIUtil.getListSelectionBackground(false)
+                g2.fillRoundRect(left, 0, boxW - 1, height - 1, JBUI.scale(4), JBUI.scale(4))
+            }
+
+            // 方块本体：与发送键那个「停止」同一条画法（fillRoundRect）。
+            // **不画字符**（■ 之类）—— 那个取决于系统字体装没装
+            val side = JBUI.scale(8)
+            g2.color = if (hovered) UIUtil.getLabelForeground() else UIUtil.getInactiveTextColor()
+            g2.fillRoundRect(
+                left + (boxW - side) / 2,
+                (height - side) / 2,
+                side,
+                side,
+                JBUI.scale(2),
+                JBUI.scale(2),
+            )
+        } finally {
+            g2.dispose()
+        }
+    }
+
+    private companion object {
+        /** 整颗钮的宽 × 高（未缩放）。左边 [GAP] 那截是透气的空。 */
+        const val SIDE_W = 26
+        const val SIDE_H = 18
+        const val GAP = 8
     }
 }
 

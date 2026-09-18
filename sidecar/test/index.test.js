@@ -27,6 +27,7 @@ function fakeSessionFactory({ setModeError = null } = {}) {
         decidePermission: (id, r) => { calls.push(['decide', id, r]); },
         denyAllPending: (r) => { calls.push(['denyAll', r]); },
         stop: () => { calls.push(['stop']); },
+        stopTask: async (id) => { calls.push(['stopTask', id]); },
         _emit: opts.onEvent,
         _perm: opts.onPermission,
       };
@@ -282,6 +283,54 @@ test('stop 之后 send 不抛错也不卡住', () => {
 
   // 不抛错即为通过；stop 后的 send 进入 preStartQueue 等待可能的新 start
   assert.equal(d.getSession(), null);
+});
+
+// ---- 终止任务（stopTask，2026-09-18）----
+
+test('stopTask 把 taskId 转给会话', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  d.handle({ id: '2', method: 'stopTask', params: { taskId: 't-1' } });
+  await tick();
+
+  assert.deepEqual(sf.calls.find((c) => c[0] === 'stopTask'), ['stopTask', 't-1']);
+  assert.ok(!out.some((m) => m.type === 'error'), '成功不该报错');
+});
+
+test('stopTask 失败时上报错误 —— "它还在跑"这件事要说出来', async () => {
+  // 不 await 的话拒绝会成为一条 unhandled rejection，界面上什么都看不见
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const s = d.handle(START);
+  s.stopTask = async () => { throw new Error('没有这个任务'); };
+
+  d.handle({ id: '2', method: 'stopTask', params: { taskId: 't-9' } });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.ok(e, '终止失败必须上报，不能静默吞掉');
+  assert.equal(e.code, 'STOP_TASK_FAILED');
+  assert.equal(e.fatal, false, '终止失败不该断开整个会话');
+  assert.match(e.message, /没有这个任务/);
+});
+
+test('stopTask 缺 taskId 时直接报错，不去停一个空 id', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  d.handle(START);
+
+  d.handle({ id: '2', method: 'stopTask', params: {} });
+  await tick();
+
+  const e = out.find((m) => m.type === 'error');
+  assert.ok(e, '缺参数必须报错');
+  assert.equal(e.code, 'STOP_TASK_FAILED');
+  assert.ok(!sf.calls.some((c) => c[0] === 'stopTask'), '缺 taskId 时不该调用会话');
 });
 
 test('setPermissionMode 成功后回报新模式', async () => {

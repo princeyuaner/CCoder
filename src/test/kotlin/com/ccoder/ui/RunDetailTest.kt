@@ -125,7 +125,7 @@ class RunDetailTest {
     @Test
     fun `运行段带上计数`() {
         val running = tracker(started("t1", "查找 sidecar 启动路径"), started("t2", "核对 SDK 类型")).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}) {})
 
         assertTrue("运行中" in labels, "要有段标题")
         assertTrue("2" in labels, "要带计数：$labels")
@@ -138,7 +138,7 @@ class RunDetailTest {
             """{"type":"system","subtype":"task_progress","task_id":"t1",
                 "usage":{"total_tokens":12400,"duration_ms":8000}}""",
         ).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}) {})
 
         assertTrue(labels.any { it == "12.4k tok · 8s" }, "实际：$labels")
     }
@@ -153,7 +153,7 @@ class RunDetailTest {
                 "description":"Reading TokenStore.kt",
                 "usage":{"total_tokens":12400,"duration_ms":80000}}""",
         ).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}) {})
 
         // 第一行是任务名（**不**再被进行时顶掉），统计还在它右边
         assertTrue(labels.any { it.contains("找一下 token 刷新的调用点") }, "任务名丢了：$labels")
@@ -165,7 +165,7 @@ class RunDetailTest {
     @Test
     fun `没有进行时的时候就是一行 —— 与从前一字不差`() {
         val running = tracker(started("t1", "查找 sidecar 启动路径")).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}) {})
 
         assertTrue(labels.any { it.contains("查找 sidecar 启动路径") }, "实际：$labels")
         // 没有那句话就**不画**第二行（空行会让浮层里每条都多占一格）
@@ -179,7 +179,7 @@ class RunDetailTest {
             """{"type":"system","subtype":"task_progress","task_id":"t1",
                 "description":"Reading TokenStore.kt","summary":"正在核对刷新路径"}""",
         ).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList()) {})
+        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}) {})
 
         assertTrue(labels.any { it == "正在核对刷新路径" }, "实际：$labels")
         assertTrue(labels.none { it == "Reading TokenStore.kt" }, "两条都画了：$labels")
@@ -188,7 +188,7 @@ class RunDetailTest {
     @Test
     fun `运行段空着时说实话，而不是给一个空框`() {
         // 卡上写"空闲"时不该弹得出来，但真弹出来了就得说实话
-        assertEquals(listOf("当前没有任务"), labelsIn(buildRunningDetail(emptyList(), emptyList()) {}))
+        assertEquals(listOf("当前没有任务"), labelsIn(buildRunningDetail(emptyList(), emptyList(), {}) {}))
     }
 
     // ---- 两段分家 ----
@@ -200,7 +200,7 @@ class RunDetailTest {
         val t = tracker(todosLabel("甲" to "pending"), started("t1", "甲"))
 
         val todoLabels = labelsIn(buildTodoDetail(t.todos!!))
-        val runningLabels = labelsIn(buildRunningDetail(t.running, emptyList()) {})
+        val runningLabels = labelsIn(buildRunningDetail(t.running, emptyList(), {}) {})
 
         assertTrue("任务列表" in todoLabels)
         assertTrue("运行中" !in todoLabels, "清单浮层里不该出现运行段：$todoLabels")
@@ -233,6 +233,7 @@ class RunDetailTest {
         val box = buildRunningDetail(
             emptyList(),
             listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+            {},
         ) {}
 
         val texts = labelsIn(box).joinToString("\n")
@@ -248,6 +249,7 @@ class RunDetailTest {
         val running = buildRunningDetail(
             listOf(RunningTask("call_x", "local_bash", "跑测试", null, 0, 0)),
             emptyList(),
+            {},
         ) {}
         val subagents = buildRunningDetail(
             emptyList(),
@@ -255,6 +257,7 @@ class RunDetailTest {
                 SubagentInfo("a1", "Explore", "找调用点", "call_1"),
                 SubagentInfo("a2", "Plan", "设计一下", "call_2"),
             ),
+            {},
         ) {}
 
         assertEquals(RUNNING_SECTION, labelsIn(running).firstOrNull(), "实际：${labelsIn(running)}")
@@ -271,6 +274,7 @@ class RunDetailTest {
         val box = buildRunningDetail(
             emptyList(),
             listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+            {},
         ) { picked += it.agentId }
 
         clickFirstClickable(box)
@@ -279,14 +283,19 @@ class RunDetailTest {
     }
 
     @Test
-    fun `对不上子代理的运行中任务不可点`() {
-        // 后台命令（local_bash 那种）没有子代理转写 —— 给它一个可点外观是骗人
+    fun `对不上子代理的运行中任务不可点开转写（终止钮是另一回事）`() {
+        // 后台命令（local_bash 那种）没有子代理转写 —— 给它一个"点开转写"
+        // 的外观是骗人。终止钮不受这条管：停的是任务，任何任务都停得掉
         val box = buildRunningDetail(
             listOf(RunningTask("call_x", "local_bash", "跑测试", null, 0, 0)),
             emptyList(),
-        ) {}
+            {},
+            {},
+        )
 
-        assertTrue(!hasClickable(box), "没有对应子代理的任务不该挂点击监听器")
+        val stop = findStop(box)
+        assertTrue(stop != null, "任何在跑的任务都该有终止钮")
+        assertEquals(stop, findClickable(box), "除了终止钮，这里不该有别的可点组件")
     }
 
     @Test
@@ -295,11 +304,63 @@ class RunDetailTest {
         val box = buildRunningDetail(
             listOf(RunningTask("call_9", "explore", "找调用点", null, 0, 0)),
             listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+            {},
         ) { picked += it.agentId }
 
         clickFirstClickable(box)
 
         assertEquals(listOf("a1"), picked, "任务的 id 就是 tool_use id，靠它对上子代理")
+    }
+
+    // ---- 终止（2026-09-18）----
+
+    @Test
+    fun `运行中那行右端有终止钮，点了报出 task id`() {
+        val stopped = mutableListOf<String>()
+        val box = buildRunningDetail(
+            listOf(RunningTask("t1", "explore", "找调用点", null, 0, 0)),
+            emptyList(),
+            { stopped += it },
+            {},
+        )
+
+        clickStop(box)
+
+        assertEquals(listOf("t1"), stopped)
+    }
+
+    @Test
+    fun `没有对应子代理的任务也有终止钮 —— 停的是任务，不是「子代理」这个身份`() {
+        val stopped = mutableListOf<String>()
+        val box = buildRunningDetail(
+            listOf(RunningTask("t9", "local_bash", "跑测试", null, 0, 0)),
+            emptyList(),
+            { stopped += it },
+            {},
+        )
+
+        clickStop(box)
+
+        assertEquals(listOf("t9"), stopped)
+    }
+
+    @Test
+    fun `点终止钮不会顺手把转写页翻出来`() {
+        // Swing 的点击只发给最深的那个组件 —— 行上"看它的转写"的监听器
+        // 收不到子组件里的点击。这条钉的就是那个假设
+        val opened = mutableListOf<String>()
+        val stopped = mutableListOf<String>()
+        val box = buildRunningDetail(
+            listOf(RunningTask("call_9", "explore", "找调用点", null, 0, 0)),
+            listOf(SubagentInfo("a1", "Explore", "找调用点", "call_9")),
+            { stopped += it },
+            { opened += it.agentId },
+        )
+
+        clickStop(box)
+
+        assertEquals(listOf("call_9"), stopped)
+        assertEquals(emptyList<String>(), opened, "点的是终止，不该把转写页也翻出来")
     }
 
     @Test
@@ -350,12 +411,29 @@ class RunDetailTest {
         )
     }
 
-    private fun hasClickable(root: Component): Boolean = findClickable(root) != null
-
     private fun findClickable(root: Component): Component? {
         if (root.mouseListeners.isNotEmpty()) return root
         if (root is Container) {
             for (c in root.components) findClickable(c)?.let { return it }
+        }
+        return null
+    }
+
+    /** 点树里那颗终止钮（自绘组件，按类型找）。 */
+    private fun clickStop(root: Component) {
+        val button = findStop(root) ?: throw AssertionError("这棵树里没有终止钮")
+        button.dispatchEvent(
+            MouseEvent(
+                button, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
+                0, 2, 2, 1, false, MouseEvent.BUTTON1,
+            )
+        )
+    }
+
+    private fun findStop(root: Component): TaskStopButton? {
+        if (root is TaskStopButton) return root
+        if (root is Container) {
+            for (c in root.components) findStop(c)?.let { return it }
         }
         return null
     }

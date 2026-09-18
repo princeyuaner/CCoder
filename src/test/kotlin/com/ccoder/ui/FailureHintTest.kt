@@ -40,6 +40,19 @@ class FailureHintTest {
     }
 
     /**
+     * 2026-09-18 新加的那条（终止钮）。失败时最要紧的是"它还在跑"这个事实，
+     * 以及还有别的停法 —— 只说一句失败，用户会以为已经停过了。
+     */
+    @Test
+    fun `终止失败说清"它还在跑"，并给出第二条停法`() {
+        val got = failureHintText("STOP_TASK_FAILED", "没有这个任务")
+
+        assertTrue(got.startsWith("没有这个任务"), "原文必须在最前面（它是唯一的事实）：$got")
+        assertTrue(got.contains("还在跑"), "得说清现状：$got")
+        assertTrue(got.contains("停止"), "得给出别的停法：$got")
+    }
+
+    /**
      * 2026-09-17 新加的那条：以前 claude 找不到时，用户看到的只有
      * sidecar 那句「未找到 claude 可执行文件」，不知道去哪儿装。
      */

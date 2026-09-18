@@ -420,6 +420,26 @@ export function createDispatcher({
         session?.interrupt?.();
         return session;
 
+      case 'stopTask': {
+        // 与 setPermissionMode 同一套：await 并回报**失败** —— 静默吞掉的话，
+        // 用户点的是"终止"，看到的却是一个继续在跑的条目，只能猜。
+        // **成功不回执**：界面的反馈是那一行自己消失（CLI 会发
+        // task_notification，RunStatusTracker 把它收掉），多回一条没人看。
+        const { taskId } = params;
+        if (typeof taskId !== 'string' || taskId === '') {
+          fail('STOP_TASK_FAILED', '缺少 taskId 参数', false);
+          return session;
+        }
+        const call = session?.stopTask;
+        if (typeof call !== 'function') {
+          fail('STOP_TASK_FAILED', '当前会话不支持终止任务', false);
+          return session;
+        }
+        Promise.resolve(call.call(session, taskId))
+          .catch((err) => fail('STOP_TASK_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
       case 'setPermissionMode': {
         // 必须 await 并回报结果。原先是不 await 的裸调用，拒绝会变成一条
         // unhandled rejection —— 界面上什么都看不见，用户以为切成功了。
