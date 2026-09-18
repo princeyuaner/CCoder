@@ -157,39 +157,19 @@
     </ul>
     ]]></description>
 
-    <!-- 口径：**只写相对上一版（0.2.20）的增量**，中英各一份（§八）。
-         0.2.20 **已过审上架**（2026-09-18 查市场 API 确认：approve=true、listed=true，
-         线上就是它）—— 所以那五条（b490a9d）不并进来，用户更新到 0.2.20 时看过了。
-         上一版"万一没过审要带着走"的风险到期没应验。复核法见发布设计稿 §五。 -->
+    <!-- 口径：**只写相对上一版（0.2.21）的增量**，中英各一份（§八）。
+         0.2.21 已通过 publishPlugin 传上市场、**审核中**（2026-09-18 查 `api/plugins/34281`：
+         `hasUnapprovedUpdate: true`）。万一它没过审，本版就是首个公开版本 —— 那时要把
+         0.2.21 那四条（1a630da）并进来，按 a936a6d 那次的做法。复核法见发布设计稿 §五。 -->
     <change-notes><![CDATA[
-    <h3>0.2.21</h3>
+    <h3>0.2.22</h3>
     <ul>
-      <li><b>Subagents get their own block</b> &mdash; their steps used to be laid out
-          flat in the main transcript; now they live inside the Task card, indented and
-          collapsed by default &mdash; click to read, and the same when you reopen an
-          old session.</li>
-      <li><b>The running row says what it is doing</b> &mdash; the row under 运行中 in
-          the Agents popup is now two lines: the task name, and the step it is on right
-          now.</li>
-      <li><b>A running task can be stopped</b> &mdash; every row under 运行中 has a
-          small &#9632; at its right edge. It terminates just that subagent or
-          background command, not the conversation; if the stop does not land, you are
-          told so.</li>
-      <li><b>Markdown tables lay out properly</b> &mdash; column widths, alignment and
-          stray spacing in transcript tables are fixed (three inherited CSS rules were
-          fighting inside the cells).</li>
+      <li>TODO: this version's changes, written as the delta against 0.2.21 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (1a630da).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>子代理的对话收进它自己的卡里</b> &mdash;&mdash; 从前子代理跑的每一步都平铺在
-          主转写里；现在收进那张 Task 卡（缩进、默认收着，点开就看），恢复历史会话时也一样。</li>
-      <li><b>「运行中」那行会说话了</b> &mdash;&mdash; 「子代理」浮层里那行从"只有任务名"
-          改成两行：第一行任务名，第二行是它此刻在做的那一步。</li>
-      <li><b>在跑的任务能随手终止</b> &mdash;&mdash; 「运行中」每行右端多了一颗小方块 ■：
-          停的只是那一个子代理或后台命令，对话继续；停不掉会明说，不会静默。</li>
-      <li><b>Markdown 表格排版修好</b> &mdash;&mdash; 转写里表格的列宽、对齐、多余空格都修了
-          （三条继承下来的 CSS 规则本来在单元格里打架）。</li>
+      <li>待写：本版相对 <b>0.2.21</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>1a630da</code>）。</li>
     </ul>
     ]]></change-notes>
 
