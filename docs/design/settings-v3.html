@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CCoder · 设置界面改版 · 四案选型</title>
+<style>
+*{box-sizing:border-box}
+:root[data-theme="dark"]{
+  --bg:#1b1c1f; --panel:#2b2d30; --raise:#26282b; --line:#393b40; --line2:#4a4d52;
+  --text:#dfe1e5; --dim:#9da0a8; --dim2:#7d8188; --accent:#3574f0; --accent-soft:rgba(53,116,240,.16);
+  --sel:#2e436e; --input:#1e1f22; --input-line:#43454a; --chip:#37393e;
+  --danger:#e0575b; --warn:#c8a24a; --warn-soft:rgba(200,162,74,.12);
+  --shadow:0 14px 40px rgba(0,0,0,.5);
+}
+:root[data-theme="light"]{
+  --bg:#eceef2; --panel:#ffffff; --raise:#f7f8fa; --line:#e2e5ea; --line2:#c9ccd1;
+  --text:#1e1f22; --dim:#71757c; --dim2:#9298a0; --accent:#3574f0; --accent-soft:rgba(53,116,240,.10);
+  --sel:#d7e2f7; --input:#ffffff; --input-line:#c9ccd1; --chip:#eceef1;
+  --danger:#c94f4f; --warn:#9a7b26; --warn-soft:rgba(154,123,38,.10);
+  --shadow:0 14px 40px rgba(20,24,34,.20);
+}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);
+  font:13px/1.5 "Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;
+  background:var(--chip);border-radius:4px;padding:0 4px}
+
+/* ---------- 页面外壳 ---------- */
+header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:10px 18px;background:var(--bg);border-bottom:1px solid var(--line)}
+.brand{font-weight:600;font-size:13.5px}
+.brand small{color:var(--dim);font-weight:400;margin-left:8px;font-size:12px}
+.views{display:flex;gap:5px;flex-wrap:wrap}
+.views button,.hd-r button{font:inherit;font-size:12.5px;color:var(--dim);cursor:pointer;
+  background:transparent;border:1px solid transparent;border-radius:999px;padding:5px 12px}
+.views button:hover{background:var(--chip);color:var(--text)}
+.views button.on{background:var(--accent-soft);color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.hd-r{margin-left:auto;display:flex;gap:6px}
+.hd-r button{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+.hd-r button:hover{color:var(--text);border-color:var(--line2)}
+main{padding:22px}
+.pane{display:none}
+.pane.on{display:block}
+
+/* ---------- 说明卡 ---------- */
+.blurb{max-width:980px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:14px 18px;margin-bottom:20px}
+.blurb h2{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:8px}
+.blurb p{margin:0 0 8px;color:var(--dim)}
+.blurb ul{margin:6px 0 0;padding-left:18px;color:var(--dim)}
+.blurb li{margin:4px 0}
+.blurb li b{color:var(--text);font-weight:600}
+.tag{display:inline-block;font-size:11px;font-weight:400;padding:1px 8px;border-radius:999px;
+  border:1px solid var(--line);color:var(--dim)}
+.shots{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+figure{margin:0}
+figcaption{margin-top:9px;color:var(--dim);font-size:12px}
+
+/* ---------- 对话框 ---------- */
+.dlg{width:860px;height:560px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;
+  box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;color:var(--text);
+  zoom:var(--z,1)}
+.dlg-bar{flex:0 0 36px;display:flex;align-items:center;gap:8px;padding:0 14px;
+  border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600}
+.dlg-bar .ic{width:14px;height:14px;color:var(--accent)}
+.dlg-body{flex:1;display:flex;min-height:0}
+.dlg-foot{flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;border-top:1px solid var(--line);font-size:12px;color:var(--dim)}
+
+/* 导航栏 */
+.nav{flex:0 0 176px;border-right:1px solid var(--line);padding:10px 8px;
+  display:flex;flex-direction:column;min-height:0}
+.nav-g{font-size:10.5px;letter-spacing:.09em;color:var(--dim2);padding:8px 9px 4px}
+.nav-i{display:flex;align-items:center;gap:9px;padding:5px 9px;border-radius:6px;color:var(--dim)}
+.nav-i .ic{flex:0 0 16px;width:16px;height:16px;opacity:.9}
+.nav-i.on{background:var(--sel);color:var(--text)}
+.sk-s .nav-i.on{background:var(--accent);color:#fff}
+.sk-d .nav{flex:0 0 140px}
+.sk-d .nav-i{padding:3px 8px;font-size:12.5px}
+
+/* 内容区 */
+.content{flex:1;min-width:0;padding:16px 22px;display:flex;flex-direction:column;
+  min-height:0;overflow-y:auto}
+.content>*{flex:0 0 auto}
+.page-title{font-size:15px;font-weight:600;margin:0 0 10px}
+.split{display:flex;flex:1;min-height:0}
+.lcol{flex:0 0 200px;border-right:1px solid var(--line);padding:12px;display:flex;
+  flex-direction:column;gap:1px;min-height:0}
+.fcol{flex:1;min-width:0;padding:12px 22px 12px 22px;display:flex;flex-direction:column;
+  min-height:0;overflow:hidden}
+.li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;
+  border-radius:5px;font-size:12.5px;color:var(--dim)}
+.li.on{background:var(--sel);color:var(--text)}
+.li span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* A/D：标签在左、控件右对齐、说明挂在控件下面 */
+.rows{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:2px 18px;padding:9px 0;
+  align-items:center}
+.row+.row{border-top:1px solid var(--line)}
+.row .t{align-self:center;font-size:12.5px}
+.row .c{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-direction:row}
+.row .c.col{flex-direction:column;align-items:stretch;gap:5px}
+.row .h{grid-column:2;font-size:11.5px;color:var(--dim2);line-height:1.5}
+.w400{width:400px;max-width:100%}
+.w300{width:300px;max-width:100%}
+
+/* B：卡片 */
+.card{border:1px solid var(--line);border-radius:8px;background:var(--raise);margin-bottom:12px;
+  overflow:hidden}
+.card-h{padding:8px 14px;border-bottom:1px solid var(--line);font-weight:600;font-size:12.5px;
+  background:var(--panel)}
+.card-b{padding:0 14px}
+.card-f{padding:8px 14px;border-top:1px solid var(--line);display:flex;
+  justify-content:space-between;align-items:center}
+.crow{display:grid;grid-template-columns:176px minmax(0,1fr);gap:12px;padding:8px 0;
+  align-items:center}
+.crow+.crow{border-top:1px solid var(--line)}
+.crow .t{font-size:12.5px}
+.crow .h{font-size:11px;color:var(--dim2);margin-top:2px;line-height:1.45}
+.crow .c{display:flex;gap:8px;align-items:center;justify-content:flex-end}
+.card .inp,.card .sel{background:var(--panel)}
+
+/* C：顶部页签 + 两列栅格 */
+.toptabs{flex:0 0 auto;display:flex;gap:2px;padding:0 18px;border-bottom:1px solid var(--line)}
+.toptabs .tb{padding:9px 11px;font-size:12.5px;color:var(--dim);border-bottom:2px solid transparent;
+  margin-bottom:-1px}
+.toptabs .tb.on{color:var(--text);border-bottom-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px}
+.cell{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cell .t{font-size:12px;color:var(--dim)}
+.cell .h{font-size:11.5px;color:var(--dim2);line-height:1.5}
+.cell.span2{grid-column:1/-1}
+.sh{display:flex;align-items:center;gap:10px;margin:16px 0 10px;color:var(--dim2);
+  font-size:10.5px;letter-spacing:.09em}
+.sh:first-child{margin-top:2px}
+.sh::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* D：紧凑表格 —— 标签右对齐 · 控件 · 说明收成右边一列 */
+.dgrid{display:grid;grid-template-columns:auto minmax(0,1.1fr) minmax(0,1fr);gap:0 14px;
+  align-items:center}
+.drow{display:contents}
+.dgrid .t{text-align:right;color:var(--dim);font-size:12.5px;white-space:nowrap;padding:5px 0}
+.dgrid .c{display:flex;gap:6px;align-items:center;min-width:0;padding:5px 0}
+.dgrid .h{font-size:11px;color:var(--dim2);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;padding:5px 0}
+.mono{font-family:Consolas,"Cascadia Mono",monospace}
+
+/* 控件 */
+.inp{flex:1;min-width:0;height:26px;background:var(--input);border:1px solid var(--input-line);
+  border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:12.5px;
+  white-space:nowrap;overflow:hidden}
+.inp.mono{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}
+.inp.spread{justify-content:space-between;gap:6px}
+.inp .txt{overflow:hidden;text-overflow:ellipsis}
+.psw{letter-spacing:1.5px;color:var(--dim2)}
+.sel{height:26px;min-width:180px;background:var(--input);border:1px solid var(--input-line);
+  border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:0 8px;font-size:12.5px;white-space:nowrap;overflow:hidden}
+.sel .cv{color:var(--dim2);font-size:9px}
+.btn{height:26px;padding:0 12px;border-radius:4px;border:1px solid var(--input-line);
+  background:var(--chip);display:inline-flex;align-items:center;font-size:12.5px;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.act{color:var(--accent);font-size:12.5px;display:inline-flex;align-items:center;gap:4px;
+  white-space:nowrap}
+.act.mut{color:var(--dim)}
+.act.danger,.danger{color:var(--danger)}
+.chip{font-size:10.5px;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--dim);
+  white-space:nowrap;flex:0 0 auto}
+.chip.acc{background:var(--accent-soft);color:var(--accent)}
+.x{color:var(--dim2);font-size:11px;flex:0 0 auto}
+.ic{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;
+  stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.warn{display:flex;gap:9px;padding:9px 12px;border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);
+  background:var(--warn-soft);border-radius:6px;margin-bottom:12px;align-items:flex-start}
+.warn .ic{color:var(--warn);width:15px;height:15px;margin-top:1px}
+.warn b{font-weight:600}
+.warn .d{color:var(--dim);font-size:11.5px;margin-top:2px}
+
+/* 并排 */
+.thumbs{display:flex;gap:18px;flex-wrap:wrap}
+.thumb{width:361px;height:235px;overflow:hidden;border-radius:8px;border:1px solid var(--line2);
+  background:var(--panel)}
+.thumb .dlg{zoom:1;transform:scale(.42);transform-origin:top left;box-shadow:none;border:0;
+  border-radius:0}
+.thumb-cap{margin-top:8px;color:var(--dim);font-size:12px}
+</style>
+</head>
+<body>
+
+<!-- 图标精灵（16px 线稿，颜色跟 currentColor） -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-cube" viewBox="0 0 16 16"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.4"/><path d="M6.2 1.8v2.4M9.8 1.8v2.4M6.2 11.8v2.4M9.8 11.8v2.4M1.8 6.2h2.4M1.8 9.8h2.4M11.8 6.2h2.4M11.8 9.8h2.4"/></symbol>
+  <symbol id="i-book" viewBox="0 0 16 16"><path d="M4 1.9h8v12.2l-4-2.9-4 2.9z"/></symbol>
+  <symbol id="i-slide" viewBox="0 0 16 16"><path d="M2.4 5.2h11.2M2.4 10.8h11.2"/><circle cx="6.1" cy="5.2" r="1.7"/><circle cx="9.9" cy="10.8" r="1.7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.9l5 1.9v4.1c0 3-2.1 5.2-5 6.2-2.9-1-5-3.2-5-6.2V3.8z"/></symbol>
+  <symbol id="i-term" viewBox="0 0 16 16"><rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.6"/><path d="M4.4 6.1l1.9 1.8-1.9 1.8M8.3 9.9h3.2"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 1.9v2.9M10 1.9v2.9M4.2 4.8h7.6v2.5a3.8 3.8 0 01-7.6 0zM8 11v3.1"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 16 16"><path d="M9 1.9L3.7 9h3.4l-.9 5.1L11.5 7H8.2z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16"><path d="M13.9 9.3a1.9 1.9 0 01-1.9 1.9H6.2l-3.3 2.6V4.2a1.9 1.9 0 011.9-1.9h7.2a1.9 1.9 0 011.9 1.9z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 2.2l5.7 10.4H2.3z"/><path d="M8 6.4v3M8 11.1h.01"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.8 8S4.4 3.9 8 3.9 14.2 8 14.2 8 11.6 12.1 8 12.1 1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.9"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="brand">设置界面改版<small>四个方向 · 选一个再细化</small></div>
+  <nav class="views" id="views">
+    <button data-v="current" class="on">现状</button>
+    <button data-v="a">A · IDE 原生</button>
+    <button data-v="b">B · 卡片分区</button>
+    <button data-v="c">C · 顶部页签</button>
+    <button data-v="d">D · 紧凑双列</button>
+    <button data-v="all">并排比较</button>
+  </nav>
+  <div class="hd-r">
+    <button id="zoomBtn" title="缩放 mockup">100%</button>
+    <button id="themeBtn">浅色</button>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ 现状 ============ -->
+<section class="pane on" id="v-current">
+  <div class="blurb">
+    <h2>现状 <span class="tag">真机渲染 · 860×560</span></h2>
+    <p>这三张是用渲染探针从真实 Swing 组件画出来的（<code>SettingsDialogProbe</code>），不是示意图 —— 就是你装到 IDE 里看到的样子（探针跑在浅色主题下，真机会跟随 IDE）。</p>
+    <ul>
+      <li><b>左栏是一列纯文字</b>：没有图标、没有分组，选中态是整宽的一条底色。八个页签看着像一张清单，不像导航。</li>
+      <li><b>字段一路往下堆</b>：标签上面、输入框下面，控件宽度各不相同，右边空出一大片；八页里没有一处「这几项是一组」的暗示。</li>
+      <li><b>灰色说明连成串</b>：它们与字段等宽、字号接近，读起来像正文；页与页之间只有内容不同，长相完全一样。</li>
+    </ul>
+  </div>
+  <div class="shots">
+    <figure><img src="settings-v3-current-model.png" width="860" alt="现状 · 模型页">
+      <figcaption>现状 · 模型页（列表 + 表单，最复杂的一页）</figcaption></figure>
+    <figure><img src="settings-v3-current-general.png" width="860" alt="现状 · 通用页">
+      <figcaption>现状 · 通用页</figcaption></figure>
+    <figure><img src="settings-v3-current-permission.png" width="860" alt="现状 · 权限页">
+      <figcaption>现状 · 权限页</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ A · IDE 原生 ============ -->
+<section class="pane" id="v-a">
+  <div class="blurb">
+    <h2>A · IDE 原生 <span class="tag">改动最小</span></h2>
+    <p>把设置框做成「IDE 自己那套设置」的样子：左栏分组 + 图标导航，右侧标签在左、控件右对齐成一列，说明挂在控件正下方。</p>
+    <ul>
+      <li><b>导航</b>：分两组（配置 / 其他），每个页签一枚 16px 图标；选中是圆角块，不再是整宽的方条。</li>
+      <li><b>字段成为栅格</b>：标签列固定 180px，控件列固定 400px 右对齐 —— 控件第一次对齐成一条线。</li>
+      <li><b>说明跟着控件走</b>：灰色小字挂在它说明的那个控件下面（现在挂在字段之间，读起来像正文）。</li>
+      <li><b>页脚不动</b>：还是「改动即时保存」+ 关闭。</li>
+    </ul>
+    <ul>
+      <li>代价：<b>小</b>。左栏加图标与分组 ≈ 一个 <code>navItem()</code>；<code>labeledField</code> 换成 <code>settingsRow()</code>（两列布局），八页都能原样套。</li>
+      <li>新文案：两个分组标题。风险：低。</li>
+    </ul>
+  </div>
+  <div class="shots">
+
+    <!-- A · 通用页 -->
+    <figure>
+    <div class="dlg" data-mock="a-general">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="dlg-body">
+        <div class="nav">
+          <div class="nav-g">配置</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-cube"/></svg>模型</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-book"/></svg>预置</div>
+          <div class="nav-i on"><svg class="ic"><use href="#i-slide"/></svg>通用</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-shield"/></svg>权限</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-term"/></svg>环境</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-plug"/></svg>MCP</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-zap"/></svg>hooks</div>
+          <div class="nav-g">其他</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-chat"/></svg>群交流</div>
+        </div>
+        <div class="content">
+          <div class="page-title">通用</div>
+          <div class="rows">
+            <div class="row">
+              <div class="t">claude 可执行文件</div>
+              <div class="c"><span class="inp w400">C:\Users\CY\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\claude.exe</span><span class="btn">浏览…</span></div>
+              <div class="h">留空则从 PATH 自动解析</div>
+            </div>
+            <div class="row">
+              <div class="t">没有选中配置时用的模型</div>
+              <div class="c"><span class="inp w400">claude-sonnet-5</span></div>
+              <div class="h">只在「模型」页一条配置都没选中时生效；选中了配置就用它的模型</div>
+            </div>
+            <div class="row">
+              <div class="t">发送快捷键</div>
+              <div class="c"><span class="sel w400">Enter 发送，Shift+Enter 换行<span class="cv">▼</span></span></div>
+            </div>
+            <div class="row">
+              <div class="t">思考深度</div>
+              <div class="c"><span class="sel w400">极高<span class="cv">▼</span></span></div>
+              <div class="h">输入框左下角也能随时改（改了立刻生效，不用重开会话）；「极高」「最大」分模型，其余模型上会降级</div>
+            </div>
+            <div class="row">
+              <div class="t">界面语言</div>
+              <div class="c"><span class="sel w400">跟随 IDE<span class="cv">▼</span></span></div>
+              <div class="h">改动即时保存，界面立刻切换。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>A · 通用页</figcaption>
+    </figure>
+
+    <!-- A · 模型页 -->
+    <figure>
+    <div class="dlg" data-mock="a-model">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="dlg-body">
+        <div class="nav">
+          <div class="nav-g">配置</div>
+          <div class="nav-i on"><svg class="ic"><use href="#i-cube"/></svg>模型</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-book"/></svg>预置</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-slide"/></svg>通用</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-shield"/></svg>权限</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-term"/></svg>环境</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-plug"/></svg>MCP</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-zap"/></svg>hooks</div>
+          <div class="nav-g">其他</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-chat"/></svg>群交流</div>
+        </div>
+        <div class="split">
+          <div class="lcol">
+            <div class="li on"><span>DeepSeek</span></div>
+            <div class="li"><span>官方 Sonnet</span></div>
+            <div class="li"><span>中转 Opus</span><span class="chip acc">使用中</span></div>
+            <div style="height:8px"></div>
+            <div class="act">＋ 添加配置</div>
+          </div>
+          <div class="fcol">
+            <div class="rows">
+              <div class="row"><div class="t">名称</div><div class="c"><span class="inp w400">DeepSeek</span></div></div>
+              <div class="row"><div class="t">Base URL</div><div class="c"><span class="inp w400 mono">https://api.deepseek.com/anthropic</span></div></div>
+              <div class="row"><div class="t">认证方式</div><div class="c"><span class="sel w400">Bearer<span class="cv">▼</span></span></div></div>
+              <div class="row"><div class="t">API Key</div>
+                <div class="c"><span class="inp w400"><span class="psw">••••••••••••••••••••</span></span><svg class="ic" style="color:var(--dim2)"><use href="#i-eye"/></svg></div>
+                <div class="h">第三方端点必须有密钥 —— 否则请求会安静地发出去然后失败。</div>
+              </div>
+              <div class="row"><div class="t">模型 ID</div>
+                <div class="c col">
+                  <span class="inp w400 mono spread"><span class="txt">deepseek-flash[1m]</span><span class="chip acc">使用中</span><span class="x">✕</span></span>
+                  <span class="inp w400 mono spread"><span class="txt">deepseek-v4-pro[1m]</span><span class="x">✕</span></span>
+                  <div class="act">＋ 添加模型</div>
+                </div>
+                <div class="h">一行一个</div>
+              </div>
+              <div class="row"><div class="t"></div><div class="c"><span class="act danger">删除</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>A · 模型页</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ B · 卡片分区 ============ -->
+<section class="pane" id="v-b">
+  <div class="blurb">
+    <h2>B · 卡片分区 <span class="tag">层次最清楚</span></h2>
+    <p>字段按语义装进卡片，一张卡一个主题；导航的选中态是实心的强调色胶囊。</p>
+    <ul>
+      <li><b>卡片</b>：圆角 8 + 1px 边 + 一枚卡头标题。通用页恰好分三张：运行环境 / 会话默认值 / 界面。</li>
+      <li><b>卡内成行</b>：左边标签（说明挂在标签下），右边控件右对齐 —— 长说明不会把行撑歪。</li>
+      <li><b>危险动作单独收尾</b>：删除进卡片的脚部、红色，不再跟字段混在一列里。</li>
+      <li><b>列表 + 表单也成卡</b>：模型页左卡「配置」，右卡就是正在编辑的那一条。</li>
+      <li><b>警告也进卡的语言</b>：冲突提示是一条淡黄底的小条（模型页那张图里能看到）。</li>
+    </ul>
+    <ul>
+      <li>代价：<b>中</b>。圆角卡片要自绘（本仓库已有现成做法：状态卡就是 <code>paintComponent</code> 画的圆角面板）；分组本身是纯摆放。</li>
+      <li>新文案：卡片标题若干（通用 3、模型 2、其余页各 1-2），估 8-10 条键，中英两份。</li>
+      <li>风险：卡多了页就长，要滚动；长说明会把卡撑高。</li>
+    </ul>
+  </div>
+  <div class="shots">
+
+    <!-- B · 通用页 -->
+    <figure>
+    <div class="dlg" data-mock="b-general">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="dlg-body">
+        <div class="nav sk-s">
+          <div class="nav-g">配置</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-cube"/></svg>模型</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-book"/></svg>预置</div>
+          <div class="nav-i on"><svg class="ic"><use href="#i-slide"/></svg>通用</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-shield"/></svg>权限</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-term"/></svg>环境</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-plug"/></svg>MCP</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-zap"/></svg>hooks</div>
+          <div class="nav-g">其他</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-chat"/></svg>群交流</div>
+        </div>
+        <div class="content">
+          <div class="page-title">通用</div>
+          <div class="card">
+            <div class="card-h">运行环境</div>
+            <div class="card-b">
+              <div class="crow">
+                <div><div class="t">claude 可执行文件</div><div class="h">留空则从 PATH 自动解析</div></div>
+                <div class="c"><span class="inp" style="width:330px">…\claude-code\claude.exe</span><span class="btn">浏览…</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h">会话默认值</div>
+            <div class="card-b">
+              <div class="crow">
+                <div><div class="t">没有选中配置时用的模型</div><div class="h">只在「模型」页一条配置都没选中时生效；选中了配置就用它的模型</div></div>
+                <div class="c"><span class="inp" style="width:330px">claude-sonnet-5</span></div>
+              </div>
+              <div class="crow">
+                <div><div class="t">发送快捷键</div></div>
+                <div class="c"><span class="sel" style="width:330px">Enter 发送，Shift+Enter 换行<span class="cv">▼</span></span></div>
+              </div>
+              <div class="crow">
+                <div><div class="t">思考深度</div><div class="h">输入框左下角也能随时改；「极高」「最大」分模型，其余模型上会降级</div></div>
+                <div class="c"><span class="sel" style="width:330px">极高<span class="cv">▼</span></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h">界面</div>
+            <div class="card-b">
+              <div class="crow">
+                <div><div class="t">界面语言</div><div class="h">改动即时保存，界面立刻切换。</div></div>
+                <div class="c"><span class="sel" style="width:330px">跟随 IDE<span class="cv">▼</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>B · 通用页</figcaption>
+    </figure>
+
+    <!-- B · 模型页 -->
+    <figure>
+    <div class="dlg" data-mock="b-model">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="dlg-body">
+        <div class="nav sk-s">
+          <div class="nav-g">配置</div>
+          <div class="nav-i on"><svg class="ic"><use href="#i-cube"/></svg>模型</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-book"/></svg>预置</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-slide"/></svg>通用</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-shield"/></svg>权限</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-term"/></svg>环境</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-plug"/></svg>MCP</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-zap"/></svg>hooks</div>
+          <div class="nav-g">其他</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-chat"/></svg>群交流</div>
+        </div>
+        <div class="content" style="flex-direction:row;gap:16px;padding:16px 18px">
+          <div style="flex:0 0 210px;display:flex;flex-direction:column;min-height:0">
+            <div class="card" style="margin:0;flex:1;display:flex;flex-direction:column">
+              <div class="card-h">配置</div>
+              <div class="card-b" style="flex:1">
+                <div class="crow" style="grid-template-columns:1fr">
+                  <div class="li on" style="padding:5px 8px"><span>DeepSeek</span></div>
+                </div>
+                <div class="crow" style="grid-template-columns:1fr;border-top:1px solid var(--line)">
+                  <div class="li" style="padding:5px 8px"><span>官方 Sonnet</span></div>
+                </div>
+                <div class="crow" style="grid-template-columns:1fr;border-top:1px solid var(--line)">
+                  <div class="li" style="padding:5px 8px"><span>中转 Opus</span><span class="chip acc">使用中</span></div>
+                </div>
+              </div>
+              <div class="card-f"><span class="act">＋ 添加配置</span></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;min-height:0">
+            <div class="card" style="margin:0;flex:1;display:flex;flex-direction:column">
+              <div class="card-h">DeepSeek</div>
+              <div class="card-b" style="flex:1;overflow:hidden">
+                <div class="crow"><div><div class="t">名称</div></div><div class="c"><span class="inp" style="width:300px">DeepSeek</span></div></div>
+                <div class="crow"><div><div class="t">Base URL</div></div><div class="c"><span class="inp mono" style="width:300px">https://api.deepseek.com/anthropic</span></div></div>
+                <div class="crow"><div><div class="t">认证方式</div></div><div class="c"><span class="sel" style="width:300px">Bearer<span class="cv">▼</span></span></div></div>
+                <div class="crow"><div><div class="t">API Key</div><div class="h">第三方端点必须有密钥，否则请求会安静失败</div></div><div class="c"><span class="inp" style="width:300px"><span class="psw">••••••••••••••••••••</span></span><svg class="ic" style="color:var(--dim2)"><use href="#i-eye"/></svg></div></div>
+                <div class="crow"><div><div class="t">模型 ID</div><div class="h">一行一个</div></div>
+                  <div class="c col" style="flex-direction:column;align-items:stretch;gap:5px;justify-content:flex-start">
+                    <span class="inp mono spread" style="width:300px"><span class="txt">deepseek-flash[1m]</span><span class="chip acc">使用中</span><span class="x">✕</span></span>
+                    <span class="inp mono spread" style="width:300px"><span class="txt">deepseek-v4-pro[1m]</span><span class="x">✕</span></span>
+                    <span class="act">＋ 添加模型</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-f"><span class="act danger">删除</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>B · 模型页</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ C · 顶部页签 ============ -->
+<section class="pane" id="v-c">
+  <div class="blurb">
+    <h2>C · 顶部页签 <span class="tag">内容最宽</span></h2>
+    <p>扔掉左边那 140px：页签横到顶上，内容整宽，短字段两列并排。和转写区那几个页签是同一个语言。</p>
+    <ul>
+      <li><b>页签带下划线指示条</b>，悬停才有底色；不再有"一整条方条"的选中态。</li>
+      <li><b>多出 140px</b>：两列并排也放得下（发送快捷键 | 思考深度），长路径与说明不再挤在 448px 里折行。</li>
+      <li><b>分节用「小标题 + 一条横线」</b>，不画卡片 —— 追求的是"文档感"，不是"仪表盘感"。</li>
+      <li><b>列表页照旧两栏</b>，但右栏宽了一大截：Base URL、模型 ID 这些长串终于能一行放下。</li>
+    </ul>
+    <ul>
+      <li>代价：<b>中</b>。导航从竖改横是外壳的事（<code>tabsColumn()</code> 换 <code>tabsRow()</code>）；各页那几个"固定宽表单栏"的常量要重算（<code>PAGE_WIDTH</code> 那套 +140）。</li>
+      <li>风险：页签以后再加就会横向挤（现在 8 个正好）；两列要对齐整齐，对不齐比一列更乱。</li>
+    </ul>
+  </div>
+  <div class="shots">
+
+    <!-- C · 通用页 -->
+    <figure>
+    <div class="dlg" data-mock="c-general">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="toptabs">
+        <div class="tb">模型</div><div class="tb">预置</div><div class="tb on">通用</div>
+        <div class="tb">权限</div><div class="tb">环境</div><div class="tb">MCP</div>
+        <div class="tb">hooks</div><div class="tb">群交流</div>
+      </div>
+      <div class="content" style="padding-top:6px">
+        <div class="sh">运行环境</div>
+        <div class="grid2">
+          <div class="cell span2">
+            <span class="t">claude 可执行文件</span>
+            <div style="display:flex;gap:8px"><span class="inp">C:\Users\CY\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\claude.exe</span><span class="btn">浏览…</span></div>
+            <span class="h">留空则从 PATH 自动解析</span>
+          </div>
+        </div>
+        <div class="sh">会话默认值</div>
+        <div class="grid2">
+          <div class="cell span2">
+            <span class="t">没有选中配置时用的模型</span>
+            <span class="inp">claude-sonnet-5</span>
+            <span class="h">只在「模型」页一条配置都没选中时生效；选中了配置就用它的模型</span>
+          </div>
+          <div class="cell">
+            <span class="t">发送快捷键</span>
+            <span class="sel">Enter 发送，Shift+Enter 换行<span class="cv">▼</span></span>
+          </div>
+          <div class="cell">
+            <span class="t">思考深度</span>
+            <span class="sel">极高<span class="cv">▼</span></span>
+            <span class="h">「极高」「最大」分模型，其余模型上会降级；输入框左下角也能随时改</span>
+          </div>
+        </div>
+        <div class="sh">界面</div>
+        <div class="grid2">
+          <div class="cell">
+            <span class="t">界面语言</span>
+            <span class="sel">跟随 IDE<span class="cv">▼</span></span>
+            <span class="h">改动即时保存，界面立刻切换。</span>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>C · 通用页</figcaption>
+    </figure>
+
+    <!-- C · 模型页 -->
+    <figure>
+    <div class="dlg" data-mock="c-model">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="toptabs">
+        <div class="tb on">模型</div><div class="tb">预置</div><div class="tb">通用</div>
+        <div class="tb">权限</div><div class="tb">环境</div><div class="tb">MCP</div>
+        <div class="tb">hooks</div><div class="tb">群交流</div>
+      </div>
+      <div class="dlg-body">
+        <div class="lcol" style="flex:0 0 230px;border-right:0;border-right:1px solid var(--line)">
+          <div class="li on"><span>DeepSeek</span></div>
+          <div class="li"><span>官方 Sonnet</span></div>
+          <div class="li"><span>中转 Opus</span><span class="chip acc">使用中</span></div>
+          <div style="height:8px"></div>
+          <div class="act">＋ 添加配置</div>
+        </div>
+        <div class="fcol">
+          <div class="rows">
+            <div class="row"><div class="t">名称</div><div class="c"><span class="inp w400">DeepSeek</span></div></div>
+            <div class="row"><div class="t">Base URL</div><div class="c"><span class="inp w400 mono">https://api.deepseek.com/anthropic</span></div></div>
+            <div class="row"><div class="t">认证方式</div><div class="c"><span class="sel w400">Bearer<span class="cv">▼</span></span></div></div>
+            <div class="row"><div class="t">API Key</div><div class="c"><span class="inp w400"><span class="psw">••••••••••••••••••••</span></span><svg class="ic" style="color:var(--dim2)"><use href="#i-eye"/></svg></div></div>
+            <div class="row"><div class="t">模型 ID</div>
+              <div class="c col">
+                <span class="inp w400 mono spread"><span class="txt">deepseek-flash[1m]</span><span class="chip acc">使用中</span><span class="x">✕</span></span>
+                <span class="inp w400 mono spread"><span class="txt">deepseek-v4-pro[1m]</span><span class="x">✕</span></span>
+                <div class="act">＋ 添加模型</div>
+              </div>
+              <div class="h">一行一个</div>
+            </div>
+            <div class="row"><div class="t"></div><div class="c"><span class="act danger">删除</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>C · 模型页</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ D · 紧凑双列 ============ -->
+<section class="pane" id="v-d">
+  <div class="blurb">
+    <h2>D · 紧凑双列 <span class="tag">一屏看全</span></h2>
+    <p>给老手的那一版：一页读起来像一张三栏的表 —— 标签、控件、说明各占一列，行高 27px，一屏看得完更多设置。</p>
+    <ul>
+      <li><b>三栏表格</b>：标签右对齐、控件紧跟在它右边（不再右对齐到一条线），说明收成最右边一列 11px 小字 —— 不再占段落，也不再跟字段抢宽度。</li>
+      <li><b>行高 27px</b>：整页一眼扫完，眼睛沿标签列往下走。</li>
+      <li><b>等宽体给路径与模型 ID</b>：<code>deepseek-flash[1m]</code> 这种一眼看清括号后缀。</li>
+      <li><b>模型 ID 变成真正的列表行</b>：每行一个、"设为在用"是个动作，而不是一串长得一样的输入框。</li>
+    </ul>
+    <ul>
+      <li>代价：<b>小-中</b>。就是栅格改写 + 提示语挪位置；<code>wrappedHint</code> 在通用页会基本消失 —— <b>但权限页那几句说明是安全声明，别收进 ⓘ</b>，那一页照旧整句写出来。</li>
+      <li>风险：密。对"怕看漏"的人不友好；收进 ⓘ 的话不容易被发现。</li>
+    </ul>
+  </div>
+  <div class="shots">
+
+    <!-- D · 通用页 -->
+    <figure>
+    <div class="dlg" data-mock="d-general">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="dlg-body">
+        <div class="nav sk-d">
+          <div class="nav-g">配置</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-cube"/></svg>模型</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-book"/></svg>预置</div>
+          <div class="nav-i on"><svg class="ic"><use href="#i-slide"/></svg>通用</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-shield"/></svg>权限</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-term"/></svg>环境</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-plug"/></svg>MCP</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-zap"/></svg>hooks</div>
+          <div class="nav-g">其他</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-chat"/></svg>群交流</div>
+        </div>
+        <div class="content" style="padding-top:12px">
+          <div class="sh">运行环境</div>
+          <div class="dgrid">
+            <div class="drow">
+              <span class="t">claude 可执行文件</span>
+              <div class="c"><span class="inp">C:\Users\CY\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\claude.exe</span><span class="btn">浏览…</span></div>
+              <span class="h">留空则从 PATH 自动解析</span>
+            </div>
+          </div>
+          <div class="sh">会话默认值</div>
+          <div class="dgrid">
+            <div class="drow">
+              <span class="t">没有选中配置时用的模型</span>
+              <div class="c"><span class="inp">claude-sonnet-5</span></div>
+              <span class="h">只在「模型」页一条配置都没选中时生效</span>
+            </div>
+            <div class="drow">
+              <span class="t">发送快捷键</span>
+              <div class="c"><span class="sel" style="min-width:0">Enter 发送，Shift+Enter 换行<span class="cv">▼</span></span></div>
+              <span class="h"></span>
+            </div>
+            <div class="drow">
+              <span class="t">思考深度</span>
+              <div class="c"><span class="sel" style="min-width:0;width:220px">极高<span class="cv">▼</span></span></div>
+              <span class="h">「极高」「最大」分模型，其余模型上会降级</span>
+            </div>
+          </div>
+          <div class="sh">界面</div>
+          <div class="dgrid">
+            <div class="drow">
+              <span class="t">界面语言</span>
+              <div class="c"><span class="sel" style="min-width:0;width:220px">跟随 IDE<span class="cv">▼</span></span></div>
+              <span class="h">改动即时保存，界面立刻切换。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>D · 通用页</figcaption>
+    </figure>
+
+    <!-- D · 模型页 -->
+    <figure>
+    <div class="dlg" data-mock="d-model">
+      <div class="dlg-bar"><svg class="ic"><use href="#i-cube"/></svg>设置</div>
+      <div class="dlg-body">
+        <div class="nav sk-d">
+          <div class="nav-g">配置</div>
+          <div class="nav-i on"><svg class="ic"><use href="#i-cube"/></svg>模型</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-book"/></svg>预置</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-slide"/></svg>通用</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-shield"/></svg>权限</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-term"/></svg>环境</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-plug"/></svg>MCP</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-zap"/></svg>hooks</div>
+          <div class="nav-g">其他</div>
+          <div class="nav-i"><svg class="ic"><use href="#i-chat"/></svg>群交流</div>
+        </div>
+        <div class="split">
+          <div class="lcol" style="flex:0 0 190px;padding:10px">
+            <div class="li on" style="padding:3px 8px"><span>DeepSeek</span></div>
+            <div class="li" style="padding:3px 8px"><span>官方 Sonnet</span></div>
+            <div class="li" style="padding:3px 8px"><span>中转 Opus</span><span class="chip acc">使用中</span></div>
+            <div style="height:6px"></div>
+            <div class="act">＋ 添加配置</div>
+          </div>
+          <div class="fcol" style="padding:10px 18px">
+            <div class="dgrid" style="grid-template-columns:auto minmax(0,1.9fr) minmax(0,1fr)">
+              <div class="drow"><span class="t">名称</span><div class="c"><span class="inp">DeepSeek</span></div><span class="h"></span></div>
+              <div class="drow"><span class="t">Base URL</span><div class="c"><span class="inp mono">https://api.deepseek.com/anthropic</span></div><span class="h">第三方端点用</span></div>
+              <div class="drow"><span class="t">认证方式</span><div class="c"><span class="sel" style="min-width:0;width:180px">Bearer<span class="cv">▼</span></span></div><span class="h"></span></div>
+              <div class="drow"><span class="t">API Key</span>
+                <div class="c"><span class="inp"><span class="psw">••••••••••••••••••••</span></span><svg class="ic" style="color:var(--dim2)"><use href="#i-eye"/></svg></div>
+                <span class="h">必须有密钥，否则请求会安静地失败</span></div>
+            </div>
+            <div class="sh">模型 ID · 一行一个</div>
+            <div class="dgrid">
+              <div class="drow"><span class="t mono">deepseek-flash[1m]</span>
+                <div class="c"><span class="chip acc">使用中</span><span class="act mut">设为在用</span></div>
+                <div class="c" style="justify-content:flex-end"><span class="x">✕</span></div></div>
+              <div class="drow"><span class="t mono">deepseek-v4-pro[1m]</span>
+                <div class="c"><span class="act">设为在用</span></div>
+                <div class="c" style="justify-content:flex-end"><span class="x">✕</span></div></div>
+            </div>
+            <div style="margin-top:8px"><span class="act">＋ 添加模型</span></div>
+            <div style="margin-top:auto"><span class="act danger">删除</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot"><span>改动即时保存</span><span class="btn primary">关闭</span></div>
+    </div>
+    <figcaption>D · 模型页（模型 ID 变成列表行，不再是一串一模一样的输入框）</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ 并排比较 ============ -->
+<section class="pane" id="v-all">
+  <div class="blurb">
+    <h2>并排比较 <span class="tag">都是通用页</span></h2>
+    <p>四个方向放在一起看。差别主要在四件事上：<b>导航长什么样</b>、<b>字段怎么排</b>、<b>说明放哪儿</b>、<b>有没有分组</b>。</p>
+    <ul>
+      <li>想风险最小、最"像 IDE 自己的设置" → <b>A</b></li>
+      <li>想层次最清楚、最好看 → <b>B</b>（代价：自绘圆角卡片）</li>
+      <li>嫌内容太窄、长路径老折行 → <b>C</b>（代价：导航从竖改横）</li>
+      <li>老手、想一屏看全 → <b>D</b>（代价：说明要收，权限页那几句不收）</li>
+      <li>我的偏好：<b>A 的导航 + 行栅格，配 B 的卡片分组</b>（只在通用 / 权限 / 环境这类纯表单页用卡）。你要是点头，我按这个混合出一版细化稿。</li>
+    </ul>
+    <p style="margin-top:10px">这些 mockup 是 HTML 画的<b>示意图</b>，不是 Swing 渲染 —— 方向看它，落到真机上字体、圆角、控件高度会有细小差别。mockup 里的字除卡片/分组标题外都是从词表里抄的；新文案（分组标题、卡片标题）要进词表，中英两份。</p>
+  </div>
+  <div class="thumbs">
+    <div><div class="thumb" data-clone="a-general"></div><div class="thumb-cap">A · IDE 原生</div></div>
+    <div><div class="thumb" data-clone="b-general"></div><div class="thumb-cap">B · 卡片分区</div></div>
+    <div><div class="thumb" data-clone="c-general"></div><div class="thumb-cap">C · 顶部页签</div></div>
+    <div><div class="thumb" data-clone="d-general"></div><div class="thumb-cap">D · 紧凑双列</div></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// ---- 切换方案 ----
+const views = document.getElementById('views');
+views.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-v]');
+  if (!btn) return;
+  views.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+  document.querySelectorAll('.pane').forEach(p =>
+    p.classList.toggle('on', p.id === 'v-' + btn.dataset.v));
+  window.scrollTo({ top: 0 });
+});
+
+// ---- 用 #a / #b / #c / #d / #all / #current 直接开某个方案（也方便截图）----
+const want = location.hash.replace('#', '');
+if (want) {
+  const b = views.querySelector('button[data-v="' + want + '"]');
+  if (b) b.click();
+}
+
+// ---- 浅色 / 深色 ----
+const root = document.documentElement;
+const themeBtn = document.getElementById('themeBtn');
+themeBtn.addEventListener('click', () => {
+  const dark = root.dataset.theme === 'dark';
+  root.dataset.theme = dark ? 'light' : 'dark';
+  themeBtn.textContent = dark ? '深色' : '浅色';
+});
+
+// ---- 缩放 ----
+const steps = ['100%', '85%', '70%'];
+let si = 0;
+const zoomBtn = document.getElementById('zoomBtn');
+zoomBtn.addEventListener('click', () => {
+  si = (si + 1) % steps.length;
+  zoomBtn.textContent = steps[si];
+  root.style.setProperty('--z', String(parseInt(steps[si], 10) / 100));
+});
+
+// ---- 并排缩略图：克隆对应方案 ----
+document.querySelectorAll('[data-clone]').forEach(slot => {
+  const src = document.querySelector('.dlg[data-mock="' + slot.dataset.clone + '"]');
+  if (src) slot.appendChild(src.cloneNode(true));
+});
+</script>
+</body>
+</html>
