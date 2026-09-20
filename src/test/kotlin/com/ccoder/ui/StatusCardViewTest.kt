@@ -578,4 +578,65 @@ class StatusCardViewTest {
         assertEquals(UIUtil.getLabelForeground(), contextLabel.foreground)
         assertEquals(UIUtil.getInactiveTextColor(), tasksLabel.foreground)
     }
+
+    // ---- 子代理角标（2026-09-20）----
+
+    /** 一张画好的卡：图标的框 + 框里那一小块里数出来的强调色像素。 */
+    private class Painted(val icon: java.awt.Rectangle, val accent: Int)
+
+    /**
+     * 排版 + 画一张卡，并数出图标右上角那一小块里的强调色像素。
+     *
+     * **数的是强调色（[focusColor]）而不是"非背景像素"**：角标半压在图标上，
+     * 那一小块里本来就有图标的描边 —— 数非背景的话两张卡都是正数，等于没测。
+     * 活动卡的图标是琥珀（Tone.Warn），与角标的蓝不会撞。
+     */
+    private fun paintActivity(subagent: Boolean): Painted {
+        val card = StatusCardView(icon = CardIcon.Link)
+        card.setModel(activityCardOf(Activity.Running, subagent = subagent))
+        laidOut(card)
+
+        val icon = descendantsOf(card).filterIsInstance<CardIconView>().first()
+        val bounds = javax.swing.SwingUtilities.convertRectangle(icon.parent, icon.bounds, card)
+
+        val img = java.awt.image.BufferedImage(97, 50, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        g.color = UIUtil.getPanelBackground()
+        g.fillRect(0, 0, 97, 50)
+        card.paint(g)
+        g.dispose()
+
+        // 角标半压在图标右上角：把那一角往外扩一圈就是它的范围
+        val box = java.awt.Rectangle(bounds.x + bounds.width - 5, bounds.y - 5, 8, 8)
+        return Painted(bounds, countAccent(img, box))
+    }
+
+    private fun countAccent(img: java.awt.image.BufferedImage, box: java.awt.Rectangle): Int {
+        val accent = focusColor()
+        var n = 0
+        for (x in box.x until box.x + box.width) {
+            for (y in box.y until box.y + box.height) {
+                if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue
+                val c = java.awt.Color(img.getRGB(x, y))
+                if (Math.abs(c.red - accent.red) < 60 &&
+                    Math.abs(c.green - accent.green) < 60 &&
+                    Math.abs(c.blue - accent.blue) < 60
+                ) {
+                    n++
+                }
+            }
+        }
+        return n
+    }
+
+    @Test
+    fun `子代理归属在图标右上角画一个小点 —— 画面上数得出来`() {
+        // 量像素而不是量属性：角标是**画上去**的，属性对不等于画面对
+        val marked = paintActivity(subagent = true)
+        val plain = paintActivity(subagent = false)
+
+        assertTrue(marked.icon.width > 0, "卡片没排版、图标没有 bounds —— 这条会白测")
+        assertTrue(marked.accent > 0, "带归属的卡该在图标右上角有强调色像素")
+        assertEquals(0, plain.accent, "不带归属的卡一个都不该有")
+    }
 }

@@ -133,6 +133,14 @@ class ClaudePanel(
     private var activity: Activity? = null
 
     /**
+     * 上面那个动作词**是不是子代理在跑**（规则见 [subagentOf]）。
+     *
+     * 不在 [Activity] 里带这个位：它是"谁在跑"，不是"在跑什么" —— 两者寿命与来源
+     * 都不同（动作词来自枚举，归属来自渲染项的 `parent`）。卡面据此画一个小角标。
+     */
+    private var activitySubagent = false
+
+    /**
      * CLI 正在压缩上下文（由 status 事件驱动，spec 事实 9）。
      *
      * 它不是"忙"的另一种写法：压缩中上下文卡的值行要让给「压缩中…」、动作按钮
@@ -993,9 +1001,11 @@ class ClaudePanel(
      * **值没变就直接返回**：流式期间这条会被每个 token 调一次，而"思考中"
      * 要连着几十上百次增量保持不变 —— 不挡一下就是每个 token 重画一次四张卡。
      */
-    private fun setActivity(next: Activity?) {
-        if (activity == next) return
+    private fun setActivity(next: Activity?, subagent: Boolean) {
+        // 两个都判：动作词没变、归属变了（主线程 → 子代理在跑同一类活）也得重画
+        if (activity == next && activitySubagent == subagent) return
         activity = next
+        activitySubagent = subagent
         // [Activity.Waiting] 那格要显示秒数，所以这一档得自己走表（见 waitingCardOf）。
         // 其余动作词不带秒数：工具卡上本来就有自己的计时，两处同时跳反而吵
         if (next == Activity.Waiting) startWaitingTicker() else stopWaitingTicker()
@@ -1037,8 +1047,9 @@ class ClaudePanel(
         val now = activity
         statusCards.connection.setModel(
             when {
-                now == Activity.Waiting -> waitingCardOf(waitingSeconds())
-                now != null -> activityCardOf(now)
+                now == Activity.Waiting -> waitingCardOf(waitingSeconds(), activitySubagent)
+                now != null -> activityCardOf(now, activitySubagent)
+                // 连接状态本身没有归属 —— "已连接"是会话的状态，不是谁的
                 else -> connectionCardOf(connectionState)
             }
         )
@@ -2626,8 +2637,11 @@ class ClaudePanel(
                             else -> Unit
                         }
                         when (val change = activityChangeOf(item, pendingToolIds.isNotEmpty())) {
-                            is ActivityChange.Now -> setActivity(change.activity)
-                            ActivityChange.Idle -> setActivity(null)
+                            // 归属只在卡面**真的换了**这一拍算（规则见 subagentOf）：
+                            // Keep 那些项不该动它
+                            is ActivityChange.Now ->
+                                setActivity(change.activity, subagentOf(item, activitySubagent))
+                            ActivityChange.Idle -> setActivity(null, subagent = false)
                             ActivityChange.Keep -> Unit
                         }
                     }
@@ -2765,8 +2779,10 @@ class ClaudePanel(
                 }
 
                 is SidecarMessage.Permission -> {
-                    // 这一拍最该说清楚的就是"为什么不动了"：在等你点授权
-                    setActivity(Activity.Permission)
+                    // 这一拍最该说清楚的就是"为什么不动了"：在等你点授权。
+                    // 归属**沿用上一刻**：授权请求本身没带是谁要的（子代理的工具同样
+                    // 要过这道闸），保留比妄断 false 准
+                    setActivity(Activity.Permission, activitySubagent)
                     showPermissionCard(msg)
                 }
 
@@ -3605,8 +3621,9 @@ class ClaudePanel(
         lastSendWasCommand = text.startsWith("/")
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
-        // 第一口 token 可能要等几秒，这期间卡上写"已连接"是句假话
-        setActivity(Activity.Waiting)
+        // 第一口 token 可能要等几秒，这期间卡上写"已连接"是句假话。
+        // 这条是你自己发的：归属归零（上一轮的子代理已经结束了）
+        setActivity(Activity.Waiting, subagent = false)
     }
 
     /**

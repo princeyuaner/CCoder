@@ -101,3 +101,32 @@ internal fun activityChangeOf(item: RenderItem, toolsStillRunning: Boolean): Act
     is RenderItem.Result, is RenderItem.ErrorItem -> ActivityChange.Idle
     is RenderItem.UserText, is RenderItem.SystemNote -> ActivityChange.Keep
 }
+
+/**
+ * 这一项把卡面改成动作词时，"跑的人"是不是子代理。
+ *
+ * 连接卡忙时会顶替成"现在在做什么"，而**子代理**跑工具/思考/说话时，那几个动作词
+ * 与主线程跑的**一模一样** —— 2026-09-20 用户问"这里的状态如果是属于子代理的，
+ * 能不能加个标识"。归属就落在这个返回值上：卡面据此在图标旁画一个小点
+ * （见 [StatusCardView] 里那层 `paintChildren`）。
+ *
+ * 三条规则：
+ * - **带 `parent` 的渲染项就是子代理的**（`ToolUse` / `Thinking` / `AssistantText`，
+ *   归属的形状见 `MessageRenderer.renderAssistant`）；
+ * - **「等待响应」由工具结果触发，继承上一刻的归属**：等的人还是刚才那个跑者 ——
+ *   不继承的话，子代理每次调用工具之后那几十秒（TTFT，实测 P90 10.3s）角标就会灭
+ *   一下，闪得比不标还糟；
+ * - 其余（回合结束、报错、用户消息）一律 false。
+ *
+ * [RenderItem.ToolStarting] 与两个增量帧**不带 `parent` 是刻意的**（流事件只走
+ * 主线程，见子代理设计稿事实 5/12），所以它们天然落到 false，不用特判。
+ */
+internal fun subagentOf(item: RenderItem, previous: Boolean): Boolean = when (item) {
+    // 三种分开写而不是并成一个分支：Kotlin 对"多类型的 is"不做智能转换，
+    // 并起来 `item.parent` 直接是编译错误（它们各自带 parent，没有公共父类型）
+    is RenderItem.ToolUse -> item.parent != null
+    is RenderItem.Thinking -> item.parent != null
+    is RenderItem.AssistantText -> item.parent != null
+    is RenderItem.ToolResult -> previous
+    else -> false
+}

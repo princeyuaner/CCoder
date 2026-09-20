@@ -42,6 +42,28 @@ class StatusCardsTest {
         assertFalse(connectionCardOf(ConnectionState.Connected).quiet)
     }
 
+    // ---- 归属：这一格的状态是不是子代理的（视图据此画小角标）----
+
+    @Test
+    fun `动作词可以带子代理归属，连接状态永远不带`() {
+        assertTrue(activityCardOf(Activity.Running, subagent = true).subagent)
+        assertFalse(activityCardOf(Activity.Running).subagent, "不给 = 主线程在跑")
+        assertTrue(waitingCardOf(12, subagent = true).subagent)
+        assertFalse(waitingCardOf(12).subagent)
+        // "已连接"是会话的状态，不是谁的
+        assertFalse(connectionCardOf(ConnectionState.Connected).subagent)
+    }
+
+    @Test
+    fun `带归属不影响卡面文字与色调 —— 它只是多画一个点`() {
+        val plain = activityCardOf(Activity.Editing)
+        val marked = activityCardOf(Activity.Editing, subagent = true)
+
+        assertEquals(plain.value, marked.value)
+        assertEquals(plain.label, marked.label)
+        assertEquals(plain.tone, marked.tone)
+    }
+
     @Test
     fun `忙时这张卡改说在干什么，色调统一成过渡态`() {
         // 用户原话：「我希望能实时显示当前在做什么，比如思考中，编辑文件，运行指令等等」。

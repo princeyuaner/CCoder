@@ -75,10 +75,25 @@ class StatusCardsRenderProbe {
         render("build/status-cards-probe-waiting.png", busy = true, waitingSeconds = 42)
 
     /**
+     * **子代理在跑那一版**：连接卡的动作词带一个小角标（2026-09-20 用户的请求）。
+     *
+     * 角标是画在图标右上角的一个小点 —— "够不够显眼、会不会被当成故障点"
+     * 只有看图才知道。
+     */
+    @Test
+    fun `把子代理在跑时的四张卡画成图片`() = render(
+        "build/status-cards-subagent.png",
+        busy = true,
+        activity = Activity.Running,
+        subagent = true,
+    )
+
+    /**
      * @param busy true = 四样都有内容；false = 后两张收边。
      *   空闲那张同时把上下文推到 92%，顺手验证警示色。
      * @param noUsage true = 上下文没有测量值（`contextCardOf(null)`）。
      * @param activity 非空 = 连接卡显示"正在做什么"（[activityCardOf]）。
+     * @param subagent 连接卡那一格的动作词是不是子代理在跑 → 画小角标。
      */
     private fun render(
         path: String,
@@ -87,13 +102,14 @@ class StatusCardsRenderProbe {
         noUsage: Boolean = false,
         activity: Activity? = null,
         waitingSeconds: Int? = null,
+        subagent: Boolean = false,
     ) {
         SwingUtilities.invokeAndWait {
             val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(
                     when {
-                        waitingSeconds != null -> waitingCardOf(waitingSeconds)
-                        activity != null -> activityCardOf(activity)
+                        waitingSeconds != null -> waitingCardOf(waitingSeconds, subagent)
+                        activity != null -> activityCardOf(activity, subagent)
                         else -> connectionCardOf(
                             connectionState
                                 ?: if (busy) ConnectionState.Connected else ConnectionState.Disconnected

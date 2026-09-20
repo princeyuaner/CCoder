@@ -67,6 +67,13 @@ internal data class StatusCardModel(
      * （2026-09-17 水位那版的 spec §4）。
      */
     val busy: Boolean = false,
+    /**
+     * 这一格的状态**来自子代理**（今天只有连接卡上那行动作词用得上）。
+     *
+     * 视图据此在图标旁画一个小点，**不动任何文字** —— 值行只有约 4 个汉字的宽度
+     * （见 [Activity] 的宽度约定），加词就会被省略号切。
+     */
+    val subagent: Boolean = false,
 )
 
 /** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
@@ -118,11 +125,15 @@ internal fun connectionCardOf(state: ConnectionState) = StatusCardModel(
  *
  * 色调统一 Warn：与"启动中…""载入中…"同一族 —— 它们都是**过渡态**，
  * 而绿色只留给"已连接"这种安定状态。
+ *
+ * [subagent] 由调用方按渲染项的归属给（见 [subagentOf]）：是子代理在跑时，
+ * 视图会在图标旁点一个小点。
  */
-internal fun activityCardOf(activity: Activity) = StatusCardModel(
+internal fun activityCardOf(activity: Activity, subagent: Boolean = false) = StatusCardModel(
     label = CARD_LINK,
     value = activity.text(),
     tone = Tone.Warn,
+    subagent = subagent,
 )
 
 /**
@@ -139,10 +150,11 @@ internal fun activityCardOf(activity: Activity) = StatusCardModel(
  * 秒数写法与工具卡、进行中的思考块一致（都是 `12s`）—— 同一个东西在三个地方
  * 长得一样，用户不用重新认一遍。
  */
-internal fun waitingCardOf(seconds: Int) = StatusCardModel(
+internal fun waitingCardOf(seconds: Int, subagent: Boolean = false) = StatusCardModel(
     label = Activity.Waiting.text(),
     value = elapsedText(seconds),
     tone = Tone.Warn,
+    subagent = subagent,
 )
 
 /** 秒数怎么写。单独一个函数是为了让三处（这里、工具卡、思考块）有同一个出处。 */

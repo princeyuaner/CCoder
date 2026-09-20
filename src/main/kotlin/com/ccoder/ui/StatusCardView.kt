@@ -27,6 +27,7 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.math.PI
 import kotlin.math.abs
@@ -57,6 +58,9 @@ private const val ACTION_HIT = 16
 
 /** 命中区离卡片内边距右上角的距离。 */
 private const val ACTION_INSET = 2
+
+/** 子代理角标的直径（dp）。比 14dp 的图标小一圈 —— 看得见，但不抢眼。 */
+private const val SUBAGENT_BADGE = 4
 
 /**
  * 一张状态卡（设计稿 docs/design/status-cards-v2.html 方案甲）。
@@ -316,6 +320,34 @@ internal class StatusCardView(
             // 上下文卡：水位**长在卡片上**，不是那条 2px 的指示器（2026-09-17 方案 B）
             (model?.indicator as? Indicator.Meter)?.let { paintWater(g2, arc) }
             paintActionIcon(g2)
+        } finally {
+            g2.dispose()
+        }
+    }
+
+    /**
+     * 子代理角标：压在图标右上角的一个小实心圆。
+     *
+     * **画在 [paintChildren] 而不是 [paintComponent]**：角标刻意半压在图标上（整个
+     * 挪到图标外面看着像一颗浮着的灰），而 `paintComponent` 之后才画子组件 ——
+     * 画在前一层会被图标盖掉一半。
+     *
+     * 颜色取 [focusColor]（强调色）而**不是** `alertColor()`：连接卡忙时色调是 Warn，
+     * 后者会给琥珀 —— 琥珀在这个调色板里读作"警告"，而"是子代理在跑"不是警告。
+     * 强调色也正是「子代理」卡底部那些点用的颜色：界面上"子代理"只有一种颜色。
+     */
+    override fun paintChildren(g: Graphics) {
+        super.paintChildren(g)
+        if (model?.subagent != true) return
+        val holder = iconView.parent ?: return
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            // 图标长在 topRow 里，坐标要换到卡片这一层再画
+            val icon = SwingUtilities.convertRectangle(holder, iconView.bounds, this)
+            val d = JBUI.scale(SUBAGENT_BADGE)
+            g2.color = focusColor()
+            g2.fillOval(icon.x + icon.width - d / 2, icon.y - d / 2, d, d)
         } finally {
             g2.dispose()
         }

@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.ccoder.text.CcoderText
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -107,4 +108,46 @@ class ActivityTest {
     private fun tool(name: String) = RenderItem.ToolUse(name = name, input = "{}", id = "t1")
 
     private fun toolResult() = RenderItem.ToolResult(toolUseId = "t1", text = "ok", isError = false)
+
+    // ---- 归属：这活是主线程还是子代理在跑（连接卡上那个小角标）----
+
+    @Test
+    fun `带 parent 的项就是子代理的，主线程的不带`() {
+        // 子代理的工具/思考/正文都带 parent（见 MessageRenderer.renderAssistant）——
+        // 动作词与主线程长得一样，2026-09-20 起靠这个位在卡上画个小点区分
+        assertTrue(subagentOf(RenderItem.ToolUse("Read", "{}", "t1", parent = "task1"), previous = false))
+        assertTrue(subagentOf(RenderItem.Thinking("看完了", parent = "task1"), previous = false))
+        assertTrue(subagentOf(RenderItem.AssistantText("它是这么写的", parent = "task1"), previous = false))
+
+        assertFalse(subagentOf(RenderItem.ToolUse("Read", "{}", "t2", parent = null), previous = false))
+        assertFalse(subagentOf(RenderItem.Thinking("看完了", parent = null), previous = false))
+        assertFalse(subagentOf(RenderItem.AssistantText("它是这么写的", parent = null), previous = false))
+    }
+
+    @Test
+    fun `等待响应继承归属 —— 子代理调完工具那段静默别让角标闪`() {
+        // 工具结果会切成「等待响应」，而那次等待（TTFT，实测 P90 10.3s）等的人
+        // 还是刚才那个跑者。不继承的话角标每调一次工具就灭一下
+        assertTrue(subagentOf(toolResult(), previous = true))
+        assertFalse(subagentOf(toolResult(), previous = false))
+    }
+
+    @Test
+    fun `回合结束与报错把归属清干净`() {
+        assertFalse(
+            subagentOf(
+                RenderItem.Result(subtype = "success", costUsd = null, durationMs = null),
+                previous = true,
+            )
+        )
+        assertFalse(subagentOf(RenderItem.ErrorItem("认证失败"), previous = true))
+    }
+
+    @Test
+    fun `起头帧与增量帧本来就没有归属`() {
+        // 流事件只走主线程（子代理设计稿事实 5/12）：它们不该把角标点亮
+        assertFalse(subagentOf(RenderItem.ToolStarting("Write"), previous = true))
+        assertFalse(subagentOf(RenderItem.AssistantDelta("在"), previous = true))
+        assertFalse(subagentOf(RenderItem.ThinkingDelta("嗯"), previous = true))
+    }
 }
