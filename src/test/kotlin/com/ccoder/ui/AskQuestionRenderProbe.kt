@@ -49,6 +49,20 @@ class AskQuestionRenderProbe {
     fun `把第二题作答中的样子画成图片`() = render("build/ask-card-picked.png", index = 1, picked = true)
 
     /**
+     * 单选换选之后的样子（2026-09-20 用户报的那条）。
+     *
+     * 先点「继续未提交的改动」再点「审查当前 diff」—— 图里该**只有一个勾**。
+     * 改之前这张图上两个勾都亮着（状态早就是对的，错的是没人叫前一行重画）。
+     */
+    @Test
+    fun `把单选换选后的样子画成图片`() = render(
+        "build/ask-card-swapped.png",
+        index = 0,
+        picked = false,
+        clicks = listOf("继续未提交的改动", "审查当前 diff"),
+    )
+
+    /**
      * 长题干 + 长说明。
      *
      * 2026-09-15 用户报"问题描述过长没有换行，会导致整个弹框很宽"—— 这张图就是
@@ -113,7 +127,14 @@ class AskQuestionRenderProbe {
         return flow
     }
 
-    private fun render(path: String, index: Int, picked: Boolean, req: AskRequest = request) {
+    private fun render(
+        path: String,
+        index: Int,
+        picked: Boolean,
+        req: AskRequest = request,
+        /** 布局跑完之后要按顺序点哪些选项（单选换选那种现场）。 */
+        clicks: List<String> = emptyList(),
+    ) {
         SwingUtilities.invokeAndWait {
             val flow = flowAt(index, req)
             val card = AskQuestionCard(
@@ -149,6 +170,8 @@ class AskQuestionRenderProbe {
                 textFieldsIn(card).firstOrNull()?.text = "另外再说一点"
                 card.refreshSubmit()
             }
+
+            clicks.forEach { clickOption(card, it) }
 
             // 高度要在**一次布局之后**量：BoxLayout 的首选尺寸也走同一个缓存，
             // 缓存没作废之前量出来的是没有输入框的那个高度，卡片底部会被截掉

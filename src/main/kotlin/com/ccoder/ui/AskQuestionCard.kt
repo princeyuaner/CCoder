@@ -88,6 +88,19 @@ internal class AskQuestionCard(
     /** 「其它…」的输入框外壳。输入框本身在 client property 上。 */
     private val customWrappers = mutableMapOf<String, JComponent>()
 
+    /**
+     * 当前题每个选项行的重画钩子（[buildOptionRow] 建行时塞进来）。
+     *
+     * 单选换选时改的是**状态集合**，而画出来的是**每一行自己**（勾、文字色、边框
+     * 都在那一行里）：不把别的行也叫一遍，画面上就是两个都亮着 ——
+     * 2026-09-20 用户报的"选了 A 再选 B，A 的选择没有取消"就是这个。
+     * 状态一直是对的（`QuestionState.toggle` 单选会清空），只有画面没跟上。
+     */
+    private val optionSyncs = mutableListOf<() -> Unit>()
+
+    /** 每个选项的勾标签，按 label 存 —— 给测试断言"画面上真的让位了"。 */
+    private val optionTicks = mutableMapOf<String, JLabel>()
+
     init {
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(ACCENT, 1),
@@ -147,6 +160,10 @@ internal class AskQuestionCard(
     }.leftAligned()
 
     private fun buildQuestion(qs: QuestionState): JComponent {
+        // 一题一张卡，这里本来就只会来一遍；清一次是把"将来重画同一张卡"也堵住
+        optionSyncs.clear()
+        optionTicks.clear()
+
         val base = UIUtil.getLabelFont()
         val header = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -253,12 +270,15 @@ internal class AskQuestionCard(
             revalidate()
             repaint()
         }
+        optionTicks[opt.label] = check
+        optionSyncs += { sync() }
         sync()
 
         val handler = object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 qs.toggle(opt.label)
-                sync()
+                // 刷**所有**行，不只是被点的这一行：单选换选时前一行得当场暗下去
+                refreshOptions()
                 syncCustomField(qs)
                 refreshSubmit()
             }
@@ -312,6 +332,23 @@ internal class AskQuestionCard(
         wrapper.putClientProperty(FIELD_KEY, field)
         return wrapper
     }
+
+    /**
+     * 当前题所有选项行按状态重画一遍。
+     *
+     * 单选换选改的是一个集合，而画出来的是每一行自己 —— 只刷被点的那一行，
+     * 前一行会留着勾与琥珀色（见 [optionSyncs] 的注释）。
+     */
+    private fun refreshOptions() = optionSyncs.forEach { it() }
+
+    /**
+     * 某个选项**画面上**的勾（`"✓"` 或 `""`）。
+     *
+     * 测试专用的观察口：`QuestionState` 一直是对的，出问题的是画面，
+     * 所以断言必须落在画面上（`单选下再点一个，前一个让位` 那条只测状态，
+     * 它绿着的时候用户看见的是两个勾）。
+     */
+    internal fun tickFor(label: String): String? = optionTicks[label]?.text
 
     /** 「其它…」的输入框外壳，按题目文本取。测试用它断言显隐。 */
     internal fun customWrapperFor(question: String): JComponent? = customWrappers[question]

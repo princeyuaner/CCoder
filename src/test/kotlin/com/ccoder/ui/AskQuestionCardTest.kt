@@ -407,6 +407,51 @@ class AskQuestionCardTest {
         assertTrue(c.flow.current.isSelected("继续未提交的改动"))
     }
 
+    /**
+     * 2026-09-20 用户报的那条：**状态让位了，画面没让位**。
+     *
+     * 勾、文字色、边框都是每个选项行自己画的，而原先点击只刷被点的那一行 ——
+     * 于是"选了 A 再选 B，A 的选择没有取消"。上一条只断言状态，它一直是绿的：
+     * 断言必须落在**画面上**，否则这条 bug 再来一次还是拦不住。
+     */
+    @Test
+    fun `单选下再点一个，前一个的勾画面上也收回去`() {
+        val c = card()
+        clickOption(c, "审查当前 diff")
+        assertEquals("✓", c.tickFor("审查当前 diff"))
+
+        clickOption(c, "继续未提交的改动")
+        assertEquals("", c.tickFor("审查当前 diff"), "前一个的勾没收回去")
+        assertEquals("✓", c.tickFor("继续未提交的改动"))
+    }
+
+    @Test
+    fun `多选下两个勾都留着`() {
+        val c = card(flowAt(1))
+        clickOption(c, "只影响本次会话")
+        clickOption(c, "写回设置")
+
+        assertEquals("✓", c.tickFor("只影响本次会话"))
+        assertEquals("✓", c.tickFor("写回设置"))
+    }
+
+    @Test
+    fun `选了「其它…」再选普通选项，勾与输入框一起让位`() {
+        val c = card()
+        clickOption(c, OTHER_LABEL)
+        c.flow.current.custom = "先别动，我想想"
+        c.refreshSubmit()
+
+        clickOption(c, "审查当前 diff")
+
+        assertEquals("", c.tickFor(OTHER_LABEL), "「其它…」的勾该收回去")
+        assertFalse(
+            customWrapperIn(c, "你希望我接下来做什么？").isVisible,
+            "「其它…」不再选中，输入框该收回去",
+        )
+        assertEquals(listOf("审查当前 diff"), c.flow.current.answer())
+    }
+
     @Test
     fun `多选下两个都能选中`() {
         val c = card(flowAt(1))
