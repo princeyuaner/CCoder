@@ -114,11 +114,18 @@ class SidecarProcessTest {
         proc.stdout!!.bufferedReader().readLine()
 
         val begin = System.currentTimeMillis()
-        proc.shutdown(graceMillis = 5000)
+        proc.shutdown(graceMillis = SHUTDOWN_GRACE_MILLIS)
         val elapsed = System.currentTimeMillis() - begin
 
         assertFalse(proc.isAlive, "shutdown 后进程必须已终止")
-        assertTrue(elapsed < 5000, "能自行退出就不该等满宽限期，实际 ${elapsed}ms")
+        // 判据是"**没等满**宽限期"（能自行退出就不该被强杀），不是"跑得快" ——
+        // 所以宽限期要留足：整机忙的时候 node 收 SIGTERM 能拖过 5 秒。
+        // 2026-09-20 全量跑时实测 5006ms 卡线红过一次（单跑绿），宽限期提到 20s；
+        // 真出事（比如 SIGTERM 处理没了）照样会红，只是那条路慢一点才红
+        assertTrue(
+            elapsed < SHUTDOWN_GRACE_MILLIS,
+            "能自行退出就不该等满宽限期，实际 ${elapsed}ms（宽限 ${SHUTDOWN_GRACE_MILLIS}ms）",
+        )
     }
 
     @Test
@@ -170,7 +177,8 @@ class SidecarProcessTest {
         val proc = start(tmp)
         proc.stdout!!.bufferedReader().readLine()
 
-        val deadline = System.currentTimeMillis() + 5000
+        // 同 [SHUTDOWN_GRACE_MILLIS] 那条：这是"别太快下结论"的余量，不是性能判据
+        val deadline = System.currentTimeMillis() + EXIT_DEADLINE_MILLIS
         while (proc.isAlive && System.currentTimeMillis() < deadline) {
             Thread.sleep(50)
         }
@@ -246,6 +254,17 @@ class SidecarProcessTest {
 
         assertFalse(latch.await(2, TimeUnit.SECONDS), "主动关闭不该报成故障")
     }
+
+    private companion object {
+        /**
+         * `shutdown` 的宽限期。**它同时是那条用例的判据上限**（"没等满"= 自行退出），
+         * 所以它得比"机器忙时 node 收 SIGTERM 要多久"宽 —— 20s 是余量，不是性能指标。
+         */
+        const val SHUTDOWN_GRACE_MILLIS = 20_000L
+
+        /** 等一个进程自己消失的上限。 */
+        const val EXIT_DEADLINE_MILLIS = 15_000L
+    }
 }
 
 class ProcessTreeKillerTest {
@@ -263,16 +282,24 @@ class ProcessTreeKillerTest {
         val proc = ProcessBuilder("node", "-e", "setInterval(() => {}, 1000)").start()
         try {
             assertTrue(proc.isAlive)
-            ProcessTreeKiller.killTree(proc.pid())
+            val detail = ProcessTreeKiller.killTree(proc.pid())
 
-            val deadline = System.currentTimeMillis() + 5000
+            // 判据是"真的死了"，不是"多快死"：原先给 5s，整机忙的时候 node 收尸
+            // 能拖过它（2026-09-20 全量跑时红过，单跑绿）—— 放宽到 15s；
+            // 真出事（taskkill 压根没杀成）照样会红，而且消息里带着 taskkill 的实况
+            val deadline = System.currentTimeMillis() + KILL_DEADLINE_MILLIS
             while (proc.isAlive && System.currentTimeMillis() < deadline) {
                 Thread.sleep(50)
             }
-            assertFalse(proc.isAlive, "killTree 必须真的终止进程")
+            assertFalse(proc.isAlive, "killTree 必须真的终止进程（$detail）")
         } finally {
             if (proc.isAlive) proc.destroyForcibly()
             proc.waitFor(3, TimeUnit.SECONDS)
         }
+    }
+
+    private companion object {
+        /** 等进程树消失的上限 —— 余量，不是性能判据。 */
+        const val KILL_DEADLINE_MILLIS = 15_000L
     }
 }

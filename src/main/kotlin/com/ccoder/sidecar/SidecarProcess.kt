@@ -178,23 +178,43 @@ class SidecarProcess(
  */
 object ProcessTreeKiller {
 
-    fun killTree(pid: Long) {
-        if (isWindows()) {
-            runCatching {
-                ProcessBuilder("taskkill", "/PID", pid.toString(), "/T", "/F")
-                    .redirectErrorStream(true)
-                    .start()
-                    .waitFor(5, TimeUnit.SECONDS)
-            }
-        } else {
-            runCatching {
-                // 类 Unix：先杀进程组（负 PID），失败再杀单进程。
-                // 负号是关键 —— 缺了它只杀掉组长，子进程仍存活。
-                ProcessBuilder("kill", "-TERM", "-$pid").start().waitFor(3, TimeUnit.SECONDS)
-                ProcessBuilder("kill", "-KILL", "-$pid").start().waitFor(3, TimeUnit.SECONDS)
+    /**
+     * 杀一棵树，返回**一句给人看的实况**（哪条命令、退出码、它说了什么）。
+     *
+     * 返回值只用来诊断：两个调用方（`SidecarProcess.shutdown` 与 `CommandRunner`）
+     * 都忽略它，而测试在"进程没死"时把它带进断言消息 —— 2026-09-20 之前这里把
+     * 一切都吞了，失败是**静默**的，而这一步恰恰是"别留孤儿"的兜底：
+     * 静默失败等于没有信号。
+     */
+    fun killTree(pid: Long): String =
+        if (isWindows()) taskkill(pid) else killGroup(pid)
+
+    private fun taskkill(pid: Long): String = runCatching {
+        val p = ProcessBuilder("taskkill", "/PID", pid.toString(), "/T", "/F")
+            .redirectErrorStream(true)
+            .start()
+        val done = p.waitFor(5, TimeUnit.SECONDS)
+        when {
+            // **不掐掉它**：让它自己跑完，孤儿才有机会被清掉
+            !done -> "taskkill 超时（5s 没返回）—— 进程树可能还在"
+            else -> {
+                // 先 waitFor 再读：进程收工之后读管道不会阻塞
+                val out = p.inputStream.bufferedReader().readText().trim()
+                "taskkill rc=${p.exitValue()}" + if (out.isEmpty()) "" else " $out"
             }
         }
-    }
+    }.getOrElse { "taskkill 起不来：${it.message}" }
+
+    private fun killGroup(pid: Long): String =
+        listOf("-TERM", "-KILL").map { signal ->
+            // 类 Unix：先杀进程组（负 PID），失败再杀单进程。
+            // 负号是关键 —— 缺了它只杀掉组长，子进程仍存活。
+            runCatching {
+                val p = ProcessBuilder("kill", signal, "-$pid").start()
+                val done = p.waitFor(3, TimeUnit.SECONDS)
+                "kill $signal rc=${if (done) p.exitValue() else "timeout"}"
+            }.getOrElse { "kill $signal 起不来：${it.message}" }
+        }.joinToString("；")
 
     private fun isWindows(): Boolean =
         System.getProperty("os.name").lowercase().contains("win")
