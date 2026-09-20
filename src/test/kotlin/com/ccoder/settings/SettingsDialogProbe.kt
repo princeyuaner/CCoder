@@ -140,6 +140,10 @@ private fun writePng(c: Container, w: Int, h: Int, path: String) {
  * 唯一替身是 Project（测试 JVM 里起不了真的）。
  *
  * 产物在 `build/probe/model-profiles-dialog*.png`。改了设置页的观感就跑一下看一眼。
+ *
+ * > **跑过 `-PtestLang=en` 那遍之后要加 `--rerun-tasks`**：切换系统属性不被这个任务的
+ * 增量判据看见，于是图会**留在英文上**（2026-09-20 踩过：出完英文那批图忘了重跑，
+ * 中文的截图其实一直是英文的，而文件名看不出来）。
  */
 class SettingsDialogProbe {
 

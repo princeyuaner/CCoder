@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CCoder · 设置界面改版（方案 B）· 落地实图</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eceef2;color:#1e1f22;
+  font:13px/1.6 "Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;padding:14px 22px;background:#fff;
+  border-bottom:1px solid #e2e5ea;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+header.top b{font-size:15px}
+header.top span{color:#71757c;font-size:12.5px}
+main{padding:22px;max-width:1820px}
+.note{background:#fff;border:1px solid #e2e5ea;border-radius:10px;padding:14px 18px;
+  margin-bottom:20px;max-width:1100px}
+.note h2{margin:0 0 8px;font-size:14px}
+.note p{margin:0 0 8px;color:#4a4d52}
+.note ul{margin:6px 0 0;padding-left:18px;color:#4a4d52}
+.note li{margin:4px 0}
+.note li b{color:#1e1f22}
+.grid{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+figure{margin:0}
+figure img{display:block;border:1px solid #c9ccd1;border-radius:8px;
+  box-shadow:0 10px 26px rgba(20,24,34,.14)}
+figcaption{margin-top:9px;color:#4a4d52}
+figcaption b{color:#1e1f22}
+code{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;background:#e9ebef;
+  border-radius:4px;padding:0 4px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <b>设置界面改版 · 方案 B · 落地实图</b>
+  <span>八张都是渲染探针从<b>真实对话框</b>上画的（不是照着布局重画的示意）；探针跑在浅色主题下，真机会跟随 IDE</span>
+</header>
+
+<main>
+
+  <div class="note">
+    <h2>跟选型稿的三处差别（都在你选的两条之外，逐条报备）</h2>
+    <ul>
+      <li><b>右栏那四页（模型 / 预置 / MCP / hooks）的表单仍是「标签在上、控件在下」</b>，没有跟着单栏页改成「标签在左」。
+        原因：表单栏只有 456px，扣掉卡片两层内边距再让出一个标签列，控件只剩两百来像素 —— 而这一栏里的值最长
+        （Base URL、一行一个的模型 ID）。探针里那条 <code>https://api.anthropic-relay.internal.corp.example.com/anthropic</code>
+        会当场被切。单栏页有 656px，标签列让得起。</li>
+      <li>导航<b>没做分组标题</b> —— 你选的「不分了」。</li>
+      <li>权限页那个 6 档下拉<b>这轮没动</b> —— 你选的「这轮不动」。</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <h2>验了什么</h2>
+    <ul>
+      <li>中文全量用例全绿；英文那遍的失败集与改动前<b>逐条一致</b>（那 163 条是既有的中文字面量问题，与本次无关）。</li>
+      <li>顺手钉住的：<code>SettingsCardTest</code>（控件是行的直接子件 / 标签列对齐 / 卡不是弹簧 / 卡底是圆的且与页底不同色）、
+        <code>SettingsNavTest</code>（选中铺强调色、八枚图标每枚都画得出东西）、
+        <code>FieldLookupTest</code>（新的找控件契约：旧布局与卡片行语言各一条合成夹具）。</li>
+      <li>改之前先把整套用例的「找控件」契约重写成按控件类型找（<code>FieldLookup.kt</code>）—— 卡片行语言会让旧写法
+        把<b>说明那块 JTextArea</b> 当成输入框，而且不报错。</li>
+    </ul>
+  </div>
+
+  <div class="grid">
+
+    <figure>
+      <img src="settings-v4-models.png" width="860" alt="模型页">
+      <figcaption><b>模型</b> · 左「配置」卡（列表 + 卡脚「＋ 添加配置」）｜右卡头就是正在编辑的那条的名字，删除在卡脚</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-general.png" width="860" alt="通用页">
+      <figcaption><b>通用</b> · 三张卡：运行环境 / 会话默认值 / 界面。说明挂在标签底下，控件成一竖线</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-permission.png" width="860" alt="权限页">
+      <figcaption><b>权限</b> · 一张卡：模式 + 跟着它走的那句说明 + 「我明白风险」（只在选绕过时出现）</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-environment.png" width="860" alt="环境页">
+      <figcaption><b>环境</b> · 运行依赖（它自己的标题行当卡头）/ 额外目录 / 环境变量；两个动作进卡脚，冲突提示留在卡外</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-presets.png" width="860" alt="预置页">
+      <figcaption><b>预置</b> · 左卡无卡头（装的既然是预设列表，标题只是把页签那两个字再写一遍）｜右卡头 = 预设名</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-mcp.png" width="860" alt="MCP 页">
+      <figcaption><b>MCP</b> · 左栏两张卡：<code>.mcp.json</code>（能改）与「当前会话」（只读）——它们回答的是两个问题</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-hooks.png" width="860" alt="hooks 页">
+      <figcaption><b>hooks</b> · 左卡是项目那份文件 + 「另有 N 处不归这个面板管」；右卡头 = 事件名</figcaption>
+    </figure>
+
+    <figure>
+      <img src="settings-v4-groupchat.png" width="860" alt="群交流页">
+      <figcaption><b>群交流</b> · 一张卡，二维码居中（这页刻意不是表单，居中别改）</figcaption>
+    </figure>
+
+  </div>
+
+</main>
+</body>
+</html>
