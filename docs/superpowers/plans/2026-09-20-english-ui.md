@@ -195,6 +195,16 @@ Caused by: java.lang.NullPointerException: getService(...) must not be null
 **测试**：Kotlin 1534 全绿（`./gradlew test -PskipWeb`）；sidecar 213 全绿
 （`node --test`，含 `setUiLang` 两条新用例）。
 
+**真机验收（2026-09-20 下午，用户自己装的）**：装 0.2.22 → 重启（`idea.log` 12:51:52
+那次加载 0.2.22，工具窗口正常起、无新报错）→ 切语言**当场生效** ✓。
+这是这条线第一次在真机验过，也把"`ClaudePanel` 在纯 JVM 里建不出来、只能靠真机看"
+那一半补上了。
+
+还剩一小块没在真机看过：**13:10 那份**（`preload` → `LanguageStartup`）的启动行 ——
+用户装的是 12:26 那版（带 preload 的）。影响面很小（最坏情况是注册被静默丢掉 →
+右键菜单退回 IDE 语言，不会崩），但按"动启动路径必须跑 runIde"这条规矩，
+真机日志里该出现一次 `CCoder 界面语言：启动时推给词表层（…）`。
+
 ---
 
 ## 八、市场拒收：`preload="true"` 已弃用（同日，发版时）
