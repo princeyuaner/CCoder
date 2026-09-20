@@ -92,28 +92,13 @@ private fun clickOn(target: Component) {
     target.mouseListeners.forEach { it.mouseClicked(e) }
 }
 
-/** 按文本找标签。只认完全相等 —— 表单里的字段名不会跟列表行名撞。 */
-private fun findLabel(root: Container, text: String): Component? {
-    for (child in root.components) {
-        if (child is JLabel && child.text == text) return child
-        if (child is Container) findLabel(child, text)?.let { return it }
-    }
-    return null
-}
-
+/** 深度优先找第一个满足条件的组件（按**位置**找控件，尽量别用：卡片一改就静默指错）。 */
 private fun findFirst(root: Container, match: (Component) -> Boolean): Component? {
     for (child in root.components) {
         if (match(child)) return child
         if (child is Container) findFirst(child, match)?.let { return it }
     }
     return null
-}
-
-/** 按字段标签找它下面那个输入控件 —— 表单是「标签在上、输入在下」的两层结构。 */
-private fun inputOf(root: Container, label: String): JComponent {
-    val lab = findLabel(root, label) ?: error("找不到字段标签「$label」")
-    val panel = lab.parent as? Container ?: error("「$label」不在容器里")
-    return panel.components.filterIsInstance<JComponent>().first { it !== lab }
 }
 
 /**

@@ -8,29 +8,12 @@ import java.awt.Component
 import java.awt.Container
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
-import javax.swing.JLabel
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
 
-/** 按文本找标签。只认完全相等 —— 表单里的字段名不会跟列表行名撞。 */
-private fun findLabel(root: Container, text: String): Component? {
-    for (child in root.components) {
-        if (child is JLabel && child.text == text) return child
-        if (child is Container) findLabel(child, text)?.let { return it }
-    }
-    return null
-}
-
-/** 按字段标签找它下面那个输入控件 —— 表单是「标签在上、输入在下」的两层结构。 */
-private fun inputOf(root: Container, label: String): JComponent {
-    val lab = findLabel(root, label) ?: error("找不到字段标签「$label」")
-    val panel = lab.parent as? Container ?: error("「$label」不在容器里")
-    return panel.components.filterIsInstance<JComponent>().first { it !== lab }
-}
-
-/** 内容框外面裹着滚动壳，真正的 `JTextArea` 在视口里。 */
+/** 内容框外面裹着滚动壳，真正的 `JTextArea` 在视口里（`inputOf` 拿到的就是那层壳）。 */
 private fun textAreaOf(root: Container, label: String): JTextArea {
     val box = inputOf(root, label)
     return (box as? JScrollPane)?.viewport?.view as? JTextArea

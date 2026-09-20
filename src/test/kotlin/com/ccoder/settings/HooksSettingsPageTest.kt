@@ -12,28 +12,14 @@ import java.awt.event.MouseEvent
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.JComponent
-import javax.swing.JLabel
+import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
 
-private fun findLabel(root: Container, text: String): Component? {
-    for (child in root.components) {
-        if (child is JLabel && child.text == text) return child
-        if (child is Container) findLabel(child, text)?.let { return it }
-    }
-    return null
-}
-
-private fun inputOf(root: Container, label: String): JComponent {
-    val lab = findLabel(root, label) ?: error("找不到字段标签「$label」")
-    val panel = lab.parent as? Container ?: error("「$label」不在容器里")
-    return panel.components.filterIsInstance<JComponent>().first { it !== lab }
-}
-
-/** 命令是多行框，真正的 `JTextArea` 在滚动壳的视口里。 */
+/** 命令是多行框，真正的 `JTextArea` 在滚动壳的视口里（`inputOf` 拿到的就是那层壳）。 */
 private fun commandArea(root: Container, label: String): JTextComponent {
     val box = inputOf(root, label)
-    return (box as? javax.swing.JScrollPane)?.viewport?.view as? JTextComponent
+    return (box as? JScrollPane)?.viewport?.view as? JTextComponent
         ?: error("「$label」那栏不是多行框")
 }
 

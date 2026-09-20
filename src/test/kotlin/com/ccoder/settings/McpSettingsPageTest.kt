@@ -14,25 +14,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.JComboBox
 import javax.swing.JComponent
-import javax.swing.JLabel
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
-
-/** 按文本找标签。只认完全相等。 */
-private fun findLabel(root: Container, text: String): Component? {
-    for (child in root.components) {
-        if (child is JLabel && child.text == text) return child
-        if (child is Container) findLabel(child, text)?.let { return it }
-    }
-    return null
-}
-
-/** 按字段标签找它下面那个输入控件 —— 表单是「标签在上、输入在下」的两层结构。 */
-private fun inputOf(root: Container, label: String): JComponent {
-    val lab = findLabel(root, label) ?: error("找不到字段标签「$label」")
-    val panel = lab.parent as? Container ?: error("「$label」不在容器里")
-    return panel.components.filterIsInstance<JComponent>().first { it !== lab }
-}
 
 private fun clickRow(root: Container, name: String) {
     val lab = findLabel(root, name) ?: error("列表里找不到「$name」")

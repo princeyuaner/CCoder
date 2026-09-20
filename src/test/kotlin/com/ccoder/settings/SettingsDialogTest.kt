@@ -249,16 +249,8 @@ class SettingsDialogLayoutTest {
 
 /** 点页签。监听器挂在页签那个 `JBLabel` 上，所以直接喊它。 */
 private fun clickTab(dialog: SettingsDialog, title: String) {
-    val tab = findLabelDeep(dialog.contentPane, title) ?: error("页签栏里找不到「$title」")
+    val tab = findLabel(dialog.contentPane, title) ?: error("页签栏里找不到「$title」")
     clickOn(tab)
-}
-
-private fun findLabelDeep(root: Container, text: String): JBLabel? {
-    for (child in root.components) {
-        if (child is JBLabel && child.text == text) return child
-        if (child is Container) findLabelDeep(child, text)?.let { return it }
-    }
-    return null
 }
 
 /**
@@ -292,11 +284,8 @@ class SettingsPagesTest {
         return dialog.pageHost.components.filterIsInstance<JComponent>().single()
     }
 
-    private fun fieldOf(body: Container, label: String): JComponent {
-        val lab = findLabelDeep(body, label) ?: error("这一页没有「$label」")
-        val panel = lab.parent as? Container ?: error("「$label」不在容器里")
-        return panel.components.filterIsInstance<JComponent>().first { it !== lab }
-    }
+    /** 字段标签那一行里的输入控件 —— 定位器在 `FieldLookup.kt`（七份副本已收成一份）。 */
+    private fun fieldOf(body: Container, label: String): JComponent = inputOf(body, label)
 
     private fun textOf(body: Container, label: String): JTextComponent =
         fieldOf(body, label) as? JTextComponent
