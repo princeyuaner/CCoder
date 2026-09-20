@@ -80,8 +80,11 @@ private fun firstInputIn(c: Container): JComponent? {
 internal fun rowOf(root: Container, label: String): JComponent {
     val lab = findLabel(root, label) ?: error("找不到字段标签「$label」")
     var c: Container? = lab.parent
-    while (c != null && c !== root) {
+    while (c != null) {
+        // **先量这一层，再看要不要停**：调用方常常就是把"那一行"本身递进来的
+        // （组件级用例上手就 `inputOf(row, …)`），先停再量会把它跳过去
         if (c is JComponent && firstInputIn(c) != null) return c
+        if (c === root) break
         c = c.parent
     }
     return lab.parent as? JComponent ?: error("「$label」不在容器里")
