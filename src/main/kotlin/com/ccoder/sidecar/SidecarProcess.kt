@@ -34,6 +34,18 @@ data class SidecarExit(val code: Int, val stderr: List<String>)
 class SidecarProcess(
     private val sidecarDir: Path,
     private val nodePath: String,
+    /**
+     * 界面语言，经环境变量 [UI_LANG_ENV] 交给 sidecar。
+     *
+     * **默认值刻意写死 `"en"`，不去读平台**：这个类在纯 JVM 用例里被构造五次
+     * （[SidecarProcessTest]），默认值一旦伸手去问"IDE 是什么语言"，那些用例就
+     * 得先把平台搬起来 —— 那正是这个仓库一直在躲的事。生产侧由 `ClaudePanel`
+     * 显式传 `CcoderText.tag()`。
+     *
+     * **必须排在 [onExit] 前面**：尾随 lambda 绑的是最后一个参数，
+     * 挪到后面它就会去绑 `String`。
+     */
+    private val uiLang: String = DEFAULT_UI_LANG,
     private val onExit: ((SidecarExit) -> Unit)? = null,
 ) {
     private var process: Process? = null
@@ -61,6 +73,9 @@ class SidecarProcess(
 
         val p = ProcessBuilder(nodePath, "index.js")
             .directory(sidecarDir.toFile())
+            // 这是**唯一**能给 sidecar 自己设环境的地方（`envOverrides` 那条路
+            // 通的是 claude CLI 子进程，与它无关）。没这一句，sidecar 只会说英文。
+            .apply { environment()[UI_LANG_ENV] = uiLang }
             .start()
         process = p
 
@@ -134,6 +149,15 @@ class SidecarProcess(
 
     companion object {
         const val DEFAULT_GRACE_MILLIS = 3000L
+
+        /**
+         * 交给 sidecar 的语言变量名。**必须与 `sidecar/strings.js` 的 `UI_LANG_ENV` 一致** ——
+         * 两边各有一条用例把它钉住（跨语言同步，照 `TranscriptOpCodec` 的先例）。
+         */
+        const val UI_LANG_ENV = "CCODER_UI_LANG"
+
+        /** 与 `sidecar/strings.js` 的 `DEFAULT_LANG` 一致。 */
+        const val DEFAULT_UI_LANG = "en"
 
         private const val MAX_STDERR_LINES = 100
 

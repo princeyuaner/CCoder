@@ -1,7 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
+import { setLang } from '../i18n'
+
+// 「思考中」/「思考过程」两个标题的断言先把语言钉住
+beforeEach(() => {
+  setLang('zh')
+})
 
 /**
  * 思考块。

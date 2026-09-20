@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
@@ -22,7 +23,7 @@ import javax.swing.JComponent
 class PendingPermissionStatusBarFactory : StatusBarWidgetFactory {
 
     override fun getId(): String = WIDGET_ID
-    override fun getDisplayName(): String = "CCoder 待确认权限"
+    override fun getDisplayName(): String = CcoderText.text("status.widget.pendingPermissions")
     override fun isAvailable(project: Project): Boolean = true
 
     override fun createWidget(project: Project): StatusBarWidget =
@@ -91,8 +92,8 @@ class PendingPermissionStatusBar(private val project: Project) :
  * PermissionQueue），但"待确认：1"说不清点下去会发生什么。
  */
 internal fun statusBarText(pending: Int, askSuspended: Boolean): String = when {
-    askSuspended -> "Claude 有提问待回答"
-    pending > 0 -> "Claude 待确认：$pending"
+    askSuspended -> CcoderText.text("status.widget.askSuspended")
+    pending > 0 -> CcoderText.text("status.widget.pending", pending)
     else -> ""
 }
 
@@ -101,7 +102,7 @@ internal fun statusBarText(pending: Int, askSuspended: Boolean): String = when {
  * （2026-09-15 之前就是这么写的，提问混在里面）。
  */
 internal fun statusBarTooltip(pending: Int, askSuspended: Boolean): String = when {
-    askSuspended -> "有一个提问被最小化，等着你回答 —— 点一下回到那个框"
-    pending > 0 -> "有 $pending 个请求在等待处理（授权 / 提问），点击前往"
+    askSuspended -> CcoderText.text("status.widget.askSuspendedTip")
+    pending > 0 -> if (pending == 1) CcoderText.text("status.widget.pendingTipOne") else CcoderText.text("status.widget.pendingTip", pending)
     else -> ""
 }

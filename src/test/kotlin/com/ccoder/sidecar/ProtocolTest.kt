@@ -308,6 +308,17 @@ class ProtocolTest {
     }
 
     @Test
+    fun `换界面语言的消息 —— 字段名与 start 的 uiLang 逐字一致`() {
+        // 两侧读的是同一个 `params.uiLang`（sidecar 的 start 与 setUiLang 两个分支）：
+        // 谁把字段名改了而另一处没跟上，这条会红
+        val msg = com.google.gson.JsonParser
+            .parseString(Protocol.encodeSetUiLang("r1", "en").trim()).asJsonObject
+
+        assertEquals("setUiLang", msg.get("method").asString)
+        assertEquals("en", msg.getAsJsonObject("params").get("uiLang").asString)
+    }
+
+    @Test
     fun `未知类型映射为 Unknown 而非 null`() {
         // spec §3.3：未知类型必须被静默忽略，但不能与"解析失败"混淆
         val msg = Protocol.parse("""{"type":"some_future_type_v99"}""")

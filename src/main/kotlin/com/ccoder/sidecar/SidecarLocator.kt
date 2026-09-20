@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.nio.file.Files
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
+import com.ccoder.text.CcoderText
 
 class SidecarNotFoundException(message: String) : Exception(message)
 
@@ -93,8 +94,7 @@ object ProductionSidecarResolver {
     private fun readFingerprint(): String =
         readResource("$RESOURCE_ROOT/fingerprint.txt")?.trim()?.ifBlank { null }
             ?: throw SidecarNotFoundException(
-                "插件包内缺少 $RESOURCE_ROOT/fingerprint.txt —— 构建配置有误，" +
-                    "请确认 generateSidecarManifest 写入了内容指纹。"
+                CcoderText.text("chat.error.assetsNoFingerprint", RESOURCE_ROOT)
             )
 
     /** 版本号来自构建时写入的 version.txt，与 sidecar/package.json 同步。 */
@@ -116,8 +116,7 @@ object ProductionSidecarResolver {
     private fun stageResourcesToTemp(): Path {
         val manifest = readResource("$RESOURCE_ROOT/manifest.txt")
             ?: throw SidecarNotFoundException(
-                "插件包内缺少 $RESOURCE_ROOT/manifest.txt —— 构建配置有误，" +
-                    "请确认 generateSidecarManifest 任务已接入 processResources。"
+                CcoderText.text("chat.error.assetsNoManifest", RESOURCE_ROOT)
             )
 
         val staging = Files.createTempDirectory("ccoder-sidecar-")
@@ -131,14 +130,14 @@ object ProductionSidecarResolver {
             val target = dest.resolve(relative)
             // 防御目录穿越：manifest 由构建生成，但不该假设它永远可信
             if (!target.normalize().startsWith(dest.normalize())) {
-                throw SidecarNotFoundException("manifest 含非法路径：$relative")
+                throw SidecarNotFoundException(CcoderText.text("chat.error.badRelativePath", relative))
             }
             Files.createDirectories(target.parent)
 
             ProductionSidecarResolver::class.java
                 .getResourceAsStream("/$RESOURCE_ROOT/$relative")
                 ?.use { input -> Files.newOutputStream(target).use { input.copyTo(it) } }
-                ?: throw SidecarNotFoundException("manifest 列出的资源不存在：$relative")
+                ?: throw SidecarNotFoundException(CcoderText.text("chat.error.missingAsset", relative))
         }
 
         return dest

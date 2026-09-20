@@ -14,16 +14,17 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import com.ccoder.text.CcoderText
 
 /**
  * 弹层最底下的"去改"入口。
  *
  * 实现与测试共用，免得两边各写一遍然后漂移（同 [MARK]）。
  */
-internal const val MANAGE_LABEL = "⚙ 管理模型…"
+internal val MANAGE_LABEL: String get() = CcoderText.text("composer.model.manage")
 
 /** 一条配置都没有时的说明。弹层空着看起来像抽风，得讲清楚并给出唯一的出路。 */
-private const val NO_PROFILE_LABEL = "还没有配置任何模型"
+private val NO_PROFILE_LABEL: String get() = CcoderText.text("composer.model.noProfiles")
 
 /**
  * 模型标签。可点，点了弹列表切换。
@@ -116,7 +117,7 @@ internal data class ModelPick(val profileId: String, val modelId: String)
  * 不截断的话一个长名字会把那两个挤出工具窗口。
  */
 internal fun modelLabelText(profile: ModelProfile?): String {
-    if (profile == null) return "无模型"
+    if (profile == null) return CcoderText.text("composer.model.none")
     val model = profile.modelId.trim()
     return when {
         model.isEmpty() -> profile.displayName()
@@ -217,7 +218,7 @@ internal fun modelRowText(modelId: String): String =
 private const val MAX_MODEL_CHARS = 36
 
 /** 一条配置没指定模型时那一行写什么。 */
-internal const val NO_MODEL_LABEL = "未指定模型"
+internal val NO_MODEL_LABEL: String get() = CcoderText.text("composer.model.unspecified")
 
 /**
  * 主机名再长也只写到这个长度。
@@ -232,7 +233,7 @@ private const val MAX_HOST_CHARS = 22
 /** 端点只留主机名：完整 URL 太长，而"哪台机器"才是用来区分两条配置的信息。 */
 private fun endpointLabel(baseUrl: String): String {
     val url = baseUrl.trim()
-    if (url.isEmpty()) return "官方端点"
+    if (url.isEmpty()) return CcoderText.text("composer.model.officialEndpoint")
     val host = url.removePrefix("https://").removePrefix("http://").substringBefore('/').trim()
     // 只输了半截地址（"https://"）时宁可原样显示 —— 说成"官方端点"是反的
     if (host.isEmpty()) return url

@@ -2,11 +2,14 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CodeBlock } from './CodeBlock'
+import { setLang } from '../i18n'
 
 beforeEach(() => {
   localStorage.clear()
   // 桥是每个用例自己决定要不要挂的（挂了 = JCEF 真机，没挂 = 浏览器/探针）
   delete (window as { ccoder?: unknown }).ccoder
+  // 按钮文案的中文断言（复制 / 已复制 / 自动换行）先把语言钉住
+  setLang('zh')
 })
 
 /**

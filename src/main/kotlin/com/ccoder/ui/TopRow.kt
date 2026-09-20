@@ -21,6 +21,7 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import kotlin.math.cos
 import kotlin.math.sin
+import com.ccoder.text.CcoderText
 
 /**
  * 「＋」与齿轮之间的**最小**间隔。
@@ -242,6 +243,7 @@ internal open class TopRowIconButton(glyph: TopRowGlyph) : JButton() {
 internal fun settingsGearButton(onClick: () -> Unit): JButton =
     TopRowIconButton(TopRowGlyph.Gear).apply {
         foreground = UIUtil.getLabelForeground()
-        toolTipText = "设置"
+        // 记的是**键**：语言变了走树重取一遍（见 LocalizedText.kt）
+        localizedTooltip("settings.dialog.title")
         addActionListener { onClick() }
     }

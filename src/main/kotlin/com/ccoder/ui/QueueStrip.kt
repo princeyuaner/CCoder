@@ -12,6 +12,7 @@ import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingConstants
+import com.ccoder.text.CcoderText
 
 /**
  * 排队条一行里最多放多少个字。
@@ -65,10 +66,10 @@ internal fun queueStripModel(queue: SendQueue): QueueStripModel? {
  * "排着一句话"看起来一模一样（展开时那张「图 N」标签见 [queueChipText]）。
  */
 internal fun queueLineText(model: QueueStripModel): String {
-    if (model.rows.size != 1) return "排队 ${model.count}"
+    if (model.rows.size != 1) return CcoderText.text("composer.queue.count", model.count)
     val row = model.rows[0]
     val chip = queueChipText(row.item.images.size)
-    return "排队 1 · ${row.label}" + if (chip != null) " · $chip" else ""
+    return CcoderText.text("composer.queue.one", row.label) + if (chip != null) " · $chip" else ""
 }
 
 /**
@@ -79,7 +80,7 @@ internal fun queueLineText(model: QueueStripModel): String {
  * 和一条纯文字在屏幕上长得一模一样。
  */
 internal fun queueChipText(imageCount: Int): String? =
-    if (imageCount > 0) "图 $imageCount" else null
+    if (imageCount > 0) (if (imageCount == 1) CcoderText.text("composer.queue.imageOne") else CcoderText.text("composer.queue.images", imageCount)) else null
 
 /**
  * 排队条：哪些消息还排着、各自一眼能认出来、都能撤（spec §6）。
@@ -133,7 +134,8 @@ internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel(
         }
 
         headRemove.isVisible = false
-        headRemove.toolTipText = "从队列里撤掉这条"
+        // 键记在控件上（见 LocalizedText.kt）：换语言时走树那一遍会重挂
+        headRemove.localizedTooltip("composer.queue.removeTip")
         headRemove.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         headRemove.addActionListener { model?.rows?.firstOrNull()?.let { onRemove(it.item) } }
 
@@ -220,7 +222,9 @@ internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel(
                 // 自绘外观：默认按钮的边框与底色在这条安静的带子上太抢眼
                 isContentAreaFilled = false
                 isBorderPainted = false
-                toolTipText = "从队列里撤掉这条"
+                // 键记在控件上：这一行虽然是每次 setModel 重建的，但语言变了要立刻换
+                // （等下次刷新就是"留着旧语言"），见 LocalizedText.kt
+                localizedTooltip("composer.queue.removeTip")
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 addActionListener { onRemove(row.item) }
             },

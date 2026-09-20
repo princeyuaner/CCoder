@@ -20,6 +20,7 @@ import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import com.ccoder.text.CcoderText
 
 /**
  * 一条会话此刻处在什么状态 —— 就是胶囊上那个小圆点的颜色。
@@ -122,7 +123,7 @@ internal fun chipTitleFor(
     title: String?,
     metrics: FontMetrics,
     maxWidth: Int,
-    unnamed: String = "新会话",
+    unnamed: String = NEW_TAB_TITLE,
 ): String {
     val text = title?.takeIf { it.isNotBlank() } ?: return unnamed
     if (metrics.stringWidth(text) <= maxWidth) return text
@@ -245,12 +246,12 @@ private class ChipView(
             append(chip.title?.takeIf { it.isNotBlank() } ?: NEW_TAB_TITLE)
             append(
                 when (chip.state) {
-                    TabState.Running -> " · 正在跑"
-                    TabState.WaitingPermission -> " · 等你批准"
-                    TabState.Idle -> " · 空闲"
+                    TabState.Running -> " · " + CcoderText.text("session.chip.running")
+                    TabState.WaitingPermission -> " · " + CcoderText.text("session.chip.waiting")
+                    TabState.Idle -> " · " + CcoderText.text("session.chip.idle")
                 }
             )
-            append(if (chip.current) "（当前）" else " —— 点一下切过去")
+            append(if (chip.current) CcoderText.text("session.chip.current") else " " + CcoderText.text("session.chip.switchHint"))
         }
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) {

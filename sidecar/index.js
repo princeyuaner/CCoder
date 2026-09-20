@@ -19,6 +19,7 @@ import { capHistoryImages } from './history-images.js';
 import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
 import { applyProjectKey } from './project-key.js';
+import { makeT, normalizeLang, langFromEnv } from './strings.js';
 
 /**
  * SDK 的 EffortLevel 联合类型（sdk.d.ts:623）。
@@ -153,8 +154,14 @@ export function createDispatcher({
   // 子代理的元信息得自己去磁盘上读（SDK 只给 id 列表），所以根目录做成可注入的
   // —— 不然那段路径逻辑没法测，只能靠真实 home 目录，单测里跑不了
   projectsRoot = join(homedir(), '.claude', 'projects'),
+  // 界面语言（Lever A）：插件启动本进程时设的环境变量。做成参数只是为了让
+  // 单测能直接钉住，不必去动 process.env；生产路径走默认值。
+  lang = langFromEnv(process.env),
 }) {
   let session = null;
+  // 当前取词器。**不是常量**：同一个 node 进程会被复用（新开一个标签并不新起
+  // 进程），所以 start 可以带 uiLang 来重新定语言（Lever B，见下面的 start）
+  let t = makeT(lang);
   const preStartQueue = [];   // start 之前到达的 send，按序补发
 
   function fail(code, message, fatal = false) {
@@ -171,8 +178,18 @@ export function createDispatcher({
 
     switch (method) {
       case 'start': {
+        // 界面语言（Lever B）：新会话可以重新定语言 —— 同一个 node 进程会被
+        // 复用（新开一个标签并不新起进程）。放在**最前面**：连 ALREADY_STARTED
+        // 那条回执都该用新语言说 —— 界面已经切过去了，再回一句旧语言的错误
+        // 就是自相矛盾。没带 / 认不出（老插件）就保持现状。
+        //
+        // 已经在跑的那条会话保持它建会话时的语言（t 是那时传下去的）：这种
+        // "会话还在、又要 start"的情形本来就只可能是插件出了错（正常路径会先
+        // stop），而它剩下的用途只有"CLI 太老"那几条 —— 那些不属于这次的 start
+        const asked = normalizeLang(params.uiLang);
+        if (asked) t = makeT(asked);
         if (session) {
-          fail('ALREADY_STARTED', '会话已建立', false);
+          fail('ALREADY_STARTED', t('error.alreadyStarted'), false);
           return session;
         }
         let created;
@@ -181,6 +198,9 @@ export function createDispatcher({
             ...params,
             cwd: params.cwd,
             permissionMode: params.permissionMode ?? 'default',
+            // 会话内部那几条文案（session.js 的"CLI 太老"）跟着这一份走：
+            // 它们最终也是从这里 out 出去的，两处语言必须是同一个
+            t,
             onEvent: (event) => {
               out({ type: 'event', event });
               // 认证失败由 SDK 作为 assistant 事件的 error 字段回传，而非独立错误。
@@ -189,7 +209,7 @@ export function createDispatcher({
                 out({
                   type: 'error',
                   code: 'AUTH_FAILED',
-                  message: 'Claude CLI 认证失败。',
+                  message: t('error.authFailed'),
                   fatal: true,
                 });
               }
@@ -213,6 +233,22 @@ export function createDispatcher({
         return session;
       }
 
+      case 'setUiLang': {
+        // 界面语言热切换（2026-09-20）：界面已经切过去了，进程还活着 —— 换取词器。
+        // **连正在跑的那条会话一起换**：它建会话时拿的是旧的那份，而它剩下的用途
+        // 正是"CLI 太老"那几条用户看得见的失败回执（见 session.js 的 setLang）。
+        // 不建也不重建会话：正在跑的那轮继续。
+        //
+        // 认不出的标签当"没给"（同 start 那条）：宁可保持现状，也别退回缺省语言
+        // —— 那会把界面语言静默改掉。
+        const asked = normalizeLang(params.uiLang);
+        if (asked) {
+          t = makeT(asked);
+          session?.setLang(asked);
+        }
+        return session;
+      }
+
       case 'send': {
         if (!session) {
           // 排队而非丢弃 —— 用户可能抢在 ready 之前就发了消息。
@@ -229,6 +265,9 @@ export function createDispatcher({
         const { requestId, behavior, updatedPermissions, updatedInput, message } = params;
         const result = behavior === 'allow'
           ? { behavior: 'allow' }
+          // 这条**刻意保持中文、不进词表**（与 Kotlin 的 PermissionQueue.DENY_MESSAGE
+          // 同字）：它随回执发给 CLI、进而进模型上下文，是**协议载荷**而不是界面
+          // 字句 —— 界面切英文不该改变模型被告知的内容。见 shared/deny-message.json
           : { behavior: 'deny', message: message ?? '用户拒绝' };
         if (updatedPermissions) result.updatedPermissions = updatedPermissions;
         // AskUserQuestion 的答案就走这条路：允许这个工具调用时改写它的入参。
@@ -277,7 +316,9 @@ export function createDispatcher({
             // 只做一件事：**图按预算裁一裁**。整段历史是一条 JSON，CLI 又把图
             // 原样存着（完整 base64），不裁的话一个用过两周的会话能推出几十 MB
             // —— 见 history-images.js 里那份实测说明
-            const capped = capHistoryImages(items ?? []);
+            // 第二个参数（预算）留空 = 用默认值，只有单测会传；
+            // 第三个是取词器 —— 那条"图已省略"的说明会进聊天记录，必须跟着语言走
+            const capped = capHistoryImages(items ?? [], undefined, t);
             out({
               type: 'history',
               id: msg.id,
@@ -294,7 +335,7 @@ export function createDispatcher({
         // 要求先起会话等于让用户在删东西之前先建立连接 —— 没道理
         const sessionId = params.sessionId;
         if (typeof sessionId !== 'string' || sessionId === '') {
-          fail('DELETE_FAILED', '删除会话缺少 sessionId', false);
+          fail('DELETE_FAILED', t('error.deleteMissingSessionId'), false);
           return session;
         }
         // 位置参数，**不是** `{ sessionId }` —— SDK 的实现第一行就做 UUID 校验，
@@ -310,7 +351,7 @@ export function createDispatcher({
         // 与 deleteSession 同一条：列表上的动作，不需要活会话
         const { dir, keep } = params;
         if (typeof dir !== 'string' || dir === '') {
-          fail('CLEAR_FAILED', '清空会话缺少 dir', false);
+          fail('CLEAR_FAILED', t('error.clearMissingDir'), false);
           return session;
         }
         // keep 里的非字符串一律忽略而不是整条回执作废：它是**保护名单**，
@@ -332,14 +373,15 @@ export function createDispatcher({
         // 与 deleteSession 同一条：都是**列表上的动作**，不需要活会话
         const sessionId = params.sessionId;
         if (typeof sessionId !== 'string' || sessionId === '') {
-          fail('SESSION_UPDATE_FAILED', '改会话缺少 sessionId', false);
+          fail('SESSION_UPDATE_FAILED', t('error.updateMissingSessionId'), false);
           return session;
         }
         // tag **允许是 null**（表示清除标签），所以判的是键在不在，不是值真不真
         const renaming = method === 'renameSession';
         const key = renaming ? 'title' : 'tag';
         if (!(key in params)) {
-          fail('SESSION_UPDATE_FAILED', `缺少 ${key} 参数`, false);
+          // key 是协议字段名（title / tag），原样嵌进去 —— 它是**协议词**，不翻
+          fail('SESSION_UPDATE_FAILED', t('error.missingUpdateField', { 0: key }), false);
           return session;
         }
         const value = params[key];
@@ -372,7 +414,7 @@ export function createDispatcher({
         // 与 listSessions 同一条：读磁盘，不需要活会话
         const sessionId = params.sessionId;
         if (typeof sessionId !== 'string' || sessionId === '') {
-          fail('SUBAGENTS_FAILED', '缺少 sessionId', false);
+          fail('SUBAGENTS_FAILED', t('error.subagentsMissingSessionId'), false);
           return session;
         }
         Promise.resolve(sessionApi.listSubagents(sessionId, { dir: params.dir }))
@@ -399,7 +441,7 @@ export function createDispatcher({
       case 'subagentMessages': {
         const { sessionId, agentId } = params;
         if (typeof sessionId !== 'string' || typeof agentId !== 'string') {
-          fail('SUBAGENT_MESSAGES_FAILED', '缺少 sessionId 或 agentId', false);
+          fail('SUBAGENT_MESSAGES_FAILED', t('error.subagentMessagesMissingIds'), false);
           return session;
         }
         // 不传 limit：转写本来就是给人看的，静默截断比慢一点坏得多
@@ -427,12 +469,12 @@ export function createDispatcher({
         // task_notification，RunStatusTracker 把它收掉），多回一条没人看。
         const { taskId } = params;
         if (typeof taskId !== 'string' || taskId === '') {
-          fail('STOP_TASK_FAILED', '缺少 taskId 参数', false);
+          fail('STOP_TASK_FAILED', t('error.missingTaskId'), false);
           return session;
         }
         const call = session?.stopTask;
         if (typeof call !== 'function') {
-          fail('STOP_TASK_FAILED', '当前会话不支持终止任务', false);
+          fail('STOP_TASK_FAILED', t('error.stopTaskUnsupported'), false);
           return session;
         }
         Promise.resolve(call.call(session, taskId))
@@ -451,7 +493,7 @@ export function createDispatcher({
         if (typeof call !== 'function') {
           // 没有会话（或会话没这个方法）时不能默默当成功 ——
           // Promise.resolve(undefined) 会 resolve，那就成了一条假回执
-          fail('SET_MODE_FAILED', '当前会话不支持切换权限模式', false);
+          fail('SET_MODE_FAILED', t('error.setModeUnsupported'), false);
           return session;
         }
         Promise.resolve(call.call(session, mode))
@@ -469,25 +511,27 @@ export function createDispatcher({
         // 会把"没给"和"明确要求清除"混成一种，而前者是协议出错 ——
         // 那不该默默清掉用户已经选好的档位。
         if (!('level' in params)) {
-          fail('SET_EFFORT_FAILED', '缺少 level 参数', false);
+          fail('SET_EFFORT_FAILED', t('error.missingLevel'), false);
           return session;
         }
         const level = params.level;
         if (level !== null && !EFFORT_LEVELS.includes(level)) {
+          // JSON.stringify 的结果是**用户发来的那个值**，原样嵌进去（不翻）
           fail(
             'SET_EFFORT_FAILED',
-            `不认识的思考深度：${JSON.stringify(level)}` +
-              '（只接受 low/medium/high/xhigh/max 或 null）',
+            t('error.unknownEffort', { 0: JSON.stringify(level) }),
             false
           );
           return session;
         }
         const call = session?.setEffort;
         if (typeof call !== 'function') {
-          // 没有会话，或会话没这个方法 —— 两种都不能默默当成功
+          // 没有会话，或会话没这个方法 —— 两种都不能默默当成功。
+          // 两个键都写成**字面量调用**（不用变量传键）：源码扫描只认字面量，
+          // 拼出来的键在"词表里的键都有人引用"那条用例里会变成死键
           fail(
             'SET_EFFORT_FAILED',
-            session ? '当前会话不支持调整思考深度' : '会话还没建立，思考深度要等连上会话再改',
+            session ? t('error.setEffortUnsupported') : t('error.setEffortNoSession'),
             false
           );
           return session;
@@ -512,15 +556,16 @@ export function createDispatcher({
         // （`setModel(undefined)` 不是清除），空名字只会变成一次莫名其妙的请求。
         const model = params.model;
         if (typeof model !== 'string' || model.trim() === '') {
-          fail('SET_MODEL_FAILED', '缺少 model 参数（换模型没有"清空"这一档）', false);
+          fail('SET_MODEL_FAILED', t('error.missingModel'), false);
           return session;
         }
         const call = session?.setModel;
         if (typeof call !== 'function') {
-          // 没有会话，或会话没这个方法 —— 两种都不能默默当成功
+          // 没有会话，或会话没这个方法 —— 两种都不能默默当成功。
+          // 同 setEffort：两个键都是字面量调用，别用变量传键
           fail(
             'SET_MODEL_FAILED',
-            session ? '当前会话不支持换模型' : '会话还没建立，换模型要等连上会话再改',
+            session ? t('error.setModelUnsupported') : t('error.setModelNoSession'),
             false
           );
           return session;
@@ -539,7 +584,7 @@ export function createDispatcher({
         const cmds = session?.supportedCommands;
         const skills = session?.skills;
         if (typeof cmds !== 'function' || typeof skills !== 'function') {
-          fail('NO_SESSION', '会话尚未建立', false);
+          fail('NO_SESSION', t('error.sessionNotStarted'), false);
           return session;
         }
         // 两个方法自己吞掉异常回空数组（见 session.js），所以这里 .catch
@@ -560,7 +605,7 @@ export function createDispatcher({
         // 插件在 ready 之后才问，所以"问早了"不致命
         const call = session?.contextUsage;
         if (typeof call !== 'function') {
-          fail('NO_SESSION', '会话尚未建立', false);
+          fail('NO_SESSION', t('error.sessionNotStarted'), false);
           return session;
         }
         Promise.resolve(call.call(session))
@@ -582,7 +627,7 @@ export function createDispatcher({
         // 与 contextUsage 同一条：它是会话的属性，没有会话就没得报
         const call = session?.mcpServerStatus;
         if (typeof call !== 'function') {
-          fail('NO_SESSION', '会话尚未建立', false);
+          fail('NO_SESSION', t('error.sessionNotStarted'), false);
           return session;
         }
         Promise.resolve(call.call(session))
@@ -597,7 +642,8 @@ export function createDispatcher({
               status: s?.status ?? 'pending',
               scope: s?.scope ?? null,
               error: s?.error ?? null,
-              tools: (s?.tools ?? []).map((t) => t?.name ?? ''),
+              // 参数别叫 t —— 那会遮住上面的取词器（这个文件里 t 是取词器）
+              tools: (s?.tools ?? []).map((tool) => tool?.name ?? ''),
             })),
           }))
           .catch((err) => fail('MCP_STATUS_FAILED', String(err?.message ?? err), false));
@@ -605,14 +651,17 @@ export function createDispatcher({
       }
 
       case 'stop':
-        // 顺序重要：先清空待决权限，否则工具会挂住
+        // 顺序重要：先清空待决权限，否则工具会挂住。
+        // '会话已终止' 同 permissionDecision 那条：协议载荷，**保持中文不翻**
+        //（与 session.js stop() 里那句同字），见 shared/deny-message.json
         session?.denyAllPending?.('会话已终止');
         session?.stop?.();
         session = null;
         return session;
 
       default:
-        fail('UNKNOWN_METHOD', `未知方法：${method}`, false);
+        // method 是协议词，原样嵌进去（不翻）
+        fail('UNKNOWN_METHOD', t('error.unknownMethod', { 0: method }), false);
         return session;
     }
   }
@@ -639,7 +688,13 @@ function main() {
   const dispatcher = createDispatcher({
     out: write,
     sessionFactory: (opts) => {
-      const claudePath = resolveClaudePath({ explicit: opts.claudePath, env: process.env });
+      // 取词器由 dispatcher 传进来（它才知道当前语言）—— claude-path 的报错
+      // 发生在会话建起来**之前**，所以不能指望 createSession 那一层
+      const claudePath = resolveClaudePath({
+        explicit: opts.claudePath,
+        env: process.env,
+        t: opts.t,
+      });
       return createSession({ ...opts, claudePath });
     },
   });

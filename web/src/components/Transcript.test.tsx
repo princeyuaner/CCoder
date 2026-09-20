@@ -1,8 +1,20 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Transcript } from './Transcript'
+import { setLang } from '../i18n'
 import type { TranscriptItem } from '../types'
+
+/**
+ * 用例里的中文断言一律**先把语言钉住**。
+ *
+ * 这些断言是**文案的回归网**（文案在这个仓库里是产品的一部分），不是"测试恰好
+ * 用了中文"：不钉住的话，默认的基底语言是英文，下面每一条都会变成拿中文去
+ * 比对英文界面 —— 红得毫无信息量。
+ */
+beforeEach(() => {
+  setLang('zh')
+})
 
 function state(...items: TranscriptItem[]) {
   return { items, live: {} }

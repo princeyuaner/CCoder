@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import java.nio.file.Path
@@ -13,11 +14,20 @@ internal fun mcpJsonPath(projectBase: Path): Path = projectBase.resolve(".mcp.js
  * `sdk`（带 `instance`，不可序列化）与 `claudeai-proxy`（云端专用）**明确不做**
  * —— 但它们在文件里出现时**必须原样留着**，见 [McpConfig.preserved]。
  */
-enum class McpKind(val label: String, val wireType: String?) {
+enum class McpKind(val wireType: String?, private val labelKey: String) {
     /** `type` 可省，省了文件更干净 —— 这也是 CLI 自己的写法。 */
-    STDIO("命令行", null),
-    SSE("SSE", "sse"),
-    HTTP("HTTP", "http"),
+    STDIO(null, "settings.mcp.kind.stdio.label"),
+    SSE("sse", "settings.mcp.kind.sse.label"),
+    HTTP("http", "settings.mcp.kind.http.label"),
+    ;
+
+    /**
+     * 下拉里显示的名字。
+     *
+     * **不是 [wireType]**：那一个会写进用户的 `.mcp.json`，改一个字就是改文件格式
+     * （`wireType` 也绝不能跟着翻译走）。
+     */
+    val label: String get() = CcoderText.text(labelKey)
 }
 
 /**

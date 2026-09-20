@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter
@@ -31,19 +32,19 @@ import javax.swing.event.DocumentEvent
 private const val ECHO_MASKED = '•'
 
 /** 「模型 ID」那一栏的标题。探针与用例引用它，不抄字面量。 */
-internal const val MODEL_IDS_LABEL = "模型 ID（一行一个）"
+internal val MODEL_IDS_LABEL: String get() = CcoderText.text("settings.models.field.modelIds")
 
 /**
  * 列表栏底部那个新建按钮。与 [ADD_MODEL_LABEL] **必须不同名** ——
  * 一个建配置、一个给配置添模型，同名叫人点错。
  */
-internal const val ADD_PROFILE_LABEL = "＋ 添加配置"
+internal val ADD_PROFILE_LABEL: String get() = CcoderText.text("settings.models.addProfile")
 
 /** 模型列表里那个添加按钮。 */
-internal const val ADD_MODEL_LABEL = "＋ 添加模型"
+internal val ADD_MODEL_LABEL: String get() = CcoderText.text("settings.models.addModel")
 
 /** 哪一行在用。与左侧列表的〔使用中〕是同一句话，两个地方别写岔。 */
-internal const val IN_USE_LABEL = "使用中"
+internal val IN_USE_LABEL: String get() = CcoderText.text("settings.models.inUse")
 
 /** 〔使用中〕占的宽度（三个汉字），按固定宽度留位 —— 见 [ModelProfilesPage.modelIdRow]。 */
 private const val IN_USE_WIDTH = 46
@@ -88,7 +89,7 @@ internal class ModelProfilesPage(
     private val profiles: ModelProfiles,
 ) : SettingsPage {
 
-    override val title: String = "模型"
+    override val title: String get() = CcoderText.text("settings.page.models")
 
     /** 当前正在编辑的副本。null = 一条都没选中。 */
     private var editing: ModelProfile? = null
@@ -275,10 +276,12 @@ internal class ModelProfilesPage(
             // 空态指的是**列表栏**那个按钮。原来这里写的是「点「＋ 添加模型」」——
             // 而「＋ 添加模型」在表单里、空态下根本不在屏幕上；建整条配置的那个叫
             // 「＋ 添加配置」。新用户照着这行字找按钮是找不到的（2026-09-15 发现）。
-            formSlot.add(JBLabel("在左边选一条配置，或点「$ADD_PROFILE_LABEL」").apply {
-                foreground = UIUtil.getInactiveTextColor()
-                alignmentX = Component.LEFT_ALIGNMENT
-            })
+            formSlot.add(
+                JBLabel(CcoderText.text("settings.models.formEmpty", ADD_PROFILE_LABEL)).apply {
+                    foreground = UIUtil.getInactiveTextColor()
+                    alignmentX = Component.LEFT_ALIGNMENT
+                }
+            )
             formSlot.revalidate()
             formSlot.repaint()
             return
@@ -392,15 +395,17 @@ internal class ModelProfilesPage(
         }
         authKind.addActionListener { save() }
 
-        formSlot.add(labeledField("名称", name))
+        formSlot.add(labeledField(CcoderText.text("settings.models.field.name"), name))
+        // 「Base URL」与「API Key」**不进词表**：它们是端点/凭据那一层的词，
+        // 中英两版写的是同一串拉丁字（CLI 那边也这么叫）
         formSlot.add(labeledField("Base URL", url))
-        formSlot.add(labeledField("认证方式", authKind))
+        formSlot.add(labeledField(CcoderText.text("settings.models.field.authKind"), authKind))
         formSlot.add(labeledField("API Key", secretField(secret)))
         formSlot.add(labeledField(MODEL_IDS_LABEL, modelListBox(modelRows)))
 
         // 删除放**底部左**，与"关闭"分开 —— 它和"保存这次编辑"不是一类动作
         formSlot.add(Box.createVerticalStrut(JBUI.scale(16)))
-        formSlot.add(JBLabel("删除").apply {
+        formSlot.add(JBLabel(DELETE_LABEL).apply {
             foreground = JBColor.namedColor("Component.errorFocusColor", JBColor.RED)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -437,7 +442,7 @@ internal class ModelProfilesPage(
             }
         })
         val eye = JBLabel(AllIcons.General.InspectionsEye).apply {
-            toolTipText = "显示/隐藏密钥"
+            toolTipText = CcoderText.text("settings.models.secretEyeTip")
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             border = JBUI.Borders.emptyLeft(6)
             addMouseListener(object : MouseAdapter() {
@@ -520,7 +525,7 @@ internal class ModelProfilesPage(
         }
 
         val remove = JBLabel("✕").apply {
-            toolTipText = "删掉这个模型"
+            toolTipText = CcoderText.text("settings.models.removeModelTip")
             foreground = UIUtil.getInactiveTextColor()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             border = JBUI.Borders.emptyLeft(6)
@@ -568,4 +573,7 @@ internal class ModelProfilesPage(
  * 而"的模型配置覆盖"才是重点（说清谁会覆盖谁）。
  */
 internal fun conflictWarningText(keys: List<String>): String =
-    "设置里的 ${keys.joinToString("、")} 会被选中的模型配置覆盖"
+    CcoderText.text(
+        "settings.models.conflictWarning",
+        keys.joinToString(CcoderText.text("settings.models.conflictSeparator")),
+    )

@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.Path
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import com.ccoder.text.CcoderText
 
 /**
  * 运行期依赖的**发现与判定**：三级解析（显式 → PATH → 已知安装目录）+ 版本探针。
@@ -319,9 +320,9 @@ internal fun decideStatus(
 ): DepStatus {
     if (path == null) return DepStatus.NotFound
     val version = versionOutput?.let { parseVersion(it) }
-        ?: return DepStatus.Broken(path, "找到了，但读不出版本号")
+        ?: return DepStatus.Broken(path, CcoderText.text("settings.deps.brokenNoVersion"))
     if (dep == RuntimeDep.NODE) {
-        val major = majorOf(version) ?: return DepStatus.Broken(path, "版本号看不懂：${version}")
+        val major = majorOf(version) ?: return DepStatus.Broken(path, CcoderText.text("settings.deps.brokenUnparsable", version))
         if (major < minMajor) return DepStatus.TooOld(path, version, minMajor)
     }
     return DepStatus.Ok(path, version)
@@ -364,7 +365,7 @@ fun probeRuntimeDep(
     val explicitTrimmed = explicit?.trim().orEmpty()
     // 显式路径**只看它**：不存在就是坏，不回退（同 claude-path.js 的规矩）
     if (explicitTrimmed.isNotEmpty() && !isFile(explicitTrimmed)) {
-        return DepStatus.Broken(explicitTrimmed, "设置里指定的路径不存在")
+        return DepStatus.Broken(explicitTrimmed, CcoderText.text("settings.deps.brokenMissingPath"))
     }
 
     val pathVar = lookupEnv(env, "PATH").orEmpty()

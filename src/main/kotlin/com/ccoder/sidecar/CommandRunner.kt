@@ -2,6 +2,7 @@ package com.ccoder.sidecar
 
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import com.ccoder.text.CcoderText
 
 /**
  * 一条要跑的命令。
@@ -149,7 +150,7 @@ class CommandRunner(
         onEvent(
             when {
                 cancelled.get() -> RunEvent.Cancelled
-                timedOut.get() -> RunEvent.Failed("超时（${maxMillis / 1000} 秒）")
+                timedOut.get() -> RunEvent.Failed(CcoderText.text("chat.error.timeout", maxMillis / 1000))
                 else -> RunEvent.Exited(code)
             }
         )

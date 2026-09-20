@@ -2,6 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession } from '../session.js';
 
+// 这条用例里断言的是**中文**文案（"CLI 不支持…""AsyncIterable…"那几句），
+// 所以把语言钉成中文 —— 生产里它是插件启动 sidecar 进程时设的环境变量
+//（Lever A）；这里在 import 之后设是因为取词器是**调用时**才读环境的
+//（见 strings.js 的 defaultT）。不设的话默认是英文。
+process.env.CCODER_UI_LANG = 'zh';
+
 /**
  * 记录调用参数的假 query()，按脚本产出事件。
  *

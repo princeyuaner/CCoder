@@ -1,3 +1,5 @@
+import { t, useLang } from '../i18n'
+
 /**
  * 回合结束那一行。
  *
@@ -51,24 +53,42 @@ export function formatResultDuration(ms: number): string {
   return `${Math.floor(total / 60)}m${total % 60}s`
 }
 
-/** subtype 说人话。认不出的原样留着 —— 编一个中文名比留着英文更糟。 */
+/**
+ * subtype 说人话。
+ *
+ * **只有 `success` 走目录**，其余 subtype（`error_max_turns`、将来 CLI 新加的）
+ * 一律**原样透传**：编一个中文名（或换一个英文说法）比留着一串看不懂的英文更糟 ——
+ * 那串是 CLI 的词汇，去搜它搜得到，编出来的名字搜不到。这条是既有的决定
+ * （docs/superpowers/specs/2026-09-15-result-line-design.md §3），换语言也不动它。
+ */
 function subtypeText(subtype: string): string {
-  return subtype === 'success' ? '成功' : subtype
+  return subtype === 'success' ? t('result.success') : subtype
 }
 
-/** 那一行的文字。测试与渲染共用 —— 免得两边各拼一遍然后漂移。 */
+/**
+ * 那一行的文字。测试与渲染共用 —— 免得两边各拼一遍然后漂移。
+ *
+ * 读的是**当前**语言（t 走 i18n 的当前值），所以组件那边必须订阅语言，
+ * 否则换语言之后这一行不会重画。
+ */
 export function resultLineText(parts: ResultParts): string {
   const out = [subtypeText(parts.subtype)]
-  if (typeof parts.inputTokens === 'number') out.push(`输入 ${formatTokens(parts.inputTokens)}`)
+  if (typeof parts.inputTokens === 'number') {
+    out.push(t('result.input', [formatTokens(parts.inputTokens)]))
+  }
   // 缓存命中为 0 时不显示：一行里多一个「缓存 0」是纯噪音
   if (typeof parts.cacheReadTokens === 'number' && parts.cacheReadTokens > 0) {
-    out.push(`缓存 ${formatTokens(parts.cacheReadTokens)}`)
+    out.push(t('result.cache', [formatTokens(parts.cacheReadTokens)]))
   }
-  if (typeof parts.outputTokens === 'number') out.push(`输出 ${formatTokens(parts.outputTokens)}`)
+  if (typeof parts.outputTokens === 'number') {
+    out.push(t('result.output', [formatTokens(parts.outputTokens)]))
+  }
   if (typeof parts.durationMs === 'number') out.push(formatResultDuration(parts.durationMs))
   return out.join(' · ')
 }
 
 export function ResultLine(props: ResultParts) {
+  // 订阅：换语言时这一行要重画。`Item` 那边 memo 挡着，所以这里得自己订
+  useLang()
   return <div className="result-line">{resultLineText(props)}</div>
 }

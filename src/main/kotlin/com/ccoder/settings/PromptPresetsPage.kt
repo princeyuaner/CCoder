@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -20,7 +21,7 @@ import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
 
 /** 列表栏底部那个新建按钮。空态文案会引用它，所以别在别处抄字面量。 */
-internal const val ADD_PRESET_LABEL = "＋ 添加预设"
+internal val ADD_PRESET_LABEL: String get() = CcoderText.text("settings.presets.addPreset")
 
 /** 列表栏宽度。它放 CENTER，所以这是"理想宽度" —— 页窄了它会自己收。 */
 internal const val PRESET_LIST_WIDTH = 200
@@ -47,7 +48,7 @@ internal class PromptPresetsPage(
     private val presets: PromptPresets,
 ) : SettingsPage {
 
-    override val title: String = "预置"
+    override val title: String get() = CcoderText.text("settings.page.presets")
 
     private val listSlot = JPanel()
     private val formSlot = JPanel()
@@ -153,10 +154,12 @@ internal class PromptPresetsPage(
         if (p == null) {
             // 空态指的是**列表栏**那个按钮：空态下表单里什么都没有，
             // 指着表单里的东西说等于让人去找一个不在屏幕上的按钮
-            formSlot.add(JBLabel("在左边选一条预设，或点「$ADD_PRESET_LABEL」").apply {
-                foreground = UIUtil.getInactiveTextColor()
-                alignmentX = Component.LEFT_ALIGNMENT
-            })
+            formSlot.add(
+                JBLabel(CcoderText.text("settings.presets.formEmpty", ADD_PRESET_LABEL)).apply {
+                    foreground = UIUtil.getInactiveTextColor()
+                    alignmentX = Component.LEFT_ALIGNMENT
+                }
+            )
             formSlot.revalidate()
             formSlot.repaint()
             return
@@ -189,21 +192,26 @@ internal class PromptPresetsPage(
             })
         }
 
-        formSlot.add(labeledField("名称", name))
-        formSlot.add(labeledField("内容", contentBox(content)))
+        formSlot.add(labeledField(CcoderText.text("settings.presets.field.name"), name))
+        formSlot.add(
+            labeledField(
+                CcoderText.text("settings.presets.field.content"),
+                contentBox(content),
+            )
+        )
         formSlot.add(
             wrappedHint(
                 // 说的是**实际行为**：预置走补全的采纳路径，那段 /… 会被替换掉。
                 // 别写成"追加到末尾" —— 那是 spec 最初的设想（对齐"添加选区"），
                 // 但补全这条路根本没有追加这回事，照着写就是让界面撒谎
-                "输入框里打 / 就会出现在「预设」分组里；选中后正文会替换掉你打的那段 /…",
+                CcoderText.text("settings.presets.formHint"),
                 JBUI.scale(PRESET_FORM_CONTENT_WIDTH),
             )
         )
 
         // 删除放**底部左**，与"关闭"分开 —— 它和"改两个字"不是一类动作
         formSlot.add(Box.createVerticalStrut(JBUI.scale(16)))
-        formSlot.add(JBLabel("删除").apply {
+        formSlot.add(JBLabel(DELETE_LABEL).apply {
             foreground = UIUtil.getErrorForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             alignmentX = Component.LEFT_ALIGNMENT

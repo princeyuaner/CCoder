@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SidecarMessage
+import com.ccoder.text.CcoderText
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
@@ -32,10 +33,18 @@ data class PermissionDecision(
  * 「本会话不再询问」的文案。
  *
  * 卡片按钮与模式标签共用 —— 同一个状态在两处显示，各写一份迟早会漂移。
+ * 它还要进 [PermissionDecision] 的回执（`chat.note.allowedForSession`），所以取得到。
  */
-internal const val AUTO_ALLOW_LABEL = "本会话不再询问"
+internal val AUTO_ALLOW_LABEL: String get() = CcoderText.text("permission.autoAllow")
 
-/** 用户没答应的那条消息。会原样喂回模型，所以有且只有一处拼写。 */
+/**
+ * 用户没答应的那条消息。会原样喂回模型，所以有且只有一处拼写。
+ *
+ * **刻意不进词表**：这句是随权限回执送给 CLI、进而进模型上下文的协议内容，
+ * 不是界面文案 —— 跟着界面语言变就会"界面说 X、模型被告知 Y"（设计稿 §六）。
+ * 两侧各写一份，用 `shared/deny-message.json` 钉住
+ * （`DenyMessageFixtureTest` 与 `sidecar/test/deny-message.test.js`）。
+ */
 internal const val DENY_MESSAGE = "用户拒绝"
 
 /**
@@ -147,7 +156,7 @@ object PermissionOptions {
     private fun friendlyToolName(toolName: String): String = when (toolName) {
         // 模型写完计划、请求退出"仅规划"模式开始干活。它的入参就是那份计划，
         // 用户此刻要做的就是读计划 + 决定是否放行
-        EXIT_PLAN_MODE_TOOL -> "退出计划模式"
+        EXIT_PLAN_MODE_TOOL -> CcoderText.text("permission.tool.exitPlanMode")
         else -> toolName
     }
 
@@ -166,7 +175,7 @@ object PermissionOptions {
      */
     fun allowLabel(p: SidecarMessage.Permission): String =
         p.displayName?.takeIf { it.isNotBlank() && !it.equals(p.toolName, ignoreCase = true) }
-            ?: "允许"
+            ?: CcoderText.text("permission.allow")
 }
 
 /** `ExitPlanMode` 的工具名。SDK 那边的字面量，拼错就永远匹配不上。 */
@@ -242,13 +251,13 @@ internal fun permissionBody(input: JsonObject): PermissionBody {
         rows = LONG_ROWS,
         maxHeight = LONG_MAX_HEIGHT,
         markdown = field.key == PLAN_FIELD,
-        footer = if (rest.size() > 0) "其余参数：\n${prettyJson(rest)}" else null,
+        footer = if (rest.size() > 0) CcoderText.text("permission.paramsRest") + "\n" + prettyJson(rest) else null,
     )
 }
 
 /** 长正文按文本铺开时用的那几个数。 */
-private const val INPUT_CAPTION = "原始输入"
-private const val PLAN_CAPTION = "计划内容"
+private val INPUT_CAPTION: String get() = CcoderText.text("permission.inputCaption")
+private val PLAN_CAPTION: String get() = CcoderText.text("permission.planCaption")
 private const val GENERIC_ROWS = 3
 private const val GENERIC_MAX_HEIGHT = 80
 private const val LONG_ROWS = 12

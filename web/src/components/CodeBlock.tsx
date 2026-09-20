@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { copyText } from '../bridge'
 import { highlightCode } from '../highlight'
+import { t, useLang } from '../i18n'
 
 const WRAP_KEY = 'ccoder.codeWrap'
 
@@ -15,6 +16,10 @@ function readWrapPreference(): boolean {
 }
 
 export function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  // 订阅挂在**这一层**，不是 Markdown 那一层：代码块的三个按钮是文案，
+  // 换语言要跟着换，而 Markdown 那份 memo（marked 分词 + 整棵元素树）不该
+  // 因为换语言重跑一遍（见 Markdown.tsx 文件头那笔账）
+  useLang()
   const [wrap, setWrap] = useState(readWrapPreference)
   const [copied, setCopied] = useState(false)
 
@@ -56,12 +61,19 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
           className="code-block__action"
           onClick={() => setWrap((v) => !v)}
           aria-pressed={wrap}
-          title={wrap ? '关闭自动换行' : '开启自动换行'}
+          // 悬停提示说的是**点下去会发生什么**，与按钮上的「自动换行」+
+          // aria-pressed 合起来才不歧义（开着的时候标题是"关掉"）
+          title={wrap ? t('code.disableWrap') : t('code.enableWrap')}
         >
-          自动换行
+          {t('code.wrap')}
         </button>
-        <button type="button" className="code-block__action" onClick={copy} title="复制代码">
-          {copied ? '已复制' : '复制'}
+        <button
+          type="button"
+          className="code-block__action"
+          onClick={copy}
+          title={t('code.copyTitle')}
+        >
+          {copied ? t('code.copied') : t('code.copy')}
         </button>
       </div>
       {/* 高亮结果是 highlight.js 生成并转义过的 HTML，不是用户输入 */}

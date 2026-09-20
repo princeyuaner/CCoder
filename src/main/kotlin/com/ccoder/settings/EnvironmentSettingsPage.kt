@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
@@ -15,26 +16,35 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.table.DefaultTableModel
 
-/** 「额外目录」那一栏的标签。用例要按它找控件。 */
-internal const val EXTRA_DIRS_LABEL = "额外目录"
+/** 「额外目录」那一栏的标签。用例要按它找控件。也当表头用。 */
+internal val EXTRA_DIRS_LABEL: String get() = CcoderText.text("settings.env.extraDirs")
 
 /** 「环境变量」那一栏的标签。 */
-internal const val ENV_VARS_LABEL = "环境变量"
+internal val ENV_VARS_LABEL: String get() = CcoderText.text("settings.env.envVars")
 
 /** 两张表各自那个"加一行"动作。用例按它点。 */
-internal const val ADD_ROW_LABEL = "＋ 添加一行"
+internal val ADD_ROW_LABEL: String get() = CcoderText.text("settings.env.addRow")
 
 /** 那个"删掉选中的几行"动作。 */
-internal const val REMOVE_ROW_LABEL = "－ 删除选中"
+internal val REMOVE_ROW_LABEL: String get() = CcoderText.text("settings.env.removeRow")
 
 /** 两张表各自的高度（约五行）。 */
 private const val TABLE_HEIGHT = 118
 
-/** 表头：额外目录只有一列。 */
-private val EXTRA_DIRS_COLUMNS = arrayOf("额外目录")
+/**
+ * 表头：额外目录只有一列。
+ *
+ * **写成函数而不是顶层 `val`**：顶层 `val` 只在类加载时求值一次，语言换了
+ * （`UiLanguageSettings` 会推新的 locale）表头还停在旧语言上 —— 而"打开设置
+ * 就是新语言"是这个功能的承诺。函数每次建页时取一遍。
+ */
+private fun extraDirsColumns(): Array<String> = arrayOf(EXTRA_DIRS_LABEL)
 
-/** 表头：环境变量两列。 */
-private val ENV_VARS_COLUMNS = arrayOf("变量名", "值")
+/** 表头：环境变量两列。理由同 [extraDirsColumns]。 */
+private fun envVarsColumns(): Array<String> = arrayOf(
+    CcoderText.text("settings.env.column.name"),
+    CcoderText.text("settings.env.column.value"),
+)
 
 /**
  * 环境页：运行依赖 · 额外目录 · 环境变量 · 冲突提示。
@@ -73,7 +83,7 @@ internal class EnvironmentSettingsPage(
     private val onEnvOverridesChanged: () -> Unit = {},
 ) : SettingsPage {
 
-    override val title: String = "环境"
+    override val title: String get() = CcoderText.text("settings.page.environment")
 
     /**
      * 顶部那块「运行依赖」（2026-09-17 加）。设计稿 §3.7。
@@ -89,8 +99,8 @@ internal class EnvironmentSettingsPage(
         tools = depsUi.tools,
     )
 
-    private val extraDirsModel = DefaultTableModel(EXTRA_DIRS_COLUMNS, 0)
-    private val envModel = DefaultTableModel(ENV_VARS_COLUMNS, 0)
+    private val extraDirsModel = DefaultTableModel(extraDirsColumns(), 0)
+    private val envModel = DefaultTableModel(envVarsColumns(), 0)
 
     private val conflictSlot = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -116,14 +126,14 @@ internal class EnvironmentSettingsPage(
             add(labeledField(EXTRA_DIRS_LABEL, tableBox(JBTable(extraDirsModel))))
             add(
                 wrappedHint(
-                    "传给 CLI 的 --add-dir：项目之外也允许 Claude 读写的目录",
+                    CcoderText.text("settings.env.extraDirsHint"),
                     PAGE_CONTENT_WIDTH,
                 )
             )
             add(labeledField(ENV_VARS_LABEL, tableBox(JBTable(envModel))))
             add(
                 wrappedHint(
-                    "宿主隔离黑名单中的变量无法通过此处覆盖（设计文档 §3.2）",
+                    CcoderText.text("settings.env.envVarsHint"),
                     PAGE_CONTENT_WIDTH,
                 )
             )

@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -32,7 +33,7 @@ import javax.swing.JPanel
  */
 internal class GroupChatSettingsPage : SettingsPage {
 
-    override val title: String = "群交流"
+    override val title: String get() = CcoderText.text("settings.page.groupChat")
 
     private var built: JComponent? = null
 
@@ -44,7 +45,8 @@ internal class GroupChatSettingsPage : SettingsPage {
     private fun build(): JComponent = settingsPageBody(
         settingsColumn().apply {
             add(
-                JBLabel("群交流").apply {
+                // 页里的标题与页签上那句是**同一句话**（同 `settings.page.*` 的键）
+                JBLabel(title).apply {
                     foreground = UIUtil.getLabelForeground()
                     border = JBUI.Borders.emptyBottom(8)
                     alignmentX = Component.LEFT_ALIGNMENT
@@ -54,7 +56,7 @@ internal class GroupChatSettingsPage : SettingsPage {
             // wrappedHint 自己带下间距（见它那条注释），这里不要再补 strut
             add(
                 wrappedHint(
-                    "有问题、建议，或者想聊聊怎么用，扫码加微信找我。",
+                    CcoderText.text("settings.groupChat.hint"),
                     PAGE_CONTENT_WIDTH,
                 ),
             )
@@ -63,7 +65,9 @@ internal class GroupChatSettingsPage : SettingsPage {
 
     private fun qrBox(): JComponent {
         val qr = loadScaledQr() ?: return wrappedHint(
-            "二维码图片没能加载（${QR_RESOURCE}）。这不该发生 —— 它随插件一起打包。",
+            // 资源路径原样给出去：这句话出现的唯一场合就是打包出了问题，
+            // 那时用户手里该有那个路径
+            CcoderText.text("settings.groupChat.qrMissing", QR_RESOURCE),
             PAGE_CONTENT_WIDTH,
         )
         return JPanel().apply {

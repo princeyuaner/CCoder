@@ -1,3 +1,5 @@
+import { UI_LANG_ENV } from './strings.js';
+
 /**
  * 宿主注入的环境变量黑名单。
  *
@@ -18,6 +20,16 @@ export const HOST_ENV_BLACKLIST = Object.freeze([
   'CLAUDE_USE_STDIN',
   'CLAUDE_SESSION_ID',
   'CLAUDE_CODE_SESSION_ID',
+  // 我们自己的变量（名字从 strings.js 引入，别在这儿再抄一遍字面量：抄一遍
+  // 就是"读的那个名"与"剥的那个名"可能各改各的，而错了不报错，只是语言静默
+  // 不对）。它是插件与 sidecar 之间的约定，CLI 与它拉起的 hooks / MCP 子进程
+  // 都不认识它 —— 留着只会渗进那些子进程的环境，那是**别人的**环境。
+  //
+  // 放黑名单而不是 HOST_ENV_OVERRIDABLE：那一份是"宿主管端点"的资格位，有明确
+  // 的重引入理由；这一个没有任何人需要重新注入（每会话的语言走 start 的
+  // uiLang，不走环境变量）。精确匹配那条契约不受影响 —— 同前缀的 CCODER_*
+  // 变量照旧原样保留。
+  UI_LANG_ENV,
 ]);
 
 /**

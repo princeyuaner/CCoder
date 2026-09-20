@@ -85,8 +85,9 @@
     <ul>
       <li>The plugin talks only to the CLI it launches; your code and prompts go where
           that CLI is configured to send them.</li>
-      <li>The CCoder interface is currently in Chinese; Claude's replies follow your
-          prompt's language.</li>
+      <li>The interface language can be switched in the plugin's settings (gear icon in
+          the tool window &rarr; General): follow the IDE language, Chinese, or English.
+          Claude's replies follow your prompt's language.</li>
       <li>Not affiliated with Anthropic. "Claude" and "Claude Code" are trademarks of
           Anthropic PBC.</li>
       <li>MIT licensed. Source and issue tracker:
@@ -150,6 +151,8 @@
 
     <p><b>说明</b></p>
     <ul>
+      <li>界面语言可切（工具窗口右上角齿轮 &rarr; 通用）：跟随 IDE、中文、English，默认跟随
+          IDE。Claude 的回复跟着你 prompt 的语言走。</li>
       <li>插件只和它启动的那个 CLI 说话；你的代码与 prompt 去向由那个 CLI 的配置决定。</li>
       <li>与 Anthropic 无关；"Claude" 与 "Claude Code" 是 Anthropic PBC 的商标。</li>
       <li>MIT 许可。源码与问题反馈：
@@ -164,12 +167,24 @@
     <change-notes><![CDATA[
     <h3>0.2.22</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.21 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (1a630da).</li>
+      <li>The interface can be English now: pick follow-the-IDE, Chinese or English in
+          Settings &rarr; General &rarr; Interface language (default: follow the IDE).
+          Status cards, the transcript, dialogs, error messages and the sidecar's own
+          messages all follow it.</li>
+      <li>The editor and project-tree context-menu actions, and their Find Action
+          entries, are localized too.</li>
+      <li>Changing the interface language takes effect right away &mdash; open tool
+          windows switch on the spot, with no IDE restart and no session to reopen.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 <b>0.2.21</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>1a630da</code>）。</li>
+      <li>界面可以是英文了：设置 &rarr; 通用 &rarr; 界面语言 里选「跟随 IDE / 中文 /
+          English」（默认跟随 IDE）。状态卡、转写区、对话框、报错文案，以及 sidecar
+          自己的提示都跟着走。</li>
+      <li>编辑器与项目树右键菜单里的四个动作、以及 Find Action 里的条目也随语言切换。</li>
+      <li>改完语言立刻生效 &mdash;&mdash; 打开着的工具窗口当场切换，不用重启 IDE，
+          也不用重开会话。</li>
     </ul>
     ]]></change-notes>
 
@@ -177,7 +192,19 @@
     <!-- 转写区用内嵌浏览器渲染。该别名自 2025.3.1 起稳定。 -->
     <depends>com.intellij.modules.jcef</depends>
 
+    <!-- 词表：**只**给下面那四个 action 的 %key 用。
+         插件自己的文案一律走 `CcoderText`（自己指定 Locale，见 com.ccoder.text），
+         因为平台这套查找只认 IDE 语言，认不了设置里那个「界面语言」——
+         而 Find Action 的搜索索引的是**模板文本**，运行时改写管不到它，
+         所以这一条不能省（两条腿各干一半，见设计稿 §4.3）。
+
+         **顶层元素**：`resource-bundle` 是允许写在顶层的（实测 IDE 自带的 21 个描述符
+         全这么写）；服务 EP 则**必须**在 `<extensions>` 里 —— 两者别混。
+         `PluginXmlShapeTest` 把这份名单钉住了。 -->
+    <resource-bundle>messages.CcoderBundle</resource-bundle>
+
     <extensions defaultExtensionNs="com.intellij">
+
         <!--
           设置**没有**注册在这里，是刻意的（2026-09-15 删掉了那个 projectConfigurable）。
           全部设置都在工具窗口右上角那个齿轮里（`com.ccoder.settings.SettingsDialog`，
@@ -224,6 +251,19 @@
         <!-- 同一条快捷键上平台也有一个（$Paste）：焦点在我们的输入框时，把这个排前面。
              **必须在 extensions 里** —— 写在顶层会被静默忽略（这一条差点没赶上）。 -->
         <actionPromoter implementation="com.ccoder.ui.ImagePastePromoter"/>
+
+        <!-- 界面语言必须**在界面出现之前**读起来：最早取文案的两处（编辑器/项目树右键菜单的
+             update()、状态栏 getDisplayName()）都早于工具窗口，而平台服务是懒实例化的 ——
+             不 preload 的话，"上次选了中文"的用户在英文 IDE 里会先看到英文的菜单。
+             这条也解释了为什么这个服务用 plugin.xml 注册而不是 @Service 注解：
+             注解表达不了 preload，平台自己也在用（core.jar 里 ApplicationStateDebugSupport）。
+
+             **必须待在 <extensions> 里**（2026-09-20 事故）：写到顶层会被平台当成
+             `Unknown element: applicationService` **静默丢掉** —— 服务没注册上，
+             `getService()` 回 null，于是工具窗口在 createToolWindowContent 里 NPE、
+             整个 CCoder 窗口打不开。`PluginXmlShapeTest` 把这类错钉死了。 -->
+        <applicationService serviceImplementation="com.ccoder.settings.UiLanguageSettings"
+                            preload="true"/>
     </extensions>
 
     <actions>
@@ -235,8 +275,8 @@
             id="com.ccoder.AddSelectionToChat"
             icon="/icons/ccoderAction.svg"
             class="com.ccoder.ui.AddSelectionToChatAction"
-            text="添加到 CCoder 聊天框"
-            description="把选中的代码加到 CCoder 输入框（显示为一行记号，发送时展开）">
+            text="%action.addSelection.text"
+            description="%action.addSelection.desc">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
 
@@ -246,8 +286,8 @@
             id="com.ccoder.AddFileToChat"
             icon="/icons/ccoderAction.svg"
             class="com.ccoder.ui.AddFileToChatAction"
-            text="添加整个文件到 CCoder 聊天框"
-            description="把这个文件作为 @ 引用加到 CCoder 输入框（内容由 CLI 展开）">
+            text="%action.addFile.text"
+            description="%action.addFile.desc">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
 
@@ -256,8 +296,8 @@
             id="com.ccoder.AddFilesToChat"
             icon="/icons/ccoderAction.svg"
             class="com.ccoder.ui.AddFilesToChatAction"
-            text="添加文件到 CCoder 聊天框"
-            description="把选中的文件作为 @ 引用加到 CCoder 输入框">
+            text="%action.addFiles.text"
+            description="%action.addFiles.desc">
             <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
         </action>
 
@@ -267,8 +307,8 @@
         <action
             id="com.ccoder.PasteImage"
             class="com.ccoder.ui.PasteImageAction"
-            text="贴图"
-            description="把剪贴板里的截图贴进输入框">
+            text="%action.pasteImage.text"
+            description="%action.pasteImage.desc">
             <keyboard-shortcut keymap="$default" first-keystroke="control V"/>
         </action>
     </actions>

@@ -1,5 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
+import { t, useLang } from '../i18n'
 import { nestByParent, type NestedItem } from '../nesting'
 import { AssistantBubble } from './AssistantBubble'
 import { ErrorBubble } from './ErrorBubble'
@@ -144,11 +145,21 @@ function SubagentBlock({
   results: Map<string, ToolResultItem>
   ended: Set<string>
 }) {
+  // 这一块是**包在 memo 出来的节点里**的（见 nestedBlocks），外面不会因为换语言
+  // 而重画它 —— 所以订阅得挂在自己身上
+  useLang()
+  const count = countTools(nodes)
+
   return (
     <div className="subagent" data-testid="subagent-block">
       <div className="subagent__head">
-        子代理的对话
-        <span className="subagent__count">{countTools(nodes)} 次工具调用</span>
+        {t('transcript.subagent.title')}
+        <span className="subagent__count">
+          {/* 一次调用很常见 —— 英文那边给它留了单数写法 */}
+          {count === 1
+            ? t('transcript.subagent.toolCall', [count])
+            : t('transcript.subagent.toolCalls', [count])}
+        </span>
       </div>
       {nodes.map((node) => (
         <Item
@@ -187,6 +198,9 @@ function lastUserItemIdOf(items: TranscriptItem[]): string | null {
 }
 
 export function Transcript({ state }: { state: TranscriptState }) {
+  // 底下那颗「回到底部」按钮的文案在这一层。订阅不会白花：Item 那边 memo 挡着，
+  // 换语言时只有按钮跟着重画（payload 的引用都没变）
+  useLang()
   const liveText = state.live.assistant
   // 进行中的思考。空串按"没有"处理：Kotlin 侧会把空增量过滤掉，这里的判断是兜底
   const liveThinking = state.live.thinking !== '' ? state.live.thinking : undefined
@@ -375,10 +389,12 @@ export function Transcript({ state }: { state: TranscriptState }) {
           className="jump-to-bottom"
           data-testid="jump-to-bottom"
           data-new={hasNewWhilePaused}
-          aria-label={hasNewWhilePaused ? '回到底部（有新内容）' : '回到底部'}
+          aria-label={
+            hasNewWhilePaused ? t('transcript.backToBottomNew') : t('transcript.backToBottom')
+          }
           onClick={jumpToBottom}
         >
-          回到底部
+          {t('transcript.backToBottom')}
           {hasNewWhilePaused && <span className="jump-to-bottom__dot" aria-hidden="true" />}
         </button>
       )}

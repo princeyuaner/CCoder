@@ -1,7 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ImageLightbox } from './ImageLightbox'
+import { setLang } from '../i18n'
+
+// 「Esc 关闭」那句提示的断言先把语言钉住
+beforeEach(() => {
+  setLang('zh')
+})
 
 const IMGS = [
   'data:image/jpeg;base64,AAA',

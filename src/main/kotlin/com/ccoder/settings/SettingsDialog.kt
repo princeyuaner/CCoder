@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.project.Project
 import java.nio.file.Path
 import com.intellij.openapi.ui.DialogWrapper
@@ -50,6 +51,7 @@ fun showSettingsDialog(project: Project) {
         presets = PromptPresets.getInstance(),
         mcpStatus = McpStatus.getInstance(project),
         deps = RuntimeDepsService.getInstance(project),
+        language = UiLanguageSettings.getInstance(),
     ).show()
 }
 
@@ -95,6 +97,11 @@ internal class SettingsDialog(
      */
     private val deps: RuntimeDepsService,
     /**
+     * 界面语言（APP 级）。**不给默认值**，同 [deps] 的理由 ——
+     * 默认值只能写成 `UiLanguageSettings.getInstance()`，而它在纯 JVM 的探针里会抛。
+     */
+    private val language: UiLanguageSettings,
+    /**
      * 「运行依赖」那块的确认框/剪贴板/浏览器外壳。生产用默认值；渲染探针换掉它
      * （要画"这台机器上装不了"那一屏就得把平台与工具一起换掉）。
      */
@@ -114,7 +121,7 @@ internal class SettingsDialog(
         listOf(
             models,
             PromptPresetsPage(presets),
-            GeneralSettingsPage(project, settings),
+            GeneralSettingsPage(project, settings, language),
             PermissionSettingsPage(settings),
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——
             // 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了
@@ -158,14 +165,15 @@ internal class SettingsDialog(
      * 指到它，于是回车会关掉整个设置框 —— 而环境页的表格里回车是"提交这一格"，
      * 那一下会顺手把框关了（同 `PermissionDialog` 那条"回车不批准"的道理）。
      */
-    private val closeAction = object : DialogWrapper.DialogWrapperAction("关闭") {
-        override fun doAction(e: ActionEvent) {
-            close(OK_EXIT_CODE)
+    private val closeAction =
+        object : DialogWrapper.DialogWrapperAction(CcoderText.text("settings.dialog.close")) {
+            override fun doAction(e: ActionEvent) {
+                close(OK_EXIT_CODE)
+            }
         }
-    }
 
     init {
-        title = "设置"
+        title = CcoderText.text("settings.dialog.title")
         setSize(DIALOG_WIDTH, DIALOG_HEIGHT)
         init()
         // 每次打开都是一次新的构造，所以这一遍等价于"每次 show 之前"。
@@ -261,4 +269,4 @@ internal class SettingsDialog(
 }
 
 /** 底部那句话。原来那句只解释"取消不回滚"，现在没有取消了，只需说清生效时机。 */
-internal const val FOOTER_HINT = "改动即时保存"
+internal val FOOTER_HINT: String get() = CcoderText.text("settings.dialog.footerHint")

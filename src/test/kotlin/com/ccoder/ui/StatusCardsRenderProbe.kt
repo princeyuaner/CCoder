@@ -41,7 +41,7 @@ class StatusCardsRenderProbe {
      */
     @Test
     fun `把最长的连接文字画成图片`() =
-        render("build/status-cards-probe-longstatus.png", busy = true, connectionText = "载入中…")
+        render("build/status-cards-probe-longstatus.png", busy = true, connectionState = ConnectionState.Loading)
 
     /**
      * **还没测到用量**那一版单独出一张。
@@ -62,7 +62,7 @@ class StatusCardsRenderProbe {
      */
     @Test
     fun `把正在运行指令时的四张卡画成图片`() =
-        render("build/status-cards-probe-activity.png", busy = true, activity = ACTIVITY_RUNNING)
+        render("build/status-cards-probe-activity.png", busy = true, activity = Activity.Running)
 
     /**
      * **等待响应那一版**：动作词让到标签行、秒数进值行（[waitingCardOf]）。
@@ -83,9 +83,9 @@ class StatusCardsRenderProbe {
     private fun render(
         path: String,
         busy: Boolean,
-        connectionText: String? = null,
+        connectionState: ConnectionState? = null,
         noUsage: Boolean = false,
-        activity: String? = null,
+        activity: Activity? = null,
         waitingSeconds: Int? = null,
     ) {
         SwingUtilities.invokeAndWait {
@@ -94,7 +94,10 @@ class StatusCardsRenderProbe {
                     when {
                         waitingSeconds != null -> waitingCardOf(waitingSeconds)
                         activity != null -> activityCardOf(activity)
-                        else -> connectionCardOf(connectionText ?: if (busy) "已连接" else "已断开")
+                        else -> connectionCardOf(
+                            connectionState
+                                ?: if (busy) ConnectionState.Connected else ConnectionState.Disconnected
+                        )
                     }
                 )
                 context.setModel(
@@ -222,8 +225,8 @@ class StatusCardsRenderProbe {
             connection.setModel(
                 when {
                     shot == ActionShot.Waiting -> waitingCardOf(42)
-                    connBusy -> activityCardOf(ACTIVITY_RUNNING)
-                    else -> connectionCardOf("已连接")
+                    connBusy -> activityCardOf(Activity.Running)
+                    else -> connectionCardOf(ConnectionState.Connected)
                 }
             )
             context.setModel(contextCardOf(ContextUsage(12300, 200000), compacting = compacting))

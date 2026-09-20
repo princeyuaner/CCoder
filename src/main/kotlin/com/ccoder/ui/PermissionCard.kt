@@ -19,6 +19,7 @@ import javax.swing.JComponent
 import javax.swing.JEditorPane
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import com.ccoder.text.CcoderText
 
 /**
  * 非模态权限卡片。
@@ -44,7 +45,7 @@ class PermissionCard(
 ) : JPanel(BorderLayout()) {
 
     /** 对话框拿它当首选焦点组件（规则②）。 */
-    internal val denyButton = JButton("拒绝").apply {
+    internal val denyButton = JButton(CcoderText.text("permission.deny")).apply {
         // 不设 mnemonic：助记符等于键盘捷径，违反规则②
         addActionListener { onDecide(deniedByUser()) }
     }
@@ -80,19 +81,19 @@ class PermissionCard(
             }
             // blockedPath 单独高亮 —— 这是"为什么问我"的关键信息（spec §6.5）
             permission.blockedPath?.let { path ->
-                add(JBLabel("触发路径：$path").apply {
+                add(JBLabel(CcoderText.text("permission.triggerPath", path)).apply {
                     foreground = WARN
                     alignmentX = LEFT_ALIGNMENT
                 })
             }
             permission.decisionReason?.let { reason ->
-                add(JBLabel("原因：$reason").apply {
+                add(JBLabel(CcoderText.text("permission.reason", reason)).apply {
                     foreground = UIUtil.getInactiveTextColor()
                     alignmentX = LEFT_ALIGNMENT
                 })
             }
             if (queuedCount > 0) {
-                add(JBLabel("还有 $queuedCount 个待确认").apply {
+                add(JBLabel(CcoderText.text("permission.queued", queuedCount)).apply {
                     foreground = UIUtil.getInactiveTextColor()
                     alignmentX = LEFT_ALIGNMENT
                 })

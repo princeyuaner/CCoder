@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
@@ -9,7 +10,7 @@ import java.awt.Component
 import javax.swing.JComponent
 
 /** 「权限模式」那一栏的标签。用例要按它找控件。 */
-internal const val PERMISSION_MODE_LABEL = "权限模式"
+internal val PERMISSION_MODE_LABEL: String get() = CcoderText.text("settings.permission.mode.label")
 
 /**
  * 「我明白风险」那句话。
@@ -19,8 +20,15 @@ internal const val PERMISSION_MODE_LABEL = "权限模式"
  *
  * 不再复述"所有操作都不再询问" —— 那句话就写在这个框**正上方**
  * （模式说明跟着下拉走），同一屏里说两遍反而显得像两个不同的警告。
+ *
+ * 里面那个模式名从枚举的显示名取（`{0}`）：菜单里改了名，这句话跟着改，
+ * 不会出现"复选框说绕过、下拉说 Bypass"这种对不上。
  */
-internal const val DANGEROUS_OPT_IN_LABEL = "我明白风险，仍要使用「绕过权限」"
+internal val DANGEROUS_OPT_IN_LABEL: String
+    get() = CcoderText.text(
+        "settings.permission.optIn",
+        PermissionModeSetting.BYPASS_PERMISSIONS.label,
+    )
 
 /**
  * 权限页：权限模式 + 「我明白风险」。
@@ -43,7 +51,7 @@ internal const val DANGEROUS_OPT_IN_LABEL = "我明白风险，仍要使用「�
  */
 internal class PermissionSettingsPage(private val settings: ClaudeSettings) : SettingsPage {
 
-    override val title: String = "权限"
+    override val title: String get() = CcoderText.text("settings.page.permission")
 
     private val modeBox = ComboBox(PermissionModeSetting.entries.toTypedArray())
     private val dangerousOptIn = JBCheckBox(DANGEROUS_OPT_IN_LABEL)
@@ -78,8 +86,7 @@ internal class PermissionSettingsPage(private val settings: ClaudeSettings) : Se
             add(dangerousOptIn)
             add(
                 wrappedHint(
-                    "这一项改了只影响下次建立会话；输入框左下角那个标签能随时改，" +
-                        "那边改了对正在跑的会话立刻生效",
+                    CcoderText.text("settings.permission.hint"),
                     PAGE_CONTENT_WIDTH,
                 )
             )
@@ -134,7 +141,7 @@ internal class PermissionSettingsPage(private val settings: ClaudeSettings) : Se
 
         dangerousOptIn.isVisible = picked.requiresDangerousOptIn || effective.requiresDangerousOptIn
         modeHint.text = if (effective != picked) {
-            "还没确认 —— 实际会按「${effective.label}」运行"
+            CcoderText.text("settings.permission.notConfirmed", effective.label)
         } else {
             picked.description
         }

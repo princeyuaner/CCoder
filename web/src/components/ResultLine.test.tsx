@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { setLang } from '../i18n'
 import { ResultLine, formatResultDuration, formatTokens, resultLineText } from './ResultLine'
 
 /**
@@ -7,7 +8,14 @@ import { ResultLine, formatResultDuration, formatTokens, resultLineText } from '
  *
  * 纯格式化（数字与耗时怎么缩）在这里钉死；**观感**（那行灰字在暗色下够不够、会不会
  * 与卡片抢注意力）不在这层 —— 它没有新形状，沿用原样。
+ *
+ * 语言：这一行现在有中英两份文案，下面那些中文断言是**文案的回归网**
+ * （`toBe` 比的是整行，最容易被顺手改坏），所以先把语言钉住；英文那一半
+ * 另有两处 golden，不然英文被改歪了没有任何东西会红。
  */
+beforeEach(() => {
+  setLang('zh')
+})
 describe('token 数字', () => {
   it('不足一千照原样，避免「0.0k」这种读不出量级的写法', () => {
     expect(formatTokens(0)).toBe('0')
@@ -77,6 +85,33 @@ describe('那一行的文字', () => {
     expect(resultLineText({ subtype: 'error_max_turns', durationMs: 1000 }))
       .toBe('error_max_turns · 1.0s')
   })
+
+  // ---- 英文那一半的形状 ----
+  //
+  // 中文那几条是锚，但只锚得住中文：英文被改成 `Success · In 12.4k` 的话，
+  // 上面每一条都会照过。这里的词汇是 **CLI 的原词**（小写、`in` / `cache` / `out`），
+  // 与 `success` 原样透传那条规矩是同一条线上的事
+  it('英文界面下同一行：CLI 的词汇，全小写', () => {
+    setLang('en')
+
+    expect(
+      resultLineText({
+        subtype: 'success',
+        inputTokens: 12432,
+        cacheReadTokens: 8100,
+        outputTokens: 1234,
+        durationMs: 33818,
+      }),
+    ).toBe('success · in 12.4k · cache 8.1k · out 1.2k · 33.8s')
+  })
+
+  it('英文下同样省掉缓存 0 与缺失的字段', () => {
+    setLang('en')
+
+    expect(
+      resultLineText({ subtype: 'success', inputTokens: 900, cacheReadTokens: 0, outputTokens: 10, durationMs: 1200 }),
+    ).toBe('success · in 900 · out 10 · 1.2s')
+  })
 })
 
 describe('渲染', () => {
@@ -92,5 +127,20 @@ describe('渲染', () => {
     )
 
     expect(screen.getByText('成功 · 输入 12.4k · 缓存 8.1k · 输出 1.2k · 33.8s')).toBeTruthy()
+  })
+
+  it('换语言时这一行跟着重画 —— 组件订阅着 i18n 的 store', () => {
+    // 这一行是 `Item`（memo）底下画的，外面那层不会因为换语言重渲染它，
+    // 所以订阅挂在它自己身上（ResultLine 里的 useLang）。少了那句订阅，
+    // 这条会红：文字仍是上一次那种语言
+    render(<ResultLine subtype="success" />)
+    expect(screen.getByText('成功')).toBeInTheDocument()
+
+    act(() => {
+      setLang('en')
+    })
+
+    expect(screen.getByText('success')).toBeInTheDocument()
+    expect(screen.queryByText('成功')).not.toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -9,31 +10,36 @@ import org.junit.jupiter.api.Test
 /** 四张卡各自的内容与形状。全是纯函数，不碰 Swing。 */
 class StatusCardsTest {
 
-    // ---- 连接：八种文字 → 四种色调 ----
+    // ---- 连接：每一档自带色调 ----
 
     @Test
-    fun `连接状态八种文字各自的色调`() {
-        assertEquals(Tone.Ok, connectionCardOf("已连接").tone)
-        assertEquals(Tone.Warn, connectionCardOf("启动中…").tone)
-        assertEquals(Tone.Warn, connectionCardOf("载入中…").tone)
-        assertEquals(Tone.Idle, connectionCardOf("未连接").tone)
-        assertEquals(Tone.Idle, connectionCardOf("已结束").tone)
-        assertEquals(Tone.Danger, connectionCardOf("启动失败").tone)
-        assertEquals(Tone.Danger, connectionCardOf("已断开").tone)
-        assertEquals(Tone.Danger, connectionCardOf("恢复失败").tone)
+    fun `每一档连接状态都自带色调`() {
+        // 这条原来是「八种文字 → 四种色调」的查表用例（`connectionTone("已连接")`）。
+        // 改成枚举之后它的价值反而更高：**每一档**都被钉住，而新增一档忘了给色调
+        // 是编译错误 —— 那种"翻译之后整体塌成灰色、零报错"的路已经被堵死。
+        assertEquals(Tone.Ok, ConnectionState.Connected.tone)
+        assertEquals(Tone.Warn, ConnectionState.Starting.tone)
+        assertEquals(Tone.Warn, ConnectionState.Loading.tone)
+        assertEquals(Tone.Idle, ConnectionState.Idle.tone)
+        assertEquals(Tone.Danger, ConnectionState.StartFailed.tone)
+        assertEquals(Tone.Danger, ConnectionState.Disconnected.tone)
+        assertEquals(Tone.Danger, ConnectionState.RestoreFailed.tone)
     }
 
     @Test
-    fun `没见过的连接文字不崩，退成 Idle`() {
-        // 将来 statusLabel 多写一种文字，不该让整条状态行炸掉
-        assertEquals(Tone.Idle, connectionCardOf("量子纠缠中").tone)
+    fun `连接结束这一档的色调是刻意保留的，不是漏了`() {
+        // 「已结束」（sidecar 进程退了）今天落到灰 —— 它原来压根没写进那张映射表。
+        // 两种读法都说得通：进程退出可能是用户自己停的（灰是对的），也可能是崩溃
+        // （值得显出来，SidecarExitReport 存在的全部理由就是这个）。
+        // 这次翻译**只把现状钉住**，改不改另开一条（设计稿口径 5）。
+        assertEquals(Tone.Idle, ConnectionState.Ended.tone)
     }
 
     @Test
     fun `连接卡永远不空闲`() {
         // "未连接"是一种真实状态，不是"没数据"。它该有边框
-        assertFalse(connectionCardOf("未连接").quiet)
-        assertFalse(connectionCardOf("已连接").quiet)
+        assertFalse(connectionCardOf(ConnectionState.Idle).quiet)
+        assertFalse(connectionCardOf(ConnectionState.Connected).quiet)
     }
 
     @Test
@@ -41,10 +47,13 @@ class StatusCardsTest {
         // 用户原话：「我希望能实时显示当前在做什么，比如思考中，编辑文件，运行指令等等」。
         // 色调走 Warn 而不是 Ok —— 它是**过渡态**，绿色只留给"已连接"这种安定状态，
         // 与"启动中…""载入中…"同一族
-        val card = activityCardOf(ACTIVITY_THINKING)
+        val card = activityCardOf(Activity.Thinking)
 
-        assertEquals("连接", card.label, "格子身份不变，变的只是值")
-        assertEquals(ACTIVITY_THINKING, card.value)
+        assertEquals(CARD_LINK, card.label, "格子身份不变，变的只是值")
+        // 用 text() 比而不是写死"思考中"：换语言跑（-PtestLang=en）时这条也该绿。
+        // 真正的回归点是"值来自词表，不是那个键"——下半句就是钉这个的
+        assertEquals(Activity.Thinking.text(), card.value)
+        assertTrue(!card.value.startsWith("status."), "值是个裸键：词表里少了一条")
         assertEquals(Tone.Warn, card.tone)
         assertFalse(card.quiet, "正在干活不是「没数据」")
     }
@@ -59,7 +68,8 @@ class StatusCardsTest {
         // 换行放的理由是宽度：这一格约 95px，「等待响应 12s」并排会被省略号截掉
         val card = waitingCardOf(12)
 
-        assertEquals(ACTIVITY_WAITING, card.label)
+        assertEquals(Activity.Waiting.text(), card.label)
+        assertTrue(!card.label.startsWith("status."), "标签是个裸键：词表里少了一条")
         assertEquals("12s", card.value)
         assertEquals(Tone.Warn, card.tone, "等待也是过渡态")
         assertFalse(card.quiet)
@@ -67,11 +77,14 @@ class StatusCardsTest {
 
     @Test
     fun `等待秒数两位数也放得下`() {
-        // 实测这条路径上 P99 到过 38.8s、最长 89s —— 秒数会长到两位数
+        // 实测这条路径上 P99 到过 38.8s、最长 89s —— 秒数会长到两位数。
+        // 标签那行的上限按语言分：中文是 ≤4 个字（量出来的），英文那个数由
+        // StatusCardsRenderProbe 在英文下量（设计稿 §8），这里给粗界。
         val card = waitingCardOf(89)
+        val maxLabel = if (CcoderText.tag() == "zh") 6 else 12
 
         assertTrue(card.value.length <= 4, "值那一行放不下：${card.value}")
-        assertTrue(card.label.length <= 6, "标签那一行也窄：${card.label}")
+        assertTrue(card.label.length <= maxLabel, "标签那一行也窄：${card.label}")
     }
 
     @Test

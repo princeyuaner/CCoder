@@ -7,6 +7,7 @@ import java.util.Timer
 import java.util.TimerTask
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import com.ccoder.text.CcoderText
 
 /**
  * NDJSON 分帧器（插件侧）。
@@ -105,7 +106,7 @@ class SidecarClient(
 
                 // 读线程走到这里 = 流结束 = sidecar 不会再回话了。
                 // 挂着的请求必须立刻失败，不能等超时
-                failAllPending("sidecar 已退出")
+                failAllPending(CcoderText.text("chat.error.sidecarExited"))
             } catch (_: Exception) {
                 // 流被关闭（进程退出或主动 close）是预期路径，不向上传播
             }
@@ -153,7 +154,7 @@ class SidecarClient(
      */
     fun request(id: String, json: String, callback: (RequestOutcome) -> Unit) {
         if (closed.get()) {
-            callback(RequestOutcome.Failed("通道已关闭"))
+            callback(RequestOutcome.Failed(CcoderText.text("chat.error.channelClosed")))
             return
         }
         registerAndSchedule(id, callback)
@@ -185,7 +186,7 @@ class SidecarClient(
     private fun onTimeout(id: String) {
         val p = pending.remove(id) ?: return
         p.timer.cancel()
-        p.callback(RequestOutcome.Failed("请求超时"))
+        p.callback(RequestOutcome.Failed(CcoderText.text("chat.error.requestTimeout")))
     }
 
     /**
@@ -213,7 +214,7 @@ class SidecarClient(
 
     fun close() {
         if (!closed.compareAndSet(false, true)) return
-        failAllPending("通道已关闭")
+        failAllPending(CcoderText.text("chat.error.channelClosed"))
         runCatching { output.close() }
         readerThread?.interrupt()
         timer?.cancel()

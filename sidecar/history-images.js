@@ -1,3 +1,5 @@
+import { defaultT, plural } from './strings.js';
+
 /**
  * 恢复会话时，历史里的图要有个预算。
  *
@@ -35,9 +37,10 @@ function imageSize(block) {
 /**
  * @param {Array<object>} items  getSessionMessages 回来的条目（会被浅拷贝，不原地改）
  * @param {number} budget        见 [HISTORY_IMAGE_BUDGET]
+ * @param {Function} t           取词器（见 strings.js）。默认现读环境变量
  * @returns {{items: Array<object>, kept: number, dropped: number}}
  */
-export function capHistoryImages(items, budget = HISTORY_IMAGE_BUDGET) {
+export function capHistoryImages(items, budget = HISTORY_IMAGE_BUDGET, t = defaultT()) {
   if (!Array.isArray(items) || items.length === 0) {
     return { items: items ?? [], kept: 0, dropped: 0 };
   }
@@ -70,11 +73,19 @@ export function capHistoryImages(items, budget = HISTORY_IMAGE_BUDGET) {
     dropped += drop.length;
     const content = item.message.content;
     const keptBlocks = content.filter((_, b) => !drop.includes(b));
-    // 说明补在**末尾**：正文在前，用户读到的顺序跟原来一样
-    keptBlocks.push({
-      type: 'text',
-      text: `（这一条里更早的 ${drop.length} 张图已省略）`,
-    });
+    // 说明补在**末尾**：正文在前，用户读到的顺序跟原来一样。
+    //
+    // 这一条**是**要翻的 —— 与拒绝文案（"用户拒绝"/"已中断"/"会话已终止"，
+    // 保持中文，见 shared/deny-message.json）刻意相反：那几条是发给 CLI 的
+    // 协议载荷，模型看到的内容不该随界面语言变；这一条是**正文**，跟用户自己
+    // 打的那段话混在同一个气泡里、模型也照着读 —— 一句中文括号夹在英文对话
+    // 中间，比翻错更糟。单复数也只有英文要分，所以让调用方用 plural 选一份
+    const omitted = plural(
+      drop.length,
+      t('history.imagesOmittedOne', { 0: drop.length }),
+      t('history.imagesOmittedOther', { 0: drop.length }),
+    );
+    keptBlocks.push({ type: 'text', text: omitted });
     return { ...item, message: { ...item.message, content: keptBlocks } };
   });
 

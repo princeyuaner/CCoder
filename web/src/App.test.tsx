@@ -107,4 +107,44 @@ describe('App 与 Kotlin 的桥握手', () => {
     expect(screen.queryByText('不该出现')).not.toBeInTheDocument()
     spy.mockRestore()
   })
+
+  // ---- 语言的调用约定 ----
+  //
+  // 与上面 pushBatch 那一段同一个道理：语言是**跨进程的约定**，两侧各自的
+  // 测试都绿也可能对不上（Kotlin 改了 `locale` 而页面从没读，或者页面把
+  // 接收端挂在了 Kotlin 不去叫的名字上）。这里把那条约定整条走一遍。
+
+  it('注入的标签定初始语言，ccoderSetLocale 换语言（不重载页面）', async () => {
+    window.ccoder = { locale: 'zh' }
+    // Kotlin 侧注入的那一对（见 types.ts）：改 locale，再叫醒页面挂着的 sink
+    window.ccoderSetLocale = (tag: string) => {
+      window.ccoder = { ...window.ccoder, locale: tag }
+      window.ccoderLocaleSink?.(tag)
+    }
+
+    const { unmount } = render(<App />)
+    // 接收端必须在挂载这一刻就挂上，否则切语言时没人接
+    expect(typeof window.ccoderLocaleSink).toBe('function')
+
+    await act(async () => {
+      window.ccoder?.pushBatch?.(
+        JSON.stringify([
+          { op: 'append', item: { id: 'r', ts: 1, kind: 'result', subtype: 'success' } },
+        ]),
+      )
+    })
+    expect(screen.getByText('成功')).toBeInTheDocument()
+
+    act(() => {
+      window.ccoderSetLocale?.('en')
+    })
+
+    expect(screen.getByText('success')).toBeInTheDocument()
+    // 属性一起跟上：读屏软件按它挑音库
+    expect(document.documentElement.lang).toBe('en')
+
+    // 页面卸掉之后不许再留着一个会往死页面里推语言的接收端
+    unmount()
+    expect(window.ccoderLocaleSink).toBeUndefined()
+  })
 })

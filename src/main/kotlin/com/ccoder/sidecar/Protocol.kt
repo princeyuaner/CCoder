@@ -6,6 +6,7 @@ import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
+import com.ccoder.text.CcoderText
 
 /**
  * sidecar 与插件之间的消息。
@@ -282,6 +283,14 @@ data class StartParams(
     val envOverrides: Map<String, String> = emptyMap(),
     /** 非空则恢复该会话（SDK 的 `Options.resume`）。空 = 开新会话。 */
     val resumeSessionId: String? = null,
+    /**
+     * 界面语言（`"zh"` / `"en"`）—— sidecar 用它翻**每会话**那些文案。
+     *
+     * 为什么除进程环境之外还要这一条：新会话复用同一个 node 进程，光靠启动时
+     * 那个环境变量，用户在设置里改了语言之后新开的会话仍然说着旧语言 ——
+     * 表现出来就是"设置只生效了一半"（设计稿 §5.1）。
+     */
+    val uiLang: String? = null,
 )
 
 /**
@@ -482,7 +491,7 @@ object Protocol {
             }
 
             "error" -> SidecarMessage.Failure(
-                message = obj.str("message") ?: "未知错误",
+                message = obj.str("message") ?: CcoderText.text("chat.error.unknown"),
                 code = obj.str("code"),
                 fatal = obj.bool("fatal") ?: false,
             )
@@ -583,6 +592,18 @@ object Protocol {
     fun encodeMcpServerStatus(id: String): String = encodeSimple(id, "mcpServerStatus")
 
     /**
+     * 换界面语言（热切换，2026-09-20）。
+     *
+     * 会话建立之后界面还能换语言，而 sidecar 自己的失败回执（"当前会话不支持换模型"
+     * 那几条）也得跟着换 —— 这条消息就是那个杠杆，字段名与 [StartParams.uiLang]
+     * **逐字一致**（sidecar 两侧读的是同一个 `params.uiLang`）。
+     *
+     * 它**不建也不重建会话**：正在跑的那轮继续，换的只是取词器。
+     */
+    fun encodeSetUiLang(id: String, lang: String): String =
+        line(id, "setUiLang", JsonObject().apply { addProperty("uiLang", lang) })
+
+    /**
      * 响应类消息的关联 id。非响应消息返回 null。
      *
      * 放在这里而不是 [com.ccoder.sidecar.SidecarClient]：客户端不必认识每一种
@@ -619,6 +640,7 @@ object Protocol {
                 )
             }
             params.resumeSessionId?.let { addProperty("resumeSessionId", it) }
+            params.uiLang?.let { addProperty("uiLang", it) }
         }
         return line(id, "start", p)
     }

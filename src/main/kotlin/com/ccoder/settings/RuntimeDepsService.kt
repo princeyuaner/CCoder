@@ -7,6 +7,7 @@ import com.ccoder.sidecar.DepStatus
 import com.ccoder.sidecar.RunEvent
 import com.ccoder.sidecar.RuntimeDep
 import com.ccoder.sidecar.probeRuntimeDep
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
@@ -190,13 +191,13 @@ class RuntimeDepsService(
             }
 
             is RunEvent.Exited -> {
-                if (event.code != 0) appendLine(lines, "退出码 ${event.code}")
+                if (event.code != 0) appendLine(lines, CcoderText.text("settings.deps.logExitCode", event.code))
                 finish(plan, lines, if (event.code == 0) InstallResult.SUCCEEDED else InstallResult.FAILED)
             }
 
             RunEvent.Cancelled -> {
                 // 取消**不等于干净**：npm/winget 被中途杀掉可能留下未装完的文件
-                appendLine(lines, "已取消 —— 可能留下未装完的文件，建议重跑一次")
+                appendLine(lines, CcoderText.text("settings.deps.logCancelled"))
                 finish(plan, lines, InstallResult.CANCELLED)
             }
 
@@ -225,32 +226,33 @@ class RuntimeDepsService(
      * "显式路径不存在"就再也不回退了）。只给一条他自己能走的下一步。
      */
     private fun explainStillMissing(dep: RuntimeDep, status: DepStatus) {
+        // 三句都是**给用户看的下一步**（它们进输出区，不是日志）：可执行的 token
+        // （`npm prefix -g` / `where node`）与页签名（设置 → 通用）必须逐字保留
         val lines = when (dep) {
             RuntimeDep.CLAUDE ->
                 listOf(
-                    "装完了，但检测仍然找不到 claude。",
-                    "常见原因：npm 的全局前缀被改过（装到了别处）。",
-                    "跑一次 npm prefix -g 看它装到哪儿，然后把那个目录下的 claude 填到 " +
-                        "设置 → 通用 → claude 可执行文件。",
+                    CcoderText.text("settings.deps.stillMissing.claude"),
+                    CcoderText.text("settings.deps.stillMissing.claudeWhy"),
+                    CcoderText.text("settings.deps.stillMissing.claudeFix"),
                 )
 
             RuntimeDep.NODE ->
                 listOf(
-                    "装完了，但检测仍然找不到 node（${statusTextShort(status)}）。",
-                    "它可能装到了一个已知目录之外的地方。",
-                    "重启 IDE 让新的 PATH 生效；仍然不行时，用 where node 找到它，" +
-                        "把完整路径填到 设置 → 通用。",
+                    CcoderText.text("settings.deps.stillMissing.node", statusTextShort(status)),
+                    CcoderText.text("settings.deps.stillMissing.nodeWhy"),
+                    CcoderText.text("settings.deps.stillMissing.nodeFix"),
                 )
         }
         val current = install as? InstallState.Finished ?: return
         install = current.copy(log = current.log + lines)
     }
 
+    /** 那句指路文案里怎么称呼这次复检的结果。四档**互相分得开**，不合成一个"不可用"。 */
     private fun statusTextShort(status: DepStatus): String = when (status) {
-        DepStatus.NotFound -> "没找到"
-        is DepStatus.Broken -> "找到了但跑不起来"
-        is DepStatus.TooOld -> "版本过低"
-        else -> "状态未知"
+        DepStatus.NotFound -> CcoderText.text("settings.deps.short.notFound")
+        is DepStatus.Broken -> CcoderText.text("settings.deps.short.broken")
+        is DepStatus.TooOld -> CcoderText.text("settings.deps.short.tooOld")
+        else -> CcoderText.text("settings.deps.short.unknown")
     }
 
     private fun appendLine(lines: MutableList<String>, text: String) {

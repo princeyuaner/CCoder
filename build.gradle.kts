@@ -78,6 +78,12 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
+
+    // 界面语言钉死。用例断言的就是**中文文案本身**（文案是这个仓库的产品），
+    // 跟着 IDE 语言走会让同一份用例在中英文机器上得到不同结果 —— 那是"在我机器上是绿的"。
+    // IdeLocale.detect() 先看这个系统属性（放在平台之前），所以测试永远不会去碰平台。
+    // 要看英文那遍：./gradlew test -PtestLang=en
+    systemProperty("ccoder.lang", providers.gradleProperty("testLang").getOrElse("zh"))
 }
 
 tasks {

@@ -11,6 +11,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.psi.PsiElement
 import com.intellij.util.Processor
 import com.intellij.util.indexing.FindSymbolParameters
+import com.ccoder.text.CcoderText
 
 // 符号引用的 IDE 面。**不可单测**（要 Project / PSI / 索引），照 collectProjectFiles 的成例：
 // 这一层只做"把平台的东西变成纯数据"，判据与排版全在 SymbolCandidates.kt 里测。
@@ -95,7 +96,7 @@ internal fun searchSymbols(
             hits = emptyList(),
             names = cachedNames,
             matched = 0,
-            failure = "符号索引现在读不到（${it.javaClass.simpleName}）",
+            failure = CcoderText.text("composer.symbol.indexUnavailable", it.javaClass.simpleName),
         )
     }
 
@@ -108,7 +109,7 @@ internal fun searchSymbols(
             hits = emptyList(),
             names = cachedNames,
             matched = 0,
-            status = "正在建索引，符号列表稍后可用",
+            status = CcoderText.text("composer.symbol.indexing"),
         )
     }
 
@@ -183,7 +184,7 @@ internal fun searchSymbols(
     val failure =
         if (hits.isEmpty() && toResolve.isNotEmpty()) {
             // 名字找得到、位置定不到：这不是"没有这个符号"，要说清楚
-            "找到 ${toResolve.size} 个同名符号，但都定位不到位置"
+            CcoderText.text("composer.symbol.noLocation", toResolve.size)
         } else {
             null // 真的没有：不算失败（与 `@` 一致，安静地不弹）
         }

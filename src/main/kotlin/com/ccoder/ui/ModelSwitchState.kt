@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.canHotSwitch
+import com.ccoder.text.CcoderText
 
 /**
  * 点一个模型会**发生什么**。
@@ -53,4 +54,4 @@ internal fun pickEffect(
  * 空闲时一个字都不说，用户切完才发现上下文没了。
  */
 internal fun restartBadge(effect: PickEffect): String? =
-    if (effect == PickEffect.Restart) "会重开会话" else null
+    if (effect == PickEffect.Restart) CcoderText.text("composer.model.restartHint") else null

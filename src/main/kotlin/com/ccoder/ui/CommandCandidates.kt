@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.CommandInfo
+import com.ccoder.text.CcoderText
 
 /**
  * 分组标题。
@@ -13,8 +14,8 @@ import com.ccoder.sidecar.CommandInfo
  * 唯一的结构性信号是**插件命名空间**（`superpowers:brainstorming`），
  * 拿它当分界线：带前缀的确实是插件，其余确实不是。标签照实说。
  */
-internal const val GROUP_PLUGIN = "插件"
-internal const val GROUP_OTHER = "其它"
+internal val GROUP_PLUGIN: String get() = CcoderText.text("composer.commands.groupPlugin")
+internal val GROUP_OTHER: String get() = CcoderText.text("composer.commands.groupOther")
 
 /**
  * 命令名归一化：小写、空白折成连字符。
@@ -138,8 +139,8 @@ internal fun commandCandidates(
  */
 internal fun describeCommand(cmd: CommandInfo): String = buildList {
     cmd.description?.takeIf { it.isNotBlank() }?.let { add(oneLine(it)) }
-    cmd.argumentHint?.takeIf { it.isNotBlank() }?.let { add("参数 $it") }
-    if (cmd.aliases.isNotEmpty()) add("别名 " + cmd.aliases.joinToString("、"))
+    cmd.argumentHint?.takeIf { it.isNotBlank() }?.let { add(CcoderText.text("composer.commands.args", it)) }
+    if (cmd.aliases.isNotEmpty()) add(CcoderText.text("composer.commands.aliases", cmd.aliases.joinToString(CcoderText.text("common.listSeparator"))))
 }.joinToString(" · ")
 
 /**

@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SessionInfo
+import com.ccoder.text.CcoderText
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
@@ -39,7 +40,7 @@ import javax.swing.SwingUtilities
  *
  * 实现与测试共用这一个常量，免得两边各写一份然后漂移。
  */
-internal const val DELETE_TEXT = "删除"
+internal val DELETE_TEXT: String get() = CcoderText.text("session.list.delete")
 
 /**
  * 顶部那行右上角的入口上写什么（2026-09-17）。
@@ -47,13 +48,13 @@ internal const val DELETE_TEXT = "删除"
  * 「清空全部」而不是「清空」：这一列里每个会话都有自己的一颗「删除」，
  * 少一个字会读成"清空当前这条"。
  */
-internal const val CLEAR_ALL_TEXT = "清空全部"
+internal val CLEAR_ALL_TEXT: String get() = CcoderText.text("session.list.clearAll")
 
 /** 确认态里那颗真正动手的按钮。与行内确认同一个词：那一刻问的是同一件事。 */
-internal const val CLEAR_CONFIRM_TEXT = "清空"
+internal val CLEAR_CONFIRM_TEXT: String get() = CcoderText.text("session.list.clear")
 
 /** 顶部那行左边那三个字。有它，右边那颗「清空全部」才像一条工具栏而不是飘着的动作。 */
-internal const val LIST_TITLE_TEXT = "历史会话"
+internal val LIST_TITLE_TEXT: String get() = CcoderText.text("session.list.title")
 
 /**
  * 顶部那一行的组件名。
@@ -100,7 +101,7 @@ internal const val TAG_EMPTY_MARK = "＋"
  * 为什么不只靠"点不动"：点不动的东西会被当成 bug（spec §5.1 的老账）。
  * 一句话讲清"为什么点不动、去哪儿找它"。
  */
-internal const val TAKEN_TEXT = "已打开"
+internal val TAKEN_TEXT: String get() = CcoderText.text("session.list.taken")
 
 /**
  * 标签 chip 上写什么。
@@ -188,7 +189,7 @@ internal fun buildSessionList(
     if (sessions.isEmpty()) {
         // 没有会话时**不画**那一行：右上角挂一颗"清空全部"去清一个空列表，
         // 只会让人怀疑列表是不是没加载出来
-        root.add(noteRow("没有找到历史会话"))
+        root.add(noteRow(CcoderText.text("session.list.empty")))
         return root
     }
 
@@ -338,7 +339,7 @@ private fun clearAllRow(
     // 口径与行内那颗删除一致 —— 被占的会话连删除入口都没有
     val kept = sessions.count { it.sessionId in takenIds || it.sessionId == currentSessionId }
 
-    val action = textAction(CLEAR_ALL_TEXT, "清空这个项目的历史会话", base)
+    val action = textAction(CLEAR_ALL_TEXT, CcoderText.text("session.list.clearAllTip"), base)
     // 槽照抄按钮的首选尺寸，一个数都不改（同 deleteSlot 那条：压扁了框会横穿字形）。
     // 不用 hover 整行提亮那一档：这一行除了它没有别的可点动作，
     // 两档（安静 ↔ 指针停在按钮上）就够了
@@ -388,7 +389,7 @@ private fun clearAllRow(
             ),
         ).apply { font = base }
 
-        val cancel = JButton("取消").apply {
+        val cancel = JButton(CcoderText.text("common.cancel")).apply {
             font = base
             isFocusable = false
             addActionListener { showNormal() }
@@ -528,7 +529,7 @@ private fun sessionRow(
             UIUtil.getInactiveTextColor()
         }
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = if (session.tag.isNullOrBlank()) "给这个会话打个标签" else "改标签"
+        toolTipText = if (session.tag.isNullOrBlank()) CcoderText.text("session.list.tagTip") else CcoderText.text("session.list.tagEditTip")
     }
 
     // 按钮藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
@@ -544,7 +545,7 @@ private fun sessionRow(
     // 字号就是标签字号（`✕` 那版是 +2f）：文字不需要放大就有存在感，
     // 放大反而会盖过标题。层次仍靠颜色：平时次要色 → 指针到这一行上提亮 →
     // 停在按钮上时变红并长出一个真的按钮框（危险信号 + 可点 affordance）。
-    val deleteButton = textAction(DELETE_TEXT, "删除这个会话", base)
+    val deleteButton = textAction(DELETE_TEXT, CcoderText.text("session.list.deleteTip"), base)
 
     fun paintDelete(danger: Boolean, strong: Boolean) = paintDanger(deleteButton, danger, strong)
 
@@ -696,12 +697,12 @@ private fun sessionRow(
         confirmSlot.swap { showNormal() }
 
         val prompt = JLabel(deleteConfirmPrompt(session, isCurrent = selected)).apply { font = base }
-        val cancel = JButton("取消").apply {
+        val cancel = JButton(CcoderText.text("common.cancel")).apply {
             font = base
             isFocusable = false
             addActionListener { showNormal() }
         }
-        val confirm = JButton("删除").apply {
+        val confirm = JButton(DELETE_TEXT).apply {
             font = base
             isFocusable = false
             addActionListener { onDelete(session) }
@@ -808,10 +809,10 @@ internal fun relativeTime(nowMs: Long, thenMs: Long): String {
     val days = delta / 86_400_000
 
     return when {
-        delta < 60_000 -> "刚刚"
-        minutes < 60 -> "$minutes 分钟前"
-        hours < 24 -> "$hours 小时前"
-        days == 1L -> "昨天"
-        else -> "$days 天前"
+        delta < 60_000 -> CcoderText.text("session.time.justNow")
+        minutes < 60 -> CcoderText.text("session.time.minutes", minutes)
+        hours < 24 -> CcoderText.text("session.time.hours", hours)
+        days == 1L -> CcoderText.text("session.time.yesterday")
+        else -> CcoderText.text("session.time.days", days)
     }
 }

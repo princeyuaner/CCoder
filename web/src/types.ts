@@ -17,6 +17,17 @@ export interface UserItem extends Base { kind: 'user'; text: string; images?: st
 export interface AssistantItem extends Base { kind: 'assistant'; text: string; parent?: string }
 export interface ThinkingItem extends Base { kind: 'thinking'; text: string; parent?: string }
 export interface ErrorItem extends Base { kind: 'error'; text: string }
+/**
+ * 一条系统提示。
+ *
+ * **文字是 Kotlin 侧拼好的，这里原样渲染** —— 它到达时已经是当前界面语言的
+ * 成品（Kotlin 自己那份目录翻的），web 侧**不许再翻一遍**：两边各翻一次，
+ * 轻则一句中文里夹着英文词，重则翻不出东西时静默退回原样，界面上看着像文案
+ * 没跟上，实际是翻了第二遍。
+ *
+ * 换语言也**不改写它一个字**：这条是已经落库的历史消息，当时说的什么就是什么。
+ * 界面文案（走 i18n.ts 那份目录）与它**是两回事**，别把这两条路混在一起。
+ */
 export interface SystemNoteItem extends Base { kind: 'systemNote'; text: string }
 /**
  * 一次工具调用。
@@ -89,6 +100,38 @@ declare global {
     ccoder?: {
       pushBatch?: (json: string) => void
       send?: (message: string) => void
+      /**
+       * 当前界面语言的标签。Kotlin 在页面加载时注入，页面**惰性**读一次
+       * （见 i18n.ts 的 getLang）；此后只在 ready 握手里回推一次，页面
+       * 不必重载。
+       *
+       * 类型是 `string` 而不是 `'zh' | 'en'`：它是跨进程来的外部输入，
+       * 声明成联合类型只会把"没预料到的写法"从类型上藏起来 —— 归一化
+       * 那一步在 i18n.ts 里，那里看得见。
+       */
+      locale?: string
     }
+    /**
+     * 换主题（Kotlin 注入，参数是一份 CSS 文本）。
+     *
+     * 页面这一侧目前不调它 —— 主题由 Kotlin 侧的内嵌编辑器配置驱动；
+     * 声明在这里是因为它是桥的一部分，形状得以 Kotlin 那份为准。
+     */
+    ccoderSetTheme?: (css: string) => void
+    /**
+     * 换语言：把标签落到 `ccoder.locale` 上，再叫醒页面这一侧的接收端。
+     *
+     * Kotlin 注入并由它自己调用（设置页改语言那次不必重载页面）。
+     * 页面**不主动调**它 —— 语言是 Kotlin 的事。
+     */
+    ccoderSetLocale?: (tag: string) => void
+    /**
+     * 页面这一侧的语言接收端，由 App 在装 `pushBatch` 的同一处装上
+     * （见 App.tsx），并在 effect 清理时摘掉。
+     *
+     * 是**可选**的：Kotlin 那边调之前先判存在 —— 页面还没挂上时切语言
+     * 不该炸（桥晚于挂载注入是常态，见 App.test.tsx 的握手用例）。
+     */
+    ccoderLocaleSink?: (tag: string) => void
   }
 }

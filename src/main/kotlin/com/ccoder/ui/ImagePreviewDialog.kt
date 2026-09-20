@@ -22,6 +22,7 @@ import javax.swing.KeyStroke
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import com.ccoder.text.CcoderText
 
 /**
  * 「点开看大图」那个框（2026-09-17）。输入框附件带里点缩略图正文就走到这儿。
@@ -185,10 +186,10 @@ internal class ImagePreviewDialog(
     }
 
     private companion object {
-        const val CLOSE_BUTTON_TEXT = "关闭"
+        val CLOSE_BUTTON_TEXT: String get() = CcoderText.text("common.close")
         const val KEY_PREV = "ccoder.preview.prev"
         const val KEY_NEXT = "ccoder.preview.next"
-        const val NO_IMAGE_TEXT = "这张图打不开了"
+        val NO_IMAGE_TEXT: String get() = CcoderText.text("composer.imagePreview.gone")
 
         /** 数字键直跳用的那排键。VK_1..VK_9 是连着的，但**不拿加法去凑**（读的人得查表）。 */
         val DIGIT_KEYS = listOf(
@@ -284,7 +285,7 @@ internal const val PREVIEW_MIN_H = 260
  * 只有一张时是**空串**（那一行整条不显示）：一个"1 / 1"既没用，又白占一行高度。
  */
 internal fun previewHintText(count: Int, index: Int): String =
-    if (count > 1) "${index + 1} / $count · ← → 翻页" else ""
+    if (count > 1) "${index + 1} / $count · " + CcoderText.text("composer.imagePreview.paging") else ""
 
 /** 屏幕可用区里留给图的那一份。剩下的给窗口装饰与四周的空白。 */
 private const val SCREEN_SHARE = 0.8

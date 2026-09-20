@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.UiLanguageSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
@@ -13,6 +14,7 @@ import java.awt.BorderLayout
 import java.util.concurrent.CopyOnWriteArrayList
 import javax.swing.JComponent
 import javax.swing.JPanel
+import com.ccoder.text.CcoderText
 
 /**
  * 工具窗口 id。
@@ -32,7 +34,7 @@ internal const val TOOL_WINDOW_ID = "CCoder"
 internal const val MAX_SESSION_TABS = 5
 
 /** 还没起名的新标签叫什么。与胶囊上的占位同一个词。 */
-internal const val NEW_TAB_TITLE = "新会话"
+internal val NEW_TAB_TITLE: String get() = CcoderText.text("session.tabs.newTitle")
 
 /**
  * 关这个标签要不要先问一句。
@@ -114,6 +116,16 @@ class SessionTabs {
             current = null
         }
         toolWindow.contentManager.addContent(created)
+
+        // 界面语言热切换（2026-09-20）：语言一变，本窗口里每个面板自己重译一遍。
+        // 订阅记在**项目**上而不是面板上 —— 服务是 APP 级的，项目关掉必须退订，
+        // 否则那个项目的一串面板会被一个永远活着的监听列表钉住。
+        // 服务取不到就不订阅：订阅不上不该拦着窗口打开（2026-09-20 那次 NPE 的教训）。
+        UiLanguageSettings.getInstanceOrNull()?.let { language ->
+            val listener: () -> Unit = { panels.toList().forEach { it.retranslate() } }
+            language.addListener(listener)
+            Disposer.register(project) { language.removeListener(listener) }
+        }
     }
 
     /** 当前有几个标签。上限判定与「＋」的置灰都用它。 */
@@ -220,15 +232,23 @@ class SessionTabs {
         if (project.isDisposed || ApplicationManager.getApplication().isDisposed) return true
         return Messages.showYesNoDialog(
             project,
-            "这个标签里的会话还在跑，关掉会中断它。",
-            "关闭「${panel.tabTitle() ?: NEW_TAB_TITLE}」",
-            "关闭",
-            "取消",
+            CcoderText.text("session.close.confirmBody"),
+            CcoderText.text("session.close.confirmTitle", panel.tabTitle() ?: NEW_TAB_TITLE),
+            CcoderText.text("common.close"),
+            CcoderText.text("common.cancel"),
             UIUtil.getWarningIcon(),
         ) == Messages.YES
     }
 
     private fun addTab(openedByPlus: Boolean) {
+        // 「界面语言」在这里定下来：一个面板（= 一条会话的界面）诞生时读一次设置，
+        // 之后它整个生命周期都用这一种语言。**不在设置里改的那一刻推**：状态卡
+        // 每轮 token 都重算文案，中途换语言会得到"卡片英文、面板中文"。
+        // 于是设置里改语言表现为：**重启 IDE 后生效**（那次由 loadState 推），
+        // 或者新开一个标签 —— 后者只对新标签生效，旧标签留着旧语言，别当切换手段。
+        // 关掉再打开工具窗口**不算**：平台的工具窗口内容只在该实例第一次显示时建一次
+        // （2026-09-20 用户报「改成英文没切换」，就是照着"重开窗口"做的）。设计稿 §三。
+        UiLanguageSettings.applyLanguageToText()
         val panel = ClaudePanel(
             requireNotNull(project) { "SessionTabs 还没 attach 就要开标签" },
             openedByPlus = openedByPlus,

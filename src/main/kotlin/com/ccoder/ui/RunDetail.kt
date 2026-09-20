@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.ccoder.sidecar.SubagentInfo
 import com.google.gson.JsonObject
+import com.ccoder.text.CcoderText
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -83,7 +84,7 @@ private fun detailBox() = JPanel().apply {
  */
 internal fun buildTodoDetail(todos: TaskList): JComponent {
     val box = detailBox()
-    box.add(sectionHeader("任务列表", "${todos.completed}/${todos.total}"))
+    box.add(sectionHeader(CARD_TASKS, "${todos.completed}/${todos.total}"))
     todos.items.forEach { box.add(todoRow(it)) }
     return box
 }
@@ -101,24 +102,24 @@ internal fun buildContextDetail(usage: ContextUsage?): JComponent {
     val box = detailBox()
     val u = usage ?: ContextUsage(usedTokens = 0, windowTokens = 0)
     val percent = contextPercentOf(u)
-    box.add(sectionHeader("上下文", percent?.let { "$it%" } ?: formatTokenCount(u.usedTokens)))
+    box.add(sectionHeader(CARD_CONTEXT, percent?.let { "$it%" } ?: formatTokenCount(u.usedTokens)))
 
-    box.add(detailRow("已用", "${formatTokenCount(u.usedTokens)} tokens"))
+    box.add(detailRow(CcoderText.text("transcript.detail.used"), "${formatTokenCount(u.usedTokens)} tokens"))
     if (u.windowTokens <= 0) {
-        box.add(hint("还没拿到窗口大小 —— 这一轮的用量还没测到（不是空闲）"))
+        box.add(hint(CcoderText.text("transcript.detail.noWindowMeasured")))
         return box
     }
 
-    box.add(detailRow("窗口", "${formatTokenCount(u.windowTokens)} tokens"))
+    box.add(detailRow(CcoderText.text("transcript.detail.window"), "${formatTokenCount(u.windowTokens)} tokens"))
     val left = (u.windowTokens - u.usedTokens).coerceAtLeast(0)
-    box.add(detailRow("剩余", "${formatTokenCount(left)} tokens"))
+    box.add(detailRow(CcoderText.text("transcript.detail.left"), "${formatTokenCount(left)} tokens"))
     box.add(
         hint(
             when {
-                percent == null -> "还没拿到窗口大小"
-                percent >= 90 -> "已经写满九成 —— 再聊几轮就会开始丢早先的内容"
-                percent >= 70 -> "过七成了，长会话要留意"
-                else -> "还宽裕"
+                percent == null -> CcoderText.text("transcript.detail.hint.noWindow")
+                percent >= 90 -> CcoderText.text("transcript.detail.hint.over90")
+                percent >= 70 -> CcoderText.text("transcript.detail.hint.over70")
+                else -> CcoderText.text("transcript.detail.hint.plenty")
             }
         )
     )
@@ -175,7 +176,7 @@ internal fun buildRunningDetail(
 ): JComponent {
     val box = detailBox()
     if (running.isEmpty() && subagents.isEmpty()) {
-        box.add(JBLabel("当前没有任务").apply { foreground = UIUtil.getInactiveTextColor() })
+        box.add(JBLabel(CcoderText.text("transcript.detail.noTasks")).apply { foreground = UIUtil.getInactiveTextColor() })
         return box
     }
 
@@ -202,7 +203,7 @@ private fun subagentRow(agent: SubagentInfo, onOpen: (SubagentInfo) -> Unit): JC
         isOpaque = false
         border = JBUI.Borders.empty(2, 0)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "看它的转写"
+        toolTipText = CcoderText.text("transcript.detail.viewTranscript")
     }
 
     val text = listOfNotNull(agent.agentType, agent.description).joinToString("  ")
@@ -226,7 +227,7 @@ private fun subagentRow(agent: SubagentInfo, onOpen: (SubagentInfo) -> Unit): JC
 internal fun buildSubagentDetail(agent: SubagentInfo, items: List<JsonObject>): JComponent {
     val box = detailBox()
     val title = listOfNotNull(agent.agentType, agent.description).joinToString("  ")
-    box.add(sectionHeader(title.ifBlank { agent.agentId.take(8) }, "${items.size} 条"))
+    box.add(sectionHeader(title.ifBlank { agent.agentId.take(8) }, if (items.size == 1) CcoderText.text("transcript.detail.itemCountOne") else CcoderText.text("transcript.detail.itemCount", items.size)))
 
     val lines = items.mapNotNull { item ->
         val text = messageText(item) ?: return@mapNotNull null
@@ -234,7 +235,7 @@ internal fun buildSubagentDetail(agent: SubagentInfo, items: List<JsonObject>): 
         "$who $text"
     }
     if (lines.isEmpty()) {
-        box.add(JBLabel("这份转写里没有可显示的文字").apply {
+        box.add(JBLabel(CcoderText.text("transcript.detail.emptyTranscript")).apply {
             foreground = UIUtil.getInactiveTextColor()
         })
         return box
@@ -299,8 +300,8 @@ private fun JsonObject.obj(key: String): JsonObject? =
  * "这个会话"的，那四个字不区分任何东西（真正要区分的是上面那段"此刻在跑"）。
  * **也不能叫"跑过的"**：转写是边跑边写的，还在跑的子代理同样在这一段里。
  */
-internal const val RUNNING_SECTION = "运行中"
-internal const val SUBAGENTS_SECTION = "全部子代理"
+internal val RUNNING_SECTION: String get() = CcoderText.text("transcript.detail.running")
+internal val SUBAGENTS_SECTION: String get() = CcoderText.text("transcript.detail.allSubagents")
 
 private fun sectionHeader(title: String, count: String): JComponent =
     JPanel(BorderLayout()).apply {
@@ -354,7 +355,7 @@ private fun taskRow(
     border = JBUI.Borders.emptyBottom(3)
     if (agent != null) {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "看它的转写"
+        toolTipText = CcoderText.text("transcript.detail.viewTranscript")
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) = onOpen(agent)
@@ -440,7 +441,7 @@ internal class TaskStopButton(
     init {
         isOpaque = false
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "终止这个任务"
+        toolTipText = CcoderText.text("transcript.detail.stopTask")
         preferredSize = Dimension(JBUI.scale(SIDE_W), JBUI.scale(SIDE_H))
         minimumSize = preferredSize
         maximumSize = preferredSize

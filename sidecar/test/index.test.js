@@ -5,6 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDispatcher } from '../index.js';
 
+// 这条用例里断言的是**中文**文案（"更早的 N 张图已省略"等），所以把语言钉成
+// 中文 —— 生产里它是插件启动 sidecar 进程时设的环境变量（Lever A）；这里在
+// import 之后设是因为取词器是**调用时**才读环境的（见 strings.js 的 defaultT）。
+// 要英文回执的用例自己构造：传 `lang`，或让会话带 `uiLang`（下面就有两条）
+process.env.CCODER_UI_LANG = 'zh';
+
 /** 等一拍，让 dispatcher 里 await 的那个 Promise 落地。 */
 const tick = () => new Promise((r) => setImmediate(r));
 
@@ -28,6 +34,7 @@ function fakeSessionFactory({ setModeError = null } = {}) {
         denyAllPending: (r) => { calls.push(['denyAll', r]); },
         stop: () => { calls.push(['stop']); },
         stopTask: async (id) => { calls.push(['stopTask', id]); },
+        setLang: (lang) => { calls.push(['setLang', lang]); },
         _emit: opts.onEvent,
         _perm: opts.onPermission,
       };
@@ -122,6 +129,91 @@ test('重复 start 被拒绝但不崩溃', () => {
   assert.equal(err.code, 'ALREADY_STARTED');
   assert.equal(err.fatal, false);
   assert.equal(sf.calls.filter((c) => c[0] === 'create').length, 1, '不应重复建会话');
+});
+
+test('start 带的 uiLang 重新定语言 —— 同一个 node 进程会被复用', () => {
+  // 文件顶上把进程环境钉成了中文（Lever A）。这条用例走 Lever B：新会话可以
+  // 换一门语言，因为新开标签并不新起进程。注意断言里写死了两种语言的句子 ——
+  // 要的就是"这两句确实是不同语言"，而不是"等于词表里某个值"（那样恒真）
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const last = () => out.filter((m) => m.type === 'error').at(-1);
+
+  d.handle({ id: '0', method: 'stopTask', params: {} });
+  assert.equal(last().message, '缺少 taskId 参数', '没给 uiLang 时应保持进程环境那份（中文）');
+
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp', uiLang: 'en' } });
+  d.handle({ id: '2', method: 'stopTask', params: {} });
+  assert.equal(last().message, 'Missing taskId.', '这条会话点名要了英文');
+
+  // 已有会话时再 start 会被拒 —— 那条回执也得用**新**语言说：界面都切过去了，
+  // 再回一句旧语言的错误是自相矛盾
+  d.handle({ id: '3', method: 'start', params: { cwd: '/tmp', uiLang: 'en' } });
+  assert.equal(last().code, 'ALREADY_STARTED');
+  assert.equal(last().message, 'Session already started.');
+
+  // 换回来：会话结束后再 start 一条件，整个进程回到中文
+  d.handle({ id: '4', method: 'stop', params: {} });
+  d.handle({ id: '5', method: 'start', params: { cwd: '/tmp', uiLang: 'zh' } });
+  d.handle({ id: '6', method: 'stopTask', params: {} });
+  assert.equal(last().message, '缺少 taskId 参数');
+});
+
+test('uiLang 认不出（或老插件没带）时保持当前语言，不回退', () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const last = () => out.filter((m) => m.type === 'error').at(-1);
+
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp', uiLang: 'en' } });
+  // 认不出的标签当"没给"：宁可保持现状，也别退回缺省语言把界面语言换掉
+  d.handle({ id: '2', method: 'stop', params: {} });
+  d.handle({ id: '3', method: 'start', params: { cwd: '/tmp', uiLang: 'zh-CN' } });
+  d.handle({ id: '4', method: 'stopTask', params: {} });
+
+  assert.equal(last().message, 'Missing taskId.', 'zh-CN 不算中文标签（契约只有 zh / en）');
+});
+
+test('setUiLang 换语言 —— 会话不重建，会话自己那份取词器也跟着换', () => {
+  // 热切换（2026-09-20）：界面已经切过去了，进程还活着。这条与上面那条 start 的
+  // 区别正是"不重建会话" —— 正在跑的那轮、CLI 进程、上下文都留着
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const last = () => out.filter((m) => m.type === 'error').at(-1);
+
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp' } });
+  d.handle({ id: '2', method: 'stopTask', params: {} });
+  assert.equal(last().message, '缺少 taskId 参数', '会话是中文建的');
+
+  d.handle({ id: '3', method: 'setUiLang', params: { uiLang: 'en' } });
+
+  assert.equal(sf.calls.filter((c) => c[0] === 'create').length, 1, '不该重建会话');
+  assert.deepEqual(
+    sf.calls.filter((c) => c[0] === 'setLang').at(-1),
+    ['setLang', 'en'],
+    '会话自己那份取词器也要换 —— 否则它抛的"CLI 太老"还是旧语言',
+  );
+
+  d.handle({ id: '4', method: 'stopTask', params: {} });
+  assert.equal(last().message, 'Missing taskId.', '回执跟着换了');
+
+  // 认不出的标签当"没给"：保持现状，别退回缺省语言把界面语言静默改掉
+  d.handle({ id: '5', method: 'setUiLang', params: { uiLang: 'zh-CN' } });
+  d.handle({ id: '6', method: 'stopTask', params: {} });
+  assert.equal(last().message, 'Missing taskId.');
+});
+
+test('setUiLang 在没会话时也不炸 —— 换语言不该要求先开会话', () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '1', method: 'setUiLang', params: { uiLang: 'zh' } });
+  d.handle({ id: '2', method: 'stopTask', params: {} });
+
+  assert.equal(out.filter((m) => m.type === 'error').at(-1).message, '缺少 taskId 参数');
 });
 
 test('SDK 事件原样透传为 event 消息', () => {

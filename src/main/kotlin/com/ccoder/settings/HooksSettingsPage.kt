@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonObject
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter
@@ -24,7 +25,7 @@ import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
 
 /** 左栏那个新建按钮。空态文案会引用它，别在别处抄字面量。 */
-internal const val ADD_HOOK_LABEL = "＋ 添加 hook"
+internal val ADD_HOOK_LABEL: String get() = CcoderText.text("settings.hooks.addHook")
 
 /** 左栏宽度。与 MCP 页取同一个数 —— 两页并排看时栏宽跳一下会很扎眼。 */
 internal const val HOOK_LIST_WIDTH = MCP_LIST_WIDTH
@@ -132,8 +133,9 @@ internal class HooksSettingsPage(
     private fun rebuildList() {
         listSlot.removeAll()
         when {
-            baseDir == null -> listSlot.add(hint("拿不到项目目录，改不了"))
-            config.rules.isEmpty() && editingIndex < 0 -> listSlot.add(hint("这里还没有 hook"))
+            baseDir == null -> listSlot.add(hint(NO_BASE_DIR_TEXT))
+            config.rules.isEmpty() && editingIndex < 0 ->
+                listSlot.add(hint(CcoderText.text("settings.hooks.empty")))
         }
         config.rules.forEachIndexed { index, rule ->
             listSlot.add(ruleRow(rule, isEditing = index == editingIndex))
@@ -142,7 +144,7 @@ internal class HooksSettingsPage(
         if (others > 0) {
             listSlot.add(Box.createVerticalStrut(JBUI.scale(10)))
             // 如实报出来。不报的话，"我原来配的那些哪去了"是必然会被问的问题
-            listSlot.add(hint("另有 $others 处不归这个面板管，原样保留"))
+            listSlot.add(hint(CcoderText.text("settings.hooks.others", others)))
         }
         listSlot.revalidate()
         listSlot.repaint()
@@ -156,7 +158,8 @@ internal class HooksSettingsPage(
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             add(JBLabel(rule.event).apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.WEST)
             add(
-                JBLabel(rule.matcher.ifBlank { "全部" }).apply { foreground = UIUtil.getInactiveTextColor() },
+                JBLabel(rule.matcher.ifBlank { CcoderText.text("settings.hooks.matcherAll") })
+                    .apply { foreground = UIUtil.getInactiveTextColor() },
                 BorderLayout.EAST,
             )
             addMouseListener(object : MouseAdapter() {
@@ -186,7 +189,7 @@ internal class HooksSettingsPage(
 
         val editingRule = editing
         if (editingRule == null) {
-            formSlot.add(hint("在左边选一条 hook，或点「$ADD_HOOK_LABEL」"))
+            formSlot.add(hint(CcoderText.text("settings.hooks.formEmpty", ADD_HOOK_LABEL)))
             formSlot.revalidate()
             formSlot.repaint()
             return
@@ -243,32 +246,35 @@ internal class HooksSettingsPage(
         })
         event.addActionListener { save() }
 
-        formSlot.add(labeledField("事件", event))
-        formSlot.add(labeledField("工具匹配（留空 = 全部）", matcher))
+        formSlot.add(labeledField(CcoderText.text("settings.hooks.field.event"), event))
+        formSlot.add(labeledField(CcoderText.text("settings.hooks.field.matcher"), matcher))
         formSlot.add(
             labeledField(
-                "命令",
+                CcoderText.text("settings.hooks.field.command"),
                 JBScrollPane(commandArea).apply {
                     preferredSize = Dimension(JBUI.scale(HOOK_FORM_CONTENT_WIDTH), JBUI.scale(52))
                     maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
                 },
             ),
         )
-        formSlot.add(labeledField("超时（秒，留空 = 不限制）", timeout))
-        formSlot.add(labeledField("状态文字（运行时的提示语）", statusMessage))
+        formSlot.add(labeledField(CcoderText.text("settings.hooks.field.timeout"), timeout))
+        formSlot.add(
+            labeledField(
+                CcoderText.text("settings.hooks.field.statusMessage"),
+                statusMessage,
+            )
+        )
 
         formSlot.add(
             wrappedHint(
                 // 纯文本，别在这里用 markdown 的星号（MCP 页踩过一次）
-                "改动写进项目的 .claude/settings.json —— 这份文件 CLI 也读，" +
-                    "可以提交给团队。拦截类 hook（PreToolUse）在转写区里会显示成" +
-                    "「一条失败的工具结果」，并带上命令写到 stderr 的那句话。",
+                CcoderText.text("settings.hooks.formHint"),
                 JBUI.scale(HOOK_FORM_CONTENT_WIDTH),
             )
         )
 
         formSlot.add(Box.createVerticalStrut(JBUI.scale(10)))
-        formSlot.add(JBLabel("删除").apply {
+        formSlot.add(JBLabel(DELETE_LABEL).apply {
             foreground = UIUtil.getErrorForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             alignmentX = Component.LEFT_ALIGNMENT

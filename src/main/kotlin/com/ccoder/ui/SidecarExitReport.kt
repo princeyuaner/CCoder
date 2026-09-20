@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SidecarExit
+import com.ccoder.text.CcoderText
 
 /**
  * 进程崩溃时贴给用户看的 stderr 行数。
@@ -23,17 +24,17 @@ internal const val STDERR_TAIL_LINES = 15
  */
 internal fun sidecarExitReport(exit: SidecarExit, maxLines: Int = STDERR_TAIL_LINES): String =
     buildString {
-        append("sidecar 进程已退出（退出码 ${exit.code}）。")
+        append(CcoderText.text("chat.sidecarExit", exit.code))
 
         val tail = exit.stderr.takeLast(maxLines)
         if (tail.isEmpty()) {
             // 不能只报"进程已退出"就完事：那和卡在「启动中…」一样无从下手
-            append("\n进程没有留下任何错误信息。")
+            append("\n" + CcoderText.text("chat.sidecarExitNoStderr"))
             return@buildString
         }
 
         if (tail.size < exit.stderr.size) {
-            append("\n（共 ${exit.stderr.size} 行，只显示最后 ${tail.size} 行）")
+            append("\n" + CcoderText.text("chat.sidecarExitTail", exit.stderr.size, tail.size))
         }
         append("\n")
         append(tail.joinToString("\n"))

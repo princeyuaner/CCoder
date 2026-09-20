@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
@@ -132,14 +133,14 @@ internal class AskQuestionCard(
      */
     internal fun refreshSubmit() {
         submitButton.isEnabled = flow.canAdvance
-        submitButton.toolTipText = if (flow.canAdvance) null else "还有没答的题"
+        submitButton.toolTipText = if (flow.canAdvance) null else CcoderText.text("ask.submitTip")
     }
 
     // ---- 组装 ----
 
     /** 进度行：`第 2 / 3 题`。只有多题时才画（见 [init]）。 */
     private fun progressRow(): JComponent = JBLabel(
-        "第 ${flow.index + 1} / ${flow.count} 题"
+        CcoderText.text("ask.progress", flow.index + 1, flow.count)
     ).apply {
         font = UIUtil.getLabelFont().deriveFont(UIUtil.getLabelFont().size2D - 2f)
         foreground = UIUtil.getInactiveTextColor()
@@ -172,7 +173,7 @@ internal class AskQuestionCard(
         // 入参里、"will be provided automatically"（sdk-tools.d.ts:1070）。
         // 它和普通选项走同一套渲染与互斥逻辑，特判它只会多出一堆分支
         header.add(
-            buildOptionRow(qs, AskOption(OTHER_LABEL, "以上都不是，我自己说。", null))
+            buildOptionRow(qs, AskOption(OTHER_LABEL, CcoderText.text("ask.other"), null))
         )
         header.add(vStrut(5))
 
@@ -284,7 +285,7 @@ internal class AskQuestionCard(
      */
     private fun buildCustomField(qs: QuestionState): JComponent {
         val field = JBTextField().apply {
-            emptyText.text = "说说你想要什么"
+            emptyText.text = CcoderText.text("ask.describe")
             addKeyListener(
                 object : KeyAdapter() {
                     override fun keyReleased(e: KeyEvent) {
@@ -422,16 +423,16 @@ internal class AskQuestionCard(
 }
 
 /** 「下一题」：还有题没问。 */
-internal const val NEXT_LABEL = "下一题"
+internal val NEXT_LABEL: String get() = CcoderText.text("ask.next")
 
 /** 「提交」：最后一题答完才出现。 */
-internal const val SUBMIT_LABEL = "提交"
+internal val SUBMIT_LABEL: String get() = CcoderText.text("ask.submit")
 
 /** 「拒绝」：整条提问都拒掉（不是"跳过这题"）。 */
-internal const val DENY_LABEL = "拒绝"
+internal val DENY_LABEL: String get() = CcoderText.text("ask.deny")
 
 /** 「← 上一题」：回看/改答案。 */
-internal const val BACK_LABEL = "← 上一题"
+internal val BACK_LABEL: String get() = CcoderText.text("ask.back")
 
 /**
  * 「最小化」：先把框收起来，去代码里看一眼再回来答。
@@ -439,11 +440,11 @@ internal const val BACK_LABEL = "← 上一题"
  * 文案叫「最小化」而不是「稍后回答」：后者听着像"这件事可以先拖着"，而这条
  * 提问仍占着队列、Claude 仍在等 —— 它只是从眼前挪开了（见 [AskSequence.minimize]）。
  */
-internal const val MINIMIZE_LABEL = "最小化"
+internal val MINIMIZE_LABEL: String get() = CcoderText.text("ask.minimize")
 
 /** 悬停说明。「答案不会丢」是这颗按钮唯一需要讲清楚的事。 */
-internal const val MINIMIZE_TOOLTIP =
-    "先收起来，去代码里看一眼；答案不会丢 —— 从状态栏「Claude 有提问待回答」回到这里"
+internal val MINIMIZE_TOOLTIP: String
+    get() = CcoderText.text("ask.minimizeTip")
 
 /**
  * 塞进竖直 `BoxLayout` 之前先左对齐。

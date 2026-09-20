@@ -5,6 +5,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import javax.swing.Action
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
+import com.ccoder.text.CcoderText
 
 /**
  * 一道题的模态框（设计稿里"第 2 / 3 题"那个形态）。
@@ -66,7 +67,7 @@ internal class AskQuestionDialog(
     }
 
     private companion object {
-        const val TITLE = "Claude 在问你"
+        val TITLE: String get() = CcoderText.text("ask.dialog.title")
     }
 }
 

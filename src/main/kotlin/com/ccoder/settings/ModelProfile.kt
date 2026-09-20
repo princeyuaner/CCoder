@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import java.util.UUID
 
 /**
@@ -11,12 +12,21 @@ import java.util.UUID
  * [label] 是给下拉框看的。**不覆写 `toString()`** —— 那会把日志和调试输出里的
  * `API_KEY` 也一起改成"API Key"，出问题时反而少了线索。
  */
-enum class AuthKind(val label: String) {
+enum class AuthKind(private val labelKey: String) {
     /** `x-api-key`。官方 Anthropic 用。 */
-    API_KEY("API Key"),
+    API_KEY("settings.authKind.apiKey.label"),
 
     /** `Authorization: Bearer`。多数第三方网关用。 */
-    AUTH_TOKEN("Bearer"),
+    AUTH_TOKEN("settings.authKind.authToken.label"),
+    ;
+
+    /**
+     * 下拉里显示的名字。取一次读一次词表。
+     *
+     * 两种取值在**中英文里是同一串拉丁字**（`API Key` / `Bearer`）—— 留着键是为了
+     * 让它们与别的显示名走同一条路：将来要改口径时只有一个地方要改。
+     */
+    val label: String get() = CcoderText.text(labelKey)
 }
 
 /**
@@ -161,10 +171,12 @@ fun modelProfileEnv(profile: ModelProfile, secret: String): Map<String, String> 
     if (key.isEmpty()) {
         // 名字用 displayName() 而不是 name：只填了 modelId 的配置（很常见 ——
         // 名字是想起来才补的）会显示成「模型「」填了 Base URL…」，
-        // 而这是产品里最需要"说人话"的那条消息
+        // 而这是产品里最需要"说人话"的那条消息 —— 它会被 `ClaudePanel.startSession`
+        // 的 catch 原样贴进转写区，所以**这句要翻译**（不是内部诊断）
         throw ModelProfileIncomplete(
-            "模型「${profile.displayName()}」填了 Base URL（$url）却没有密钥。\n" +
-                "第三方端点必须有密钥 —— 否则请求会安静地发出去然后失败。"
+            CcoderText.text("settings.model.incompleteError", profile.displayName(), url) +
+                "\n" +
+                CcoderText.text("settings.model.incompleteWhy")
         )
     }
 
@@ -271,7 +283,7 @@ internal fun taskToolsEnv(userOverrides: Map<String, String>): Map<String, Strin
  * **不该反向依赖 `ui`** —— 设置对话框（同属 settings）也要用它。
  */
 fun ModelProfile.displayName(): String =
-    name.trim().ifEmpty { modelId.trim() }.ifEmpty { "未命名" }
+    name.trim().ifEmpty { modelId.trim() }.ifEmpty { CcoderText.text("settings.model.unnamed") }
 
 /**
  * 把选中的模型配置产生的环境变量并进用户的 `envOverrides`。

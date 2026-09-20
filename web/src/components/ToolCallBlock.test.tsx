@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ToolCallBlock } from './ToolCallBlock'
 import { openFile } from '../bridge'
+import { setLang } from '../i18n'
 import type { ToolResultItem } from '../types'
 
 // 打开文件走的是桥；这里只关心"点了有没有发出那次调用"
@@ -10,6 +11,8 @@ vi.mock('../bridge', () => ({ openFile: vi.fn() }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // 用例里的中文断言先把语言钉住（否则基底语言是英文，红得没有信息量）
+  setLang('zh')
 })
 
 /**

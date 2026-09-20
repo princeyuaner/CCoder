@@ -7,6 +7,7 @@ import com.ccoder.sidecar.RuntimeDep
 import com.ccoder.sidecar.findTool
 import com.ccoder.sidecar.hostOs
 import com.ccoder.sidecar.majorOf
+import com.ccoder.text.CcoderText
 import java.io.File
 import java.nio.file.Path
 
@@ -26,9 +27,17 @@ import java.nio.file.Path
  */
 
 /** 装还是升级。界面上两颗动作的文案由它决定。 */
-enum class InstallAction(val labelVerb: String) {
-    INSTALL("安装"),
-    UPGRADE("升级"),
+enum class InstallAction(private val labelKey: String) {
+    INSTALL("settings.deps.action.install.label"),
+    UPGRADE("settings.deps.action.upgrade.label"),
+    ;
+
+    /**
+     * 动作的那个动词（`安装` / `Install`）。
+     *
+     * 与依赖名之间**留一个空格**：本仓文案里拉丁词两侧都留（见 [installLabel]）。
+     */
+    val labelVerb: String get() = CcoderText.text(labelKey)
 }
 
 /** 怎么落地：代跑，还是把命令/地址交给用户。 */
@@ -119,7 +128,7 @@ internal fun installPlan(
             dep, action,
             copyText = linuxCopyText(dep),
             url = if (dep == RuntimeDep.NODE) NODE_DOWNLOAD_URL else CLAUDE_SETUP_URL,
-            note = "Linux 上这一步交给你：发行版不同，装法也不同。命令与官方文档已备好。",
+            note = CcoderText.text("settings.deps.note.linux"),
         )
     }
 
@@ -138,7 +147,7 @@ private fun nodePlan(action: InstallAction, tools: ToolSet, os: Os): InstallPlan
             val winget = tools.winget
                 ?: return manual(
                     RuntimeDep.NODE, action, NODE_DOWNLOAD_URL, NODE_DOWNLOAD_URL,
-                    "这台机器上没找到 winget，去官网下载安装包。",
+                    CcoderText.text("settings.deps.note.noWinget"),
                 )
             // 三个 --accept-* / --disable-interactivity **不是装饰**：少一个就可能原地等一个
             // 没人能回答的交互，界面卡在「安装中…」直到超时（设计稿 §3.6）
@@ -148,14 +157,14 @@ private fun nodePlan(action: InstallAction, tools: ToolSet, os: Os): InstallPlan
                 "--disable-interactivity",
             )
             return run(RuntimeDep.NODE, action, Command(winget, args),
-                "winget 可能会弹一次管理员权限请求（UAC），那是它自己弹的。")
+                CcoderText.text("settings.deps.note.uac"))
         }
 
         Os.MAC -> {
             val brew = tools.brew
                 ?: return manual(
                     RuntimeDep.NODE, action, NODE_DOWNLOAD_URL, NODE_DOWNLOAD_URL,
-                    "这台机器上没找到 Homebrew，去官网下载安装包。",
+                    CcoderText.text("settings.deps.note.noBrew"),
                 )
             return run(RuntimeDep.NODE, action, Command(brew, listOf(verb, "node")), "")
         }
@@ -175,7 +184,9 @@ private fun claudePlan(
     if (npm == null) {
         return manual(
             RuntimeDep.CLAUDE, action, CLAUDE_SETUP_URL, CLAUDE_SETUP_URL,
-            "没找到 npm。要么先把 Node.js 装好（装完回来点「重新检测」），要么按官方文档装。",
+            // 「重新检测」那颗按钮的名字从词表取，不在句子里抄一份 ——
+            // 抄了就会有两处要改，而改了按钮忘了句子看起来像界面坏了
+            CcoderText.text("settings.deps.note.noNpm", RECHECK_LABEL),
         )
     }
     val npmCommand = Command(npm, listOf("install", "-g", CLAUDE_NPM_PACKAGE))
@@ -184,8 +195,7 @@ private fun claudePlan(
     if (major != null && major < MIN_NODE_MAJOR_FOR_NPM_CLAUDE) {
         return manual(
             RuntimeDep.CLAUDE, action, npmCommand.display(), CLAUDE_SETUP_URL,
-            "npm 装 claude 需要 Node.js $MIN_NODE_MAJOR_FOR_NPM_CLAUDE 或更高（现在 $major）。" +
-                "先升级 Node.js 再回来装。",
+            CcoderText.text("settings.deps.note.nodeTooOld", MIN_NODE_MAJOR_FOR_NPM_CLAUDE, major),
         )
     }
     return run(RuntimeDep.CLAUDE, action, npmCommand, "")

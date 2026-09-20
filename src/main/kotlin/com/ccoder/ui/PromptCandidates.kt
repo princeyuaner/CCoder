@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.ccoder.settings.PromptPreset
 import com.ccoder.settings.summarizePrompt
+import com.ccoder.text.CcoderText
 
 /**
  * 预置 prompt 在补全弹层里的分组标题。
@@ -10,7 +11,7 @@ import com.ccoder.settings.summarizePrompt
  * （`CompletionPopup.buildCompletionList`），所以合并时候选必须按组连续排列 ——
  * 见 [promptCandidates] 调用方的拼接顺序。
  */
-internal const val GROUP_PRESET = "预设"
+internal val GROUP_PRESET: String get() = CcoderText.text("composer.presets.group")
 
 /**
  * 把预置 prompt 转成补全候选。

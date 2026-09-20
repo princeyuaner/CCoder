@@ -145,7 +145,7 @@ class SettingsDialogLayoutTest {
                 PromptPresets(),
                 McpStatus(),
                 // 假服务：用例不真跑 `node --version` / `claude --version`
-                depsService(), TEST_DEPS_UI,
+                depsService(), UiLanguageSettings(), TEST_DEPS_UI,
             )
             val pane = dialog.contentPane ?: dialog.contentPanel
             pane.setSize(DIALOG_WIDTH, DIALOG_HEIGHT)
@@ -278,7 +278,7 @@ class SettingsPagesTest {
         SwingUtilities.invokeAndWait {
             dialog = SettingsDialog(
                 layoutProbeProject(), settings, ModelProfiles(emptyStore()), PromptPresets(), McpStatus(),
-                depsService(), TEST_DEPS_UI,
+                depsService(), UiLanguageSettings(), TEST_DEPS_UI,
             )
             layoutAll(dialog.contentPane)
         }

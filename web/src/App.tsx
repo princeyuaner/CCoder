@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Transcript } from './components/Transcript'
 import { applyOps, parseOps } from './codec'
+import { setLang } from './i18n'
 // window.ccoder 的全局声明在 types.ts，此处不重复声明
 import type { TranscriptState } from './types'
 
@@ -31,6 +32,16 @@ export function App() {
       }
     }
 
+    // 语言：页面这一侧挂上接收端，Kotlin 换语言时叫它（不必重载页面）；
+    // 同时把**注入时**那个标签读一次 —— 首次加载走的是这条路，之后
+    // ready 握手里还会再回推一次（ccoderSetLocale），两次落到同一个地方，
+    // 幂等（见 i18n.ts 的 setLang）。
+    //
+    // 读标签放在这里而不是模块顶层：模块求值早于桥注入（main.tsx 直接就渲染），
+    // 顶层读会永远读到 undefined，整页钉死在基底语言上。
+    window.ccoderLocaleSink = (tag: string) => setLang(tag)
+    setLang(window.ccoder?.locale)
+
     // 通知 Kotlin 侧可以开始推送了。
     //
     // 必须放在 pushBatch 赋值**之后**：否则 Kotlin 收到 ready 立刻推送时
@@ -48,12 +59,26 @@ export function App() {
       return true
     }
 
-    if (sendReady()) return
+    // 定时器句柄用 let 存着（不是 const 提前 return）：下面两条出口
+    // （立即发成 / 轮询发成）都要走到同一个清理函数。
+    let timer: number | null = null
+    const stopPolling = () => {
+      if (timer === null) return
+      window.clearInterval(timer)
+      timer = null
+    }
 
-    const timer = window.setInterval(() => {
-      if (sendReady()) window.clearInterval(timer)
-    }, READY_POLL_MS)
-    return () => window.clearInterval(timer)
+    if (!sendReady()) {
+      timer = window.setInterval(() => {
+        if (sendReady()) stopPolling()
+      }, READY_POLL_MS)
+    }
+
+    return () => {
+      stopPolling()
+      // 摘掉接收端：App 卸载后 Kotlin 再推语言就是打到一个已经不存在的页面上
+      delete window.ccoderLocaleSink
+    }
   }, [])
 
   return <Transcript state={state} />

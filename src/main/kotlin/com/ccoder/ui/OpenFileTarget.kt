@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.google.gson.JsonObject
+import com.ccoder.text.CcoderText
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -132,7 +133,7 @@ private fun drivePath(path: String): String? {
 internal fun openInEditor(project: Project, target: OpenFileTarget) {
     val absolute = resolveAbsolutePath(target.path, project.basePath, SystemInfo.isWindows)
     if (absolute == null) {
-        warn(project, "这个路径认不出来", target.path)
+        warn(project, CcoderText.text("file.open.badPath"), target.path)
         return
     }
 
@@ -144,8 +145,8 @@ internal fun openInEditor(project: Project, target: OpenFileTarget) {
             // 面板可能已经被关掉/项目已关闭 —— 那时再导航是往虚空里点
             if (project.isDisposed) return@invokeLater
             when {
-                file == null -> warn(project, "文件还不存在或已被移动", absolute)
-                file.isDirectory -> warn(project, "这是个目录，打不开编辑器", absolute)
+                file == null -> warn(project, CcoderText.text("file.open.notFound"), absolute)
+                file.isDirectory -> warn(project, CcoderText.text("file.open.isDirectory"), absolute)
                 else -> OpenFileDescriptor(project, file, lineIndex(target.line), 0).navigate(true)
             }
         }
@@ -181,7 +182,7 @@ private fun warn(project: Project, reason: String, path: String) {
     LOG.warn("CCoder 打开文件失败（$reason）：$path")
     NotificationGroupManager.getInstance()
         .getNotificationGroup(NOTIFICATION_GROUP)
-        .createNotification("打不开这个文件", "$reason：$path", NotificationType.WARNING)
+        .createNotification(CcoderText.text("file.open.failedTitle"), CcoderText.text("file.open.failedBody", reason, path), NotificationType.WARNING)
         .notify(project)
 }
 

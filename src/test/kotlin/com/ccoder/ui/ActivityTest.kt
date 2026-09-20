@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -9,54 +10,57 @@ import org.junit.jupiter.api.Test
  *
  * 用户的原话是「我希望能实时显示当前在做什么，比如思考中，编辑文件，运行指令等等」——
  * 这行字要一眼看得懂，所以盯着两件事：**认不认得出来**、**一轮中间会不会闪回空闲**。
+ *
+ * 2026-09-20 起这里比的是 [Activity] 枚举而不是中文串：原先那十个 `const val`
+ * 与 `ClaudePanel` 里的比较是"常量对常量"，翻译之后会静默失配（秒表不走、卡停在错误的档）。
  */
 class ActivityTest {
 
     private fun change(item: RenderItem, toolsStillRunning: Boolean = false) =
         activityChangeOf(item, toolsStillRunning)
 
-    private fun now(item: RenderItem) = (change(item) as ActivityChange.Now).text
+    private fun now(item: RenderItem) = (change(item) as ActivityChange.Now).activity
 
     @Test
     fun `思考增量与整块思考都说思考中`() {
-        assertEquals(ACTIVITY_THINKING, now(RenderItem.ThinkingDelta("嗯")))
-        assertEquals(ACTIVITY_THINKING, now(RenderItem.Thinking("想完了")))
+        assertEquals(Activity.Thinking, now(RenderItem.ThinkingDelta("嗯")))
+        assertEquals(Activity.Thinking, now(RenderItem.Thinking("想完了")))
     }
 
     @Test
     fun `正文增量与整块正文都说回复中`() {
-        assertEquals(ACTIVITY_REPLYING, now(RenderItem.AssistantDelta("在")))
-        assertEquals(ACTIVITY_REPLYING, now(RenderItem.AssistantText("在的")))
+        assertEquals(Activity.Replying, now(RenderItem.AssistantDelta("在")))
+        assertEquals(Activity.Replying, now(RenderItem.AssistantText("在的")))
     }
 
     @Test
     fun `工具刚起头就说动作词 —— 不必等到参数生成完`() {
         // 参数生成那一段（大文件可能十几秒）转写区是静的，状态卡是唯一能说明
         // "它还在动"的地方。等到 ToolUse 才改口就晚了 —— 那正是要补的那段窗口
-        assertEquals(ACTIVITY_EDITING, now(RenderItem.ToolStarting("Write")))
-        assertEquals(ACTIVITY_RUNNING, now(RenderItem.ToolStarting("Bash")))
-        assertEquals(ACTIVITY_TOOL, now(RenderItem.ToolStarting("mcp__whatever")))
+        assertEquals(Activity.Editing, now(RenderItem.ToolStarting("Write")))
+        assertEquals(Activity.Running, now(RenderItem.ToolStarting("Bash")))
+        assertEquals(Activity.Tool, now(RenderItem.ToolStarting("mcp__whatever")))
     }
 
     @Test
     fun `工具调用按工具名给动作词`() {
-        assertEquals(ACTIVITY_RUNNING, now(tool("Bash")))
-        assertEquals(ACTIVITY_RUNNING, now(tool("BashOutput")))
-        assertEquals(ACTIVITY_EDITING, now(tool("Edit")))
-        assertEquals(ACTIVITY_EDITING, now(tool("MultiEdit")))
-        assertEquals(ACTIVITY_EDITING, now(tool("Write")))
-        assertEquals(ACTIVITY_READING, now(tool("Read")))
-        assertEquals(ACTIVITY_READING, now(tool("NotebookRead")))
-        assertEquals(ACTIVITY_SEARCHING, now(tool("Grep")))
-        assertEquals(ACTIVITY_SEARCHING, now(tool("Glob")))
-        assertEquals(ACTIVITY_AGENT, now(tool("Task")))
+        assertEquals(Activity.Running, now(tool("Bash")))
+        assertEquals(Activity.Running, now(tool("BashOutput")))
+        assertEquals(Activity.Editing, now(tool("Edit")))
+        assertEquals(Activity.Editing, now(tool("MultiEdit")))
+        assertEquals(Activity.Editing, now(tool("Write")))
+        assertEquals(Activity.Reading, now(tool("Read")))
+        assertEquals(Activity.Reading, now(tool("NotebookRead")))
+        assertEquals(Activity.Searching, now(tool("Grep")))
+        assertEquals(Activity.Searching, now(tool("Glob")))
+        assertEquals(Activity.Agent, now(tool("Task")))
     }
 
     @Test
     fun `认不出的工具说调用工具 —— 不把 MCP 的工具名写进那格`() {
         // 那格只有 95px：写 `mcp__codegraph__explore` 既放不下，也没人认得出
-        assertEquals(ACTIVITY_TOOL, now(tool("mcp__codegraph__explore")))
-        assertEquals(ACTIVITY_TOOL, now(tool("WebFetch")))
+        assertEquals(Activity.Tool, now(tool("mcp__codegraph__explore")))
+        assertEquals(Activity.Tool, now(tool("WebFetch")))
     }
 
     @Test
@@ -67,7 +71,7 @@ class ActivityTest {
         // 还写着「运行指令」—— 一句假话，于是看起来就成了"卡住"。
         //
         // **不是回空闲**：空闲是"已连接"，那会在一轮中间撒谎。
-        assertEquals(ACTIVITY_WAITING, now(toolResult()))
+        assertEquals(Activity.Waiting, now(toolResult()))
     }
 
     @Test
@@ -89,13 +93,14 @@ class ActivityTest {
 
     @Test
     fun `每个动作词都短得住 —— 卡面只有约 95px`() {
-        val all = listOf(
-            ACTIVITY_WAITING, ACTIVITY_THINKING, ACTIVITY_REPLYING, ACTIVITY_RUNNING,
-            ACTIVITY_EDITING, ACTIVITY_READING, ACTIVITY_SEARCHING, ACTIVITY_TOOL,
-            ACTIVITY_AGENT, ACTIVITY_PERMISSION,
-        )
-        for (text in all) {
-            assertTrue(text.length <= 6, "「$text」有 ${text.length} 个字，卡面放不下")
+        // 中文那一栏是按**汉字**量的（≤4 个字 ≈ 52px，留出图标与内边距）；
+        // 拉丁字母窄得多，英文那份的实际上限由 StatusCardsRenderProbe 在英文下
+        // 量出来看（设计稿 §8），这里只给一个"明显放不下"的粗界。
+        val max = if (CcoderText.tag() == "zh") 6 else 12
+
+        for (activity in Activity.entries) {
+            val text = activity.text()
+            assertTrue(text.length <= max, "「$text」有 ${text.length} 个字符，卡面放不下")
         }
     }
 

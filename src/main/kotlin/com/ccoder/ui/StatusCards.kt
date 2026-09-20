@@ -1,5 +1,7 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
+
 /**
  * 卡片的色调。**只描述语义上的"要不要紧"**，具体颜色由视图决定：
  *
@@ -68,7 +70,7 @@ internal data class StatusCardModel(
 )
 
 /** 空格子里写什么。写"空闲"而不是"—"—— 破折号读起来像坏了。 */
-internal const val CARD_IDLE_TEXT = "空闲"
+internal val CARD_IDLE_TEXT: String get() = CcoderText.text("status.card.idle")
 
 /**
  * 压缩中，上下文卡值行写什么（spec §3.8）。
@@ -77,10 +79,18 @@ internal const val CARD_IDLE_TEXT = "空闲"
  * 平时的 Idle/危险分档：那分档说的是"上下文有多满"，而这一刻它在被改写，
  * 两个语义同时显示会互相盖。
  */
-internal const val CARD_COMPACTING_TEXT = "压缩中…"
+internal val CARD_COMPACTING_TEXT: String get() = CcoderText.text("status.card.compacting")
 
 /** 点数封顶。数字才是权威，点只是让"2"变得看得见。 */
 internal const val MAX_DOTS = 6
+
+// 四张卡的格子名。取值时机是**每次建模**（getter 而不是 const）—— 语言在
+// 一个面板的生命周期里是定的，但卡片会随每一轮 token 重算，没有理由把文案钉在类加载那一刻。
+
+internal val CARD_LINK: String get() = CcoderText.text("status.card.link")
+internal val CARD_CONTEXT: String get() = CcoderText.text("status.card.context")
+internal val CARD_TASKS: String get() = CcoderText.text("status.card.tasks")
+internal val CARD_AGENTS: String get() = CcoderText.text("status.card.agents")
 
 private fun quietCard(label: String) =
     StatusCardModel(label = label, value = CARD_IDLE_TEXT, quiet = true)
@@ -88,28 +98,19 @@ private fun quietCard(label: String) =
 // ---- 连接 ----
 
 /**
- * 八种文字映射到四种色调。
- *
- * `else` 落到 Idle 而不是抛错：将来 [ClaudePanel] 多写一种状态文字，
- * 该退化成"看不出要紧"，而不是让整条状态行崩掉。
- */
-internal fun connectionTone(status: String): Tone = when (status) {
-    "已连接" -> Tone.Ok
-    "启动中…", "载入中…" -> Tone.Warn
-    "启动失败", "已断开", "恢复失败" -> Tone.Danger
-    else -> Tone.Idle
-}
-
-/**
  * 连接卡**永远不空闲** —— "未连接"是一种状态，不是"没数据"。
  *
- * 色调由 [connectionTone] 决定，界面把它画在**图标**上（2026-09-14 改版：
- * 原来那个前置状态点并进了图标，一排卡因此统一成"图标 + 标签 / 值"两行）。
+ * 色调由 [ConnectionState] 自己带（那一档要不要紧是它的语义），界面把它画在
+ * **图标**上（2026-09-14 改版：原来那个前置状态点并进了图标，一排卡因此统一成
+ * "图标 + 标签 / 值"两行）。
+ *
+ * 这里**没有** `connectionTone(status: String)` 那种按文字查表的函数了 ——
+ * 那种写法翻译一次就会整体塌成"什么都不重要"，且不报错（见 [ConnectionState]）。
  */
-internal fun connectionCardOf(status: String) = StatusCardModel(
-    label = "连接",
-    value = status,
-    tone = connectionTone(status),
+internal fun connectionCardOf(state: ConnectionState) = StatusCardModel(
+    label = CARD_LINK,
+    value = state.text(),
+    tone = state.tone,
 )
 
 /**
@@ -118,9 +119,9 @@ internal fun connectionCardOf(status: String) = StatusCardModel(
  * 色调统一 Warn：与"启动中…""载入中…"同一族 —— 它们都是**过渡态**，
  * 而绿色只留给"已连接"这种安定状态。
  */
-internal fun activityCardOf(activity: String) = StatusCardModel(
-    label = "连接",
-    value = activity,
+internal fun activityCardOf(activity: Activity) = StatusCardModel(
+    label = CARD_LINK,
+    value = activity.text(),
     tone = Tone.Warn,
 )
 
@@ -139,7 +140,7 @@ internal fun activityCardOf(activity: String) = StatusCardModel(
  * 长得一样，用户不用重新认一遍。
  */
 internal fun waitingCardOf(seconds: Int) = StatusCardModel(
-    label = ACTIVITY_WAITING,
+    label = Activity.Waiting.text(),
     value = elapsedText(seconds),
     tone = Tone.Warn,
 )
@@ -172,7 +173,7 @@ internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): S
     // 水位跟着变琥珀，表示"这个数正在被改写"；`busy` 让那层水一直动。
     if (compacting) {
         return StatusCardModel(
-            label = "上下文",
+            label = CARD_CONTEXT,
             value = CARD_COMPACTING_TEXT,
             tone = Tone.Warn,
             sub = if (u.windowTokens > 0) contextRatioText(u) else null,
@@ -181,7 +182,7 @@ internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): S
         )
     }
     return StatusCardModel(
-        label = "上下文",
+        label = CARD_CONTEXT,
         value = if (percent != null) "$percent%" else formatTokenCount(u.usedTokens),
         tone = when {
             percent == null -> Tone.Idle
@@ -205,10 +206,10 @@ internal fun contextCardOf(usage: ContextUsage?, compacting: Boolean = false): S
  * 都是在说并不存在的事。
  */
 internal fun todoCardOf(todos: TaskList?): StatusCardModel {
-    if (todos == null || todos.total == 0) return quietCard("任务列表")
+    if (todos == null || todos.total == 0) return quietCard(CARD_TASKS)
 
     return StatusCardModel(
-        label = "任务列表",
+        label = CARD_TASKS,
         value = "${todos.completed}/${todos.total}",
         indicator = Indicator.Segments(done = todos.completed, total = todos.total),
     )
@@ -222,10 +223,10 @@ internal fun todoCardOf(todos: TaskList?): StatusCardModel {
  * **不画进度条。** 子代理没有分母 —— 在跑几个就是几个。见 [Indicator]。
  */
 internal fun runningCardOf(running: List<RunningTask>): StatusCardModel {
-    if (running.isEmpty()) return quietCard("子代理")
+    if (running.isEmpty()) return quietCard(CARD_AGENTS)
 
     return StatusCardModel(
-        label = "子代理",
+        label = CARD_AGENTS,
         value = running.size.toString(),
         indicator = Indicator.Dots(minOf(running.size, MAX_DOTS)),
     )

@@ -56,7 +56,9 @@ CCoder runs the Claude Code CLI (`claude`) you already have installed — it is 
 **Notes**
 
 - The plugin talks only to the CLI it launches; your code and prompts go where that CLI is configured to send them.
-- The CCoder interface is currently in Chinese; Claude's replies follow your prompt's language.
+- The interface language can be switched in the plugin's settings (gear icon in the tool
+  window → General): follow the IDE language, Chinese, or English. Claude's replies follow
+  your prompt's language.
 - Not affiliated with Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic PBC.
 - MIT licensed. Source and issue tracker: [github.com/princeyuaner/CCoder](https://github.com/princeyuaner/CCoder)
 

@@ -1,4 +1,5 @@
 import { useElapsed } from '../elapsed'
+import { t, useLang } from '../i18n'
 import { Collapsible } from './Collapsible'
 
 /**
@@ -9,8 +10,9 @@ import { Collapsible } from './Collapsible'
  * 屏幕上会跳一下 —— 同一种块在两个阶段不该长得不一样。
  */
 export function ThinkingBlock({ text }: { text: string }) {
+  useLang()
   return (
-    <Collapsible defaultOpen title="思考过程">
+    <Collapsible defaultOpen title={t('thinking.title')}>
       <div className="thinking-text">{text}</div>
     </Collapsible>
   )
@@ -28,6 +30,8 @@ export function ThinkingBlock({ text }: { text: string }) {
  */
 export function LiveThinkingBlock({ text }: { text: string }) {
   const elapsed = useElapsed(true)
+  // 语言变了要重画标题（正文不用 —— 那是模型说的话）
+  useLang()
 
   return (
     <div data-testid="live-thinking">
@@ -36,7 +40,7 @@ export function LiveThinkingBlock({ text }: { text: string }) {
         title={
           <>
             <span className="spin live-think__spin" data-testid="thinking-spin" />
-            <span>思考中</span>
+            <span>{t('thinking.live')}</span>
             {elapsed !== null && (
               <span className="live-think__time" data-testid="thinking-elapsed">
                 {elapsed}

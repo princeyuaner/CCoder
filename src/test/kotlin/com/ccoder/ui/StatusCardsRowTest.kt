@@ -1,10 +1,12 @@
 package com.ccoder.ui
 
+import com.intellij.ui.components.JBLabel
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.Container
+import java.awt.FlowLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
 
@@ -103,7 +105,7 @@ class StatusCardsRowTest {
     }
 
     @Test
-    fun `八种连接文字都放得下，不会被截断`() {
+    fun `八档连接状态都放得下，不会被截断`() {
         // 每张卡在 404px 的一行里只有约 66px 可用（还要减掉状态点）。
         // 放不下的字 JLabel 会自动打省略号（"载入中…" 画成 "载入…"），
         // 那是等装进 IDE 才看得见的错。
@@ -112,23 +114,68 @@ class StatusCardsRowTest {
         // 因此收短成现在这样（会话已断开→已断开 等）。那张卡当天又撤了、
         // 宽度还了回来，**文案没有改回去** —— 短的那版本身也更适合这么窄的格子。
         // 这条不写的话，下次改文案的人不会知道他把哪个字挤掉了
+        //
+        // 2026-09-20：改成遍历枚举，于是**英文那份也在同一条用例里被量** ——
+        // 用 -PtestLang=en 跑一遍，哪个英文词撑破格子当场就红（设计稿 §8）。
         val r = configured()
         r.setSize(404, 100)
 
-        listOf(
-            "未连接", "启动中…", "已连接", "启动失败",
-            "已断开", "已结束", "载入中…", "恢复失败",
-        ).forEach { text ->
-            r.connection.setModel(connectionCardOf(text))
+        // 攒起来一次报：只报第一个的话，改一个词要重跑一次才能看见下一个
+        val tooWide = mutableListOf<String>()
+        for (state in ConnectionState.entries) {
+            r.connection.setModel(connectionCardOf(state))
             layoutAll(r)
 
             val value = valueLabelOf(r.connection)
-            assertTrue(
-                value.preferredSize.width <= value.width,
-                "「$text」放不下：需要 ${value.preferredSize.width}px，只有 ${value.width}px",
-            )
+            if (value.preferredSize.width > value.width) {
+                tooWide += "「${state.text()}」要 ${value.preferredSize.width}px（只有 ${value.width}px）"
+            }
         }
+        assertTrue(tooWide.isEmpty(), "这些词放不下：" + tooWide.joinToString("；"))
     }
+
+    @Test
+    fun `卡面短词都放得下 —— 值行与标签行各有约 79px`() {
+        // 三类短词共用这一格：十个动作词（`activityCardOf` 放值行、`waitingCardOf`
+        // 放标签行）、空格子那句（`CARD_IDLE_TEXT`）、压缩中那句（`CARD_COMPACTING_TEXT`）。
+        // 中文那份是按 ≤4 个字量出来的，英文同样只有约 79px —— 要**量**，不要估。
+        // 用 -PtestLang=en 跑一遍，哪个英文词撑破格子当场就红（设计稿 §8）。
+        val r = configured()
+        r.setSize(404, 100)
+
+        val tooWide = mutableListOf<String>()
+        fun measure(model: StatusCardModel, labelRow: Boolean = false) {
+            r.connection.setModel(model)
+            layoutAll(r)
+            val target = if (labelRow) labelLabelOf(r.connection) else valueLabelOf(r.connection)
+            val row = if (labelRow) "标签行" else "值行"
+            if (target.preferredSize.width > target.width) {
+                tooWide += "$row「${target.text}」要 ${target.preferredSize.width}px（只有 ${target.width}px）"
+            }
+        }
+
+        for (activity in Activity.entries) {
+            measure(activityCardOf(activity))
+            measure(waitingCardOf(42), labelRow = true)
+        }
+        measure(todoCardOf(null))                                                   // 空格子那句
+        measure(contextCardOf(ContextUsage(12300, 200000), compacting = true))       // 压缩中那句
+
+        assertTrue(tooWide.isEmpty(), "这些词放不下：" + tooWide.joinToString("；"))
+    }
+
+    /**
+     * 标签那个 JLabel —— 它在图标那一行里（`FlowLayout`，装着图标 + 标签）。
+     *
+     * 同 [valueLabelOf]：按**布局**找而不是按"第几个 JLabel"找，标签行的结构调整
+     * 不会让这条悄悄指错人。
+     */
+    private fun labelLabelOf(card: StatusCardView): JLabel = card.components
+        .filterIsInstance<JPanel>()
+        .first { it.layout is FlowLayout }
+        .components
+        .filterIsInstance<JBLabel>()
+        .first()
 
     /**
      * 值那个 JLabel —— 它在 [valueRow] 里（BorderLayout 的 CENTER）。
@@ -207,7 +254,7 @@ class StatusCardsRowTest {
 
     /** 跟生产一样：四张卡都灌上模型。 */
     private fun configured(): StatusCardsRow = row().apply {
-        connection.setModel(connectionCardOf("已连接"))
+        connection.setModel(connectionCardOf(ConnectionState.Connected))
         context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
         todos.setModel(todoCardOf(null))
         running.setModel(runningCardOf(emptyList()))

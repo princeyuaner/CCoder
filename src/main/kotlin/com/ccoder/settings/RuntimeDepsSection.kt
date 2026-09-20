@@ -5,6 +5,7 @@ import com.ccoder.sidecar.Os
 import com.ccoder.sidecar.RuntimeDep
 import com.ccoder.sidecar.hostOs
 import com.ccoder.sidecar.majorOf
+import com.ccoder.text.CcoderText
 import com.ccoder.ui.copyToClipboard
 import com.ccoder.ui.dangerColor
 import com.intellij.ide.BrowserUtil
@@ -46,33 +47,33 @@ import javax.swing.JPanel
  */
 
 /** 这块的标题。 */
-internal const val RUNTIME_DEPS_TITLE = "运行依赖"
+internal val RUNTIME_DEPS_TITLE: String get() = CcoderText.text("settings.deps.title")
 
 /** 「重新检测」那颗动作的字。用例按它找控件。 */
-internal const val RECHECK_LABEL = "重新检测"
+internal val RECHECK_LABEL: String get() = CcoderText.text("settings.deps.recheck")
 
-/** 安装进行中，那一行的动作变成「取消」。 */
-internal const val CANCEL_INSTALL_LABEL = "取消"
+/** 安装进行中，那一行的动作变成「取消」。与对话框那颗取消是**同一个词**（`common.cancel`）。 */
+internal val CANCEL_INSTALL_LABEL: String get() = CcoderText.text("common.cancel")
 
 /**
  * 这台机器上装不了（没有 npm/winget/brew）时那颗动作的字。
  *
  * **必须换一个说法**：点下去是"复制命令 + 打开官方页"，还写「安装」就是在骗人。
  */
-internal const val MANUAL_LABEL = "复制命令并打开安装页"
+internal val MANUAL_LABEL: String get() = CcoderText.text("settings.deps.manualAction")
 
-internal const val CHECKING_TEXT = "检测中…"
+internal val CHECKING_TEXT: String get() = CcoderText.text("settings.deps.checking")
 
 /** 输出区第一行：这一趟在跑什么。带命令本身 —— 用户核对的就是它。 */
-internal const val INSTALLING_TEXT = "安装中…"
-internal const val UNKNOWN_TEXT = "还没查过"
-internal const val NOT_FOUND_TEXT = "未找到"
-internal const val BROKEN_TEXT = "找到了，但跑不起来"
+internal val INSTALLING_TEXT: String get() = CcoderText.text("settings.deps.installing")
+internal val UNKNOWN_TEXT: String get() = CcoderText.text("settings.deps.unknown")
+internal val NOT_FOUND_TEXT: String get() = CcoderText.text("settings.deps.notFound")
+internal val BROKEN_TEXT: String get() = CcoderText.text("settings.deps.broken")
 
 /** 装完之后给一句结论 —— 光有一堆输出，用户看不出到底成没成。 */
-internal const val INSTALL_SUCCEEDED_TEXT = "装好了"
-internal const val INSTALL_FAILED_TEXT = "没能装上"
-internal const val INSTALL_CANCELLED_TEXT = "已取消"
+internal val INSTALL_SUCCEEDED_TEXT: String get() = CcoderText.text("settings.deps.installOk")
+internal val INSTALL_FAILED_TEXT: String get() = CcoderText.text("settings.deps.installFailed")
+internal val INSTALL_CANCELLED_TEXT: String get() = CcoderText.text("settings.deps.installCancelled")
 
 /** 名字那一列的宽度。**两行的状态文字必须从同一条竖线开始** —— 名字长度不同会错开。 */
 private const val NAME_WIDTH = 96
@@ -88,12 +89,21 @@ private const val LOG_HEIGHT = 96
  */
 internal fun installLabel(dep: RuntimeDep, action: InstallAction): String = "${action.labelVerb} ${dep.label}"
 
-/** 状态那一格写什么。纯函数：用例直接打，页面只管画。 */
+/**
+ * 状态那一格写什么。纯函数：用例直接打，页面只管画。
+ *
+ * 四档故障**各说各的**（没找到 / 找到了但跑不起来 / 版本过低 / 状态未知）：
+ * 合成一句"不可用"就等于把用户唯一能自己排查的线索抹掉了。
+ */
 internal fun statusText(status: DepStatus): String = when (status) {
     DepStatus.Unknown -> UNKNOWN_TEXT
     DepStatus.Checking -> CHECKING_TEXT
-    is DepStatus.Ok -> status.version?.let { "可用 · v$it" } ?: "可用"
-    is DepStatus.TooOld -> "版本过低（${status.version}，需要 ${status.minMajor}+）"
+    is DepStatus.Ok -> status.version?.let { CcoderText.text("settings.deps.okVersion", it) }
+        ?: CcoderText.text("settings.deps.ok")
+
+    is DepStatus.TooOld ->
+        CcoderText.text("settings.deps.tooOld", status.version, status.minMajor)
+
     DepStatus.NotFound -> NOT_FOUND_TEXT
     is DepStatus.Broken -> BROKEN_TEXT
 }
@@ -437,15 +447,18 @@ internal fun confirmInstall(project: Project?, plan: InstallPlan): Boolean {
     return Messages.showYesNoDialog(
         project,
         buildString {
-            append("CCoder 将替你执行这条命令：\n\n    ")
+            append(CcoderText.text("settings.deps.confirmIntro"))
+            append("\n\n    ")
             append(command.display())
             append("\n\n")
             if (plan.note.isNotBlank()) append(plan.note).append("\n\n")
-            append("装完会自动重新检测。")
+            append(CcoderText.text("settings.deps.confirmAfter"))
         },
-        "${plan.action.labelVerb}${plan.dep.label}",
+        // 标题与那颗动作**同一套词**：动词 + 空格 + 依赖名（`installLabel` 的写法）。
+        // 原文案是"动词直接接依赖名"（中文里没有空格），英文那样拼就是 Installclaude
+        CcoderText.text("settings.deps.confirmTitle", plan.action.labelVerb, plan.dep.label),
         plan.action.labelVerb,
-        "取消",
+        CcoderText.text("common.cancel"),
         null,
     ) == Messages.YES
 }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { setLang } from './i18n'
 import {
   toolCommand,
   toolDelta,
@@ -8,6 +9,15 @@ import {
   toolTitle,
   toolBadgeOf,
 } from './tools'
+
+/**
+ * 语言钉在中文：这个文件里断言的多是**数据**（命令、路径、JSON），
+ * 与语言无关，只有 toolParams 那句分隔头是文案 —— 它另有两条专门的用例
+ * （中英各一），自己会切语言。钉住是为了让整个文件有个确定的起点。
+ */
+beforeEach(() => {
+  setLang('zh')
+})
 
 /**
  * 工具卡片上那行标题。
@@ -212,6 +222,24 @@ describe('toolParams', () => {
 
   it('短参数照旧走缩进 JSON', () => {
     expect(toolParams(JSON.stringify({ command: 'ls' }))).toBe('{\n  "command": "ls"\n}')
+  })
+
+  it('正文与其余字段之间那句分隔头是文案（中文）', () => {
+    const out = toolParams(JSON.stringify({ plan: '# 计划\n\n第一段', planFilePath: 'x.md' }))!
+
+    expect(out).toContain('其余参数：')
+  })
+
+  it('英文界面下那句分隔头是英文 —— 紧随其后的 JSON 一个字都不动', () => {
+    setLang('en')
+
+    const out = toolParams(JSON.stringify({ plan: '# 计划\n\n第一段', planFilePath: 'x.md' }))!
+
+    expect(out).toContain('Other parameters:')
+    // 分隔线是排版（12 个破折号），两边的形状要一致 —— 它不进目录
+    expect(out).toContain('————————————')
+    // 参数值原样透传：路径不会被"翻译"
+    expect(out).toContain('"planFilePath": "x.md"')
   })
 })
 

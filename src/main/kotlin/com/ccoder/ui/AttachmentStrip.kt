@@ -18,6 +18,7 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import com.ccoder.text.CcoderText
 
 /**
  * 附件带：待发的那几张图（设计稿 `docs/design/image-attach.html` 方案甲）。
@@ -40,11 +41,17 @@ internal class AttachmentStrip(
      * （卡片是后建的），只能等建好了再把回调接上。
      */
     var onChanged: () -> Unit = {},
-) : JPanel() {
+) : JPanel(), Relocalizable {
 
     private val items = mutableListOf<AttachedImage>()
     private val row = JPanel()
     private val hint = JLabel()
+
+    /**
+     * 带子上那句话**怎么算**，不是算好的那句 —— 语言换了要重算（[retranslate]）。
+     * `null` = 现在没话。
+     */
+    private var hintRender: (() -> String)? = null
 
     /**
      * 现在摆着的缩略图，与 [items] 一一对应（[rebuild] 时重建）。
@@ -96,7 +103,7 @@ internal class AttachmentStrip(
      */
     fun add(image: AttachedImage): Boolean {
         if (items.size >= MAX_IMAGES) {
-            show("一条消息最多 $MAX_IMAGES 张图")
+            show { CcoderText.text("composer.images.max", MAX_IMAGES) }
             return false
         }
         items += image
@@ -105,8 +112,14 @@ internal class AttachmentStrip(
         return true
     }
 
-    /** 这张为什么没收下（太大 / 解不开）。理由直接显示在带子上。 */
-    fun reject(reason: String) {
+    /**
+     * 这张为什么没收下（太大 / 解不开）。理由直接显示在带子上。
+     *
+     * [reason] 是**算法**不是现成的句子：换语言时带子会重算一遍（[retranslate]），
+     * 于是这条提示也跟着换。传现成的字进去就做不到了 —— 那正是"旧语言留在屏幕上"
+     * 的来路。
+     */
+    fun reject(reason: () -> String) {
         show(reason)
     }
 
@@ -140,8 +153,9 @@ internal class AttachmentStrip(
      */
     internal fun thumbViewAt(index: Int): ThumbView? = thumbViews.getOrNull(index)
 
-    private fun show(reason: String) {
-        hint.text = reason
+    private fun show(reason: () -> String) {
+        hintRender = reason
+        hint.text = reason()
         hint.isVisible = true
         // 理由本身要占地方（它可能就是用户唯一能看到的反馈），所以这里**不**改
         // 整个带子的可见性：只显示一行字，不带缩略图
@@ -152,8 +166,19 @@ internal class AttachmentStrip(
     }
 
     private fun clearHint() {
+        hintRender = null
         hint.isVisible = false
         hint.text = ""
+    }
+
+    /**
+     * 语言变了：把带子上那句话重算一遍（[hintRender] 记的正是算法）。
+     *
+     * 缩略图那片不用管：ThumbView 的 tooltip 是**带键**的（[localizedTooltip]），
+     * 走树那一遍会重取。
+     */
+    override fun retranslate() {
+        hintRender?.let { hint.text = it() }
     }
 
     /** 一张图 = 缩略图（右上角压着 ✕）+ 底下一行文件名。 */
@@ -221,7 +246,7 @@ internal class ThumbView(
     init {
         preferredSize = Dimension(JBUI.scale(THUMB_W), JBUI.scale(THUMB_H))
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "点图放大看，点右上角的 ✕ 移除"
+        localizedTooltip("composer.images.stripTip")
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {

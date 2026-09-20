@@ -12,6 +12,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.ccoder.text.CcoderText
 
 // 三个右键动作都实现了 DumbAware —— 见 AddFilesToChatAction 的类注释：
 // 不实现的话，**索引期间平台会把它们灰掉**，而"灰"在界面上没有任何解释。
@@ -45,7 +46,10 @@ class AddFileToChatAction : AnAction(), DumbAware {
         e.presentation.isEnabled = e.project != null && file != null
         // 同 AddFilesToChatAction：灰的时候给一句为什么，别让人对着一个点不动的项猜
         e.presentation.description =
-            if (file == null) "先打开一个文件，再右键" else "把这个文件作为 @ 引用加到 CCoder 输入框（内容由 CLI 展开）"
+            if (file == null) CcoderText.text("action.addFile.disabled") else CcoderText.text("action.addFile.desc")
+        // 文本在这里改一次：plugin.xml 那个 `%key` 只跟 IDE 语言走（Find Action 搜索用它），
+        // 设置里那个「界面语言」得由这两句兑现 —— 两条腿各干一半（设计稿 §4.3）
+        e.presentation.setText(CcoderText.text("action.addFile.text"))
     }
 
     override fun actionPerformed(e: AnActionEvent) {
@@ -99,10 +103,12 @@ class AddFilesToChatAction : AnAction(), DumbAware {
         // 置灰仍然是置灰，但 tooltip 里给出下一步。
         e.presentation.description = when {
             e.project == null -> null
-            picked.isNotEmpty() -> "把这个文件作为 @ 引用加到 CCoder 输入框（内容由 CLI 展开）"
-            selectedIsOnlyDirectory(e) -> "选中的是文件夹 —— 这一项只加文件（@ 认的是文件）"
-            else -> "先在上面选中要加的文件"
+            picked.isNotEmpty() -> CcoderText.text("action.addFile.desc")
+            selectedIsOnlyDirectory(e) -> CcoderText.text("action.addFiles.dirOnly")
+            else -> CcoderText.text("action.addFiles.none")
         }
+        // 同上面那条：设置里的语言靠这一句生效
+        e.presentation.setText(CcoderText.text("action.addFiles.text"))
     }
 
     override fun actionPerformed(e: AnActionEvent) {

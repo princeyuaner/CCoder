@@ -25,6 +25,30 @@ class SidecarProcessTest {
 
     @Test
     @Timeout(60)
+    fun `界面语言经环境变量交给 sidecar`(@TempDir tmp: Path) {
+        // 「启动位置错、找不到 claude」这类报错发生在 start 消息之前，那时只有这条
+        // 环境变量能告诉 sidecar 说哪一种语言（另一个杠杆是 start 的 uiLang）。
+        // 真的起一个 node 去读，而不是断言我们拼了一个 map —— 拼错了字符串一样绿。
+        writeScript(
+            tmp,
+            """
+            process.stdout.write(JSON.stringify({lang: process.env.CCODER_UI_LANG}) + '\n');
+            setInterval(() => {}, 1000);
+            """.trimIndent()
+        )
+
+        val proc = SidecarProcess(tmp, nodePath = "node", uiLang = "zh")
+        proc.start()
+        try {
+            val line = proc.stdout!!.bufferedReader().readLine()
+            assertTrue(line.contains("\"zh\""), "实际读到：$line")
+        } finally {
+            proc.shutdown()
+        }
+    }
+
+    @Test
+    @Timeout(60)
     fun `启动并读取 stdout`(@TempDir tmp: Path) {
         writeScript(
             tmp,

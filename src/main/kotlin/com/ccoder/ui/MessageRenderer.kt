@@ -4,6 +4,7 @@ import com.ccoder.sidecar.SidecarMessage
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.ccoder.text.CcoderText
 
 /** 消息流中的一项。渲染层的输入，与 Swing 解耦以便测试。 */
 sealed interface RenderItem {
@@ -232,7 +233,7 @@ object MessageRenderer {
         if (text.isNotEmpty()) return text
 
         // 有块但没文本（图片等）：占位；一个块都没有：空串 —— 那是真的没输出
-        return if (blocks.isEmpty()) "" else "（非文本结果）"
+        return if (blocks.isEmpty()) "" else CcoderText.text("transcript.nonTextResult")
     }
 
     private fun renderAssistant(event: JsonObject): List<RenderItem> {
@@ -348,7 +349,7 @@ object MessageRenderer {
             "init" -> {
                 val sid = event.str("session_id")?.take(8) ?: "?"
                 val model = event.str("model") ?: "?"
-                listOf(RenderItem.SystemNote("会话 $sid · 模型 $model"))
+                listOf(RenderItem.SystemNote(CcoderText.text("chat.note.sessionModel", sid, model)))
             }
 
             // 压缩的回执（2026-09-17，spec §3.7）。**实时与恢复历史都从这一条路进来**：

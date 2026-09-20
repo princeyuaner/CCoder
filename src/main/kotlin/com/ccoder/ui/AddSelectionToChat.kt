@@ -8,6 +8,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.wm.ToolWindowManager
+import com.ccoder.text.CcoderText
 
 // 编辑器选区 → 聊天框片段。
 //
@@ -129,6 +130,9 @@ class AddSelectionToChatAction : AnAction(), DumbAware {
         val hasSelection = e.project != null && editor?.selectionModel?.hasSelection() == true
         e.presentation.isVisible = true
         e.presentation.isEnabled = hasSelection
+        // 文本在这里改一次：plugin.xml 那个 `%key` 只跟 IDE 语言走，
+        // 而设置里那个「界面语言」得由这句话兑现（见设计稿 §4.3 的两条腿）
+        e.presentation.setText(CcoderText.text("action.addSelection.text"))
     }
 
     override fun actionPerformed(e: AnActionEvent) {
@@ -190,7 +194,7 @@ internal fun withPanel(
 }
 
 /** 拿不到文件路径时的占位。聊胜于无：至少格式不塌。 */
-internal const val UNKNOWN_PATH = "未命名"
+internal val UNKNOWN_PATH: String get() = CcoderText.text("action.unnamedPath")
 
 /**
  * 引用里写哪个路径。

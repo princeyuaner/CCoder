@@ -112,7 +112,8 @@ class AttachmentStripTest {
     fun `太大而没收下的图，原因写在带子上`() = onEdt {
         val strip = AttachmentStrip()
 
-        strip.reject("这张图太大了（12MB），先裁一下再粘")
+        // 收的是**算法**（不是现成的句子）：换语言时带子会重算一遍，见 AttachmentStrip.reject
+        strip.reject { "这张图太大了（12MB），先裁一下再粘" }
 
         assertTrue(strip.isVisible, "拒绝的理由必须看得见")
         assertTrue(textsIn(strip).any { it.contains("12MB") }, "${textsIn(strip)}")

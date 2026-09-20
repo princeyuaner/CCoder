@@ -1,5 +1,7 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
+
 /** 输入区右侧那个按钮要做什么。 */
 internal enum class MainAction { Send, Interrupt, Restart, Disabled }
 
@@ -29,10 +31,10 @@ internal fun mainButtonState(
     /** 队列里排着几条。默认 0 = 没排队，与从前一字不差。 */
     queued: Int = 0,
 ): MainButton = when {
-    disconnected -> MainButton("重启会话", MainAction.Restart, enabled = true)
+    disconnected -> MainButton(CcoderText.text("composer.button.restart"), MainAction.Restart, enabled = true)
     busy && queued > 0 ->
-        MainButton("停止（并清掉 $queued 条排队）", MainAction.Interrupt, enabled = true)
-    busy -> MainButton("停止", MainAction.Interrupt, enabled = true)
-    !ready -> MainButton("启动中…", MainAction.Disabled, enabled = false)
-    else -> MainButton("发送", MainAction.Send, enabled = true)
+        MainButton(CcoderText.text("composer.button.stopAndClear", queued), MainAction.Interrupt, enabled = true)
+    busy -> MainButton(CcoderText.text("composer.button.stop"), MainAction.Interrupt, enabled = true)
+    !ready -> MainButton(CcoderText.text("composer.button.starting"), MainAction.Disabled, enabled = false)
+    else -> MainButton(CcoderText.text("composer.button.send"), MainAction.Send, enabled = true)
 }

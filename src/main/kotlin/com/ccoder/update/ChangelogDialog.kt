@@ -1,5 +1,6 @@
 package com.ccoder.update
 
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
@@ -59,7 +60,7 @@ internal class ChangelogDialog(
     }
 
     init {
-        title = "CCoder 已更新到 ${changelog.version}"
+        title = CcoderText.text("update.changelog.title", changelog.version)
         isResizable = true
         init()
     }
@@ -80,7 +81,7 @@ internal class ChangelogDialog(
      * 而截图、录屏、或者别人帮看的时候，正文里没有版本号就认不出来。
      */
     private fun intro(): JComponent = JBLabel(
-        "这一版的变化（完整清单也写在插件页上）：",
+        CcoderText.text("update.changelog.heading"),
     ).apply {
         font = UIUtil.getLabelFont()
         foreground = UIUtil.getLabelForeground()
@@ -111,7 +112,7 @@ internal class ChangelogDialog(
     }
 
     private companion object {
-        const val KNOWN_BUTTON_TEXT = "知道了"
+        val KNOWN_BUTTON_TEXT: String get() = CcoderText.text("update.changelog.ok")
 
         /**
          * 框的初始尺寸。

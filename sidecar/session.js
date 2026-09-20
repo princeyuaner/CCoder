@@ -1,5 +1,6 @@
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { buildChildEnv } from './env.js';
+import { defaultT, makeT } from './strings.js';
 
 /**
  * 默认 queryFn。测试通过注入假的 queryFn 绕开真实 SDK。
@@ -10,12 +11,9 @@ import { buildChildEnv } from './env.js';
  */
 export const defaultQueryFn = sdkQuery;
 
-function assertAsyncIterable(q) {
+function assertAsyncIterable(q, t) {
   if (q && typeof q[Symbol.asyncIterator] === 'function') return q;
-  throw new Error(
-    'queryFn 必须同步返回 AsyncIterable（Query 对象）。' +
-    'async 函数返回的是 Promise 而非 Query，会导致迭代失败。'
-  );
+  throw new Error(t('session.queryFnNotAsyncIterable'));
 }
 
 /**
@@ -37,7 +35,19 @@ export function createSession({
   onEvent = () => {},
   onPermission = () => {},
   queryFn = defaultQueryFn,
+  // 取词器由 dispatcher 传进来（它才知道当前语言）。缺省时现读环境变量 ——
+  // 默认值写成调用 defaultT() 而不是模块顶层的常量：测试是在 import 之后
+  // 才钉语言的，顶层求值会永远拿到进程启动时那份
+  t: initialT = defaultT(),
 } = {}) {
+  /**
+   * 当前取词器。**不是常量**：界面语言可以在会话跑着的时候换 —— `setUiLang`
+   * 那条协议消息让 dispatcher 调 [setLang]（2026-09-20 热切换）。
+   *
+   * 参数因此改名成 `initialT`：下面所有 `t(...)` 都是闭包读这个变量，把它换掉，
+   * 下一句话就是新语言 —— 不必去改任何一处调用点。
+   */
+  let t = initialT;
   /** @type {Map<string, (result: object) => void>} */
   const pending = new Map();
 
@@ -147,7 +157,7 @@ export function createSession({
 
   let query = null;
   try {
-    query = assertAsyncIterable(queryFn({ prompt: inputStream(), options }));
+    query = assertAsyncIterable(queryFn({ prompt: inputStream(), options }), t);
   } catch (err) {
     // queryFn 抛错（参数非法、返回 Promise 等）也要走 onEvent，
     // 否则调用方只能看到一个没有任何输出的空会话
@@ -175,6 +185,20 @@ export function createSession({
   }
 
   return {
+    /**
+     * 换界面语言（热切换）。dispatcher 收到 `setUiLang` 时调它。
+     *
+     * 只换取词器：会话、正在跑的那轮、CLI 进程都不动。会话里还会用到它的，是
+     * "CLI 太老"那几条失败回执（下面 `t('session.cliTooOld…')` 的几处）——
+     * 它们正是用户在会话中途点了个按钮却失败时看到的那句。
+     *
+     * 传进来的标签由调用方先 [normalizeLang] 过；本函数不认得的标签会落到
+     * `makeT` 的缺省语言（英文），所以**别把没验过的值递进来**。
+     */
+    setLang(lang) {
+      t = makeT(lang);
+    },
+
     /**
      * 发一条用户消息。[images] 是 `[{ mediaType, data }]`，data 为 base64。
      *
@@ -228,6 +252,10 @@ export function createSession({
       // 不清的话卡片会一直留在界面上，用户还能"批准"一个已经不存在的
       // 工具调用 —— SDK 文档明说权限询问**没有超时**，悬着就不会自己消失。
       // 顺序同 stop：先清空待决权限，否则工具会挂住。
+      //
+      // '已中断' **刻意保持中文、不进词表**：它随 deny 回执发给 CLI、进而进
+      // 模型上下文，是协议载荷而不是界面字句 —— 界面切英文不该改变模型被告知
+      // 的内容。见 shared/deny-message.json
       this.denyAllPending('已中断');
       await query?.interrupt?.();
     },
@@ -244,7 +272,7 @@ export function createSession({
      */
     async stopTask(taskId) {
       if (!query || typeof query.stopTask !== 'function') {
-        throw new Error('当前 CLI 不支持终止任务，需要更新 claude 可执行文件');
+        throw new Error(t('session.cliTooOldStopTask'));
       }
       await query.stopTask(taskId);
     },
@@ -263,9 +291,7 @@ export function createSession({
      */
     async setEffort(level) {
       if (!query || typeof query.applyFlagSettings !== 'function') {
-        throw new Error(
-          '当前 CLI 不支持在会话中途调整思考深度，需要更新 claude 可执行文件'
-        );
+        throw new Error(t('session.cliTooOldEffort'));
       }
       // effortLevel 传 null 是「清除」而不是「不设置」—— applyFlagSettings
       // 的文档明说 null 会把这一项从 flag 层抹掉、回落到低优先级的来源
@@ -288,9 +314,7 @@ export function createSession({
      */
     async setModel(model) {
       if (!query || typeof query.setModel !== 'function') {
-        throw new Error(
-          '当前 CLI 不支持在会话中途换模型，需要更新 claude 可执行文件'
-        );
+        throw new Error(t('session.cliTooOldModel'));
       }
       await query.setModel(model);
     },
@@ -305,9 +329,7 @@ export function createSession({
      */
     async mcpServerStatus() {
       if (!query || typeof query.mcpServerStatus !== 'function') {
-        throw new Error(
-          '当前 CLI 不支持查询 MCP 连接状态，需要更新 claude 可执行文件'
-        );
+        throw new Error(t('session.cliTooOldMcp'));
       }
       return await query.mcpServerStatus();
     },
@@ -378,7 +400,7 @@ export function createSession({
      */
     async contextUsage() {
       if (!query || typeof query.getContextUsage !== 'function') {
-        throw new Error('当前 CLI 不支持读取上下文用量，需要更新 claude 可执行文件');
+        throw new Error(t('session.cliTooOldContext'));
       }
       return await query.getContextUsage({ detail: 'summary' });
     },
@@ -386,6 +408,8 @@ export function createSession({
     stop() {
       if (stopped) return;
       stopped = true;
+      // '会话已终止' 同 interrupt 那条：协议载荷，**保持中文不翻**
+      //（与 index.js stop 里那句同字），见 shared/deny-message.json
       this.denyAllPending('会话已终止');
       notifyInput?.(null);   // 结束输入流
     },

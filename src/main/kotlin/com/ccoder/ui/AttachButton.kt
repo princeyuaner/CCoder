@@ -15,6 +15,7 @@ import java.awt.geom.Arc2D
 import java.awt.geom.Path2D
 import java.io.File
 import javax.swing.JComponent
+import com.ccoder.text.CcoderText
 
 /**
  * 工具栏最左的**附件按钮**（回形针）。点开是文件选择器，选中的文件加进输入框。
@@ -41,7 +42,7 @@ internal class AttachButton : JComponent() {
         preferredSize = Dimension(box, box)
         minimumSize = preferredSize
         maximumSize = preferredSize
-        toolTipText = "把文件加进输入框：图片进附件带，其他插 @ 引用"
+        toolTipText = CcoderText.text("composer.attach.tip")
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {

@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonObject
 
 /**
@@ -30,8 +31,8 @@ internal data class CardAction(
 )
 
 /** 卡面文案。四个字与五个字是量过 83px 行宽的（设计稿里同尺寸渲染过）。 */
-internal const val CLEAR_ACTION_LABEL = "清空会话"
-internal const val COMPACT_ACTION_LABEL = "压缩上下文"
+internal val CLEAR_ACTION_LABEL: String get() = CcoderText.text("card.action.clear")
+internal val COMPACT_ACTION_LABEL: String get() = CcoderText.text("card.action.compact")
 
 /**
  * 清空那颗按钮。
@@ -48,9 +49,9 @@ internal fun clearActionOf(ready: Boolean, busy: Boolean): CardAction {
         kind = CardActionKind.Clear,
         label = CLEAR_ACTION_LABEL,
         tooltip = if (usable) {
-            "开一条新会话，上下文清空 —— 当前这条留在磁盘上，会话列表里能切回"
+            CcoderText.text("card.action.clearTip")
         } else {
-            "会话空闲时可清空"
+            CcoderText.text("card.action.clearDisabled")
         },
         danger = true,
         enabled = usable,
@@ -72,9 +73,9 @@ internal fun compactActionOf(ready: Boolean, busy: Boolean, compacting: Boolean)
         kind = CardActionKind.Compact,
         label = COMPACT_ACTION_LABEL,
         tooltip = if (usable) {
-            "把这段对话压缩成摘要，腾出上下文空间；界面上的记录不动"
+            CcoderText.text("card.action.compactTip")
         } else {
-            "会话空闲时可压缩"
+            CcoderText.text("card.action.compactDisabled")
         },
         danger = false,
         enabled = usable,
@@ -155,13 +156,13 @@ internal fun compactReceiptOf(event: JsonObject): String? {
     val post = meta?.long("post_tokens") ?: meta?.long("postTokens")
     val durationMs = meta?.long("duration_ms") ?: meta?.long("durationMs")
 
-    val head = if (auto) "CLI 自动压缩了上下文" else "已压缩上下文"
+    val head = if (auto) CcoderText.text("card.compact.auto") else CcoderText.text("card.compact.done")
     return when {
         pre == null -> head
-        post == null -> "$head（压缩前 ${formatTokenCount(pre)}）"
+        post == null -> CcoderText.text("card.compact.before", head, formatTokenCount(pre))
         else -> {
-            val base = "$head：${formatTokenCount(pre)} → ${formatTokenCount(post)}"
-            if (durationMs == null) base else "$base（用时 ${elapsedText(secondsOf(durationMs))}）"
+            val base = CcoderText.text("card.compact.range", head, formatTokenCount(pre), formatTokenCount(post))
+            if (durationMs == null) base else CcoderText.text("card.compact.took", base, elapsedText(secondsOf(durationMs)))
         }
     }
 }

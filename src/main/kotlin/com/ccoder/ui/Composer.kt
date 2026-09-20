@@ -24,6 +24,7 @@ import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.text.JTextComponent
+import com.ccoder.text.CcoderText
 
 // ---- 输入框高度 ----
 
@@ -48,7 +49,7 @@ internal const val COMPOSER_MIN_ROWS = 1
  * **文案与能力同步**：它写着 `# 符号`，就得先有 `#`；哪一件被砍掉，这行字要一起改
  * —— 否则界面就在替一个不存在的功能做广告。
  */
-internal const val COMPOSER_PLACEHOLDER = "@ 文件 · # 符号 · / 命令"
+internal val COMPOSER_PLACEHOLDER: String get() = CcoderText.text("composer.placeholder")
 
 /**
  * 该不该显示那行提示；不该显示时给 null。

@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.TranscriptOp
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.ide.BrowserUtil
@@ -80,8 +81,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         add(
             JLabel(
                 "<html><body style='padding:16px'>" +
-                    "当前 IDE 未启用 JCEF 嵌入浏览器，CCoder 无法显示对话。<br><br>" +
-                    "可在 Help → Find Action 中查找 Registry，检查 ide.browser.jcef.enabled。" +
+                    CcoderText.text("transcript.fallback.noJcef") +
                     "</body></html>",
                 SwingConstants.LEFT,
             ),
@@ -99,6 +99,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         val script = """
             window.ccoder = window.ccoder || {};
             window.ccoder.send = function(m) { ${query.inject("m")} };
+            window.ccoder.locale = '${ThemeInjector.escapeForJsString(CcoderText.tag())}';
             window.ccoderSetTheme = function(css) {
               var el = document.getElementById('ccoder-theme');
               if (!el) {
@@ -107,6 +108,10 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                 document.head.appendChild(el);
               }
               el.textContent = css;
+            };
+            window.ccoderSetLocale = function(tag) {
+              window.ccoder.locale = tag;
+              window.ccoderLocaleSink && window.ccoderLocaleSink(tag);
             };
         """.trimIndent()
 
@@ -172,8 +177,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         if (html == null) {
             b.loadHTML(
                 "<html><body style='padding:16px'>" +
-                    "插件资源缺失：webui/index.html<br><br>" +
-                    "若以 -PskipWeb 构建，这是预期的——去掉该开关重新构建。" +
+                    CcoderText.text("transcript.fallback.noAssets") +
                     "</body></html>"
             )
         } else {
@@ -195,6 +199,21 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         val b = browser ?: return
         b.cefBrowser.executeJavaScript(
             ThemeInjector.buildInjectScript(PlatformTheme.read()),
+            b.cefBrowser.url,
+            0,
+        )
+    }
+
+    /**
+     * 把当前界面语言推给页面。
+     *
+     * 与主题同路、同理由：页面加载完就推一次（`ready` 那一步），否则会先按基础
+     * 语言（英文）画一帧，再被这条纠正 —— 那一下是**看得见**的闪。
+     */
+    fun setLocale() {
+        val b = browser ?: return
+        b.cefBrowser.executeJavaScript(
+            LocaleInjector.buildInjectScript(CcoderText.tag()),
             b.cefBrowser.url,
             0,
         )
@@ -229,7 +248,9 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                     url: location.href.slice(0, 80),
                     ccoder: typeof window.ccoder,
                     pushBatch: typeof (window.ccoder && window.ccoder.pushBatch),
-                    send: typeof (window.ccoder && window.ccoder.send)
+                    send: typeof (window.ccoder && window.ccoder.send),
+                    locale: typeof (window.ccoder && window.ccoder.locale),
+                    setLocale: typeof window.ccoderSetLocale
                   };
                   ${q.inject("JSON.stringify(info)")}
                 })();
@@ -253,8 +274,10 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             "ready" -> {
                 ready = true
                 LOG.info("CCoder 转写视图：收到前端 ready，补推滞留的 ${beforeReady.size} 条")
-                // 主题必须紧跟着注入，否则会闪一帧无样式内容
+                // 主题必须紧跟着注入，否则会闪一帧无样式内容；语言同理
+                // （不推的话页面会先按基础语言画一帧，再被纠正过来）
                 setTheme()
+                setLocale()
                 beforeReady.forEach { pump?.enqueue(it) }
                 beforeReady.clear()
                 pump?.flushNow()

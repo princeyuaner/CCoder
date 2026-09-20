@@ -28,6 +28,7 @@ import com.ccoder.settings.PromptPreset
 import com.ccoder.settings.PromptPresets
 import com.ccoder.settings.displayName
 import com.ccoder.settings.showSettingsDialog
+import com.ccoder.text.CcoderText
 import com.ccoder.update.ChangelogStore
 import com.ccoder.update.PropertiesChangelogStore
 import com.ccoder.update.maybeShowChangelog
@@ -117,19 +118,19 @@ class ClaudePanel(
     internal var changelogStore: ChangelogStore = PropertiesChangelogStore()
 
     /**
-     * 连接状态的**文字源**。
+     * 连接状态。
      *
-     * 留一个纯字符串而不是直接拿卡当状态：文字 → 色调是一次纯逻辑映射
-     * （[connectionTone]），能在无头单测里钉住；卡本身是 Swing。
+     * **不是字符串**：文字与色调都挂在 [ConnectionState] 上，能在无头单测里钉住，
+     * 而翻译它一个字都不牵动这边（理由见那个类）。
      */
-    private var connectionText = "未连接"
+    private var connectionState = ConnectionState.Idle
 
     /**
      * 连接卡上那行字：**空闲时是连接状态，忙时是"现在在做什么"**。
      *
      * 映射规则在 [activityChangeOf]（纯函数，能单测）。null = 没有正在跑的动作。
      */
-    private var activity: String? = null
+    private var activity: Activity? = null
 
     /**
      * CLI 正在压缩上下文（由 status 事件驱动，spec 事实 9）。
@@ -484,7 +485,7 @@ class ClaudePanel(
      */
     private var waitingTicker: javax.swing.Timer? = null
 
-    /** 这一轮等待的开始时刻（毫秒）。只在 [ACTIVITY_WAITING] 那一档有意义。 */
+    /** 这一轮等待的开始时刻（毫秒）。只在 [Activity.Waiting] 那一档有意义。 */
     private var waitingSince = 0L
 
     private val snippetRefs = SnippetRefs()
@@ -980,9 +981,9 @@ class ClaudePanel(
         else McpStatus.getInstance(project).set(servers)
     }
 
-    /** 唯一的连接状态写入口。文字变了，卡上的点与色跟着变。 */
-    private fun setConnection(text: String) {
-        connectionText = text
+    /** 唯一的连接状态写入口。状态变了，卡上的点与色跟着变。 */
+    private fun setConnection(state: ConnectionState) {
+        connectionState = state
         refreshStatusCards()
     }
 
@@ -992,12 +993,12 @@ class ClaudePanel(
      * **值没变就直接返回**：流式期间这条会被每个 token 调一次，而"思考中"
      * 要连着几十上百次增量保持不变 —— 不挡一下就是每个 token 重画一次四张卡。
      */
-    private fun setActivity(text: String?) {
-        if (activity == text) return
-        activity = text
-        // 「等待响应」那格要显示秒数，所以这一档得自己走表（见 waitingCardOf）。
+    private fun setActivity(next: Activity?) {
+        if (activity == next) return
+        activity = next
+        // [Activity.Waiting] 那格要显示秒数，所以这一档得自己走表（见 waitingCardOf）。
         // 其余动作词不带秒数：工具卡上本来就有自己的计时，两处同时跳反而吵
-        if (text == ACTIVITY_WAITING) startWaitingTicker() else stopWaitingTicker()
+        if (next == Activity.Waiting) startWaitingTicker() else stopWaitingTicker()
         refreshStatusCards()
     }
 
@@ -1036,9 +1037,9 @@ class ClaudePanel(
         val now = activity
         statusCards.connection.setModel(
             when {
-                now == ACTIVITY_WAITING -> waitingCardOf(waitingSeconds())
+                now == Activity.Waiting -> waitingCardOf(waitingSeconds())
                 now != null -> activityCardOf(now)
-                else -> connectionCardOf(connectionText)
+                else -> connectionCardOf(connectionState)
             }
         )
     }
@@ -1249,7 +1250,7 @@ class ClaudePanel(
                 if (msg !is SidecarMessage.SubagentMessages) {
                     pushItem(
                         RenderItem.ErrorItem(
-                            "读子代理转写失败：${(outcome as? RequestOutcome.Failed)?.reason ?: "没有回执"}"
+                            CcoderText.text("chat.error.subagentTranscript", (outcome as? RequestOutcome.Failed)?.reason ?: CcoderText.text("chat.reason.noReply"))
                         )
                     )
                     return@invokeLater
@@ -1429,7 +1430,7 @@ class ClaudePanel(
             savedEffort = s.effort,
         )
         if (plan.deferred) {
-            pushItem(RenderItem.SystemNote("设置已保存；权限模式与思考深度要等下次建立会话时才生效"))
+            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.settingsSaved")))
             return
         }
         plan.permissionMode?.let { pickPermissionMode(it) }
@@ -1522,7 +1523,7 @@ class ClaudePanel(
             if (c == null) {
                 // ready 为真而通道为空，理论上到不了这里。不静默吞掉 ——
                 // 点了没反应比明说更让人困惑（同 [pickPermissionMode] 那条）
-                pushItem(RenderItem.SystemNote("会话还没建立，换模型要等连上会话再改"))
+                pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.noSessionForModel")))
                 return
             }
             // 先记意图再发：回执只带模型名，没它认不出该写进哪条配置。
@@ -1556,10 +1557,10 @@ class ClaudePanel(
     private fun confirmModelSwitch(target: ModelProfile, modelId: String): Boolean =
         Messages.showYesNoDialog(
             project,
-            "新配置的端点或凭证与当前会话不同，只能重开会话 —— 这段对话的上下文不保留。",
-            "切换到「${target.displayName()} · $modelId」",
-            "切换并重开",
-            "取消",
+            CcoderText.text("chat.switchModel.confirmBody"),
+            CcoderText.text("chat.switchModel.confirmTitle", target.displayName(), modelId),
+            CcoderText.text("chat.switchModel.confirmOk"),
+            CcoderText.text("common.cancel"),
             null,
         ) == Messages.YES
 
@@ -1579,12 +1580,12 @@ class ClaudePanel(
         val c = client
         if (c == null) {
             // 不静默吞掉 —— 点了没反应比明说更让人困惑
-            pushItem(RenderItem.SystemNote("会话还没建立，列不出历史会话"))
+            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.noSessionForList")))
             return
         }
         val dir = project.basePath
         if (dir == null) {
-            pushItem(RenderItem.ErrorItem("项目没有 basePath，无法定位会话目录。"))
+            pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.noBasePathSessions")))
             return
         }
 
@@ -1596,14 +1597,14 @@ class ClaudePanel(
                     is RequestOutcome.Answered -> {
                         val msg = outcome.message as? SidecarMessage.SessionList
                         if (msg == null) {
-                            pushItem(RenderItem.ErrorItem("会话列表返回了意外的消息。"))
+                            pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.unexpectedSessionList")))
                         } else {
                             showSessionPopup(msg.sessions)
                         }
                     }
 
                     is RequestOutcome.Failed ->
-                        pushItem(RenderItem.ErrorItem("列出会话失败：${outcome.reason}"))
+                        pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.listSessions", outcome.reason)))
                 }
             }
         }
@@ -1684,13 +1685,13 @@ class ClaudePanel(
      * 先改行再等回执的话，写入失败时列表显示的是一个并不存在的新名字。
      */
     private fun requestRenameSession(sessionId: String, title: String) {
-        val c = client ?: return reportSessionEditFailure("改名", "会话通道已关闭")
+        val c = client ?: return reportSessionEditFailure(CcoderText.text("chat.action.rename"), CcoderText.text("chat.reason.channelClosed"))
         val id = nextId()
         c.request(id, Protocol.encodeRenameSession(id, sessionId, title)) { outcome ->
             ApplicationManager.getApplication().invokeLater {
                 val msg = (outcome as? RequestOutcome.Answered)?.message
                 if (msg !is SidecarMessage.SessionRenamed) {
-                    reportSessionEditFailure("改名", (outcome as? RequestOutcome.Failed)?.reason)
+                    reportSessionEditFailure(CcoderText.text("chat.action.rename"), (outcome as? RequestOutcome.Failed)?.reason)
                     return@invokeLater
                 }
                 applySessionEdit(msg.sessionId) { it.copy(customTitle = msg.title) }
@@ -1699,7 +1700,7 @@ class ClaudePanel(
     }
 
     private fun requestTagSession(sessionId: String, tag: String?) {
-        val c = client ?: return reportSessionEditFailure("改标签", "会话通道已关闭")
+        val c = client ?: return reportSessionEditFailure(CcoderText.text("chat.action.retag"), CcoderText.text("chat.reason.channelClosed"))
         // 空串在界面上是"清掉"：传 null 过去，sidecar 会显式发一个 JSON null
         val normalized = tag?.takeIf { it.isNotBlank() }
         val id = nextId()
@@ -1707,7 +1708,7 @@ class ClaudePanel(
             ApplicationManager.getApplication().invokeLater {
                 val msg = (outcome as? RequestOutcome.Answered)?.message
                 if (msg !is SidecarMessage.SessionTagged) {
-                    reportSessionEditFailure("改标签", (outcome as? RequestOutcome.Failed)?.reason)
+                    reportSessionEditFailure(CcoderText.text("chat.action.retag"), (outcome as? RequestOutcome.Failed)?.reason)
                     return@invokeLater
                 }
                 applySessionEdit(msg.sessionId) { it.copy(tag = msg.tag) }
@@ -1737,7 +1738,7 @@ class ClaudePanel(
 
     /** 失败时**行不动** —— 把它改成新名字才是撒谎。 */
     private fun reportSessionEditFailure(what: String, reason: String?) {
-        pushItem(RenderItem.ErrorItem("${what}失败：${reason ?: "没有回执"}"))
+        pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.editFailed", what, reason ?: CcoderText.text("chat.reason.noReply"))))
     }
 
     /**
@@ -1749,7 +1750,7 @@ class ClaudePanel(
     private fun requestDeleteSession(session: SessionInfo) {
         val c = client
         if (c == null) {
-            pushItem(RenderItem.ErrorItem("删除会话失败：会话通道已关闭"))
+            pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.deleteSession", CcoderText.text("chat.reason.channelClosed"))))
             return
         }
         val id = nextId()
@@ -1766,7 +1767,7 @@ class ClaudePanel(
             is RequestOutcome.Failed ->
                 // 行**不放回**（它本来就在），只报错。
                 // 失败时把行摘掉才是撒谎：用户会以为删掉了
-                pushItem(RenderItem.ErrorItem("删除会话失败：${outcome.reason}"))
+                pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.deleteSession", outcome.reason)))
 
             is RequestOutcome.Answered -> {
                 sessionListCache = sessionListCache.filterNot { it.sessionId == sessionId }
@@ -1799,12 +1800,12 @@ class ClaudePanel(
     private fun requestClearAllSessions() {
         val c = client
         if (c == null) {
-            pushItem(RenderItem.ErrorItem("清空历史会话失败：会话通道已关闭"))
+            pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.clearSessions", CcoderText.text("chat.reason.channelClosed"))))
             return
         }
         val dir = project.basePath
         if (dir == null) {
-            pushItem(RenderItem.ErrorItem("清空历史会话失败：项目没有 basePath"))
+            pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.clearSessions", CcoderText.text("chat.reason.noBasePath"))))
             return
         }
         val keep = OpenSessions.getInstance(project).takenIds().toMutableSet()
@@ -1824,7 +1825,7 @@ class ClaudePanel(
             // 失败时把行摘掉才是撒谎，用户会以为删掉了
             pushItem(
                 RenderItem.ErrorItem(
-                    "清空历史会话失败：${(outcome as? RequestOutcome.Failed)?.reason ?: "没有回执"}",
+                    CcoderText.text("chat.error.clearSessions", (outcome as? RequestOutcome.Failed)?.reason ?: CcoderText.text("chat.reason.noReply")),
                 ),
             )
             return
@@ -1862,7 +1863,7 @@ class ClaudePanel(
         // 已被**别的标签**占着的会话不能切过去：两边会同时写同一个 jsonl
         // （设计稿里那条"不做检测"的风险，多标签之后变成必然）
         if (OpenSessions.getInstance(project).isTaken(target.sessionId)) {
-            pushItem(RenderItem.SystemNote("这条会话已经在另一个标签里打开了"))
+            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.sessionTakenOver")))
             return
         }
 
@@ -1895,7 +1896,7 @@ class ClaudePanel(
         if (!claims.reserve(sessionId, this)) {
             // 别的标签正跑着同一条：**不硬断开**（进程还活着，硬停比说一句更糟），
             // 但必须说出来 —— 两边同时写同一个 jsonl 是会丢历史的
-            pushItem(RenderItem.SystemNote("这条会话同时被另一个标签打开了，两边可能互相覆盖"))
+            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.sessionShared")))
         }
     }
 
@@ -1908,19 +1909,19 @@ class ClaudePanel(
     private fun beginReplay(sessionId: String) {
         val c = client
         if (c == null) {
-            failReplay("会话通道已关闭")
+            failReplay(CcoderText.text("chat.reason.channelClosed"))
             return
         }
         val dir = project.basePath
         if (dir == null) {
-            failReplay("项目没有 basePath")
+            failReplay(CcoderText.text("chat.reason.noBasePath"))
             return
         }
 
         // 清空转写区。Reset 是既有操作，Kotlin 编码与 React 消费都已实现
         // 并有测试（codec.test.ts「reset 清空全部」）
         pushOp(TranscriptOp.Reset)
-        setConnection("载入中…")
+        setConnection(ConnectionState.Loading)
         // 回放期间不接受输入：否则历史与实时消息会交错（spec §10 的风险项）
         setBusy(true)
 
@@ -1931,7 +1932,7 @@ class ClaudePanel(
                     is RequestOutcome.Answered -> {
                         val msg = outcome.message as? SidecarMessage.History
                         if (msg == null) {
-                            failReplay("历史接口返回了意外的消息")
+                            failReplay(CcoderText.text("chat.reason.unexpectedHistory"))
                         } else {
                             replayItems(msg.items)
                         }
@@ -1982,9 +1983,9 @@ class ClaudePanel(
 
                 resumeTargetId = null
                 setBusy(false)
-                setConnection("已连接")
+                setConnection(ConnectionState.Connected)
                 pushItem(
-                    RenderItem.SystemNote("已恢复会话 · ${items.size} 条历史，其中 $rendered 条可显示")
+                    RenderItem.SystemNote(CcoderText.text("chat.note.restored", items.size, rendered))
                 )
             }
         }
@@ -1999,10 +2000,10 @@ class ClaudePanel(
     private fun failReplay(reason: String) {
         resumeTargetId = null
         setBusy(false)
-        setConnection("恢复失败")
+        setConnection(ConnectionState.RestoreFailed)
         currentSessionTitle = null
         refreshSessionLabel(enabled = true)
-        pushItem(RenderItem.ErrorItem("恢复会话失败：$reason"))
+        pushItem(RenderItem.ErrorItem(CcoderText.text("chat.error.restoreSession", reason)))
     }
 
     /**
@@ -2028,7 +2029,7 @@ class ClaudePanel(
         val c = client
         if (c == null) {
             // 没有会话可切。不静默吞掉 —— 点了没反应比明说更让人困惑
-            pushItem(RenderItem.SystemNote("会话还没建立，权限模式切换要先连上会话"))
+            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.noSessionForMode")))
             return
         }
         requestedMode = mode
@@ -2054,7 +2055,7 @@ class ClaudePanel(
         val c = client
         if (c == null) {
             // 没有会话可切。不静默吞掉 —— 点了没反应比明说更让人困惑
-            pushItem(RenderItem.SystemNote("会话还没建立，思考深度要等连上会话再改"))
+            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.noSessionForEffort")))
             return
         }
         // wireValue 为 null 就是「默认」：让 sidecar 把这一项从 flag 层清掉。
@@ -2077,6 +2078,45 @@ class ClaudePanel(
         // 标题如今住在胶囊行上，而胶囊是**照着 SessionTabs 现算的**（它问本面板要
         // `tabTitle()`）—— 所以这里只要喊一声"重画"，不留第二份标题
         SessionTabs.getInstance(project).notifyTabsChanged()
+    }
+
+    /**
+     * 界面语言变了：把本面板上所有"从词表取的字"重取一遍。
+     *
+     * 由 `SessionTabs` 订阅语言变更后统一叫（见 `UiLanguageSettings.addListener`）——
+     * 每切一次语言，每个开着的面板各跑一遍。
+     *
+     * 三件事，缺一不可：
+     *
+     * 1. **带键的控件走一遍树**（[retranslateTree]）：这是大头 —— 键记在控件上的
+     *    那些自动跟着换，不必每个组件各写一个 retranslate（漏一个就是"角落里留着
+     *    旧语言"，见 LocalizedText.kt）；
+     * 2. **刷新家族**：状态卡、胶囊、主按钮、模式/思考/模型标签、会话标题、排队条
+     *    —— 它们的字是算出来的，重算即新语言（`refresh*` 是各自唯一的出口）；
+     * 3. **两条跨进程的桥**：转写区（JCEF 页面）重推语言、sidecar 收一条 `setUiLang`
+     *    —— 少一条就会得到"面板英文、报错中文"这种半截子（设计稿 §七的教训）。
+     *
+     * **已经在转写区里的条目不动**：那是"说过的话"，跟日志一样留在当时的语言里，
+     * 新说的才是新语言。刻意如此，写在这儿免得以后有人当漏译来修。
+     */
+    internal fun retranslate() {
+        retranslateTree(this)
+        refreshStatusCards()
+        refreshConnectionCard()
+        refreshCardActions()
+        refreshMainButton()
+        refreshModeLabel()
+        refreshEffortLabel()
+        refreshModelLabel()
+        refreshChips()
+        refreshSessionLabel()
+        refreshQueueStrip()
+        transcriptView.setLocale()
+        client?.sendLine(Protocol.encodeSetUiLang(nextId(), CcoderText.tag()))
+        // 英文比中文长：宽度都是在各自的首选尺寸里定下来的，不 revalidate 会留一帧
+        // 裁切；composer 的占位符更是**画的时候**才取词（见 Composer.kt），要重画
+        revalidate()
+        repaint()
     }
 
     /** 按服务里的现状重画胶囊行。谁改了"标签那边的事"就调它。 */
@@ -2212,10 +2252,10 @@ class ClaudePanel(
 
         val base = project.basePath
         if (base == null) {
-            fail("项目没有 basePath，无法确定工作目录。")
+            fail(CcoderText.text("chat.error.noBasePathCwd"))
             return
         }
-        setConnection("启动中…")
+        setConnection(ConnectionState.Starting)
         refreshMainButton() // ready 仍为 false → 按钮显示"启动中…"并禁用
         LOG.info("CCoder 会话启动：cwd=$base")
         val epoch = ++sessionEpoch
@@ -2230,15 +2270,13 @@ class ClaudePanel(
             when (val node = NodeCheck.verify(nodePath ?: "node")) {
                 is NodeStatus.NotFound -> {
                     fail(
-                        "未找到 node。CCoder 的 sidecar 需要 Node.js ${NodeCheck.MIN_MAJOR} 或更高版本。" +
-                            "设置 → 环境 → 运行依赖 里可以一键检测与安装。"
+                        CcoderText.text("chat.error.nodeMissing", NodeCheck.MIN_MAJOR)
                     )
                     return@executeOnPooledThread
                 }
                 is NodeStatus.TooOld -> {
                     fail(
-                        "node 版本过低（${node.version}），需要 ${NodeCheck.MIN_MAJOR} 或更高。" +
-                            "设置 → 环境 → 运行依赖 里可以升级。"
+                        CcoderText.text("chat.error.nodeTooOld", node.version, NodeCheck.MIN_MAJOR)
                     )
                     return@executeOnPooledThread
                 }
@@ -2247,7 +2285,13 @@ class ClaudePanel(
 
             try {
                 val sidecarDir = SidecarLocator.resolve(base)
-                val p = SidecarProcess(sidecarDir, nodePath = nodePath ?: "node") { exit ->
+                val p = SidecarProcess(
+                    sidecarDir,
+                    nodePath = nodePath ?: "node",
+                    // 会话建立**之前**那些报错（找不到 claude、认证失败…）也要是当前语言，
+                    // 而那时候还没有 start 消息可带 —— 所以进程环境这一路不能省
+                    uiLang = CcoderText.tag(),
+                ) { exit ->
                     // 回调在看门狗线程上，碰 Swing 必须回 EDT
                     ApplicationManager.getApplication().invokeLater {
                         // 已经换过会话了，这条死讯属于上一个进程
@@ -2331,7 +2375,7 @@ class ClaudePanel(
                             is OpenPick.Unavailable ->
                                 pushItem(
                                     RenderItem.SystemNote(
-                                        "列不出历史会话（${pick.reason}），已开新会话"
+                                        CcoderText.text("chat.note.openedNewSession", pick.reason)
                                     )
                                 )
                         }
@@ -2339,7 +2383,7 @@ class ClaudePanel(
                     }
                 }
             } catch (e: SidecarNotFoundException) {
-                fail(e.message ?: "未找到 sidecar 目录。")
+                fail(e.message ?: CcoderText.text("chat.error.sidecarDirMissing"))
             } catch (e: Exception) {
                 fail(e.message ?: e.toString())
             }
@@ -2363,7 +2407,9 @@ class ClaudePanel(
                     // 也就是"一条配置都没配"。漏传不会报错，只会安静地退回旧行为，
                     // 症状是"配了模型却不生效"（spec §5）
                     .toStartParams(Path.of(base), ModelProfiles.getInstance())
-                    .copy(resumeSessionId = resumeTargetId),
+                    // 语言与 resumeSessionId 一样是"发出时才读"的字段：这一条让新会话
+                    // 用上当前语言（node 进程是复用的，光靠启动环境变量做不到）
+                    .copy(resumeSessionId = resumeTargetId, uiLang = CcoderText.tag()),
             )
         )
     }
@@ -2374,7 +2420,7 @@ class ClaudePanel(
         starting = false
         sessionGate.invalidate()
         ApplicationManager.getApplication().invokeLater {
-            setConnection("启动失败")
+            setConnection(ConnectionState.StartFailed)
             pushItem(RenderItem.ErrorItem(text))
             // 按"已断开"处理，让按钮变成"重启会话"：装好 node 之后用户不必
             // 重启 IDE，点一下就能重试。输入框保持可用，便于重试时带上消息
@@ -2429,7 +2475,7 @@ class ClaudePanel(
             return
         }
 
-        setConnection("已断开")
+        setConnection(ConnectionState.Disconnected)
         ready = false
         disconnected = true
         setBusy(false)
@@ -2522,7 +2568,7 @@ class ClaudePanel(
             when (msg) {
                 is SidecarMessage.Ready -> {
                     ready = true
-                    setConnection("已连接")
+                    setConnection(ConnectionState.Connected)
                     disconnected = false
                     refreshMainButton()
                     requestCommands()
@@ -2540,7 +2586,7 @@ class ClaudePanel(
                         currentSessionId = resuming
                         beginReplay(resuming)
                     } else {
-                        pushItem(RenderItem.SystemNote("会话已就绪"))
+                        pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.sessionReady")))
                         // 全新会话：没有标题可显示，标签是斜体的「新会话」
                         currentSessionTitle = null
                         refreshSessionLabel(enabled = true)
@@ -2580,7 +2626,7 @@ class ClaudePanel(
                             else -> Unit
                         }
                         when (val change = activityChangeOf(item, pendingToolIds.isNotEmpty())) {
-                            is ActivityChange.Now -> setActivity(change.text)
+                            is ActivityChange.Now -> setActivity(change.activity)
                             ActivityChange.Idle -> setActivity(null)
                             ActivityChange.Keep -> Unit
                         }
@@ -2650,7 +2696,7 @@ class ClaudePanel(
                                 // /clear 之后上下文也归零：不清的话这一格会一直
                                 // 挂着上一个对话的读数
                                 lastUsage = null
-                                pushItem(RenderItem.SystemNote("上下文已清空，这是一条新会话"))
+                                pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.contextCleared")))
                             }
                             // 占用登记对账：init 报的 id 才是事实（见 [confirmOwnership]）
                             confirmOwnership(sid)
@@ -2677,7 +2723,7 @@ class ClaudePanel(
                         refreshModeLabel()
                         // 用户自己点的那次切换由回执那条负责说明（见 ModeReadback）
                         if (action == ModeReadback.Announce) {
-                            pushItem(RenderItem.SystemNote("CLI 报的实际权限模式是「${reported.label}」，与刚才显示的不同 —— 已按实际更正"))
+                            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.modeCorrected", reported.label)))
                         }
                     }
 
@@ -2708,7 +2754,7 @@ class ClaudePanel(
                     pushItem(RenderItem.ErrorItem(failureHintText(msg.code, msg.message)))
                     if (msg.fatal) {
                         // 不静默重连——重连会让用户误以为上下文还在（spec §7.5）
-                        setConnection("已断开")
+                        setConnection(ConnectionState.Disconnected)
                         ready = false
                         disconnected = true
                         setBusy(false)
@@ -2720,7 +2766,7 @@ class ClaudePanel(
 
                 is SidecarMessage.Permission -> {
                     // 这一拍最该说清楚的就是"为什么不动了"：在等你点授权
-                    setActivity(ACTIVITY_PERMISSION)
+                    setActivity(Activity.Permission)
                     showPermissionCard(msg)
                 }
 
@@ -2736,7 +2782,7 @@ class ClaudePanel(
                         refreshModeLabel()
                         // 写回设置：下次启动还按这个模式起会话
                         ClaudeSettings.getInstance(project).permissionMode = mode
-                        pushItem(RenderItem.SystemNote("权限模式已切换为「${mode.label}」"))
+                        pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.modeSwitched", mode.label)))
                     }
                 }
 
@@ -2755,7 +2801,7 @@ class ClaudePanel(
                         // 写回设置：下次启动还按这个档位起会话
                         ClaudeSettings.getInstance(project).effort = picked
                         if (changed) {
-                            pushItem(RenderItem.SystemNote("思考深度已切换为「${picked.label}」"))
+                            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.effortSwitched", picked.label)))
                         }
                     }
                 }
@@ -2786,7 +2832,7 @@ class ClaudePanel(
                             // 窗口大小跟着模型走：不重问的话，用量卡还会用上一个
                             // 模型的分母，而那多半是另一个窗口
                             requestContextUsage()
-                            pushItem(RenderItem.SystemNote("模型已切换为「${pick.modelId}」"))
+                            pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.modelSwitched", pick.modelId)))
                         }
                     }
                 }
@@ -2802,7 +2848,7 @@ class ClaudePanel(
                 -> Unit
 
                 is SidecarMessage.Exit -> {
-                    setConnection("已结束")
+                    setConnection(ConnectionState.Ended)
                     ready = false
                     // 会话没了，上一份 MCP 状态就不作数了 —— 留着的话，
                     // 用户切到新会话后右栏还在显示上一个会话的 server，
@@ -2981,7 +3027,7 @@ class ClaudePanel(
                         updatedInput = updatedInputFor(perm.input, request, picked),
                     ),
                     // 转写区里留一行"我选了哪个" —— 那正是这次交互的全部内容
-                    note = "已作答：${picked.values.flatten().joinToString("、")}",
+                    note = CcoderText.text("chat.note.answered", picked.values.flatten().joinToString(CcoderText.text("common.listSeparator"))),
                 )
             },
             onDeny = { decide(perm, deniedByUser()) },
@@ -3041,9 +3087,9 @@ class ClaudePanel(
         pushItem(
             RenderItem.SystemNote(
                 note ?: when {
-                    decision.stopAsking -> "已允许：${perm.toolName}，$AUTO_ALLOW_LABEL"
-                    decision.allow -> "已允许：${perm.toolName}"
-                    else -> "已拒绝：${perm.toolName}"
+                    decision.stopAsking -> CcoderText.text("chat.note.allowedForSession", perm.toolName, AUTO_ALLOW_LABEL)
+                    decision.allow -> CcoderText.text("chat.note.allowed", perm.toolName)
+                    else -> CcoderText.text("chat.note.denied", perm.toolName)
                 }
             )
         )
@@ -3264,7 +3310,7 @@ class ClaudePanel(
                     hits = emptyList(),
                     names = null,
                     matched = 0,
-                    failure = "符号搜索没跑成（${it.javaClass.simpleName}）",
+                    failure = CcoderText.text("chat.error.symbolSearchFailed", it.javaClass.simpleName),
                 )
             }
             ApplicationManager.getApplication().invokeLater { onSymbolSearched(id, result) }
@@ -3313,7 +3359,7 @@ class ClaudePanel(
     private fun notifySymbolFailure(reason: String) {
         NotificationGroupManager.getInstance()
             .getNotificationGroup("CCoder")
-            .createNotification("符号引用没成", reason, NotificationType.WARNING)
+            .createNotification(CcoderText.text("chat.notify.symbolRefTitle"), reason, NotificationType.WARNING)
             .notify(project)
     }
 
@@ -3322,7 +3368,7 @@ class ClaudePanel(
         completionItems.isNotEmpty() -> null
         symbolFailure != null -> symbolFailure
         completionHint != null -> completionHint
-        symbolSearching -> "正在搜索符号…"
+        symbolSearching -> CcoderText.text("composer.symbol.searching")
         else -> null
     }
 
@@ -3428,10 +3474,10 @@ class ClaudePanel(
             "贴图：收到一张（${incoming.image.width}x${incoming.image.height}，" +
                 "${incoming.sourceBytes} 字节，名字=${incoming.name ?: "（剪贴板来的）"}）"
         )
-        val reason = imageRejectReason(incoming.sourceBytes)
-        if (reason != null) {
-            LOG.info("贴图：没收下 —— $reason")
-            attachments.reject(reason)
+        if (imageTooBig(incoming.sourceBytes)) {
+            LOG.info("贴图：没收下 —— ${imageTooBigReason(incoming.sourceBytes)}")
+            // 递**算法**不递现成的句子：换语言时带子会重算（见 AttachmentStrip.reject）
+            attachments.reject { imageTooBigReason(incoming.sourceBytes) }
             return
         }
         val prepared = prepareAttachment(
@@ -3442,7 +3488,7 @@ class ClaudePanel(
         )
         if (prepared == null) {
             LOG.warn("贴图：缩不到能发的大小，放弃")
-            attachments.reject("这张图压不小，换个更小的试试")
+            attachments.reject { CcoderText.text("chat.image.tooLarge") }
         } else {
             val ok = attachments.add(prepared)
             LOG.info("贴图：进附件带 ${if (ok) "成功" else "被上限挡下"}，现在带上有 ${attachments.images.size} 张")
@@ -3560,7 +3606,7 @@ class ClaudePanel(
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)
         // 第一口 token 可能要等几秒，这期间卡上写"已连接"是句假话
-        setActivity(ACTIVITY_WAITING)
+        setActivity(Activity.Waiting)
     }
 
     /**
@@ -3688,8 +3734,8 @@ class ClaudePanel(
          * 2026-09-15 用户报"输入 @ 和 # 都没反应" —— 卡的就是"还差一个字"这件事，
          * 而当时屏幕上什么提示都没有（`@` 不能一打就闪一屏那条规则的另一面）。
          */
-        const val HINT_FILE = "再打一个字找文件"
-        const val HINT_SYMBOL = "再打一个字找符号"
+        val HINT_FILE: String get() = CcoderText.text("composer.hint.file")
+        val HINT_SYMBOL: String get() = CcoderText.text("composer.hint.symbol")
 
         val LOG = Logger.getInstance(ClaudePanel::class.java)
     }

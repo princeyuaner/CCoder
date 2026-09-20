@@ -2,6 +2,7 @@ import { memo, useMemo, useState, type KeyboardEvent, type ReactNode } from 'rea
 import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
+import { t, useLang } from '../i18n'
 import { toolStateOf } from '../toolStatus'
 import {
   toolBadgeOf,
@@ -155,7 +156,9 @@ function BadgeGlyph({ glyph }: { glyph: ToolGlyph }) {
 }
 
 function outputLines(text: string): string[] {
-  if (text === '') return ['（无输出）']
+  // 结果到了、里面一个字符都没有 —— 这句说的是「确实没吐东西」，
+  // 与「还在跑」（那时压根不画输出区）是两回事
+  if (text === '') return [t('tool.noOutput')]
   const lines = text.split('\n')
   // bash 的输出几乎总以换行结尾，末尾那个空行不算一行
   if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
@@ -177,6 +180,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   turnEnded = false,
   nested,
 }: Props) {
+  // 语言：卡面上有四段文案走目录（无输出 / 失败 / 已中断 / 展开全部），
+  // 下面两张 memo 里也各有它 —— 换语言时这些派生文本必须重算
+  const lang = useLang()
+
   // 结果必须与这次调用配上号才用（见文件头）
   const matched = result && result.toolUseId === item.toolUseId ? result : undefined
 
@@ -221,13 +228,17 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const needsParams = command === '' && diff === null && matched === undefined
   // **惰性**：参数原文是缩进过的整份 JSON —— Write 的参数里装的就是整个文件内容，
   // 无条件算一遍等于每次渲染都把整份文件美化成一大段字符串，然后几乎总是丢掉
+  //
+  // `lang` 在依赖里不是多余的：toolParams 内部有一句走目录的分隔头
+  // （`其余参数：`），不跟着语言重算就会一直显示上一次那种语言
   const params = useMemo(
     () => (needsParams ? toolParams(item.input) : null),
-    [needsParams, item.input],
+    [needsParams, item.input, lang],
   )
 
-  // 输出切行同理：整段输出按行切开只该在结果变化时做一次
-  const all = useMemo(() => (matched ? outputLines(matched.text) : []), [matched])
+  // 输出切行同理：整段输出按行切开只该在结果变化时做一次。
+  // 空输出的那句「（无输出）」同样是目录里的文案，所以也依赖 lang
+  const all = useMemo(() => (matched ? outputLines(matched.text) : []), [matched, lang])
   const shown = showAll ? all : all.slice(0, OUTPUT_HEAD_LINES)
   const hidden = all.length - shown.length
 
@@ -314,9 +325,9 @@ export const ToolCallBlock = memo(function ToolCallBlock({
               data-testid="tool-failed"
               viewBox="0 0 16 16"
               role="img"
-              aria-label="失败"
+              aria-label={t('tool.failed')}
             >
-              <title>失败</title>
+              <title>{t('tool.failed')}</title>
               <line x1="4.6" y1="4.6" x2="11.4" y2="11.4" />
               <line x1="11.4" y1="4.6" x2="4.6" y2="11.4" />
             </svg>
@@ -328,7 +339,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
               viewBox="0 0 16 16"
               aria-hidden="true"
             >
-              <title>没有等到结果（被中断或会话已结束）</title>
+              <title>{t('tool.aborted')}</title>
               <circle cx="8" cy="8" r="6.2" />
               <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
             </svg>
@@ -374,7 +385,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
 
           {hidden > 0 && (
             <button type="button" className="tool__more" onClick={() => setShowAll(true)}>
-              展开全部 {all.length} 行
+              {t('tool.showAllLines', [all.length])}
             </button>
           )}
 

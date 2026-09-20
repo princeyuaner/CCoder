@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.actionSystem.ActionPromoter
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -50,6 +51,8 @@ internal class PasteImageAction(
                 hasAttachTarget = e.getData(IMAGE_PASTE_ATTACH) != null,
                 hasImageOnClipboard = hasImageOnClipboard(),
             )
+        // 同 AddSelectionToChatAction：这一句才让设置里的「界面语言」生效
+        e.presentation.setText(CcoderText.text("action.pasteImage.text"))
     }
 
     override fun actionPerformed(e: AnActionEvent) {

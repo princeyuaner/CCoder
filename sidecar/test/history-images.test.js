@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capHistoryImages, HISTORY_IMAGE_BUDGET } from '../history-images.js';
+import { makeT } from '../strings.js';
+
+// 这条用例断言的是**中文**文案（"更早的 N 张图已省略"），所以把语言钉成中文 ——
+// 生产里它是插件启动 sidecar 进程时设的环境变量（Lever A）；这里在 import 之后
+// 设是因为取词器是**调用时**才读环境的（见 strings.js 的 defaultT）。
+// 不设的话默认是英文，下面那条断言会红。
+process.env.CCODER_UI_LANG = 'zh';
 
 /**
  * 历史里那些图的预算。为什么要有它：CLI 把图**原样全尺寸**存进 JSONL，
@@ -67,6 +74,21 @@ test('丢掉的不是静默消失 —— 那条消息后面补一句说明', () 
   assert.deepEqual(content.map((b) => b.type), ['image', 'text', 'text']);
   assert.equal(content[0].source.data.length, 600, '留下的该是**后面**那张（数组里靠后的）');
   assert.match(content.at(-1).text, /更早的 1 张图已省略/);
+});
+
+test('英文那份按单复数换说法（中文两个键同形）', () => {
+  // 这条说明会跟着消息进模型上下文、也画在气泡里，所以它是**要**翻的 ——
+  // 与"用户拒绝"那三条协议文案刻意相反（见 shared/deny-message.json）。
+  // 单复数只有英文要分，所以由这边用 plural 选键，而不是在词表里拼字符串
+  const en = makeT('en');
+
+  const one = capHistoryImages([userWithImages([900])], 500, en);
+  assert.equal(one.dropped, 1);
+  assert.equal(one.items[0].message.content.at(-1).text, '(1 earlier image in this message omitted)');
+
+  const many = capHistoryImages([userWithImages([900, 900])], 500, en);
+  assert.equal(many.dropped, 2);
+  assert.equal(many.items[0].message.content.at(-1).text, '(2 earlier images in this message omitted)');
 });
 
 test('工具结果里的图不算数 —— 它们不是提问', () => {

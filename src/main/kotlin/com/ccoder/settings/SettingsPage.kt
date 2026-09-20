@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.ccoder.ui.lineColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
@@ -108,6 +109,22 @@ internal fun hairlineBottom(): Border = JBUI.Borders.customLineBottom(lineColor(
  */
 internal fun formColumnBorder(inner: Border): Border =
     BorderFactory.createCompoundBorder(hairlineLeft(), inner)
+
+/**
+ * 「删除」那颗动作。
+ *
+ * 四页（模型 / 预置 / MCP / hooks）共用一句话 —— 它们全都是"删掉当前选中的那条"，
+ * 各写各的迟早出现四处措辞不一样、或者改了仨漏了第四个。
+ */
+internal val DELETE_LABEL: String get() = CcoderText.text("settings.common.delete")
+
+/**
+ * 拿不到项目目录时那一页说的话（MCP 与 hooks 两页共用）。
+ *
+ * 两页都写 `.mcp.json` / `.claude/settings.json`，拿不到 baseDir 时的处置也一样：
+ * **只读不写**（别猜一个路径去写）。
+ */
+internal val NO_BASE_DIR_TEXT: String get() = CcoderText.text("settings.common.noBaseDir")
 
 /** 各页内容区的左右内边距。 */
 internal const val PAGE_PADDING_H = 20

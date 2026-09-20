@@ -381,7 +381,7 @@ class StatusCardViewTest {
         // 指针往按钮去的路上，悬停就被子件偷走了（报回原文：「鼠标放在边框上
         // 按钮才出现，挪到中间就消失」）。现在动作常驻在右上角，值行不动
         val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = {}))
-        card.setModel(connectionCardOf("已连接"))
+        card.setModel(connectionCardOf(ConnectionState.Connected))
         card.setAction(clearAction())
 
         hoverOurListeners(card, entered = true)
@@ -393,7 +393,7 @@ class StatusCardViewTest {
     fun `点中右上角那颗图标 → 执行动作`() {
         var cleared = 0
         val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = { cleared++ }))
-        card.setModel(connectionCardOf("已连接"))
+        card.setModel(connectionCardOf(ConnectionState.Connected))
         card.setAction(clearAction())
 
         clickIcon(card)
@@ -406,7 +406,7 @@ class StatusCardViewTest {
         // 清空不设确认框的安全垫就是这条：误触得正好点中右上角那 16×16
         var cleared = 0
         val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = { cleared++ }))
-        card.setModel(connectionCardOf("已连接"))
+        card.setModel(connectionCardOf(ConnectionState.Connected))
         card.setAction(clearAction())
 
         clickElsewhere(card)
@@ -418,7 +418,7 @@ class StatusCardViewTest {
     fun `灰着的动作点图标也不动`() {
         var cleared = 0
         val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = { cleared++ }))
-        card.setModel(connectionCardOf("已连接"))
+        card.setModel(connectionCardOf(ConnectionState.Connected))
         card.setAction(clearAction(enabled = false))
 
         clickIcon(card)
@@ -448,7 +448,7 @@ class StatusCardViewTest {
     @Test
     fun `指针压在图标上才换成动作的 tooltip`() {
         val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = {}))
-        card.setModel(connectionCardOf("已连接").copy(sub = "12.3k / 200k"))
+        card.setModel(connectionCardOf(ConnectionState.Connected).copy(sub = "12.3k / 200k"))
         card.setAction(clearAction())
 
         val icon = card.actionIconBoundsForTest()
@@ -470,7 +470,7 @@ class StatusCardViewTest {
         // tooltip 本身照样弹：`ToolTipManager` 问的是 `event.getSource()`（那时正是
         // 卡片），不往父级找 —— 所以"只给卡片挂"既够用、又是唯一不打架的做法
         val card = laidOut(StatusCardView(icon = CardIcon.Link, onAction = {}))
-        card.setModel(connectionCardOf("已连接").copy(sub = "12.3k / 200k"))
+        card.setModel(connectionCardOf(ConnectionState.Connected).copy(sub = "12.3k / 200k"))
         card.setAction(clearAction())
 
         descendantsOf(card).forEach { child ->

@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 
@@ -35,8 +36,15 @@ internal typealias Picked = Map<String, List<String>>
  * **它不是 SDK 给的选项** —— SDK 在 `options` 的注释里明确写着
  * "There should be no 'Other' option, that will be provided automatically"，
  * 也就是这是宿主的活（sdk-tools.d.ts:1070）。所以它由界面自己加上去。
+ *
+ * ## 它也被当身份用（[answersFor] 里按它挑出"用户自己写的那条"）
+ *
+ * 那是一处**常量与常量比**：这个标签是我们自己插进选项里的，两边取的是同一个键、
+ * 同一份词表，而语言在一个会话的生命周期里是定的 —— 所以成立。
+ * 但它是隐含前提：哪天有人让语言在一个会话中途变，这里会静默失配
+ * （同 `ConnectionState` 注释里那类，已有的用例 `AskQuestionTest` 盯着它）。
  */
-internal const val OTHER_LABEL = "其它…"
+internal val OTHER_LABEL: String get() = CcoderText.text("ask.otherLabel")
 
 /**
  * 一道题的作答状态。与 Swing 无关，可单独测。

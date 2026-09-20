@@ -4,6 +4,7 @@ import com.ccoder.sidecar.ClearFailure
 import com.ccoder.sidecar.RequestOutcome
 import com.ccoder.sidecar.SessionInfo
 import com.ccoder.sidecar.SidecarMessage
+import com.ccoder.text.CcoderText
 
 /** 会话切换被什么挡住了。 */
 internal enum class SwitchBlock {
@@ -45,10 +46,10 @@ internal fun switchBlockNotice(block: SwitchBlock): String? = when (block) {
     SwitchBlock.None -> null
 
     SwitchBlock.TurnRunning ->
-        "当前回合还在跑。先按「停止」再切会话 —— 否则这个回合会被腰斩。"
+        CcoderText.text("session.switch.busyTurn")
 
     SwitchBlock.PermissionPending ->
-        "还有权限询问没处理。先把它处理掉再切会话 —— 否则那条询问会作废。"
+        CcoderText.text("session.switch.busyPermission")
 }
 
 /** 会话标题最多留几个字。 */
@@ -90,7 +91,7 @@ internal fun titleSnippet(text: String): String {
  * 两处各写一遍，改一处漏一处，确认语里说的名字就会和那一行显示的不是同一个。
  */
 internal fun sessionTitle(session: SessionInfo): String =
-    sessionLabelTitle(session) ?: "（无标题）"
+    sessionLabelTitle(session) ?: CcoderText.text("session.untitled")
 
 /**
  * 会话标签上的名字：有标题给标题，没有给 null。
@@ -194,7 +195,7 @@ internal fun openPick(
     is RequestOutcome.Answered -> {
         val msg = outcome.message as? SidecarMessage.SessionList
         if (msg == null) {
-            OpenPick.Unavailable("会话列表返回了意外的消息")
+            OpenPick.Unavailable(CcoderText.text("session.list.unexpected"))
         } else {
             mostRecentSession(msg.sessions, isTaken)?.let { OpenPick.Resume(it) } ?: OpenPick.None
         }
@@ -220,7 +221,7 @@ internal fun newTabEnabled(tabCount: Int, max: Int = MAX_SESSION_TABS): Boolean 
  * 能点时说明它做什么；到上限时说明**先做什么** —— 光说"不能新建"没用。
  */
 internal fun newTabTooltip(tabCount: Int, max: Int = MAX_SESSION_TABS): String =
-    if (tabCount >= max) "最多同时开 $max 条会话 —— 先关掉一个标签" else "新建会话"
+    if (tabCount >= max) CcoderText.text("session.tabs.limit", max) else CcoderText.text("session.tabs.new")
 
 /**
  * `init` 带进来的 session id 是否意味着**换了会话**（`/clear` 走这条路）。
@@ -247,9 +248,9 @@ internal fun isSessionSwitch(current: String?, incoming: String?): Boolean =
  */
 internal fun deleteConfirmPrompt(session: SessionInfo, isCurrent: Boolean): String =
     if (isCurrent) {
-        "这是当前对话。删除后转写区会清空，回到新会话。"
+        CcoderText.text("session.delete.confirmCurrent")
     } else {
-        "删除「${sessionTitle(session)}」？"
+        CcoderText.text("session.delete.confirmTitle", sessionTitle(session))
     }
 
 /**
@@ -271,8 +272,8 @@ internal fun deleteConfirmPrompt(session: SessionInfo, isCurrent: Boolean): Stri
  */
 internal fun clearAllConfirmPrompt(count: Int, keptCount: Int, moreThanListed: Boolean): String {
     // 截断时**不能报条数**：列出来的 50 条不是要删的全部，报了就是个错数
-    val scope = if (moreThanListed) "清空这个项目的历史会话？" else "清空这 $count 条？"
-    return if (keptCount > 0) "$scope $keptCount 条正在使用，保留。" else scope
+    val scope = if (moreThanListed) CcoderText.text("session.clear.scopeAll") else CcoderText.text("session.clear.scopeCount", count)
+    return if (keptCount > 0) scope + " " + CcoderText.text("session.clear.keptTail", keptCount) else scope
 }
 
 /**
@@ -285,9 +286,9 @@ internal fun clearAllConfirmPrompt(count: Int, keptCount: Int, moreThanListed: B
  * 静默的话用户会以为点了没反应）。
  */
 internal fun clearAllResultText(deleted: Int, kept: Int): String = when {
-    deleted == 0 && kept > 0 -> "没有可清空的会话：这个项目的 $kept 条都正在使用，都保留了"
-    kept > 0 -> "已清空这个项目的 $deleted 条历史会话（$kept 条正在使用，保留）"
-    else -> "已清空这个项目的 $deleted 条历史会话"
+    deleted == 0 && kept > 0 -> CcoderText.text("session.clear.doneNone", kept)
+    kept > 0 -> CcoderText.text("session.clear.doneKept", deleted, kept)
+    else -> CcoderText.text("session.clear.doneAll", deleted)
 }
 
 /**
@@ -297,10 +298,11 @@ internal fun clearAllResultText(deleted: Int, kept: Int): String = when {
  * 通常只有一个原因（磁盘只读、文件被占），把 N 条原因全铺开反而看不清。
  */
 internal fun clearAllFailedText(failed: List<ClearFailure>): String {
-    val reason = failed.firstOrNull()?.reason ?: "未知原因"
+    val reason = failed.firstOrNull()?.reason ?: CcoderText.text("session.clear.unknownReason")
     return if (failed.size == 1) {
-        "有 1 条历史会话没删掉：$reason"
+        CcoderText.text("session.clear.failedOne", reason)
     } else {
-        "有 ${failed.size} 条历史会话没删掉，第一条的原因：$reason"
+        CcoderText.text("session.clear.failedMany", failed.size, reason)
     }
 }
+

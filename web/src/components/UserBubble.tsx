@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { t, useLang } from '../i18n'
 import { splitRefs } from '../refs'
 import { ImageLightbox } from './ImageLightbox'
 
@@ -13,6 +14,8 @@ import { ImageLightbox } from './ImageLightbox'
  * 气泡的下内边距，看起来像底下缺了点什么。
  */
 export function UserBubble({ text, images }: { text: string; images?: string[] }) {
+  // 图的 alt 与按钮名走目录；正文（用户自己写的）一个字都不动
+  useLang()
   const [open, setOpen] = useState<number | null>(null)
   const pics = images ?? []
 
@@ -28,10 +31,10 @@ export function UserBubble({ text, images }: { text: string; images?: string[] }
                   type="button"
                   className="bubble__image"
                   data-testid={`user-image-${i}`}
-                  aria-label={`查看图片 ${i + 1}`}
+                  aria-label={t('image.view', [i + 1])}
                   onClick={() => setOpen(i)}
                 >
-                  <img src={src} alt={`图片 ${i + 1}`} />
+                  <img src={src} alt={t('image.alt', [i + 1])} />
                 </button>
               ))}
             </div>

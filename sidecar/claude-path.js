@@ -1,5 +1,6 @@
 import { existsSync, statSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { defaultT } from './strings.js';
 
 export const CLAUDE_NOT_FOUND = 'CLAUDE_NOT_FOUND';
 
@@ -123,14 +124,19 @@ function resolveShimTarget(shimPath, platform) {
 /**
  * 校验候选路径可直接执行。/ 无法解析的垫片一律拒绝 —— 返回它只会让问题
  * 推迟到 SDK 内部炸成 EINVAL，在那里错误信息毫无指向性。
+ *
+ * @param {string} where 这条路径**是哪来的**（已翻好的半句，如"PATH 中的"）。
+ *   由调用点各自 `t('error.claudeShimWhere…')` 取好再传进来 —— 在这里按变量取键
+ *   的话，源码扫描就看不见那三个键了（引用的键都在、词表里的键都有人引用，
+ *   靠的就是字面量调用）。中文把它当前缀用、英文得在它后面加空格，
+ *   所以整句的模板在词表里（`error.claudeShimUnresolved`），不在这里拼
  */
-function accept(candidate, platform, context) {
+function accept(candidate, platform, where, t) {
   if (SHIM_EXT.test(candidate)) {
     const target = resolveShimTarget(candidate, platform);
     if (target) return target;
     throw new ClaudeNotFoundError(
-      `${context}指向批处理垫片，但无法解析出其中的真实可执行文件：\n  ${candidate}\n` +
-      'Node 在 Windows 上无法直接运行 .cmd 文件。请在插件设置中直接指定 claude.exe 的完整路径。'
+      t('error.claudeShimUnresolved', { 0: where, 1: candidate })
     );
   }
   return candidate;
@@ -199,6 +205,7 @@ function expandDir(template, env) {
  * @param {string} [opts.explicit] 设置中显式指定的路径，优先级最高
  * @param {object} opts.env        用于读取 PATH 的环境对象
  * @param {string} [opts.platform] 默认 process.platform，测试时可注入
+ * @param {Function} [opts.t]      取词器（见 strings.js）。默认现读环境变量
  * @returns {string} 可直接被 spawn 的可执行文件绝对路径
  * @throws {ClaudeNotFoundError}
  */
@@ -206,12 +213,15 @@ export function resolveClaudePath({
   explicit,
   env = process.env,
   platform = process.platform,
+  t = defaultT(),
 } = {}) {
   if (explicit && explicit.trim()) {
-    if (isFile(explicit)) return accept(explicit, platform, '设置中指定的路径');
+    if (isFile(explicit)) {
+      return accept(explicit, platform, t('error.claudeShimWhereExplicit'), t);
+    }
     // 显式指定却不存在 —— 报错而非静默回退。
     // 静默回退会让用户以为设置生效了，实际用的是 PATH 里另一个 claude。
-    throw new ClaudeNotFoundError(`设置中指定的 claude 路径不存在：${explicit}`);
+    throw new ClaudeNotFoundError(t('error.claudePathMissing', { 0: explicit }));
   }
 
   const names = namesFor(platform);
@@ -220,7 +230,7 @@ export function resolveClaudePath({
   for (const dir of dirs) {
     for (const name of names) {
       const full = join(dir, name);
-      if (isFile(full)) return accept(full, platform, 'PATH 中的');
+      if (isFile(full)) return accept(full, platform, t('error.claudeShimWherePath'), t);
     }
   }
 
@@ -230,11 +240,9 @@ export function resolveClaudePath({
   for (const dir of known) {
     for (const name of names) {
       const full = join(dir, name);
-      if (isFile(full)) return accept(full, platform, '已知安装位置中的');
+      if (isFile(full)) return accept(full, platform, t('error.claudeShimWhereKnownDir'), t);
     }
   }
 
-  throw new ClaudeNotFoundError(
-    '未找到 claude 可执行文件。请在插件设置中指定其完整路径。'
-  );
+  throw new ClaudeNotFoundError(t('error.claudeNotFound'));
 }

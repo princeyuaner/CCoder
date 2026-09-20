@@ -1,6 +1,7 @@
 package com.ccoder.settings
 
 import com.ccoder.sidecar.McpServerStatus
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonObject
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter
@@ -25,7 +26,7 @@ import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
 
 /** 左栏那个新建按钮。空态文案会引用它，别在别处抄字面量。 */
-internal const val ADD_SERVER_LABEL = "＋ 添加 server"
+internal val ADD_SERVER_LABEL: String get() = CcoderText.text("settings.mcp.addServer")
 
 /** 左栏宽度。它放 CENTER，所以这是"理想宽度" —— 页窄了它会自己收。 */
 internal const val MCP_LIST_WIDTH = 240
@@ -138,7 +139,7 @@ internal class McpSettingsPage(
             refresh()
         })
         add(Box.createVerticalStrut(JBUI.scale(18)))
-        add(sectionTitle("当前会话"))
+        add(sectionTitle(CcoderText.text("settings.mcp.currentSession")))
         add(statusSlot.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
@@ -171,8 +172,9 @@ internal class McpSettingsPage(
     private fun rebuildList() {
         listSlot.removeAll()
         when {
-            baseDir == null -> listSlot.add(hint("拿不到项目目录，改不了"))
-            config.servers.isEmpty() && editingIndex < 0 -> listSlot.add(hint("这个文件里还没有 server"))
+            baseDir == null -> listSlot.add(hint(NO_BASE_DIR_TEXT))
+            config.servers.isEmpty() && editingIndex < 0 ->
+                listSlot.add(hint(CcoderText.text("settings.mcp.fileEmpty")))
         }
         config.servers.forEachIndexed { index, server ->
             listSlot.add(serverRow(server, isEditing = index == editingIndex))
@@ -204,8 +206,8 @@ internal class McpSettingsPage(
     private fun refreshStatus() {
         statusSlot.removeAll()
         when {
-            !status.known -> statusSlot.add(hint("还没拿到 —— 开一次会话后就有"))
-            status.servers.isEmpty() -> statusSlot.add(hint("这个会话里一个都没有"))
+            !status.known -> statusSlot.add(hint(CcoderText.text("settings.mcp.statusUnknown")))
+            status.servers.isEmpty() -> statusSlot.add(hint(CcoderText.text("settings.mcp.statusEmpty")))
             else -> status.servers.forEach { statusSlot.add(statusRow(it)) }
         }
         statusSlot.revalidate()
@@ -240,7 +242,7 @@ internal class McpSettingsPage(
 
         val editingServer = editing
         if (editingServer == null) {
-            formSlot.add(hint("在左边选一条 server，或点「$ADD_SERVER_LABEL」"))
+            formSlot.add(hint(CcoderText.text("settings.mcp.formEmpty", ADD_SERVER_LABEL)))
             formSlot.revalidate()
             formSlot.repaint()
             return
@@ -261,13 +263,13 @@ internal class McpSettingsPage(
         // 只切可见性 —— 所以这里存的必须是**加进 formSlot 的那几个容器**，
         // 不是现造一批同款（造新的切了也白切）
         val stdioFields = listOf(
-            labeledField("命令", command),
-            labeledField("参数（一行一个）", box(argsArea)),
-            labeledField("环境变量（一行一个 KEY=VALUE）", box(envArea)),
+            labeledField(CcoderText.text("settings.mcp.field.command"), command),
+            labeledField(CcoderText.text("settings.mcp.field.args"), box(argsArea)),
+            labeledField(CcoderText.text("settings.mcp.field.env"), box(envArea)),
         )
         val remoteFields = listOf(
-            labeledField("地址", url),
-            labeledField("请求头（一行一个 KEY=VALUE）", box(headersArea)),
+            labeledField(CcoderText.text("settings.mcp.field.url"), url),
+            labeledField(CcoderText.text("settings.mcp.field.headers"), box(headersArea)),
         )
 
         fun applyKind() {
@@ -325,8 +327,8 @@ internal class McpSettingsPage(
             save()
         }
 
-        formSlot.add(labeledField("名称", name))
-        formSlot.add(labeledField("形状", kind))
+        formSlot.add(labeledField(CcoderText.text("settings.mcp.field.name"), name))
+        formSlot.add(labeledField(CcoderText.text("settings.mcp.field.kind"), kind))
         stdioFields.forEach { formSlot.add(it) }
         remoteFields.forEach { formSlot.add(it) }
         applyKind()
@@ -335,15 +337,13 @@ internal class McpSettingsPage(
             wrappedHint(
                 // 别在这里用 markdown 的星号：wrappedHint 是纯文本，会把 ** 原样画出来
                 // （渲染探针里看见过一次）
-                "改动写进项目根目录的 .mcp.json —— 那是会被提交、CLI 也认的文件。" +
-                    "新加或改过的 server 下次开会话才生效；左下那栏是此刻已经连上的，" +
-                    "还包含你自己全局配的那些，所以两边对不齐是正常的。",
+                CcoderText.text("settings.mcp.formHint"),
                 JBUI.scale(MCP_FORM_CONTENT_WIDTH),
             )
         )
 
         formSlot.add(Box.createVerticalStrut(JBUI.scale(10)))
-        formSlot.add(JBLabel("删除").apply {
+        formSlot.add(JBLabel(DELETE_LABEL).apply {
             foreground = UIUtil.getErrorForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -390,20 +390,33 @@ internal class McpSettingsPage(
  *
  * **认不出的照原样显示**，不编一个词：CLI 将来加一档时，用户至少能看见
  * 那个原始值，而不是一句编出来的"未知"（那会让人以为是我们坏了）。
+ *
+ * 左边那几个是 CLI 的**线上取值**（`connected` / `failed`…），一个个对着词表取；
+ * 右边 `else` 那一支原样穿过，所以永远不会有"我们编的词"盖住真实状态。
  */
 private fun statusText(status: String): String = when (status) {
-    "connected" -> "已连接"
-    "failed" -> "失败"
-    "needs-auth" -> "要认证"
-    "pending" -> "连接中"
-    "disabled" -> "已禁用"
+    "connected" -> CcoderText.text("settings.mcp.status.connected")
+    "failed" -> CcoderText.text("settings.mcp.status.failed")
+    "needs-auth" -> CcoderText.text("settings.mcp.status.needsAuth")
+    "pending" -> CcoderText.text("settings.mcp.status.pending")
+    "disabled" -> CcoderText.text("settings.mcp.status.disabled")
     else -> status
 }
 
-/** 一行状态：连上的报工具数，没连上的只报状态（原因在 tooltip 里）。 */
-private fun statusTail(server: McpServerStatus): String =
-    if (server.status == "connected" && server.tools.isNotEmpty()) {
-        "${statusText(server.status)} · ${server.tools.size} 个工具"
+/**
+ * 一行状态：连上的报工具数，没连上的只报状态（原因在 tooltip 里）。
+ *
+ * 工具数**分了单复数两条键**：英文里 "1 tools" 是错的，而一个只挂一件工具的
+ * server 完全常见（`session.widget.pendingTipOne` 是同一条规矩）。
+ */
+private fun statusTail(server: McpServerStatus): String {
+    val status = statusText(server.status)
+    if (server.status != "connected" || server.tools.isEmpty()) return status
+    val count = server.tools.size
+    // 键**字面量写在调用点上**（两个分支各一条）：词表与源码的对账靠源码扫描
+    return if (count == 1) {
+        CcoderText.text("settings.mcp.status.toolsOne", status, count)
     } else {
-        statusText(server.status)
+        CcoderText.text("settings.mcp.status.tools", status, count)
     }
+}

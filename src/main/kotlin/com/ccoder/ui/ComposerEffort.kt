@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.EffortSetting
+import com.ccoder.text.CcoderText
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
@@ -74,7 +75,8 @@ internal class EffortLabel(private val onOpen: () -> Unit) : JLabel() {
  * 一个孤零零的「高」会被连着读成模式的一部分。分隔符用间隔号，
  * 与 [modelDetail] 里那个保持同一种写法。
  */
-internal fun effortLabelText(setting: EffortSetting): String = "思考·" + setting.label
+internal fun effortLabelText(setting: EffortSetting): String =
+    CcoderText.text("composer.effort.label", setting.label)
 
 /**
  * 切换弹层的内容。当前项打勾。
@@ -100,12 +102,12 @@ internal fun buildEffortList(
  * 编译错误，而不是一条空着的说明。
  */
 internal fun effortDescription(setting: EffortSetting): String = when (setting) {
-    EffortSetting.DEFAULT -> "不干预，按模型自己的默认档执行"
-    EffortSetting.LOW -> "最少思考，最快回复"
-    EffortSetting.MEDIUM -> "适度思考"
-    EffortSetting.HIGH -> "深度推理（CLI 的默认档）"
-    EffortSetting.XHIGH -> "比「高」更深；仅部分模型认，其余降级为「高」"
-    EffortSetting.MAX -> "最高档；仅少数模型认，其余会降级"
+    EffortSetting.DEFAULT -> CcoderText.text("composer.effort.default.desc")
+    EffortSetting.LOW -> CcoderText.text("composer.effort.low.desc")
+    EffortSetting.MEDIUM -> CcoderText.text("composer.effort.medium.desc")
+    EffortSetting.HIGH -> CcoderText.text("composer.effort.high.desc")
+    EffortSetting.XHIGH -> CcoderText.text("composer.effort.xhigh.desc")
+    EffortSetting.MAX -> CcoderText.text("composer.effort.max.desc")
 }
 
 private fun effortRow(

@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -112,11 +113,11 @@ class AttachedImageTest {
     // ---- 校验 ----
 
     @Test
-    fun `原图超 8MB 给得出原因，正常图放行`() {
-        assertNull(imageRejectReason(1024 * 1024))
-        val reason = imageRejectReason(9 * 1024 * 1024)
-        assertNotNull(reason)
-        assertTrue(reason!!.contains("9MB"), "理由里要带上是多大：$reason")
+    fun `原图超 8MB 判得出来，理由带上是多大`() {
+        assertFalse(imageTooBig(1024 * 1024))
+        assertTrue(imageTooBig(9 * 1024 * 1024))
+        val reason = imageTooBigReason(9 * 1024 * 1024)
+        assertTrue(reason.contains("9MB"), "理由里要带上是多大：$reason")
     }
 
     @Test

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildChildEnv, HOST_ENV_BLACKLIST, HOST_ENV_OVERRIDABLE } from '../env.js';
+import { UI_LANG_ENV } from '../strings.js';
 
 test('黑名单中每个变量都被移除', () => {
   const base = {};
@@ -87,6 +88,22 @@ test('undefined 值不进入结果', () => {
   assert.equal(out.A, '1');
 });
 
-test('黑名单恰好是 10 项', () => {
-  assert.equal(HOST_ENV_BLACKLIST.length, 10);
+test('黑名单恰好是 11 项', () => {
+  // 数字是**故意**钉的：这张表的每一项都压在"CLI 能不能认证"上，加一条删一条
+  // 都该有人在这一行停一下。11 = spec §11.1 实测那 10 项 + CCODER_UI_LANG
+  assert.equal(HOST_ENV_BLACKLIST.length, 11);
+});
+
+// 我们自己的语言开关（strings.js 的 UI_LANG_ENV）。放黑名单的理由与上面那 10 项
+// **不同**：它无关认证，是"别把我们的开关渗进别人的环境"—— CLI 与它拉起的
+// hooks / MCP 子进程都不认识这个变量。
+test('CCODER_UI_LANG 会被剥掉，且没有重新引入的通道', () => {
+  const out = buildChildEnv({ [UI_LANG_ENV]: 'zh', PATH: '/usr/bin' });
+  assert.equal(out[UI_LANG_ENV], undefined, '不该渗进 claude 子进程');
+  assert.equal(out.PATH, '/usr/bin', '剥它不该波及别的变量');
+
+  // 可覆盖清单是"宿主管端点"的资格位，语言不在其列 —— 每会话的语言走
+  // start 的 uiLang（Lever B），不需要经环境变量重新注入
+  assert.ok(!HOST_ENV_OVERRIDABLE.includes(UI_LANG_ENV));
+  assert.equal(buildChildEnv({}, { [UI_LANG_ENV]: 'en' })[UI_LANG_ENV], undefined);
 });

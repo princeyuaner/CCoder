@@ -1,5 +1,6 @@
 package com.ccoder.settings
 
+import com.ccoder.text.CcoderText
 import com.ccoder.sidecar.DepStatus
 import com.ccoder.sidecar.McpServerStatus
 import com.ccoder.sidecar.Os
@@ -258,14 +259,14 @@ class SettingsDialogProbe {
         "build/probe/settings-general.png",
         claudePath = "C:\\Users\\CY\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\claude.exe",
         model = "claude-sonnet-5",
-        page = "通用",
+        page = "settings.page.general",
     )
 
     /** 权限页。默认停在「标准」上 —— 这也是新用户点开看到的那一眼。 */
     @Test
     fun `把权限页画成图片`() = render(
         "build/probe/settings-permission.png",
-        page = "权限",
+        page = "settings.page.permission",
     )
 
     /**
@@ -278,7 +279,7 @@ class SettingsDialogProbe {
     fun `把需要确认的权限画成图片`() = render(
         "build/probe/settings-permission-bypass.png",
         permissionMode = PermissionModeSetting.BYPASS_PERMISSIONS,
-        page = "权限",
+        page = "settings.page.permission",
     )
 
     /**
@@ -294,7 +295,7 @@ class SettingsDialogProbe {
         permissionMode = PermissionModeSetting.BYPASS_PERMISSIONS,
         pickMode = PermissionModeSetting.BYPASS_PERMISSIONS,
         uncheckOptIn = true,
-        page = "权限",
+        page = "settings.page.permission",
     )
 
     /**
@@ -309,7 +310,7 @@ class SettingsDialogProbe {
             "MY_OWN_VAR" to "keep-me",
         ),
         extraDirs = listOf("D:\\shared-libs", "C:\\Users\\CY\\notes"),
-        page = "环境",
+        page = "settings.page.environment",
     )
 
     /**
@@ -321,7 +322,7 @@ class SettingsDialogProbe {
     @Test
     fun `把两个依赖都可用画成图片`() = render(
         "build/probe/settings-environment-deps-ok.png",
-        page = "环境",
+        page = "settings.page.environment",
         nodeStatus = DepStatus.Ok("C:\\Program Files\\nodejs\\node.exe", "24.13.1"),
         claudeStatus = DepStatus.Ok("C:\\Users\\CY\\AppData\\Roaming\\npm\\claude.cmd", "2.1.268"),
     )
@@ -330,14 +331,14 @@ class SettingsDialogProbe {
     @Test
     fun `把两个依赖都缺失画成图片`() = render(
         "build/probe/settings-environment-deps-missing.png",
-        page = "环境",
+        page = "settings.page.environment",
     )
 
     /** 装到一半：输出区在刷、那颗动作变成「取消」。 */
     @Test
     fun `把安装中的样子画成图片`() = render(
         "build/probe/settings-environment-deps-installing.png",
-        page = "环境",
+        page = "settings.page.environment",
         nodeStatus = DepStatus.TooOld("C:\\Program Files\\nodejs\\node.exe", "16.20.2", 18),
         claudeStatus = DepStatus.NotFound,
         installingLog = listOf(
@@ -352,7 +353,7 @@ class SettingsDialogProbe {
     @Test
     fun `把兜底那条路画成图片`() = render(
         "build/probe/settings-environment-deps-manual.png",
-        page = "环境",
+        page = "settings.page.environment",
         noPackageManager = true,
     )
 
@@ -363,7 +364,7 @@ class SettingsDialogProbe {
      * 整页是不是空得发慌。
      */
     @Test
-    fun `把群交流页画成图片`() = render("build/probe/settings-group-chat.png", page = "群交流")
+    fun `把群交流页画成图片`() = render("build/probe/settings-group-chat.png", page = "settings.page.groupChat")
 
     /**
      * 预置页。两条预设、其中一条正文多行 —— 内容框的高度封没封住、
@@ -383,7 +384,7 @@ class SettingsDialogProbe {
             ),
         ),
         clicking = "写测试",
-        page = "预置",
+        page = "settings.page.presets",
     )
 
     /**
@@ -450,8 +451,12 @@ class SettingsDialogProbe {
         selected: String? = null,
         clicking: String? = null,
         revealSecret: Boolean = false,
-        /** 停在哪个页签上。默认是「模型」—— 齿轮点开就落在那儿。 */
-        page: String = "模型",
+        /**
+         * 停在哪个页签上，传的是**词表键**（不是页签文字）—— 探针要在两种语言下
+         * 都能出图，而"按中文找控件"会让英文那一遍直接中止（2026-09-20 实测）。
+         * 默认是「模型」那一页 —— 齿轮点开就落在那儿。
+         */
+        page: String = "settings.page.models",
         presets: List<PromptPreset> = emptyList(),
         /** 写进临时项目根的 `.mcp.json`。null = 那份文件不存在。 */
         mcpFile: String? = null,
@@ -508,12 +513,13 @@ class SettingsDialogProbe {
                 PromptPresets().apply { presets.forEach { upsert(it) } },
                 mcpStatus,
                 deps,
+                UiLanguageSettings(),
                 DepsUi(os = Os.WINDOWS, tools = { tools }),
                 base,
             )
 
             // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()
-            if (page != "模型") clickTab(dialog.contentPanel, page)
+            if (page != "settings.page.models") clickTab(dialog.contentPanel, page)
             // 注意：这一段本来就跑在 EDT 上（render 整个包在 invokeAndWait 里），
             // 里面**不能**再 invokeAndWait —— 会抛 "Cannot call invokeAndWait from
             // the event dispatcher thread"，看起来像探针坏了，其实是自己套自己
@@ -532,7 +538,7 @@ class SettingsDialogProbe {
             // 点列表行走的是真的监听器：不是照着布局重画，是让对话框自己把表单填起来
             clicking?.let { clickRow(dialog.contentPanel, it) }
             if (revealSecret) {
-                val eye = findFirst(dialog.contentPanel) { it is JLabel && it.toolTipText == "显示/隐藏密钥" }
+                val eye = findFirst(dialog.contentPanel) { it is JLabel && it.toolTipText == CcoderText.text("settings.models.secretEyeTip") }
                     ?: error("找不到那只眼睛")
                 clickOn(eye)
             }
@@ -550,7 +556,8 @@ class SettingsDialogProbe {
     }
 
     /** 点页签。监听器挂在页签那个 JBLabel 上，所以直接喊它。 */
-    private fun clickTab(root: Container, title: String) {
+    private fun clickTab(root: Container, titleKey: String) {
+        val title = CcoderText.textOrNull(titleKey) ?: titleKey   // MCP / hooks 是专有名词，不在词表里
         val label = findLabel(root, title) ?: error("页签栏里找不到「$title」")
         clickOn(label)
     }
@@ -595,7 +602,8 @@ class SettingsDialogSaveTest {
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
             dialog = SettingsDialog(
-                fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(), TEST_DEPS_UI,
+                fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(),
+                UiLanguageSettings(), TEST_DEPS_UI,
             )
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }
@@ -770,7 +778,7 @@ class SettingsDialogSaveTest {
         val store = MemoryStore(mapOf("p1" to "sk-secret"))
         val (dialog, service) = openOn(store, p1)
 
-        SwingUtilities.invokeAndWait { clickOn(findLabel(dialog.contentPanel, "删除") ?: error("找不到删除")) }
+        SwingUtilities.invokeAndWait { clickOn(findLabel(dialog.contentPanel, CcoderText.text("settings.common.delete")) ?: error("找不到删除")) }
 
         assertTrue(service.profiles().isEmpty(), "删了之后列表里不该还有它")
         assertNull(store.map["p1"], "密钥必须跟着走 —— 留一条孤儿密钥等于删了个寂寞")
@@ -863,7 +871,7 @@ class SettingsDialogSaveTest {
         val masked = secret.echoChar
 
         SwingUtilities.invokeAndWait {
-            val eye = findFirst(dialog.contentPanel) { it is JLabel && it.toolTipText == "显示/隐藏密钥" }
+            val eye = findFirst(dialog.contentPanel) { it is JLabel && it.toolTipText == CcoderText.text("settings.models.secretEyeTip") }
                 ?: error("找不到那只眼睛")
             clickOn(eye)
         }

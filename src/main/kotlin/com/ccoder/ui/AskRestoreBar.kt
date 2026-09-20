@@ -11,6 +11,7 @@ import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JPanel
+import com.ccoder.text.CcoderText
 
 /**
  * 「有个提问被最小化了」—— 工具窗口里的回来的路。
@@ -38,11 +39,11 @@ import javax.swing.JPanel
  */
 internal class AskRestoreBar(private val onRestore: () -> Unit) : JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)) {
 
-    private val hint = JBLabel("有个提问被最小化，还在等你回答").apply {
+    private val hint = localizedLabel("ask.restoreBar").apply {
         foreground = ACCENT
     }
 
-    private val restore = JButton(RESTORE_LABEL).apply {
+    private val restore = JButton().localizedText("ask.restore").apply {
         addActionListener { onRestore() }
     }
 
@@ -91,7 +92,7 @@ internal class AskRestoreBar(private val onRestore: () -> Unit) : JPanel(FlowLay
 }
 
 /** 「回答提问」：回到那个被最小化的框。 */
-internal const val RESTORE_LABEL = "回答提问"
+internal val RESTORE_LABEL: String get() = CcoderText.text("ask.restore")
 
 /**
  * 工具窗口里那条带子（[AskRestoreBar]）该不该露头。

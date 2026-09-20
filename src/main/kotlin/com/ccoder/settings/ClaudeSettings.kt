@@ -1,6 +1,7 @@
 package com.ccoder.settings
 
 import com.ccoder.sidecar.StartParams
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
@@ -18,20 +19,28 @@ import kotlin.io.path.absolutePathString
  */
 enum class PermissionModeSetting(
     val wireValue: String,
-    /** 界面上的显示名。枚举名（DEFAULT / ACCEPT_EDITS）是给代码看的。 */
-    val label: String,
+    /** 界面显示名的**键**。枚举名（DEFAULT / ACCEPT_EDITS）是给代码看的。 */
+    private val labelKey: String,
     /**
-     * 一句话说清这个模式到底干什么。
+     * 一句话说清这个模式到底干什么 —— 这句说明的**键**。
      *
      * 放在枚举上而不是界面层：输入框左下角那个弹层与设置页的「权限」页都要用它，
      * 两处**必须一个字不差** —— 而 `settings` 包不许反过来依赖 `ui`
      * （见 `SendShortcut` 上那条），所以唯一的公共落点就是这里。
      */
-    val description: String,
+    private val descKey: String,
     val requiresDangerousOptIn: Boolean = false,
 ) {
-    DEFAULT("default", "标准", "危险操作会先询问"),
-    ACCEPT_EDITS("acceptEdits", "自动接受编辑", "文件改动自动接受，其余仍询问"),
+    DEFAULT(
+        "default",
+        "settings.permission.mode.default.label",
+        "settings.permission.mode.default.desc",
+    ),
+    ACCEPT_EDITS(
+        "acceptEdits",
+        "settings.permission.mode.acceptEdits.label",
+        "settings.permission.mode.acceptEdits.desc",
+    ),
 
     /**
      * 由 CLI 侧的一个**模型分类器**逐条判定放不放行 —— 不是"什么都放"。
@@ -44,18 +53,36 @@ enum class PermissionModeSetting(
      * （实测 "Cannot set permission mode to auto: auto mode disabled by settings"，
      * 见 sidecar/tools/probe-auto-mode.mjs）—— 它不会静默换成别的模式糊弄过去。
      */
-    AUTO("auto", "自动判定", "模型逐条判定放不放行；拿不准的仍会询问"),
-    PLAN("plan", "仅规划", "只读：只做计划，不执行工具"),
-    DONT_ASK("dontAsk", "不询问", "不询问；未预先允许的一律拒绝"),
+    AUTO(
+        "auto",
+        "settings.permission.mode.auto.label",
+        "settings.permission.mode.auto.desc",
+    ),
+    PLAN(
+        "plan",
+        "settings.permission.mode.plan.label",
+        "settings.permission.mode.plan.desc",
+    ),
+    DONT_ASK(
+        "dontAsk",
+        "settings.permission.mode.dontAsk.label",
+        "settings.permission.mode.dontAsk.desc",
+    ),
 
     /** SDK 要求同时设置 allowDangerouslySkipPermissions（sdk.d.ts:1890-1894）。 */
     BYPASS_PERMISSIONS(
         "bypassPermissions",
-        "绕过权限",
-        "所有操作都不再询问",
+        "settings.permission.mode.bypass.label",
+        "settings.permission.mode.bypass.desc",
         requiresDangerousOptIn = true,
     ),
     ;
+
+    /** 界面上的显示名。取一次读一次词表 —— 语言变了下次取就是新语言。 */
+    val label: String get() = CcoderText.text(labelKey)
+
+    /** 这个模式到底干什么。与输入框左下角那个弹层是**同一份文本**。 */
+    val description: String get() = CcoderText.text(descKey)
 
     /** `ComboBox` 拿 `toString` 当显示文本，覆盖它省得处处传 label。 */
     override fun toString(): String = label
@@ -90,20 +117,23 @@ internal fun effectivePermissionMode(
 enum class EffortSetting(
     /** 下发给 CLI 的值。null = 不干预，不下发。 */
     val wireValue: String?,
-    /** 界面上的显示名。枚举名（DEFAULT / XHIGH）是给代码看的。 */
-    val label: String,
+    /** 界面显示名的**键**。枚举名（DEFAULT / XHIGH）是给代码看的。 */
+    private val labelKey: String,
 ) {
-    DEFAULT(null, "默认"),
-    LOW("low", "低"),
-    MEDIUM("medium", "中"),
-    HIGH("high", "高"),
+    DEFAULT(null, "settings.effort.default.label"),
+    LOW("low", "settings.effort.low.label"),
+    MEDIUM("medium", "settings.effort.medium.label"),
+    HIGH("high", "settings.effort.high.label"),
 
     /** 比「高」更深。SDK 原话：不支持的模型上**静默降级为 high**（sdk.d.ts:620）。 */
-    XHIGH("xhigh", "极高"),
+    XHIGH("xhigh", "settings.effort.xhigh.label"),
 
     /** 只有少数模型认（sdk.d.ts:621）。 */
-    MAX("max", "最大"),
+    MAX("max", "settings.effort.max.label"),
     ;
+
+    /** 界面上的显示名。取一次读一次词表 —— 语言变了下次取就是新语言。 */
+    val label: String get() = CcoderText.text(labelKey)
 
     /** `ComboBox` 拿 `toString` 当显示文本，覆盖它省得处处传 label。 */
     override fun toString(): String = label
@@ -136,7 +166,7 @@ enum class EffortSetting(
  */
 enum class SendShortcut(
     /**
-     * 界面上显示什么。
+     * 界面显示名的**键**（词表里的值就是界面上的那行字）。
      *
      * **完整写出两个方向**（哪个键发送、哪个键换行），不是只写"Enter 发送" ——
      * 选它的人真正想知道的就是"那 Shift+Enter 呢"。写全了，设置页那句解释也就不必再写。
@@ -145,14 +175,17 @@ enum class SendShortcut(
      * `ModelProfile.displayName()` 的规矩；`override toString()` 是给 `ComboBox` 用的，
      * 与那两个枚举一致（这个枚举不进日志，改了不会连日志里的名字一起改）。
      */
-    val label: String,
+    private val labelKey: String,
 ) {
     /** Enter 发送，Shift+Enter 换行。聊天工具惯例。 */
-    ENTER("Enter 发送，Shift+Enter 换行"),
+    ENTER("settings.sendShortcut.enter.label"),
 
     /** Enter 换行，Ctrl+Enter 发送。编辑器惯例。 */
-    CTRL_ENTER("Ctrl+Enter 发送，Enter 换行"),
+    CTRL_ENTER("settings.sendShortcut.ctrlEnter.label"),
     ;
+
+    /** 界面上的显示名。取一次读一次词表 —— 语言变了下次取就是新语言。 */
+    val label: String get() = CcoderText.text(labelKey)
 
     override fun toString(): String = label
 

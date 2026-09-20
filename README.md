@@ -72,4 +72,7 @@ diff，会动你机器的命令由你放行或拒绝。
 需要自备 **Claude Code CLI（`claude`）** 和 **Node.js** —— CLI 不随插件分发，用的是你
 已经装好的那份。
 
-界面是中文的。设计稿、探针与执行记录都在 [`docs/superpowers/`](docs/superpowers/) 里。
+界面语言在插件设置里切（工具窗口右上角那个齿轮 →「通用」）：跟随 IDE、中文、English —
+默认跟随 IDE（中文 IDE 的用户装上就是中文，英文 IDE 的用户装上就是英文）。
+
+设计稿、探针与执行记录都在 [`docs/superpowers/`](docs/superpowers/) 里。

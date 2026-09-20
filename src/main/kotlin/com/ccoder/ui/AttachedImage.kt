@@ -9,6 +9,7 @@ import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
 import kotlin.math.max
 import kotlin.math.roundToInt
+import com.ccoder.text.CcoderText
 
 /**
  * 待发的图片：缩放、编码、命名。
@@ -121,17 +122,21 @@ internal fun previewImageOf(bytes: ByteArray): BufferedImage? =
     runCatching { ImageIO.read(bytes.inputStream()) }.getOrNull()
 
 /**
- * 这张来源能不能收。null = 可以；否则是一句能直接显示给用户的原因。
+ * 原图超过上限了吗。
  *
  * 只判**原图体积**这一条：格式认不认得出、解出来多大，都要等解完才知道，
  * 那是 [prepareAttachment] 的事。
  */
-internal fun imageRejectReason(sourceBytes: Int): String? = when {
-    sourceBytes > MAX_SOURCE_BYTES ->
-        "这张图太大了（${sourceBytes / 1024 / 1024}MB），先裁一下再粘"
+internal fun imageTooBig(sourceBytes: Int): Boolean = sourceBytes > MAX_SOURCE_BYTES
 
-    else -> null
-}
+/**
+ * "太大了"那句话。**每次要显示的时候现算，别存下来** ——
+ *
+ * 附件带子上那条提示要跟着界面语言走（`AttachmentStrip.reject` 收的是算法，
+ * 换语言时会重算），存成字符串就冻住了；`{0}` 那个数字同理。
+ */
+internal fun imageTooBigReason(sourceBytes: Int): String =
+    CcoderText.text("composer.image.tooBig", sourceBytes / 1024 / 1024)
 
 /** 拖进来的是不是图片文件。按扩展名认 —— 真正的判据是能不能解码，那要在读完之后。 */
 internal fun looksLikeImageFile(name: String): Boolean =
@@ -183,7 +188,7 @@ internal fun prepareAttachment(
     sourceBytes: Int = 0,
     name: String? = null,
 ): AttachedImage? {
-    if (imageRejectReason(sourceBytes) != null) return null
+    if (imageTooBig(sourceBytes)) return null
     var edge = MAX_EDGE
     repeat(3) {
         val scaled = fitToLimit(source, edge)
@@ -208,7 +213,7 @@ internal fun prepareAttachment(
 /** 附件带上那个名字。粘进来的图没有名字，就按序号叫「截图N」。 */
 internal fun imageName(index: Int, mediaType: String): String {
     val ext = if (mediaType == "image/jpeg") "jpg" else "png"
-    return "截图${index + 1}.$ext"
+    return CcoderText.text("composer.image.fileName", index + 1, ext)
 }
 
 /**

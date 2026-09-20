@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 /**
  * 工具卡片上的标题、可点文件名、diff 与改动规模 —— 全是纯函数。
  *
@@ -8,6 +10,9 @@
  * 数据全在 `tool_use.input` 里 —— 命令在 command、文件在 file_path、
  * 搜索词在 pattern。**不需要后端配合**：那串 JSON 一直是原样送到前端的，
  * 只是以前没人读出来。
+ *
+ * 这个文件里只有一处是**文案**（[toolParams] 里那句分隔头），
+ * 其余都是数据：命令、路径、diff、参数 JSON 一律原样透传，翻不得。
  */
 
 export interface DiffLine {
@@ -213,7 +218,9 @@ export function toolParams(input: string): string | null {
   delete rest[field]
   const body = String(args[field])
   if (Object.keys(rest).length === 0) return body
-  return `${body}\n\n————————————\n其余参数：\n${JSON.stringify(rest, null, 2)}`
+  // 分隔线本身是排版（12 个破折号），不进目录；「其余参数：」是文案，走目录。
+  // 调用方（ToolCallBlock）那份 memo 依赖当前语言，见那边的注释
+  return `${body}\n\n————————————\n${t('tool.paramsRest')}\n${JSON.stringify(rest, null, 2)}`
 }
 
 /** 超过这个长度就算"正文"（与 Kotlin 侧 LONG_FIELD_MIN_CHARS 同一个数）。 */

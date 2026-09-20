@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import javax.swing.Action
 import javax.swing.JComponent
+import com.ccoder.text.CcoderText
 
 /**
  * 权限询问的模态框（设计稿方案 B，2026-09-14 由"工具窗口里的非模态卡片"改过来）。
@@ -129,7 +130,7 @@ internal class PermissionDialog(
     }
 
     private companion object {
-        const val TITLE = "Claude 请求确认"
+        val TITLE: String get() = CcoderText.text("permission.dialog.title")
 
         /**
          * 关框用的退出码。
