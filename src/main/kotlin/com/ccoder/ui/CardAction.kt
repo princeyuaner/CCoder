@@ -143,6 +143,13 @@ internal fun compactStateOfStatus(event: JsonObject): CompactState? {
  * camelCase（`compactMetadata.preTokens`）—— 而回放同样走 [MessageRenderer]。
  * 只认一种的话，回执就只在"现场"或只在"历史"里出现，这是最难被发现的那类半边功能。
  *
+ * ⚠️ 2026-09-20 实测（SDK 0.3.274 的 `getSessionMessages`）：回放项里**只有
+ * user/assistant**（某会话 107 条里 0 条 system），所以 camelCase 这一份今天
+ * 没有实战路径 —— 恢复会话时看不到这条回执。留着是防御（SDK 哪天开始透传
+ * system 条目，它自动补上），但"恢复后转写区里还有压缩的痕迹"这句话不成立：
+ * 唯一的痕迹是落盘那条压缩摘要，而它按 CLI 的规矩也不再画了
+ * （见 [MessageRenderer.renderPrompt]）。
+ *
  * 字段缺就降级照写，**不猜**（三个字段里两个是可选的）：不知道压缩前多少，
  * 就只说压过了，不编一个数字。
  */

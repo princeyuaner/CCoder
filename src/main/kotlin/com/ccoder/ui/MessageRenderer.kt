@@ -123,6 +123,16 @@ object MessageRenderer {
      * 必须过滤工具结果：实测最大会话的 247 条 user 消息里，236 条是工具结果，
      * 真实提问只有 11 条。全渲染出来会把转写区淹掉。
      *
+     * **还必须过滤 CLI 的「信封」与压缩摘要**（2026-09-20，见计划文档
+     * `docs/superpowers/plans/2026-09-20-resume-envelope.md`）：CLI 把本地命令
+     * （`/compact`、`/clear`、`!` 的 bash …）的**回显与输出**、以及压缩摘要，都写成
+     * 普通的 `type:"user"` 条目 —— 纯字符串、`isMeta` 不标，所以 SDK 也不滤它们。
+     * 实时那条路到不了这里（[renderToolResults] 只认块数组，纯字符串的 user 事件
+     * 一律丢），而这条路原先的判据是「内容是**非空字符串**就算提问」：于是恢复会话
+     * 后转写区里躺着 `<command-name>/compact</command-name>` 这样的气泡，像是用户
+     * 说的。判据照抄 CLI 自己的转写过滤器（claude.exe 内嵌 JS）：
+     * `Dhn(e) = e.type==="user" && !e.isCompactSummary && !Z2r(e)`。
+     *
      * [images] 是**给转写区看的那份**（data URL，长边 ≤900 的 JPEG）：CLI 把图
      * 原尺寸存进 JSONL（实测见 `sidecar/tools/probe-history-image.mjs`），
      * 原样推给 JCEF 太重 —— 缩放口径与贴图那条路完全一致，用的是同一个
@@ -130,13 +140,65 @@ object MessageRenderer {
      */
     internal data class HistoryPrompt(val text: String, val images: List<String>)
 
+    /**
+     * CLI 的**本地命令信封**标签 —— 内容是这些开头的 user 条目不是谁说的话。
+     *
+     * 名单是 claude.exe 内嵌 JS 里三张表并起来的（`Q1e` 的 bash 四件套 +
+     * `v1` 的 `record` / `output` / `caveat` 三档 + `YN` 那串 startsWith）：
+     * 命令回显、命令输出、给模型的说明、`!` 的 bash、后台任务完成的通知。
+     * `<command-args>` 不在名单里 —— 它只出现在 `<command-name>` 之后，做不了开头。
+     *
+     * **只认开头**（CLI 自己也是 `startsWith`）：用户真在消息里引用这些标签
+     * （比如讨论这套协议）不该被当成信封吞掉。
+     */
+    private val ENVELOPE_TAGS = listOf(
+        "<command-name>", "<command-message>",
+        "<local-command-stdout>", "<local-command-stderr>", "<local-command-caveat>",
+        "<bash-input>", "<bash-stdout>", "<bash-stderr>", "<bash-exit-code>",
+        "<task-notification>",
+    )
+
+    internal fun isEnvelopeText(text: String): Boolean = ENVELOPE_TAGS.any { text.startsWith(it) }
+
+    /**
+     * 压缩摘要那条的**开头** —— CLI 自己生成的模板句，见 claude.exe 的 `Nae()`：
+     *
+     * ```
+     * `This session is being continued from a previous conversation that ran out of
+     *  context. The summary below covers the earlier portion of the conversation.`
+     * ```
+     *
+     * **为什么认句子而不认标记**：`isCompactSummary` / `isVisibleInTranscriptOnly`
+     * 在会话文件里是有的，但 SDK 的 `getSessionMessages` 会把条目**归一化**
+     * （实测 196 条回来的字段完全一致：`message,parent_tool_use_id,session_id,
+     * timestamp,type,uuid`，三个标记连同 `isMeta` 一起没了）—— 所以标记只能当兜底，
+     * 真正拦住它的是这句话。CLI 哪天改了措辞，最坏结果是那条 15KB 的气泡又冒出来
+     * （看得见，不是静默出错）。
+     */
+    private const val COMPACT_SUMMARY_PREFIX =
+        "This session is being continued from a previous conversation"
+
+    internal fun isCompactSummaryText(text: String): Boolean =
+        text.startsWith(COMPACT_SUMMARY_PREFIX)
+
     internal fun renderPrompt(item: JsonObject): HistoryPrompt? {
         if (item.str("type") != "user") return null
+
+        // 压缩摘要、以及"只在转写里可见"的条目，都不是谁说的话。CLI 自己也不画
+        // 它们（见 Dhn 里的 isCompactSummary、JE 里的 isVisibleInTranscriptOnly）。
+        // 这两条是**兜底**：当前 SDK 版本会把标记丢掉（见 [COMPACT_SUMMARY_PREFIX]），
+        // 实际拦住摘要的是下面的句子判据。实测那条摘要有 15153 字，画成用户气泡
+        // 等于凭空多出一大段"你说的话"
+        if (item.bool("isCompactSummary") == true) return null
+        if (item.bool("isVisibleInTranscriptOnly") == true) return null
+
         val content = item.obj("message")?.get("content") ?: return null
 
         // 形式一：纯文本提问
         if (content.isJsonPrimitive && content.asJsonPrimitive.isString) {
             val text = content.asString.takeIf { it.isNotBlank() } ?: return null
+            // 信封就在这个形状上：整条内容是一个纯字符串（实测）
+            if (isEnvelopeText(text) || isCompactSummaryText(text)) return null
             return HistoryPrompt(text, emptyList())
         }
         if (!content.isJsonArray) return null
@@ -158,6 +220,8 @@ object MessageRenderer {
 
         // 一个字没有、图也没有 —— 不是提问（空的 text 块、认不出的块都落这里）
         if (text.isEmpty() && images.isEmpty()) return null
+        // 信封/摘要也有可能以块的形式来（实测都是纯字符串，但形状不该决定行为）
+        if (isEnvelopeText(text) || isCompactSummaryText(text)) return null
         return HistoryPrompt(text, images)
     }
 
