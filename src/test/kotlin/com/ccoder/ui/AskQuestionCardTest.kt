@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -158,6 +159,19 @@ class AskQuestionCardTest {
         // SDK 要求宿主提供它（sdk-tools.d.ts:1070 的 options 注释）
         val texts = textsIn(card())
         assertEquals(1, texts.count { it.contains(OTHER_LABEL) }, "当前题该有一个：$texts")
+    }
+
+    @Test
+    fun `多选题带「可多选」提示，单选题没有`() {
+        // 2026-09-20 加：在这之前界面一个字都没提"这题能不能多选"，只能靠行为发现 ——
+        // 而单选让位那个 bug 让两者画面上长得一模一样
+        val hint = CcoderText.text("ask.multiHint")
+
+        val single = textsIn(card(flowAt(0))).joinToString("\n")
+        assertFalse(single.contains(hint), "单选题不该有这条提示：$single")
+
+        val multi = textsIn(card(flowAt(1))).joinToString("\n")
+        assertTrue(multi.contains(hint), "多选题少了这条提示：$multi")
     }
 
     // ---- 上一题 / 下一题 ----

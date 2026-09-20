@@ -193,17 +193,18 @@ class AskQuestionTest {
     }
 
     @Test
-    fun `多选把若干 label 连成一个字符串`() {
-        // SDK 的 answers 值是 string，不是数组：
-        // answers: { [k: string]: string }（sdk-tools.d.ts:3861）
+    fun `多选把若干 label 连成一个字符串，逗号分隔`() {
+        // SDK 的 answers 值是 string，不是数组，而且**指明了连接符**：
+        // answers: { [k: string]: string }（sdk-tools.d.ts:3861）+
+        // "multi-select answers are comma-separated"（sdk-tools.d.ts:3873）。
+        // 逐字断言而不是 contains —— 连接符本身就是这条契约的一部分
         val req = askRequestOf(input(twoQuestions))!!
         val answers = answersFor(req, mapOf("热切要不要写回长期设置？" to listOf("只影响本次会话", "写回设置")))
 
         var n = 0
         req.questions.forEach { if (answers.has(it.question)) n++ }
         assertEquals(1, n, "只有答过的那一题该出现")
-        assertTrue(answers.get("热切要不要写回长期设置？").asString.contains("只影响本次会话"))
-        assertTrue(answers.get("热切要不要写回长期设置？").asString.contains("写回设置"))
+        assertEquals("只影响本次会话, 写回设置", answers.get("热切要不要写回长期设置？").asString)
     }
 
     @Test

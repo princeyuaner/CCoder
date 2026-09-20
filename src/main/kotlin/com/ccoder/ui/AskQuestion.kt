@@ -160,14 +160,20 @@ private fun parseOption(element: JsonElement): AskOption? {
  * 组装 SDK 要的 `answers`。
  *
  * 值是 **string 而不是数组**（sdk-tools.d.ts:3861 的
- * `answers: { [k: string]: string }`），所以多选时要把若干 label 连成一个。
- * 用「、」连接：中文里读起来是并列，而逗号会和 label 自带的逗号混淆。
+ * `answers: { [k: string]: string }`），所以多选时要把若干 label 连成一个 ——
+ * 连接符是**逗号加空格**：那是 SDK 写明的形状（sdk-tools.d.ts:3873：
+ * "multi-select answers are comma-separated"）。
+ *
+ * 从前用「、」，理由是"读起来是并列，而逗号会和 label 自带的逗号混淆"。
+ * 读起来确实顺，但它偏了契约 —— 别的宿主/界面按逗号切答案时切不开（2026-09-20
+ * 改回）。label 真带逗号的多选答案是这条契约自带的歧义，不值得为它另立一套；
+ * 选项本来就该是短标签（SDK 的 header 甚至限 12 字）。
  */
 internal fun answersFor(request: AskRequest, picked: Picked): JsonObject {
     val out = JsonObject()
     request.questions.forEach { q ->
         val chosen = picked[q.question].orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
-        if (chosen.isNotEmpty()) out.addProperty(q.question, chosen.joinToString("、"))
+        if (chosen.isNotEmpty()) out.addProperty(q.question, chosen.joinToString(", "))
     }
     return out
 }

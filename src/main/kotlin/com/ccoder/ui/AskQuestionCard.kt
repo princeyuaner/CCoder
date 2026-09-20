@@ -8,6 +8,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
@@ -170,8 +171,13 @@ internal class AskQuestionCard(
             isOpaque = false
         }.leftAligned()
 
-        if (qs.question.header.isNotBlank()) {
-            header.add(headerChip(qs.question.header))
+        // 芯片行：短标题 +「可多选」提示（多选题才有）。
+        //
+        // 那条提示是 2026-09-20 加的：在这之前，界面**一个字都没提**这题能不能多选
+        // （`multiSelect` 只有解析层在用），用户只能靠"点第二个时第一个没消失"来猜 ——
+        // 而单选让位那个 bug 恰好让两者在画面上长得一模一样。
+        chipRow(qs)?.let {
+            header.add(it)
             header.add(vStrut(4))
         }
 
@@ -206,9 +212,37 @@ internal class AskQuestionCard(
         return header
     }
 
-    private fun headerChip(text: String) = JLabel(text).apply {
+    /**
+     * 芯片行：短标题 +「可多选」提示。两个都没有就返回 null —— 空行会白占一段高度。
+     *
+     * 用横向 `BoxLayout` 而不是 `FlowLayout`：后者会给第一个子项也留 hgap，
+     * 芯片就会比下面那些左对齐的文本右移一格（5.1 的边距差肉眼看得出来）。
+     */
+    private fun chipRow(qs: QuestionState): JComponent? {
+        val hasHeader = qs.question.header.isNotBlank()
+        val multi = qs.question.multiSelect
+        if (!hasHeader && !multi) return null
+
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            if (hasHeader) {
+                add(headerChip(qs.question.header))
+                if (multi) add(Box.createHorizontalStrut(6))
+            }
+            if (multi) add(hintChip())
+            add(Box.createHorizontalGlue())
+        }.leftAligned()
+    }
+
+    private fun headerChip(text: String) = chip(text, ACCENT)
+
+    /** 「可多选」：与标题同形状，颜色压到次要一层 —— 它是说明，不是标题。 */
+    private fun hintChip() = chip(CcoderText.text("ask.multiHint"), UIUtil.getInactiveTextColor())
+
+    private fun chip(text: String, color: Color) = JLabel(text).apply {
         font = UIUtil.getLabelFont().deriveFont(UIUtil.getLabelFont().size2D - 2f)
-        foreground = ACCENT
+        foreground = color
         border = JBUI.Borders.empty(1, 6)
     }.leftAligned()
 
