@@ -11,8 +11,6 @@ import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.event.ActionEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import javax.swing.Action
 import javax.swing.BorderFactory
 import javax.swing.Box
@@ -56,7 +54,8 @@ fun showSettingsDialog(project: Project) {
 }
 
 /**
- * 设置对话框（设计稿方案 C，2026-09-15）。
+ * 设置对话框（骨架是 2026-09-15 的方案 C；2026-09-20 按用户选的**方案 B** 改版：
+ * 左栏带图标与胶囊选中态、页里改成卡片分区 —— 选型图在 `docs/design/settings-v3.html`）。
  * 八页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 群交流。
  *
  * ## 从三栏到四页签
@@ -115,25 +114,33 @@ internal class SettingsDialog(
     private val baseDir: Path? = project?.basePath?.let { Path.of(it) },
 ) : DialogWrapper(project) {
 
-    /** 七页。`internal` 是给用例逐页点的（页多了漏挂监听器就看不出来）。 */
-    internal val pages: List<SettingsPage> = run {
+    /**
+     * 八页，连同左栏那枚图标。**页序 = 导航序** —— 图标与页成对写在一处，
+     * 免得日后插一页时导航上的小图整体错位一格（那只是"图标配错了"，不报错）。
+     *
+     * `internal val pages` 是给用例逐页点的（页多了漏挂监听器就看不出来）。
+     */
+    private val pageSpecs: List<Pair<SettingsPage, NavIcon>> = run {
         val models = ModelProfilesPage(settings, profiles)
         listOf(
-            models,
-            PromptPresetsPage(presets),
-            GeneralSettingsPage(project, settings, language),
-            PermissionSettingsPage(settings),
+            models to NavIcon.Models,
+            PromptPresetsPage(presets) to NavIcon.Presets,
+            GeneralSettingsPage(project, settings, language) to NavIcon.General,
+            PermissionSettingsPage(settings) to NavIcon.Permission,
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——
             // 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了
-            EnvironmentSettingsPage(project, settings, deps, depsUi) { models.refreshConflictWarning() },
+            EnvironmentSettingsPage(project, settings, deps, depsUi) { models.refreshConflictWarning() } to
+                NavIcon.Environment,
             // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
-            McpSettingsPage(baseDir, mcpStatus),
-            HooksSettingsPage(baseDir),
+            McpSettingsPage(baseDir, mcpStatus) to NavIcon.Mcp,
+            HooksSettingsPage(baseDir) to NavIcon.Hooks,
             // 一页只放一张二维码（2026-09-17）。它不读写任何配置，放最后 ——
             // 前面七页是"把插件配成你要的样子"，这一页是"找人"
-            GroupChatSettingsPage(),
+            GroupChatSettingsPage() to NavIcon.GroupChat,
         )
     }
+
+    internal val pages: List<SettingsPage> = pageSpecs.map { it.first }
 
     private var current: SettingsPage = pages.first()
 
@@ -151,7 +158,16 @@ internal class SettingsDialog(
      */
     internal val pageHost = JPanel(BorderLayout())
 
-    private val tabLabels = LinkedHashMap<SettingsPage, JBLabel>()
+    private val navItems = LinkedHashMap<SettingsPage, SettingsNavItem>()
+
+    /**
+     * 左栏那一条。
+     *
+     * `internal` 是给用例与探针的：点页签时**只在这一条里**找标签 —— 页内一旦出现
+     * 同文标签（卡头、"权限模式"那类），满框搜索会静默点到没有监听器的那个，
+     * 症状是"探针出的图全变成第一页"，而单测全绿。
+     */
+    internal val tabStrip: JComponent = buildTabsColumn()
 
     /**
      * 底部那颗「关闭」。
@@ -184,7 +200,10 @@ internal class SettingsDialog(
     }
 
     override fun createCenterPanel(): JComponent = JPanel(BorderLayout()).apply {
-        add(tabsColumn(), BorderLayout.WEST)
+        // **取那一个已经建好的实例**，不要再调一次 buildTabsColumn()：那会造出第二条
+        // 左栏（用例与探针手里的 tabStrip 成了没人挂上去的副本，而 navItems 被后来
+        // 那一套覆盖）—— 症状是"点页签没反应"，但两边都"看起来在工作"
+        add(tabStrip, BorderLayout.WEST)
         add(pageHost, BorderLayout.CENTER)
     }
 
@@ -213,31 +232,26 @@ internal class SettingsDialog(
     override fun createActions(): Array<Action> = arrayOf(closeAction)
 
     /**
-     * 左栏页签。
+     * 左栏页签：图标 + 标题，选中是一枚实心强调色胶囊（2026-09-20 方案 B）。
      *
      * 手写而不是用 `JBTabbedPane` / `TabbedPaneWrapper`：平台那两个要 `Disposable`
      * 与全局 `UISettings`，而本仓库的测试跑在纯 JVM 里（`ApplicationManager` 是 null）。
      * 全仓 `JBTabs` 一族零命中 —— 这一栏从 2026-09-13 起就是手写的。
      */
-    private fun tabsColumn(): JComponent = JPanel().apply {
+    private fun buildTabsColumn(): JComponent = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         // 页签栏右侧那条线（设计稿 `.tabs-v { border-right }`）：有它才看得出
         // 左栏是导航、右面是内容，而不是七个字浮在整张纸上
         border = BorderFactory.createCompoundBorder(hairlineRight(), JBUI.Borders.empty(10, 8))
         preferredSize = Dimension(JBUI.scale(TABS_WIDTH), 0)
-        pages.forEach { page ->
-            val label = JBLabel(page.title).apply {
-                border = JBUI.Borders.empty(6, 9)
-                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                addMouseListener(object : MouseAdapter() {
-                    override fun mouseClicked(e: MouseEvent) = select(page)
-                })
-            }
+        pageSpecs.forEach { (page, icon) ->
+            val item = SettingsNavItem(page, icon, page.title) { select(page) }
+            item.label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             // 加完子件之后再量（同 ModelProfiles 里 listRow 的注释）：不设这一条
-            // 选中底色只裹住文字那一段，而不是整个页签那么宽
-            label.maximumSize = Dimension(Int.MAX_VALUE, label.preferredSize.height)
-            tabLabels[page] = label
-            add(label)
+            // 胶囊底色只裹住图标与文字那一段，而不是整行那么宽
+            item.maximumSize = Dimension(Int.MAX_VALUE, item.preferredSize.height)
+            navItems[page] = item
+            add(item)
         }
         add(Box.createVerticalGlue())
     }
@@ -255,12 +269,7 @@ internal class SettingsDialog(
      * 那个刻意不落库的空模型行、输入框的光标与选区、密钥的 `echoChar`（明文/打码）。
      */
     private fun applySelection() {
-        tabLabels.forEach { (page, label) ->
-            val on = page === current
-            label.isOpaque = on
-            label.background = if (on) UIUtil.getListSelectionBackground(true) else UIUtil.getPanelBackground()
-            label.foreground = if (on) UIUtil.getLabelForeground() else UIUtil.getInactiveTextColor()
-        }
+        navItems.forEach { (page, item) -> item.setSelected(page === current) }
         pageHost.removeAll()
         pageHost.add(current.component(), BorderLayout.CENTER)
         pageHost.revalidate()

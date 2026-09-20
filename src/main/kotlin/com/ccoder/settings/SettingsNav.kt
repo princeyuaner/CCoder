@@ -211,17 +211,21 @@ internal class SettingsNavItem(
         setSelected(false)
     }
 
-    /** 选中：底色 + 文字色 + 图标色一起翻（图标取 `label.foreground`，所以它跟着走）。 */
+    /**
+     * 选中：底色 + 文字色 + 图标色一起翻（图标取 `label.foreground`，所以它跟着走）。
+     *
+     * 颜色**每次都设**，不做"没变就跳过"：构造时也要走一遍（未选中的初始文字色就是
+     * 从这儿来的），跳过的话它会停在 `JBLabel` 的默认前景色上。
+     */
     internal fun setSelected(value: Boolean) {
-        if (selected == value && label.foreground != null) return
+        val changed = selected != value
         selected = value
-        val fill = focusColor()
         label.foreground = if (value) {
-            pickReadable(listOf(Color.WHITE, UIUtil.getLabelForeground()), fill)
+            pickReadable(listOf(Color.WHITE, UIUtil.getLabelForeground()), focusColor())
         } else {
             UIUtil.getInactiveTextColor()
         }
-        repaint()
+        if (changed) repaint()
     }
 
     private fun setHovered(value: Boolean) {

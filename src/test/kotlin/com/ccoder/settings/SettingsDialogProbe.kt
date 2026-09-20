@@ -504,7 +504,7 @@ class SettingsDialogProbe {
             )
 
             // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()
-            if (page != "settings.page.models") clickTab(dialog.contentPanel, page)
+            if (page != "settings.page.models") clickTab(dialog.tabStrip, page)
             // 注意：这一段本来就跑在 EDT 上（render 整个包在 invokeAndWait 里），
             // 里面**不能**再 invokeAndWait —— 会抛 "Cannot call invokeAndWait from
             // the event dispatcher thread"，看起来像探针坏了，其实是自己套自己

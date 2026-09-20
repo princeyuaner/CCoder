@@ -247,9 +247,14 @@ class SettingsDialogLayoutTest {
 
 }
 
-/** 点页签。监听器挂在页签那个 `JBLabel` 上，所以直接喊它。 */
+/**
+ * 点页签。监听器挂在页签那个 `JBLabel` 上，所以直接喊它。
+ *
+ * **只在页签栏里找**（`dialog.tabStrip`）：页里出现同文标签（卡头、字段标签）之后，
+ * 满框搜索会点到没有监听器的那个 —— 症状是"点不动"，而看起来只是切页没生效。
+ */
 private fun clickTab(dialog: SettingsDialog, title: String) {
-    val tab = findLabel(dialog.contentPane, title) ?: error("页签栏里找不到「$title」")
+    val tab = findLabel(dialog.tabStrip, title) ?: error("页签栏里找不到「$title」")
     clickOn(tab)
 }
 
