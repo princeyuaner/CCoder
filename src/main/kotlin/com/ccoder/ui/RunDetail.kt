@@ -129,6 +129,10 @@ internal fun buildContextDetail(usage: ContextUsage?): JComponent {
 /** 一行"标题 —— 值"。与 [taskRow] 同一套观感，但只读、不可点。 */
 private fun detailRow(label: String, value: String): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
+
     border = JBUI.Borders.emptyBottom(3)
     add(JBLabel(label).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.WEST)
     add(JBLabel(value), BorderLayout.EAST)
@@ -137,6 +141,10 @@ private fun detailRow(label: String, value: String): JComponent = JPanel(BorderL
 /** 一句话的说明，压在最后。 */
 private fun hint(text: String): JComponent = JBLabel(text).apply {
     foreground = UIUtil.getInactiveTextColor()
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
+
     font = font.deriveFont(font.size2D - 1f)
     border = JBUI.Borders.emptyTop(6)
 }
@@ -173,10 +181,27 @@ internal fun buildRunningDetail(
     subagents: List<SubagentInfo>,
     onStop: (String) -> Unit,
     onOpen: (SubagentInfo) -> Unit,
+    /**
+     * 空闲时"看已结束的 N 个"那一行**是否已经展开**（2026-09-20）。
+     *
+     * 用户看着一张写着「空闲」的卡问"子代理都没了点开为什么还有内容" —— 那是**记录**，
+     * 不是"还在跑"：这条浮层的下半段列的是本会话跑过的全部子代理（点一条能回看它的
+     * 转写，那是目前**唯一**的回看入口）。问题不在有内容，在于"空闲 + 18 条"读起来
+     * 自相矛盾。所以空闲时先只回答"现在有没有在跑"，记录退到一行"看已结束的 N 个 ›"
+     * 后面。展开状态住在调用方（`ClaudePanel`）：这里每画一次都是一次性构建。
+     */
+    historyExpanded: Boolean = false,
+    onToggleHistory: () -> Unit = {},
 ): JComponent {
     val box = detailBox()
     if (running.isEmpty() && subagents.isEmpty()) {
-        box.add(JBLabel(CcoderText.text("transcript.detail.noTasks")).apply { foreground = UIUtil.getInactiveTextColor() })
+        box.add(
+            JBLabel(CcoderText.text("transcript.detail.noTasks")).apply {
+                foreground = UIUtil.getInactiveTextColor()
+            // 靠左：detailBox 是 BoxLayout，裸标签默认按 0.5 对齐 —— 会居中，看着像放歪了
+            alignmentX = Component.LEFT_ALIGNMENT
+            },
+        )
         return box
     }
 
@@ -188,11 +213,57 @@ internal fun buildRunningDetail(
         }
     }
 
-    if (subagents.isNotEmpty()) {
-        box.add(sectionHeader(SUBAGENTS_SECTION, subagents.size.toString()))
-        subagents.forEach { box.add(subagentRow(it, onOpen)) }
+    if (subagents.isEmpty()) return box
+
+    // 没在跑的时候（此时下面那些**全都是已结束的**）：先答"现在没有在跑的子代理"，
+    // 记录折起来。有在跑时照旧两段摊开 —— 那行"看已结束的 N 个"在那种场合没有意义
+    // （那一段里混着正在跑的，见 SUBAGENTS_SECTION 的注释）
+    if (running.isEmpty() && !historyExpanded) {
+        box.add(
+            JBLabel(CcoderText.text("transcript.detail.noRunningSubagents")).apply {
+                foreground = UIUtil.getInactiveTextColor()
+            // 靠左：detailBox 是 BoxLayout，裸标签默认按 0.5 对齐 —— 会居中，看着像放歪了
+            alignmentX = Component.LEFT_ALIGNMENT
+            },
+        )
+        box.add(
+            disclosureRow(
+                CcoderText.text("transcript.detail.showFinished", subagents.size),
+                onToggleHistory,
+            ),
+        )
+        return box
     }
+
+    box.add(sectionHeader(SUBAGENTS_SECTION, subagents.size.toString()))
+    subagents.forEach { box.add(subagentRow(it, onOpen)) }
     return box
+}
+
+/**
+ * 「看已结束的 N 个 ›」那一行：可点，颜色按"这是条能点的文字"来取。
+ *
+ * 监听器**同时挂在行与文字上**：Swing 的事件不冒泡，只挂行的话，点在字上没反应
+ * —— 而那正是人会点的地方（[subagentRow] 也有过同一个坑，一并修了）。
+ */
+private fun disclosureRow(text: String, onClick: () -> Unit): JComponent {
+    val label = JBLabel("$text ›").apply {
+        foreground = accentTextFor(focusColor(), UIUtil.getListBackground())
+    }
+    return JPanel(BorderLayout()).apply {
+        isOpaque = false
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
+        border = JBUI.Borders.empty(2, 0)
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        add(label, BorderLayout.WEST)
+        val watcher = object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) = onClick()
+        }
+        addMouseListener(watcher)
+        label.addMouseListener(watcher)
+    }
 }
 
 /**
@@ -201,6 +272,9 @@ internal fun buildRunningDetail(
 private fun subagentRow(agent: SubagentInfo, onOpen: (SubagentInfo) -> Unit): JComponent {
     val row = JPanel(BorderLayout()).apply {
         isOpaque = false
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
         border = JBUI.Borders.empty(2, 0)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         toolTipText = CcoderText.text("transcript.detail.viewTranscript")
@@ -210,11 +284,13 @@ private fun subagentRow(agent: SubagentInfo, onOpen: (SubagentInfo) -> Unit): JC
     val name = JBLabel(text.ifBlank { agent.agentId.take(8) })
     row.add(name, BorderLayout.WEST)
 
-    row.addMouseListener(
-        object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) = onOpen(agent)
-        }
-    )
+    // 监听器行与文字各挂一份：Swing 的事件不冒泡，只挂行的话**点在名字上没反应**
+    // —— 而那正是人会点的那块（2026-09-20 与「看已结束的 N 个」那一行一起修的）
+    val watcher = object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) = onOpen(agent)
+    }
+    row.addMouseListener(watcher)
+    name.addMouseListener(watcher)
     return row
 }
 
@@ -235,9 +311,13 @@ internal fun buildSubagentDetail(agent: SubagentInfo, items: List<JsonObject>): 
         "$who $text"
     }
     if (lines.isEmpty()) {
-        box.add(JBLabel(CcoderText.text("transcript.detail.emptyTranscript")).apply {
-            foreground = UIUtil.getInactiveTextColor()
-        })
+        box.add(
+            JBLabel(CcoderText.text("transcript.detail.emptyTranscript")).apply {
+                foreground = UIUtil.getInactiveTextColor()
+            // 靠左：detailBox 是 BoxLayout，裸标签默认按 0.5 对齐 —— 会居中，看着像放歪了
+            alignmentX = Component.LEFT_ALIGNMENT
+            },
+        )
         return box
     }
 
@@ -306,6 +386,10 @@ internal val SUBAGENTS_SECTION: String get() = CcoderText.text("transcript.detai
 private fun sectionHeader(title: String, count: String): JComponent =
     JPanel(BorderLayout()).apply {
         isOpaque = false
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
+
         border = JBUI.Borders.emptyBottom(6)
         add(
             JBLabel(title).apply {
@@ -325,6 +409,9 @@ private fun sectionHeader(title: String, count: String): JComponent =
 
 private fun todoRow(item: TodoItem): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
     border = JBUI.Borders.emptyBottom(3)
     val glyph = when (item.state) {
         TodoState.Completed -> "✓"
@@ -352,15 +439,19 @@ private fun taskRow(
     onOpen: (SubagentInfo) -> Unit,
 ): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
+    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
+    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
+    alignmentX = Component.LEFT_ALIGNMENT
     border = JBUI.Borders.emptyBottom(3)
-    if (agent != null) {
+    /** 可点的那几条把监听器挂到行上（下面还会补挂到文字上，理由见 subagentRow 那条）。 */
+    val openOnClick: MouseAdapter? = if (agent != null) {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         toolTipText = CcoderText.text("transcript.detail.viewTranscript")
-        addMouseListener(
-            object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) = onOpen(agent)
-            }
-        )
+        object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) = onOpen(agent)
+        }.also { addMouseListener(it) }
+    } else {
+        null
     }
 
     // 两行（B2，2026-09-18 用户从选型台上挑的）：
@@ -383,7 +474,10 @@ private fun taskRow(
 
     val head = JPanel(BorderLayout()).apply {
         isOpaque = false
-        add(JBLabel(name), BorderLayout.WEST)
+        val nameLabel = JBLabel(name)
+        add(nameLabel, BorderLayout.WEST)
+        // 名字那块也得能点：Swing 的事件不冒泡，只挂行上的话点在字上没反应
+        openOnClick?.let { nameLabel.addMouseListener(it) }
         if (meta.isNotEmpty()) {
             add(
                 JBLabel(meta).apply {

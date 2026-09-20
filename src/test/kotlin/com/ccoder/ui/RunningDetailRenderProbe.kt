@@ -37,6 +37,38 @@ class RunningDetailRenderProbe {
     fun `把压着终止钮的样子画成图片`() =
         render("build/probe/running-detail-hover.png", hoverStop = true)
 
+    /**
+     * **空闲那一版**（2026-09-20）。
+     *
+     * 用户看着"空闲"的卡问"子代理都没了点开为什么还有内容" —— 收着的版本先只答一句
+     * 「当前没有在跑的子代理」加一行「看已结束的 N 个 ›」。这一版要看的是：
+     * 那句话与那一行挨着好不好看、"›"会不会像坏了。
+     */
+    @Test
+    fun `把空闲时的浮层画成图片`() = renderIdle("build/probe/running-detail-idle.png")
+
+    /** 展开之后（记录摊开、每一行可点看转写）。 */
+    @Test
+    fun `把展开记录的浮层画成图片`() =
+        renderIdle("build/probe/running-detail-idle-open.png", expanded = true)
+
+    private fun renderIdle(path: String, expanded: Boolean = false) = IdeLaf.withRealLaf {
+        SwingUtilities.invokeAndWait {
+            val content = buildRunningDetail(
+                emptyList(),
+                listOf(
+                    SubagentInfo("a1", "Explore", "Map the composer input path", "call_1"),
+                    SubagentInfo("a2", "Plan", "Design the drag-drop plan", "call_2"),
+                    SubagentInfo("a3", "general-purpose", "Settings area i18n migration", "call_3"),
+                ),
+                {},
+                onOpen = {  },
+                historyExpanded = expanded,
+            )
+            paint(content, path, hoverStop = false)
+        }
+    }
+
     private fun render(path: String, hoverStop: Boolean) = IdeLaf.withRealLaf {
         SwingUtilities.invokeAndWait {
             val content = buildRunningDetail(
@@ -66,31 +98,36 @@ class RunningDetailRenderProbe {
                 {},
             )
 
-            val outer = JPanel(BorderLayout()).apply {
-                isOpaque = true
-                // 照实画在浮层的底色上：那是个弹出列表，不是面板灰。
-                // 拿不到时退回面板色，至少不崩
-                background = runCatching {
-                    UIUtil.getListBackground()
-                }.getOrDefault(UIUtil.getPanelBackground())
-                border = JBUI.Borders.empty(8)
-                add(content, BorderLayout.NORTH)
-            }
-
-            // 420px 是工具窗口的真实宽度（浮层比它窄，内容拉到这个宽即真实形态）
-            val w = 420
-            val h = outer.preferredSize.height
-            outer.setSize(w, h)
-            layoutAll(outer)
-
-            if (hoverStop) hover(findStop(outer) ?: error("图里没有终止钮"))
-
-            val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
-            val g = img.createGraphics()
-            outer.paint(g)
-            g.dispose()
-            ImageIO.write(img, "png", File(path))
+            paint(content, path, hoverStop)
         }
+    }
+
+    /** 摆版 + 画图。两个入口（运行中那一版、空闲那一版）共用。 */
+    private fun paint(content: Component, path: String, hoverStop: Boolean) {
+        val outer = JPanel(BorderLayout()).apply {
+            isOpaque = true
+            // 照实画在浮层的底色上：那是个弹出列表，不是面板灰。
+            // 拿不到时退回面板色，至少不崩
+            background = runCatching {
+                UIUtil.getListBackground()
+            }.getOrDefault(UIUtil.getPanelBackground())
+            border = JBUI.Borders.empty(8)
+            add(content, BorderLayout.NORTH)
+        }
+
+        // 420px 是工具窗口的真实宽度（浮层比它窄，内容拉到这个宽即真实形态）
+        val w = 420
+        val h = outer.preferredSize.height
+        outer.setSize(w, h)
+        layoutAll(outer)
+
+        if (hoverStop) hover(findStop(outer) ?: error("图里没有终止钮"))
+
+        val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        outer.paint(g)
+        g.dispose()
+        ImageIO.write(img, "png", File(path))
     }
 
     /** 直接驱动监听器：离屏组件收不到真实的鼠标进出事件（同 [StatusCardsRenderProbe]）。 */

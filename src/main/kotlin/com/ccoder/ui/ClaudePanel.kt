@@ -430,6 +430,14 @@ class ClaudePanel(
 
     /** 画「运行中」浮层用的两份输入 —— 清单变了重画时照用，子代理那段不重问 sidecar。 */
     private var runningAgents: List<SubagentInfo> = emptyList()
+
+    /**
+     * 空闲时子代理浮层里「看已结束的 N 个 ›」那一行展开过没有（2026-09-20）。
+     *
+     * 每次**重新点开**那张卡都从收起开始（见 [toggleDetail]）：那行"先答有没有在跑"
+     * 的默认态才是用户点开时想看的东西；展开是"我要回看"的显式选择，不该被记住。
+     */
+    private var subagentHistoryExpanded = false
     private var shownRunning: List<RunningTask> = emptyList()
 
     /**
@@ -1138,6 +1146,8 @@ class ClaudePanel(
             // 免得还要处理"弹出后再换内容"那套尺寸重算
             DetailCard.Running -> {
                 subagentsLoading = true
+                // 重新点开 = 回到"先答有没有在跑"那一态
+                subagentHistoryExpanded = false
                 requestSubagents()
             }
         }
@@ -1209,6 +1219,13 @@ class ClaudePanel(
                 agents,
                 ::stopRunningTask,
                 ::openSubagentTranscript,
+                historyExpanded = subagentHistoryExpanded,
+                // 展开/收起就地重画：浮层的内容每画一次都是新造的，
+                // 状态只能住在面板上（见 buildRunningDetail 那个参数）
+                onToggleHistory = {
+                    subagentHistoryExpanded = !subagentHistoryExpanded
+                    showRunningDetail(agents)
+                },
             ),
         )
         // 旗子**必须在 showDetailPopup 之后立**：它内部先 cancel 旧浮层，
