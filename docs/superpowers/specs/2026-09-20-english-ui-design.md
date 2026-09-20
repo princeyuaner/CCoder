@@ -84,9 +84,13 @@ src/main/resources/messages/CcoderBundle_zh.properties   中文
 ### 语言怎么被选中、什么时候生效
 
 - 设置项存在 **APP 级** `UiLanguageSettings`（`ccoderUiLanguage.xml`），照 `PromptPresets` 的骨架。
-- 它在 `plugin.xml` 里以 **`preload="true"`** 注册（不是 `@Service` 注解：注解表达不了预加载）。
-  为什么必须预加载：最早取文案的两处（编辑器/项目树右键菜单的 `update()`、状态栏的
-  `getDisplayName()`）都**早于**工具窗口，而平台服务是懒的。
+- 它在 `plugin.xml` 里注册（不是 `@Service` 注解：注解表达不了"启动时就要读起来"）。
+  启动时那一次推送由 `LanguageStartup` 做（`applicationListeners` +
+  `AppLifecycleListener.appFrameCreated`）—— 最早取文案的两处（编辑器/项目树右键菜单的
+  `update()`、状态栏的 `getDisplayName()`）都**早于**工具窗口，而平台服务是懒的。
+  从前这里写的是 `preload="true"`，**市场从 2026-09 起拒收**（2026-09-20 上传 0.2.22
+  时被挡下，见计划文档 §八）；换成监听之后语义一样：帧建起来那一刻推一次，
+  而那时还没有任何菜单被打开过。
   **必须写在 `<extensions>` 里** —— 写到顶层会被平台当成 `Unknown element` 静默丢掉
   （2026-09-20 的事故：服务没注册上 → `getService()` 回 null → 工具窗口 NPE 起不来；
   见计划文档的事故记录与 `PluginXmlShapeTest`）。

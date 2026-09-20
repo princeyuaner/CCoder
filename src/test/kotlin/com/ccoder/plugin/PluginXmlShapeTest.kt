@@ -35,6 +35,18 @@ import javax.xml.parsers.DocumentBuilderFactory
  * `projectListeners`(14) · `depends`(7) · `incompatible-with`(6) · `change-notes`(4)。
  * **`applicationService` / `projectService` 在这 21 个里一次都没出现在顶层** ——
  * 它们只会出现在 `<extensions>` 里。
+ *
+ * ## 2026-09-20 追加：服务 EP 还不许带 `preload`
+ *
+ * 同一天上传 0.2.22 时**被市场当场退包**：
+ *
+ * > Service preloading is deprecated in the `<com.intellij.applicationService>` element.
+ * > Remove the 'preload' attribute and migrate to listeners.
+ *
+ * 替代品是 `<applicationListeners>` + `AppLifecycleListener`（平台自己的
+ * `PlatformExtensions.xml` 里 33 处都这么写）：在 `appFrameCreated` 里做那件
+ * "启动时该做的事"。见 `com.ccoder.settings.LanguageStartup` 与计划文档 §八。
+ * 这条本可以在上传前就红 —— 所以补在这里。
  */
 class PluginXmlShapeTest {
 
@@ -74,6 +86,30 @@ class PluginXmlShapeTest {
             emptyList<String>(),
             names.filterNot { it in allowedTopLevel },
             "这些顶层元素平台不认（会被丢掉）：${names}",
+        )
+    }
+
+    @Test
+    fun `服务 EP 不许带 preload —— 市场会拒收`() {
+        // 2026-09-20 实测：上传 0.2.22 时市场在**生成版本记录之前**就拒了
+        // （"Service preloading is deprecated … migrate to listeners"）。
+        // 替代品是 applicationListeners + AppLifecycleListener，见 LanguageStartup
+        val doc = parse()
+        val withPreload = doc.getElementsByTagName("applicationService").let { list ->
+            (0 until list.length).map { list.item(it) as Element }
+        }.filter { it.getAttribute("preload").isNotEmpty() }
+
+        assertTrue(
+            withPreload.isEmpty(),
+            "带 preload 的包传不上市场：改用 applicationListeners（见 LanguageStartup 的注释）",
+        )
+
+        // 反向那半：启动时那次推送不能悄悄没了 —— 少了它，右键菜单与状态栏会先读到
+        // IDE 的语言（"上次选了英文"的用户在中文 IDE 里会先看到中文菜单）
+        val source = pluginXml.readText()
+        assertTrue(
+            source.contains("LanguageStartup"),
+            "启动时推语言的那个监听没注册：applicationListeners 里的 LanguageStartup 呢？",
         )
     }
 

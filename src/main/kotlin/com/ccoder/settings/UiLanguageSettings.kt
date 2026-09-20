@@ -14,12 +14,14 @@ import java.util.concurrent.CopyOnWriteArrayList
  * 为什么不跟项目走（[ClaudeSettings] 那样）：界面语言是个人偏好，不是仓库的属性 ——
  * `.idea/` 整个被 gitignore（同 [PromptPresets] 的理由），跨项目复用才对。
  *
- * ## 为什么不用 `@Service` 注解，而在 plugin.xml 里注册
+ * ## 它怎么被注册、谁把它读起来
  *
- * 因为它必须**在界面出现之前**读起来。平台服务是懒实例化的，而这个值最早会被
- * 右键菜单（`update()`）与状态栏（`getDisplayName()`）取到 —— 那两处都**早于**
- * 工具窗口。注解没法表达「预加载」，`plugin.xml` 的 `preload="true"` 可以
- * （平台自己在 2025.3 里仍用了 43 处，不是弃用路径）。
+ * `<applicationService>` 在 `plugin.xml` 里注册（不是 `@Service` 注解：注解表达不了
+ * "启动时就要读起来"）。**启动时那一次推送由 [LanguageStartup] 负责** —— 从前的
+ * `preload="true"` 被市场拒收（2026-09-20，计划文档 §八），改成显式监听，语义不变。
+ *
+ * 为什么必须在界面出现前读一次：这个值最早会被右键菜单（`update()`）与状态栏
+ * （`getDisplayName()`）取到，那两处都**早于**工具窗口，而平台服务是懒实例化的。
  *
  * 类必须是 public：平台靠反射实例化它（照 [PromptPresets] / `ModelProfiles` 的先例）。
  *

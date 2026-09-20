@@ -194,3 +194,32 @@ Caused by: java.lang.NullPointerException: getService(...) must not be null
 
 **测试**：Kotlin 1534 全绿（`./gradlew test -PskipWeb`）；sidecar 213 全绿
 （`node --test`，含 `setUiLang` 两条新用例）。
+
+---
+
+## 八、市场拒收：`preload="true"` 已弃用（同日，发版时）
+
+**症状**：`./gradlew publishPlugin` 报
+
+> Failed to upload plugin: Upload failed: Service preloading is deprecated in the
+> `<com.intellij.applicationService>` element. Remove the 'preload' attribute and
+> migrate to listeners, see …/plugin-listeners.html
+
+**性质**：市场在**生成版本记录之前**就拒了 —— 没留下半成品版本，重传不必换号。
+
+**根因**：界面语言服务当初用 `preload="true"` 注册。理由是真的（右键菜单的
+`update()` 与状态栏的 `getDisplayName()` 都早于工具窗口，而平台服务是懒实例化的），
+只是这个写法本身成了市场的拒收项。
+
+**改法**：去掉 `preload`，新增 `settings/LanguageStartup` —— `AppLifecycleListener`
+的 `appFrameCreated` 里调 `UiLanguageSettings.applyLanguageToText()`。注册语法照平台
+自己的描述符：`<extensions>` 里的 `<applicationListeners>` + `<listener … topic="com.intellij.ide.AppLifecycleListener"/>`（`PlatformExtensions.xml` 里 33 处都这么写）。
+语义没变：帧建起来那一刻推一次，而那时还没有任何菜单被打开过。
+
+**护栏**：`PluginXmlShapeTest` 新增一条「服务 EP 不许带 preload」，外加反向那条
+「`LanguageStartup` 必须注册着」（删掉注册 = 菜单退回 IDE 语言，静默）。
+
+**教训**：`verifyPlugin` 只验 API 用法，**不验市场的上传规则**。描述符里那些
+"平台自己也在用"的写法（preload 就是）随时可能变成拒收项 —— 上传前跑一次
+`publishPlugin` 本身就是最后一道门，而它是幂等的（失败不留痕），所以先发再补的
+代价很低。

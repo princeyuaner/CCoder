@@ -253,17 +253,26 @@
         <actionPromoter implementation="com.ccoder.ui.ImagePastePromoter"/>
 
         <!-- 界面语言必须**在界面出现之前**读起来：最早取文案的两处（编辑器/项目树右键菜单的
-             update()、状态栏 getDisplayName()）都早于工具窗口，而平台服务是懒实例化的 ——
-             不 preload 的话，"上次选了中文"的用户在英文 IDE 里会先看到英文的菜单。
-             这条也解释了为什么这个服务用 plugin.xml 注册而不是 @Service 注解：
-             注解表达不了 preload，平台自己也在用（core.jar 里 ApplicationStateDebugSupport）。
+             update()、状态栏 getDisplayName()）都早于工具窗口，而平台服务是懒实例化的。
+
+             启动时推的那一次交给下面的 `applicationListeners`（LanguageStartup）——
+             这里从前写的是 `preload="true"`，而**市场从 2026-09 起拒收**带 preload 的包
+             （"Service preloading is deprecated … migrate to listeners"）：
+             2026-09-20 上传 0.2.22 时被当场挡下，见计划文档 §八。
 
              **必须待在 <extensions> 里**（2026-09-20 事故）：写到顶层会被平台当成
              `Unknown element: applicationService` **静默丢掉** —— 服务没注册上，
              `getService()` 回 null，于是工具窗口在 createToolWindowContent 里 NPE、
              整个 CCoder 窗口打不开。`PluginXmlShapeTest` 把这类错钉死了。 -->
-        <applicationService serviceImplementation="com.ccoder.settings.UiLanguageSettings"
-                            preload="true"/>
+        <applicationService serviceImplementation="com.ccoder.settings.UiLanguageSettings"/>
+
+        <!-- 启动时把界面语言推给词表层（就是上面那个 preload 的意思，换了个合法的写法）。
+             注册语法照平台自己的描述符：<extensions> 里的 applicationListeners +
+             topic=AppLifecycleListener（PlatformExtensions.xml 里 33 处都这么写）。 -->
+        <applicationListeners>
+            <listener class="com.ccoder.settings.LanguageStartup"
+                      topic="com.intellij.ide.AppLifecycleListener"/>
+        </applicationListeners>
     </extensions>
 
     <actions>
