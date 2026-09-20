@@ -33,7 +33,9 @@ private const val LIST_PADDING_H = 12
 private const val FORM_PADDING_H = 16
 
 /** 表单内容宽度：栏宽减去左右内边距。内容框与提示语都按它摆。 */
-private const val PRESET_FORM_CONTENT_WIDTH = PRESET_FORM_WIDTH - 2 * FORM_PADDING_H
+// 卡片式改版后，卡内可用的宽度还要扣掉卡片两侧的缝与描边那 2px
+private const val PRESET_FORM_CONTENT_WIDTH =
+    PRESET_FORM_WIDTH - 2 * CARD_INSET - CARD_BORDER_W - 2 * FORM_PADDING_H
 
 /** 内容框先长这么高（约八行），再多就滚。 */
 private const val CONTENT_ROWS = 8
@@ -55,6 +57,27 @@ internal class PromptPresetsPage(
 
     /** 正在编辑的那条。**只在本次开框期间有意义** —— 它可能已经过期，见 [reload]。 */
     private var editing: PromptPreset? = null
+
+    /**
+     * 右栏那张卡：**建一次**（它要活在刷新之外，否则每打一个字就换一副卡头），
+     * 卡头（正在编辑哪条）与卡脚（删除）随 [rebuildForm] 换。
+     */
+    private val formCard = settingsCard(null, formBody())
+
+    private fun formBody(): JComponent = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(6, FORM_PADDING_H)
+        add(formSlot.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }, BorderLayout.NORTH)
+    }
+
+    private val deleteLabel = JBLabel(DELETE_LABEL).apply {
+        foreground = UIUtil.getErrorForeground()
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    }
 
     private var built: JComponent? = null
 
@@ -89,29 +112,34 @@ internal class PromptPresetsPage(
         rebuildForm()
     }
 
-    private fun listColumn(): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(14, LIST_PADDING_H)
-        preferredSize = Dimension(JBUI.scale(PRESET_LIST_WIDTH), 0)
-        add(listSlot.apply {
+    private fun listColumn(): JComponent {
+        listSlot.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-        })
-        add(Box.createVerticalStrut(JBUI.scale(8)))
-        add(actionLabel(ADD_PRESET_LABEL) {
-            // 先进编辑态、**不落库**：空条目会在读盘时被滤掉（isBlankPromptPreset），
-            // 所以这一步 upsert 等于什么都没加，反而会在列表里留一行空白
-            editing = PromptPreset()
-            refresh()
-        })
-        add(Box.createVerticalGlue())
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        val body = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(6, 6)
+            add(listSlot)
+        }
+        // 卡头留空：这一栏装的既然是"预设列表"，标题也只是把页签那两个字再写一遍
+        return settingsCardColumn(
+            settingsCard(null, body, footer = addPresetLabel()),
+            width = PRESET_LIST_WIDTH,
+        )
     }
 
-    private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = formColumnBorder(JBUI.Borders.empty(14, FORM_PADDING_H))
-        preferredSize = Dimension(JBUI.scale(PRESET_FORM_WIDTH), 0)
-        add(formSlot, BorderLayout.NORTH)
+    private fun addPresetLabel(): JComponent = actionLabel(ADD_PRESET_LABEL) {
+        // 先进编辑态、**不落库**：空条目会在读盘时被滤掉（isBlankPromptPreset），
+        // 所以这一步 upsert 等于什么都没加，反而会在列表里留一行空白
+        editing = PromptPreset()
+        refresh()
     }
+
+    private fun formColumn(): JComponent = settingsCardColumn(formCard, width = PRESET_FORM_WIDTH)
 
     private fun rebuildList() {
         listSlot.removeAll()
@@ -125,7 +153,8 @@ internal class PromptPresetsPage(
     private fun presetRow(preset: PromptPreset, isEditing: Boolean): JComponent {
         val row = JPanel(BorderLayout()).apply {
             isOpaque = true
-            background = if (isEditing) UIUtil.getListSelectionBackground(true) else UIUtil.getPanelBackground()
+            // 未选中的那行底色取卡底（同模型页那条：取面板底会在卡上留一条浅方条）
+            background = if (isEditing) UIUtil.getListSelectionBackground(true) else cardFill()
             border = JBUI.Borders.empty(6, 9)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             add(
@@ -149,9 +178,11 @@ internal class PromptPresetsPage(
     private fun rebuildForm() {
         formSlot.removeAll()
         formSlot.layout = BoxLayout(formSlot, BoxLayout.Y_AXIS)
+        formCard.setFooter(null)
 
         val p = editing
         if (p == null) {
+            formCard.setTitle(null)
             // 空态指的是**列表栏**那个按钮：空态下表单里什么都没有，
             // 指着表单里的东西说等于让人去找一个不在屏幕上的按钮
             formSlot.add(
@@ -209,20 +240,23 @@ internal class PromptPresetsPage(
             )
         )
 
-        // 删除放**底部左**，与"关闭"分开 —— 它和"改两个字"不是一类动作
-        formSlot.add(Box.createVerticalStrut(JBUI.scale(16)))
-        formSlot.add(JBLabel(DELETE_LABEL).apply {
-            foreground = UIUtil.getErrorForeground()
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            alignmentX = Component.LEFT_ALIGNMENT
-            addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    presets.remove(p.id)
-                    editing = null
-                    refresh()
-                }
-            })
-        })
+        // 删除进**卡脚**（2026-09-20 卡片式改版），与"关闭"分开 ——
+        // 它和"改两个字"不是一类动作
+        formCard.setTitle(p.name)
+        formCard.setFooter(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(deleteLabel, BorderLayout.WEST)
+            }.apply {
+                deleteLabel.addMouseListener(object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent) {
+                        presets.remove(p.id)
+                        editing = null
+                        refresh()
+                    }
+                })
+            },
+        )
 
         formSlot.revalidate()
         formSlot.repaint()

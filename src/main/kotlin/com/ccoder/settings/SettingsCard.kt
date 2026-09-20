@@ -49,6 +49,9 @@ internal const val CARD_LABEL_WIDTH = 176
 /** 两栏页里卡沿与栏沿之间留的缝 —— 两张卡之间看起来就是它的两倍。 */
 internal const val CARD_INSET = 6
 
+/** 卡片描边占掉的宽度（左右各 1px，见 `RoundedLineBorder.getBorderInsets`）。 */
+internal const val CARD_BORDER_W = 2
+
 /**
  * 单栏页里卡内可用的内容宽度。
  *
@@ -80,6 +83,58 @@ internal fun cardFill(): Color =
  * 一次性封顶会留下一个陈旧的高度。
  */
 internal class CardPanel : JPanel(BorderLayout()) {
+
+    /** 卡头那行文字。改它等于改卡头（`setTitle`）。 */
+    private val headerLabel = JBLabel()
+
+    private var headerRow: JComponent? = null
+
+    private var footerRow: JComponent? = null
+
+    /**
+     * 设/改卡头。[title] 为 null 表示**不要卡头** —— 环境页第一张卡（运行依赖）
+     * 用的是"自己那行标题当卡头"，它再要一个卡头就重了。
+     *
+     * 卡头要能**改**：模型页右栏那张卡的标题是"正在编辑哪条配置"，而两栏是
+     * 建一次、内容随刷新重建（见 `ModelProfilesPage.refresh`）。
+     */
+    internal fun setTitle(title: String?) {
+        if (title == null) {
+            headerRow?.let { remove(it) }
+            headerRow = null
+        } else {
+            headerLabel.text = title
+            if (headerRow == null) {
+                headerRow = JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    border = BorderFactory.createCompoundBorder(hairlineBottom(), JBUI.Borders.empty(7, CARD_PAD_H))
+                    add(headerLabel.apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.WEST)
+                }
+                add(headerRow, BorderLayout.NORTH)
+            }
+        }
+        revalidate()
+        repaint()
+    }
+
+    /**
+     * 设/清卡脚（动作那一行）。null = 整条卡脚都不要 —— 留一个空的发丝线加内边距，
+     * 看起来就像卡片底下多了一条没用的缝。
+     */
+    internal fun setFooter(content: JComponent?) {
+        footerRow?.let { remove(it) }
+        footerRow = null
+        if (content != null) {
+            footerRow = JPanel(BorderLayout()).apply {
+                isOpaque = false
+                border = BorderFactory.createCompoundBorder(hairlineTop(), JBUI.Borders.empty(6, CARD_PAD_H))
+                add(content, BorderLayout.CENTER)
+            }
+            add(footerRow, BorderLayout.SOUTH)
+        }
+        revalidate()
+        repaint()
+    }
 
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
@@ -120,33 +175,9 @@ private const val LABEL_COLUMN_PROP = "ccoder.settings.labelColumn"
  */
 internal fun settingsCard(title: String?, body: JComponent, footer: JComponent? = null): CardPanel =
     CardPanel().apply {
-        if (title != null) {
-            add(
-                JPanel(BorderLayout()).apply {
-                    isOpaque = false
-                    border = BorderFactory.createCompoundBorder(
-                        hairlineBottom(),
-                        JBUI.Borders.empty(7, CARD_PAD_H),
-                    )
-                    add(JBLabel(title).apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.WEST)
-                },
-                BorderLayout.NORTH,
-            )
-        }
         add(body, BorderLayout.CENTER)
-        if (footer != null) {
-            add(
-                JPanel(BorderLayout()).apply {
-                    isOpaque = false
-                    border = BorderFactory.createCompoundBorder(
-                        hairlineTop(),
-                        JBUI.Borders.empty(6, CARD_PAD_H),
-                    )
-                    add(footer, BorderLayout.CENTER)
-                },
-                BorderLayout.SOUTH,
-            )
-        }
+        setTitle(title)
+        setFooter(footer)
     }
 
 /**
@@ -272,8 +303,29 @@ internal fun cardBlock(vararg items: JComponent): JComponent = JPanel().apply {
  * **在栏内缩进**换来的，于是"两栏各占自己的宽度、谁也不压谁"那条几何断言
  * （`SettingsDialogTest`）照旧成立。
  */
-internal fun settingsCardColumn(card: JComponent): JComponent = JPanel(BorderLayout()).apply {
+internal fun settingsCardColumn(card: JComponent, width: Int): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
     border = JBUI.Borders.empty(CARD_INSET)
+    // 栏宽照旧按各页那个常量定死（`MODEL_LIST_WIDTH` 那类）：卡片在栏内缩进，
+    // 于是"两栏各占自己的宽度、谁也不压谁"这条几何一个字都没动
+    preferredSize = Dimension(JBUI.scale(width), 0)
     add(card, BorderLayout.CENTER)
+}
+
+/**
+ * 一栏里摞**多张**卡（MCP 左栏就是"配置 + 当前会话"两张，各回答各的问题）。
+ *
+ * 卡各按自己的内容高度排、下面的空档由胶水吃掉 —— 不学单张那版"撑满整栏"：
+ * 两张卡一撑，短的那张会空出一个大肚子。
+ */
+internal fun settingsCardColumn(cards: List<JComponent>, width: Int): JComponent = JPanel().apply {
+    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+    isOpaque = false
+    border = JBUI.Borders.empty(CARD_INSET)
+    preferredSize = Dimension(JBUI.scale(width), 0)
+    cards.forEachIndexed { index, card ->
+        if (index > 0) add(Box.createVerticalStrut(JBUI.scale(8)))
+        add(card)
+    }
+    add(Box.createVerticalGlue())
 }

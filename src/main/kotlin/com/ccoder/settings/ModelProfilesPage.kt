@@ -97,6 +97,28 @@ internal class ModelProfilesPage(
     private val listSlot = JPanel()
     private val formSlot = JPanel()
 
+    /**
+     * 右栏那张卡。**建一次**（它要活在刷新之外，否则每打一个字就换一副卡头），
+     * 卡头与卡脚随 [rebuildForm] 换。
+     */
+    private val formCard = settingsCard(null, formBody())
+
+    private fun formBody(): JComponent = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(6, FORM_PADDING_H)
+        add(formSlot.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }, BorderLayout.NORTH)
+    }
+
+    /** 卡脚上那颗「删除」。没有在编辑的条目时整条卡脚都不画。 */
+    private val deleteLabel = JBLabel(DELETE_LABEL).apply {
+        foreground = JBColor.namedColor("Component.errorFocusColor", JBColor.RED)
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    }
+
     /** 列表上方那条冲突警告的槽位。单独留一格是为了能**就地重算** —— 环境页改一个键，
      *  这里要跟着变（见 [refreshConflictWarning]）。 */
     private val conflictSlot = JPanel().apply {
@@ -170,25 +192,39 @@ internal class ModelProfilesPage(
      * 与当前在编辑哪一条无关。没有冲突时槽位是空的 —— 一条"一切正常"的常驻提示
      * 只会变成噪音。环境页顶部还有同一句话（见 [conflictWarningText]）。
      */
-    private fun listColumn(): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(14, LIST_PADDING_H)
-        preferredSize = Dimension(JBUI.scale(MODEL_LIST_WIDTH), 0)
-        add(conflictSlot)
-        add(listSlot.apply {
+    private fun listColumn(): JComponent {
+        listSlot.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-        })
-        add(Box.createVerticalStrut(JBUI.scale(8)))
-        add(addButton())
-        add(Box.createVerticalGlue())
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        val body = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(6, 6)
+            add(conflictSlot)
+            add(listSlot)
+        }
+        return settingsCardColumn(
+            settingsCard(
+                CcoderText.text("settings.models.card.list"),
+                body,
+                footer = addButton(),
+            ),
+            width = MODEL_LIST_WIDTH,
+        )
     }
 
-    private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = formColumnBorder(JBUI.Borders.empty(14, FORM_PADDING_H))
-        preferredSize = Dimension(JBUI.scale(MODEL_FORM_WIDTH), 0)
-        add(formSlot, BorderLayout.NORTH)
-    }
+    /**
+     * 右栏：**建一次、内容随刷新重建**（卡头也跟着换 —— 它是"正在编辑哪条"）。
+     *
+     * 表单里那几行走的是 `labeledField`（标签在上、控件在下），不是单栏页那种
+     * "标签在左"：[MODEL_FORM_WIDTH] 扣掉卡片与行两层内边距、再让出一个标签列，
+     * 控件只剩两百来像素 —— 而这一栏里的值是最长的（Base URL、一行一个的模型 ID），
+     * 探针里那条 61 字的 Base URL 会当场被切（`model-profiles-dialog-long-url.png`）。
+     */
+    private fun formColumn(): JComponent = settingsCardColumn(formCard, width = MODEL_FORM_WIDTH)
 
     /**
      * 列表栏的「＋ 添加配置」：建一条空配置并立刻进入编辑。
@@ -233,7 +269,8 @@ internal class ModelProfilesPage(
     private fun listRow(p: ModelProfile, isEditing: Boolean, inUse: Boolean): JComponent {
         val row = JPanel(BorderLayout()).apply {
             isOpaque = true
-            background = if (isEditing) UIUtil.getListSelectionBackground(true) else UIUtil.getPanelBackground()
+            // 未选中的那行底色**取卡底**：取面板底的话，卡上会多出一条比卡底更浅的方条
+            background = if (isEditing) UIUtil.getListSelectionBackground(true) else cardFill()
             border = JBUI.Borders.empty(6, 9)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             add(
@@ -270,9 +307,11 @@ internal class ModelProfilesPage(
     private fun rebuildForm() {
         formSlot.removeAll()
         formSlot.layout = BoxLayout(formSlot, BoxLayout.Y_AXIS)
+        formCard.setFooter(null)
 
         val p = editing
         if (p == null) {
+            formCard.setTitle(null)
             // 空态指的是**列表栏**那个按钮。原来这里写的是「点「＋ 添加模型」」——
             // 而「＋ 添加模型」在表单里、空态下根本不在屏幕上；建整条配置的那个叫
             // 「＋ 添加配置」。新用户照着这行字找按钮是找不到的（2026-09-15 发现）。
@@ -403,20 +442,24 @@ internal class ModelProfilesPage(
         formSlot.add(labeledField("API Key", secretField(secret)))
         formSlot.add(labeledField(MODEL_IDS_LABEL, modelListBox(modelRows)))
 
-        // 删除放**底部左**，与"关闭"分开 —— 它和"保存这次编辑"不是一类动作
-        formSlot.add(Box.createVerticalStrut(JBUI.scale(16)))
-        formSlot.add(JBLabel(DELETE_LABEL).apply {
-            foreground = JBColor.namedColor("Component.errorFocusColor", JBColor.RED)
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            alignmentX = Component.LEFT_ALIGNMENT
-            addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    profiles.remove(p.id)   // remove() 负责一并清掉密钥
-                    editing = null
-                    refresh()
-                }
-            })
-        })
+        // 删除进**卡脚**（2026-09-20 卡片式改版），与"关闭"分开 ——
+        // 它和"保存这次编辑"不是一类动作；放在正文末尾时它跟着字段一起被重建，
+        // 而卡脚是常驻的那一格
+        formCard.setTitle(p.displayName())
+        formCard.setFooter(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(deleteLabel, BorderLayout.WEST)
+            }.apply {
+                deleteLabel.addMouseListener(object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent) {
+                        profiles.remove(p.id)   // remove() 负责一并清掉密钥
+                        editing = null
+                        refresh()
+                    }
+                })
+            },
+        )
 
         formSlot.revalidate()
         formSlot.repaint()

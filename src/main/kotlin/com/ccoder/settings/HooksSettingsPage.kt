@@ -34,7 +34,9 @@ internal const val HOOK_FORM_WIDTH = PAGE_WIDTH - HOOK_LIST_WIDTH
 
 private const val HOOK_LIST_PADDING_H = 12
 private const val HOOK_FORM_PADDING_H = 16
-private const val HOOK_FORM_CONTENT_WIDTH = HOOK_FORM_WIDTH - 2 * HOOK_FORM_PADDING_H
+// 卡片式改版后，卡内可用的宽度还要扣掉卡片两侧的缝与描边那 2px
+private const val HOOK_FORM_CONTENT_WIDTH =
+    HOOK_FORM_WIDTH - 2 * CARD_INSET - CARD_BORDER_W - 2 * HOOK_FORM_PADDING_H
 
 /**
  * hooks 页：改项目级 `.claude/settings.json` 里的 `hooks` 一块。
@@ -60,6 +62,27 @@ internal class HooksSettingsPage(
 
     private var editing: HookRule? = null
     private var editingIndex: Int = -1
+
+    /**
+     * 右栏那张卡：**建一次**（它要活在刷新之外，否则每打一个字就换一副卡头），
+     * 卡头（正在编辑哪条规则）与卡脚（删除）随 [rebuildForm] 换。
+     */
+    private val formCard = settingsCard(null, formBody())
+
+    private fun formBody(): JComponent = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(6, HOOK_FORM_PADDING_H)
+        add(formSlot.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }, BorderLayout.NORTH)
+    }
+
+    private val deleteLabel = JBLabel(DELETE_LABEL).apply {
+        foreground = UIUtil.getErrorForeground()
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    }
 
     /** 文件**原样**读进来的那份：写回时按它保序、保别人的键。 */
     private var root: JsonObject = JsonObject()
@@ -95,29 +118,34 @@ internal class HooksSettingsPage(
 
     // ---- 左栏 ----
 
-    private fun listColumn(): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(14, HOOK_LIST_PADDING_H)
-        preferredSize = Dimension(JBUI.scale(HOOK_LIST_WIDTH), 0)
-        add(sectionTitle(".claude/settings.json"))
-        add(listSlot.apply {
+    private fun listColumn(): JComponent {
+        listSlot.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-        })
-        add(Box.createVerticalStrut(JBUI.scale(8)))
-        add(actionLabel(ADD_HOOK_LABEL) {
-            // 先进编辑态、**不落库**：命令还是空的，写出去会在文件里留一条跑不起来的
-            // hook（CLI 会拿一条空命令去执行）—— 那比不写更糟
-            editing = HookRule()
-            editingIndex = -1
-            refresh()
-        })
-        add(Box.createVerticalGlue())
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        val body = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(6, 6)
+            add(listSlot)
+        }
+        return settingsCardColumn(
+            settingsCard(
+                ".claude/settings.json",
+                body,
+                footer = actionLabel(ADD_HOOK_LABEL) {
+                    // 先进编辑态、**不落库**：命令还是空的，写出去会在文件里留一条
+                    // 跑不起来的 hook（CLI 会拿一条空命令去执行）—— 那比不写更糟
+                    editing = HookRule()
+                    editingIndex = -1
+                    refresh()
+                },
+            ),
+            width = HOOK_LIST_WIDTH,
+        )
     }
-
-    private fun sectionTitle(text: String): JComponent = row(JBLabel(text).apply {
-        foreground = UIUtil.getLabelForeground()
-    }).apply { border = JBUI.Borders.emptyBottom(6) }
 
     private fun hint(text: String): JComponent = row(JBLabel(text).apply {
         foreground = UIUtil.getInactiveTextColor()
@@ -153,7 +181,8 @@ internal class HooksSettingsPage(
     private fun ruleRow(rule: HookRule, isEditing: Boolean): JComponent {
         val row = JPanel(BorderLayout()).apply {
             isOpaque = true
-            background = if (isEditing) UIUtil.getListSelectionBackground(true) else UIUtil.getPanelBackground()
+            // 未选中的那行底色取卡底（同模型页那条：取面板底会在卡上留一条浅方条）
+            background = if (isEditing) UIUtil.getListSelectionBackground(true) else cardFill()
             border = JBUI.Borders.empty(6, 9)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             add(JBLabel(rule.event).apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.WEST)
@@ -177,18 +206,16 @@ internal class HooksSettingsPage(
 
     // ---- 右栏 ----
 
-    private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = formColumnBorder(JBUI.Borders.empty(14, HOOK_FORM_PADDING_H))
-        preferredSize = Dimension(JBUI.scale(HOOK_FORM_WIDTH), 0)
-        add(formSlot, BorderLayout.NORTH)
-    }
+    private fun formColumn(): JComponent = settingsCardColumn(formCard, width = HOOK_FORM_WIDTH)
 
     private fun rebuildForm() {
         formSlot.removeAll()
         formSlot.layout = BoxLayout(formSlot, BoxLayout.Y_AXIS)
+        formCard.setFooter(null)
 
         val editingRule = editing
         if (editingRule == null) {
+            formCard.setTitle(null)
             formSlot.add(hint(CcoderText.text("settings.hooks.formEmpty", ADD_HOOK_LABEL)))
             formSlot.revalidate()
             formSlot.repaint()
@@ -273,24 +300,27 @@ internal class HooksSettingsPage(
             )
         )
 
-        formSlot.add(Box.createVerticalStrut(JBUI.scale(10)))
-        formSlot.add(JBLabel(DELETE_LABEL).apply {
-            foreground = UIUtil.getErrorForeground()
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            alignmentX = Component.LEFT_ALIGNMENT
-            addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    if (editingIndex >= 0) {
-                        val rules = config.rules.toMutableList()
-                        rules.removeAt(editingIndex)
-                        writeConfig(rules)
+        // 删除进**卡脚**（2026-09-20 卡片式改版）：与"改规则"不是一类动作
+        formCard.setTitle(editingRule.event)
+        formCard.setFooter(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(deleteLabel, BorderLayout.WEST)
+            }.apply {
+                deleteLabel.addMouseListener(object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent) {
+                        if (editingIndex >= 0) {
+                            val rules = config.rules.toMutableList()
+                            rules.removeAt(editingIndex)
+                            writeConfig(rules)
+                        }
+                        editing = null
+                        editingIndex = -1
+                        refresh()
                     }
-                    editing = null
-                    editingIndex = -1
-                    refresh()
-                }
-            })
-        })
+                })
+            },
+        )
 
         formSlot.revalidate()
         formSlot.repaint()

@@ -36,7 +36,9 @@ internal const val MCP_FORM_WIDTH = PAGE_WIDTH - MCP_LIST_WIDTH
 
 private const val MCP_LIST_PADDING_H = 12
 private const val MCP_FORM_PADDING_H = 16
-private const val MCP_FORM_CONTENT_WIDTH = MCP_FORM_WIDTH - 2 * MCP_FORM_PADDING_H
+// 卡片式改版后，卡内可用的宽度还要扣掉卡片两侧的缝与描边那 2px
+private const val MCP_FORM_CONTENT_WIDTH =
+    MCP_FORM_WIDTH - 2 * CARD_INSET - CARD_BORDER_W - 2 * MCP_FORM_PADDING_H
 
 /** 多行那几栏先长这么高（约三行），再多就滚。 */
 private const val SMALL_BOX_HEIGHT = 62
@@ -68,6 +70,27 @@ internal class McpSettingsPage(
 
     /** 它在 `config.servers` 里的下标；-1 = 新加的、还没落库。 */
     private var editingIndex: Int = -1
+
+    /**
+     * 右栏那张卡：**建一次**（它要活在刷新之外，否则每打一个字就换一副卡头），
+     * 卡头（正在编辑哪条 server）与卡脚（删除）随 [rebuildForm] 换。
+     */
+    private val formCard = settingsCard(null, formBody())
+
+    private fun formBody(): JComponent = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(6, MCP_FORM_PADDING_H)
+        add(formSlot.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }, BorderLayout.NORTH)
+    }
+
+    private val deleteLabel = JBLabel(DELETE_LABEL).apply {
+        foreground = UIUtil.getErrorForeground()
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    }
 
     /** 文件**原样**读进来的那份：写回时按它保序、保别人的键。 */
     private var root: JsonObject = JsonObject()
@@ -121,42 +144,41 @@ internal class McpSettingsPage(
 
     // ---- 左栏 ----
 
-    private fun listColumn(): JComponent = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(14, MCP_LIST_PADDING_H)
-        preferredSize = Dimension(JBUI.scale(MCP_LIST_WIDTH), 0)
-        add(sectionTitle(".mcp.json"))
-        add(listSlot.apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-        })
-        add(Box.createVerticalStrut(JBUI.scale(8)))
-        add(actionLabel(ADD_SERVER_LABEL) {
-            // 先进编辑态、**不落库**：名字（JSON 的键）还没定，落库会写出一条
-            // 名字为空的 server，而读回来时它会被丢掉 —— 用户会以为修改没保存
-            editing = McpServer()
-            editingIndex = -1
-            refresh()
-        })
-        add(Box.createVerticalStrut(JBUI.scale(18)))
-        add(sectionTitle(CcoderText.text("settings.mcp.currentSession")))
-        add(statusSlot.apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-        })
-        add(Box.createVerticalGlue())
-    }
-
     /**
-     * 一个小标题。
+     * 左栏：**两张卡**（`.mcp.json` 与「当前会话」）。
      *
-     * **靠左不能指望 `alignmentX`**：实测（渲染探针）在 BoxLayout 里给它
-     * `LEFT_ALIGNMENT` + 放开 `maximumSize` 两样都做了，它照样居中。
-     * 改用一个 `BorderLayout` 的 WEST 兜住 —— 那个是确定性的，不看子件的脾气。
+     * 它们回答的问题是分开的：上面那张是"文件里配了什么"（能改），下面那张是
+     * "此刻连上了什么"（只读，还包含你自己全局配的那些，所以两边对不齐是正常的）
+     * —— 所以是两张卡，不是一张卡里两段。
      */
-    private fun sectionTitle(text: String): JComponent = row(JBLabel(text).apply {
-        foreground = UIUtil.getLabelForeground()
-    }).apply { border = JBUI.Borders.emptyBottom(6) }
+    private fun listColumn(): JComponent {
+        listSlot.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        statusSlot.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        val listCard = settingsCard(
+            ".mcp.json",
+            cardBlock(listSlot),
+            footer = actionLabel(ADD_SERVER_LABEL) {
+                // 先进编辑态、**不落库**：名字（JSON 的键）还没定，落库会写出一条
+                // 名字为空的 server，而读回来时它会被丢掉 —— 用户会以为修改没保存
+                editing = McpServer()
+                editingIndex = -1
+                refresh()
+            },
+        )
+        val statusCard = settingsCard(
+            CcoderText.text("settings.mcp.currentSession"),
+            cardBlock(statusSlot),
+        )
+        return settingsCardColumn(listOf(listCard, statusCard), width = MCP_LIST_WIDTH)
+    }
 
     private fun hint(text: String): JComponent = row(JBLabel(text).apply {
         foreground = UIUtil.getInactiveTextColor()
@@ -186,7 +208,8 @@ internal class McpSettingsPage(
     private fun serverRow(server: McpServer, isEditing: Boolean): JComponent {
         val row = JPanel(BorderLayout()).apply {
             isOpaque = true
-            background = if (isEditing) UIUtil.getListSelectionBackground(true) else UIUtil.getPanelBackground()
+            // 未选中的那行底色取卡底（同模型页那条：取面板底会在卡上留一条浅方条）
+            background = if (isEditing) UIUtil.getListSelectionBackground(true) else cardFill()
             border = JBUI.Borders.empty(6, 9)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             add(JBLabel(server.name).apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.CENTER)
@@ -230,18 +253,16 @@ internal class McpSettingsPage(
 
     // ---- 右栏 ----
 
-    private fun formColumn(): JComponent = JPanel(BorderLayout()).apply {
-        border = formColumnBorder(JBUI.Borders.empty(14, MCP_FORM_PADDING_H))
-        preferredSize = Dimension(JBUI.scale(MCP_FORM_WIDTH), 0)
-        add(formSlot, BorderLayout.NORTH)
-    }
+    private fun formColumn(): JComponent = settingsCardColumn(formCard, width = MCP_FORM_WIDTH)
 
     private fun rebuildForm() {
         formSlot.removeAll()
         formSlot.layout = BoxLayout(formSlot, BoxLayout.Y_AXIS)
+        formCard.setFooter(null)
 
         val editingServer = editing
         if (editingServer == null) {
+            formCard.setTitle(null)
             formSlot.add(hint(CcoderText.text("settings.mcp.formEmpty", ADD_SERVER_LABEL)))
             formSlot.revalidate()
             formSlot.repaint()
@@ -342,24 +363,27 @@ internal class McpSettingsPage(
             )
         )
 
-        formSlot.add(Box.createVerticalStrut(JBUI.scale(10)))
-        formSlot.add(JBLabel(DELETE_LABEL).apply {
-            foreground = UIUtil.getErrorForeground()
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            alignmentX = Component.LEFT_ALIGNMENT
-            addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    if (editingIndex >= 0) {
-                        val servers = config.servers.toMutableList()
-                        servers.removeAt(editingIndex)
-                        writeConfig(servers)
+        // 删除进**卡脚**（2026-09-20 卡片式改版）：与"改配置"不是一类动作
+        formCard.setTitle(editingServer.name)
+        formCard.setFooter(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(deleteLabel, BorderLayout.WEST)
+            }.apply {
+                deleteLabel.addMouseListener(object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent) {
+                        if (editingIndex >= 0) {
+                            val servers = config.servers.toMutableList()
+                            servers.removeAt(editingIndex)
+                            writeConfig(servers)
+                        }
+                        editing = null
+                        editingIndex = -1
+                        refresh()
                     }
-                    editing = null
-                    editingIndex = -1
-                    refresh()
-                }
-            })
-        })
+                })
+            },
+        )
 
         formSlot.revalidate()
         formSlot.repaint()
