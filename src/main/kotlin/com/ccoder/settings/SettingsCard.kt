@@ -50,6 +50,15 @@ internal const val CARD_LABEL_WIDTH = 176
 internal const val CARD_INSET = 6
 
 /**
+ * 单栏页里卡内可用的内容宽度。
+ *
+ * 折行的说明（`wrappedHint`）与定宽的控件按它算 —— 与 [PAGE_CONTENT_WIDTH] 的差别
+ * 就是卡片那两层内边距。**英文那份的说明更长**，宽度喂错会静默截掉最后一行
+ * （`BoxLayout` 会把宽度夹到列宽，而高度是按更宽的量出来的）。
+ */
+internal const val CARD_CONTENT_WIDTH = PAGE_CONTENT_WIDTH - 2 * CARD_PAD_H
+
+/**
  * 卡片底比面板底偏多少。
  *
  * 0.05 是"看得出这是一层，但不像另一块面板"：0.03 几乎看不见，0.09（输入卡底带那个数）
@@ -181,7 +190,11 @@ internal fun settingsRow(
 
     return JPanel(GridBagLayout()).apply {
         isOpaque = false
-        border = JBUI.Borders.empty(7, CARD_PAD_H)
+        // **必须跟卡里别的东西一样是 LEFT**：卡身是 BoxLayout（Y），里面混着 0.5 与 0.0
+        // 时，BoxLayout 按最大的那个对齐点摆 —— 0.0 的那些会被"居中"，看起来像缩进了一截
+        // （2026-09-17 RuntimeDepsSection 实测过同一件事）
+        alignmentX = Component.LEFT_ALIGNMENT
+        border = JBUI.Borders.empty(6, CARD_PAD_H)
         putClientProperty(LABEL_COLUMN_PROP, labelCol)
         add(
             labelCol,
@@ -231,6 +244,24 @@ internal fun cardRows(vararg rows: JComponent): JComponent = JPanel().apply {
             row.border = BorderFactory.createCompoundBorder(hairlineTop(), row.border)
         }
         add(row)
+    }
+}
+
+/**
+ * 卡身里**不是"一行字段"**的几样东西（跟着下拉走的说明、复选框、页脚那句）：
+ * 竖着摞起来、只补左右的内边距。
+ *
+ * 它们没有"右边的控件"，走 [settingsRow] 会被塞进"标签左、控件右"那套里，
+ * 反倒要走形 —— 这里就明说它们是"卡里的一段话/一个勾"。
+ */
+internal fun cardBlock(vararg items: JComponent): JComponent = JPanel().apply {
+    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+    isOpaque = false
+    alignmentX = Component.LEFT_ALIGNMENT
+    border = JBUI.Borders.empty(2, CARD_PAD_H, 8, CARD_PAD_H)
+    items.forEach {
+        it.alignmentX = Component.LEFT_ALIGNMENT
+        add(it)
     }
 }
 

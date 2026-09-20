@@ -44,20 +44,22 @@ internal class GroupChatSettingsPage : SettingsPage {
 
     private fun build(): JComponent = settingsPageBody(
         settingsColumn().apply {
+            // 一张卡，卡头就是页里原来那行标题（与页签上那句同文 —— 这页只有一张卡，
+            // 不存在"同页同文两处"的问题；点页签只在页签栏里找标签，见 SettingsDialog）
             add(
-                // 页里的标题与页签上那句是**同一句话**（同 `settings.page.*` 的键）
-                JBLabel(title).apply {
-                    foreground = UIUtil.getLabelForeground()
-                    border = JBUI.Borders.emptyBottom(8)
-                    alignmentX = Component.LEFT_ALIGNMENT
-                },
-            )
-            add(qrBox())
-            // wrappedHint 自己带下间距（见它那条注释），这里不要再补 strut
-            add(
-                wrappedHint(
-                    CcoderText.text("settings.groupChat.hint"),
-                    PAGE_CONTENT_WIDTH,
+                settingsCard(
+                    title,
+                    settingsColumn().apply {
+                        border = JBUI.Borders.empty(8, CARD_PAD_H, 4, CARD_PAD_H)
+                        add(qrBox())
+                        // wrappedHint 自己带下间距（见它那条注释），这里不要再补 strut
+                        add(
+                            wrappedHint(
+                                CcoderText.text("settings.groupChat.hint"),
+                                CARD_CONTENT_WIDTH,
+                            ),
+                        )
+                    },
                 ),
             )
         },

@@ -74,24 +74,26 @@ internal class PermissionSettingsPage(private val settings: ClaudeSettings) : Se
         modeBox.addActionListener { save() }
         dangerousOptIn.addActionListener { save() }
 
-        val column = settingsColumn().apply {
-            add(labeledField(PERMISSION_MODE_LABEL, modeBox))
-            add(modeHint)
-            // 复选框自己是一条，不套 labeledField —— 它没有"上面的标签"，
-            // 于是也拿不到 labeledField 底下那 10px 的间距，得自己留出下面一格
-            dangerousOptIn.apply {
-                alignmentX = Component.LEFT_ALIGNMENT
-                border = JBUI.Borders.empty(10, 0, 13, 0)
-            }
-            add(dangerousOptIn)
-            add(
-                wrappedHint(
-                    CcoderText.text("settings.permission.hint"),
-                    PAGE_CONTENT_WIDTH,
-                )
-            )
-        }
-        return settingsPageBody(column).also { reload() }
+        // 一页一张卡（无卡头：这句话与页签上那句同文，卡头再写一遍就是重复）。
+        // 卡里第一行是"权限模式"，跟着走的那句说明与那个确认框进 [cardBlock] ——
+        // 它们没有"右边的控件"，硬塞进 settingsRow 会走形。
+        val card = settingsCard(
+            null,
+            cardRows(
+                settingsRow(PERMISSION_MODE_LABEL, modeBox),
+                cardBlock(
+                    modeHint,
+                    // 复选框自己是一条，不套 settingsRow —— 它没有"左边的标签"，
+                    // 自己留出上下的间距
+                    dangerousOptIn.apply { border = JBUI.Borders.empty(8, 0, 4, 0) },
+                    wrappedHint(
+                        CcoderText.text("settings.permission.hint"),
+                        CARD_CONTENT_WIDTH,
+                    ),
+                ),
+            ),
+        )
+        return settingsPageBody(settingsColumn().apply { add(card) }).also { reload() }
     }
 
     override fun reload() {

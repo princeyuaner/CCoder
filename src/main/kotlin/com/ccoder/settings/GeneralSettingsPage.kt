@@ -6,12 +6,15 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
+import javax.swing.Box
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.ScrollPaneConstants
 import javax.swing.event.DocumentEvent
 
 /** 那个「浏览…」动作。用例按它点。 */
@@ -110,29 +113,64 @@ internal class GeneralSettingsPage(
         languageBox.addActionListener { save() }
 
         val column = settingsColumn().apply {
-            add(labeledField(CLAUDE_PATH_LABEL, pathRow()))
-            add(wrappedHint(CcoderText.text("settings.general.claudePathHint"), PAGE_CONTENT_WIDTH))
-            add(labeledField(FALLBACK_MODEL_LABEL, fallbackModel))
-            add(
-                wrappedHint(
-                    CcoderText.text("settings.general.fallbackModelHint"),
-                    PAGE_CONTENT_WIDTH,
-                )
-            )
-            add(labeledField(SEND_SHORTCUT_LABEL, shortcutBox))
-            add(labeledField(EFFORT_LABEL, effortBox))
-            add(
-                wrappedHint(
-                    // 括号那半句照中文的写法分开写：英文里两个档位名要各自加引号，
-                    // 拼在同一句里读起来是"「极高」「最大」"那种堆叠
-                    CcoderText.text("settings.general.effortHint"),
-                    PAGE_CONTENT_WIDTH,
-                )
-            )
-            add(labeledField(LANGUAGE_LABEL, languageBox))
-            add(wrappedHint(LANGUAGE_HINT, PAGE_CONTENT_WIDTH))
+            add(runtimeCard())
+            add(Box.createVerticalStrut(JBUI.scale(10)))
+            add(sessionCard())
+            add(Box.createVerticalStrut(JBUI.scale(10)))
+            add(interfaceCard())
         }
-        return settingsPageBody(column).also { reload() }
+        // 三张卡量出来约 470px，可用高度不到 500px —— 中文下刚好贴边，英文的说明
+        // 每句都要多折一行，那一口就溢出了。**套滚动条**（同环境页那条理由）：
+        // 溢出的代价不该是"底部那张卡被切掉"，而卡的封顶是动态的，内容少了也不留白。
+        return JBScrollPane(settingsPageBody(column)).apply {
+            border = JBUI.Borders.empty()
+            isOpaque = false
+            viewport.isOpaque = false
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBar.unitIncrement = JBUI.scale(16)
+        }.also { reload() }
+    }
+
+    /** 卡一「运行环境」：claude 从哪来。 */
+    private fun runtimeCard(): JComponent {
+        val path = settingsRow(
+            CLAUDE_PATH_LABEL,
+            pathRow(),
+            hint = CcoderText.text("settings.general.claudePathHint"),
+        )
+        return settingsCard(CcoderText.text("settings.general.card.runtime"), cardRows(path))
+    }
+
+    /** 卡二「会话默认值」：没选配置时用哪套。 */
+    private fun sessionCard(): JComponent {
+        // 标签列比别处宽一档（196）：这一卡里两句说明都长（30 字 / 44 字），
+        // 176px 下要多折一行，整页就顶到可视区外面去了 —— 宽度换高度。
+        val fallback = settingsRow(
+            FALLBACK_MODEL_LABEL,
+            fallbackModel,
+            hint = CcoderText.text("settings.general.fallbackModelHint"),
+            labelWidth = 196,
+        )
+        val shortcut = settingsRow(SEND_SHORTCUT_LABEL, shortcutBox, labelWidth = 196)
+        val effort = settingsRow(
+            EFFORT_LABEL,
+            effortBox,
+            // 括号那半句照中文的写法分开写：英文里两个档位名要各自加引号，
+            // 拼在同一句里读起来是"「极高」「最大」"那种堆叠
+            hint = CcoderText.text("settings.general.effortHint"),
+            labelWidth = 196,
+        )
+        alignLabelColumns(fallback, shortcut, effort)
+        return settingsCard(
+            CcoderText.text("settings.general.card.session"),
+            cardRows(fallback, shortcut, effort),
+        )
+    }
+
+    /** 卡三「界面」：语言（写的是另一个服务，见类注释）。 */
+    private fun interfaceCard(): JComponent {
+        val language = settingsRow(LANGUAGE_LABEL, languageBox, hint = LANGUAGE_HINT)
+        return settingsCard(CcoderText.text("settings.general.card.ui"), cardRows(language))
     }
 
     override fun reload() {

@@ -146,6 +146,14 @@ internal class RuntimeDepsSection(
     private val os: Os = hostOs(),
     /** 工具解析（winget / brew / npm）。可注入：用例不真装包管理器。 */
     private val tools: (String?) -> ToolSet = { nodeDir -> toolSet(os = os, nodeDir = nodeDir) },
+    /**
+     * 这一段能用的内容宽度。默认是页宽那一档（[PAGE_CONTENT_WIDTH]）。
+     *
+     * 2026-09-20 起它被放进一张卡片里，卡内两侧各有内边距 —— 页面按卡内宽度
+     * （[CARD_CONTENT_WIDTH]）喂进来。**折行的说明与定高的输出区都按它算**：
+     * 喂宽了会被 BoxLayout 夹回去（高度却是按更宽的量出来的），症状是最后一行被裁。
+     */
+    private val contentWidth: Int = PAGE_CONTENT_WIDTH,
 ) {
 
     private var built: JComponent? = null
@@ -179,7 +187,7 @@ internal class RuntimeDepsSection(
     internal val logScroll = JBScrollPane(logArea).apply {
         border = JBUI.Borders.empty()
         alignmentX = Component.LEFT_ALIGNMENT
-        preferredSize = Dimension(JBUI.scale(PAGE_CONTENT_WIDTH), JBUI.scale(LOG_HEIGHT))
+        preferredSize = Dimension(JBUI.scale(contentWidth), JBUI.scale(LOG_HEIGHT))
         maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(LOG_HEIGHT))
     }
 
@@ -198,7 +206,7 @@ internal class RuntimeDepsSection(
         add(logScroll)
         // 高度必须**等于**定死的那个：给 Int.MAX_VALUE 它会变成页里的弹簧
         // （tableBox / modelListBox 各踩过一次）
-        preferredSize = Dimension(JBUI.scale(PAGE_CONTENT_WIDTH), JBUI.scale(LOG_HEIGHT))
+        preferredSize = Dimension(JBUI.scale(contentWidth), JBUI.scale(LOG_HEIGHT))
         maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(LOG_HEIGHT))
     }
 
@@ -206,7 +214,7 @@ internal class RuntimeDepsSection(
      * 提示区。复用 [wrappedHint] 的样式（同一个厂家），只是要能改文本、要重量高度 ——
      * 它是 `JTextArea`，转一下就有这两个能力了。
      */
-    private val hintArea = wrappedHint("", PAGE_CONTENT_WIDTH) as JBTextArea
+    private val hintArea = wrappedHint("", contentWidth) as JBTextArea
 
     /** 服务每次变化都会喊它（EDT 上）。 */
     private val onServiceChanged: () -> Unit = { refresh() }
@@ -228,9 +236,11 @@ internal class RuntimeDepsSection(
     }
 
     private fun build(): JComponent {
+        // 下沿原来画着"与「额外目录」之间的那条线"（2026-09-16），现在这一段被收进
+        // 自己的卡片里：线的位置改由**卡片自己的边**担当，那条 line 挪去标题行下面 ——
+        // 卡片里那才是"头"与"身"的分界
         val column = settingsColumn().apply {
-            // 与下面「额外目录」之间的那条线（画在本块的下沿）
-            border = BorderFactory.createCompoundBorder(hairlineBottom(), JBUI.Borders.emptyBottom(14))
+            border = JBUI.Borders.emptyBottom(6)
         }
         column.add(headerRow())
         RuntimeDep.entries.forEach { column.add(depRow(it)) }
@@ -244,7 +254,8 @@ internal class RuntimeDepsSection(
         // **整列的子件必须用同一个 alignmentX**（这里一律 LEFT）：混着 0.5 与 0.0 时，
         // BoxLayout 会把 0.0 的那些挤成半宽推到右半边（2026-09-17 实测，见 logBox 那条）
         alignmentX = Component.LEFT_ALIGNMENT
-        border = JBUI.Borders.emptyBottom(8)
+        // 标题下面那条线：这一段被收进卡片之后，它就是"卡头"与"卡身"的分界
+        border = BorderFactory.createCompoundBorder(hairlineBottom(), JBUI.Borders.emptyBottom(8))
         add(
             JBLabel(RUNTIME_DEPS_TITLE).apply { foreground = UIUtil.getLabelForeground() },
             BorderLayout.WEST,
@@ -391,8 +402,8 @@ internal class RuntimeDepsSection(
         hintArea.text = text
         hintArea.isVisible = text.isNotEmpty()
         // 折行之后的高度只能自己量（同 wrappedHint 那条）
-        hintArea.setSize(JBUI.scale(PAGE_CONTENT_WIDTH), Int.MAX_VALUE)
-        hintArea.maximumSize = Dimension(JBUI.scale(PAGE_CONTENT_WIDTH), hintArea.preferredSize.height)
+        hintArea.setSize(JBUI.scale(contentWidth), Int.MAX_VALUE)
+        hintArea.maximumSize = Dimension(JBUI.scale(contentWidth), hintArea.preferredSize.height)
     }
 
     private fun refreshLog() {

@@ -97,6 +97,8 @@ internal class EnvironmentSettingsPage(
         browse = depsUi.browse,
         os = depsUi.os,
         tools = depsUi.tools,
+        // 这一段被放进卡片里，宽度按卡内算 —— 说明折行与输出区高度都吃这个数
+        contentWidth = CARD_CONTENT_WIDTH,
     )
 
     private val extraDirsModel = DefaultTableModel(extraDirsColumns(), 0)
@@ -121,20 +123,23 @@ internal class EnvironmentSettingsPage(
         envModel.addTableModelListener { save() }
 
         val column = settingsColumn().apply {
-            add(depsSection.component())
+            add(depsCard())
+            // 冲突提示留在卡外：它说的是"这几个键与模型页那套打架"，不属于任何一张卡
             add(conflictSlot)
-            add(labeledField(EXTRA_DIRS_LABEL, tableBox(JBTable(extraDirsModel))))
+            add(Box.createVerticalStrut(JBUI.scale(10)))
             add(
-                wrappedHint(
+                tableCard(
+                    EXTRA_DIRS_LABEL,
+                    JBTable(extraDirsModel),
                     CcoderText.text("settings.env.extraDirsHint"),
-                    PAGE_CONTENT_WIDTH,
                 )
             )
-            add(labeledField(ENV_VARS_LABEL, tableBox(JBTable(envModel))))
+            add(Box.createVerticalStrut(JBUI.scale(10)))
             add(
-                wrappedHint(
+                tableCard(
+                    ENV_VARS_LABEL,
+                    JBTable(envModel),
                     CcoderText.text("settings.env.envVarsHint"),
-                    PAGE_CONTENT_WIDTH,
                 )
             )
         }
@@ -172,17 +177,37 @@ internal class EnvironmentSettingsPage(
      * 摞成八百多像素。封顶必须**等于**定死的那个高度 —— 给 `Int.MAX_VALUE`
      * 它就成了页里的弹簧（同 `ModelProfilesPage.modelListBox` 的教训）。
      */
-    private fun tableBox(table: JBTable): JComponent {
-        val scroll = JBScrollPane(table).apply {
-            // 列头要**显式**挂上：`JBScrollPane(table)` 在离屏摆版时它是不出来的，
-            // 而"变量名 / 值"这两列离了列头就只能靠猜
-            setColumnHeaderView(table.tableHeader)
-            border = JBUI.Borders.empty()
-            alignmentX = Component.LEFT_ALIGNMENT
-            preferredSize = Dimension(JBUI.scale(PAGE_CONTENT_WIDTH), JBUI.scale(TABLE_HEIGHT))
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(TABLE_HEIGHT))
-        }
+    /** 卡：运行依赖。这一段自带标题行（那只「重新检测」也在上面），所以卡片不再要卡头。 */
+    private fun depsCard(): JComponent = settingsCard(null, cardBlock(depsSection.component()))
 
+    /**
+     * 卡：一张表。**卡头就是原来那个字段标签**（`labeledField` 退休了 —— 同页同文
+     * 出现两次会被 `findLabel` 抓到前面那一个），两个动作进卡脚。
+     */
+    private fun tableCard(title: String, table: JBTable, hint: String): JComponent {
+        val body = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(6, CARD_PAD_H, 0, CARD_PAD_H)
+            add(tableScroll(table))
+            add(wrappedHint(hint, CARD_CONTENT_WIDTH))
+        }
+        return settingsCard(title, body, footer = tableActions(table))
+    }
+
+    private fun tableScroll(table: JBTable): JComponent = JBScrollPane(table).apply {
+        // 列头要**显式**挂上：`JBScrollPane(table)` 在离屏摆版时它是不出来的，
+        // 而"变量名 / 值"这两列离了列头就只能靠猜
+        setColumnHeaderView(table.tableHeader)
+        border = JBUI.Borders.empty()
+        alignmentX = Component.LEFT_ALIGNMENT
+        preferredSize = Dimension(JBUI.scale(CARD_CONTENT_WIDTH), JBUI.scale(TABLE_HEIGHT))
+        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(TABLE_HEIGHT))
+    }
+
+    /** 表下面那两个动作：`＋ 添加一行` 与 `－ 删除选中`。 */
+    private fun tableActions(table: JBTable): JComponent {
         val model = table.model as DefaultTableModel
         val remove = actionLabel(REMOVE_ROW_LABEL) {
             // 从下往上删：删一行之后后面的下标全会往前挪
@@ -198,24 +223,14 @@ internal class EnvironmentSettingsPage(
         table.selectionModel.addListSelectionListener { syncRemove() }
         syncRemove()
 
-        val actions = JPanel().apply {
+        return JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.emptyTop(4)
             add(actionLabel(ADD_ROW_LABEL) { model.addRow(arrayOf<Any>("")) })
             add(Box.createHorizontalStrut(JBUI.scale(14)))
             add(remove)
             add(Box.createHorizontalGlue())
-        }
-        actions.maximumSize = Dimension(Int.MAX_VALUE, actions.preferredSize.height)
-
-        return JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-            alignmentX = Component.LEFT_ALIGNMENT
-            add(scroll)
-            add(actions)
         }
     }
 
