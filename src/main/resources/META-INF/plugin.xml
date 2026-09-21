@@ -167,12 +167,6 @@
     <change-notes><![CDATA[
     <h3>0.2.24</h3>
     <ul>
-      <li><b>Streaming no longer drags you back to the bottom</b> &mdash; scrolling up
-          while a reply streams (or while the model is thinking) now stays where you put
-          it; before this release every frame pulled the view back down, which made
-          reading history during a long answer impossible. The "back to bottom" button
-          works as before, and scrolling back down, clicking it or sending a message all
-          resume following.</li>
       <li><b>Thinking can start collapsed</b> &mdash; a new setting folds thinking text
           by default, <b>including the block that is still streaming</b>; the spinner and
           timer stay in the title, and one click expands it. Off by default.</li>
@@ -197,9 +191,6 @@
 
     <h4>中文</h4>
     <ul>
-      <li><b>流式输出时向上滚不再被拽回底部</b> &mdash;&mdash; 从前每一拍都会把视口弹回最底下，
-          长回答里想往上翻历史基本不可能；现在滚上去就停在那儿。「回到底部」按钮照旧，
-          滚回底部、点它、或自己发一条都会恢复跟随。</li>
       <li><b>思考可以默认收起</b> &mdash;&mdash; 新开关让思考内容默认折叠，<b>正在流式的那块也收起</b>；
           标题里的转圈与秒表照旧，点一下标题即可展开。默认<b>不</b>折叠。</li>
       <li><b>转录区能选字体与字号</b> &mdash;&mdash; 设置 &rarr;「通用」&rarr;「界面」卡：四档字体
