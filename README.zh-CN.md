@@ -20,8 +20,8 @@ CCoder 驱动的是你自己已经装好的 Claude Code CLI（`claude`）—— 
 
 - **市场** —— [CCoder on JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34281) →
   *Install to PyCharm*。
-- **本地 ZIP** —— 设置 → 插件 → ⚙ → *从磁盘安装插件*，然后重启 IDE。
-  ZIP 可以[自己打](#开发)（`./gradlew buildPlugin`）。
+- **本地 ZIP** —— 从 [Releases](https://github.com/princeyuaner/CCoder/releases) 下
+  `CCoder-<版本>.zip`（也可以[自己打](#开发)），然后 设置 → 插件 → ⚙ → *从磁盘安装插件*。
 
 ## 需要什么
 

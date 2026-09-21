@@ -19,8 +19,9 @@ so what you do here is the same work `claude` sees from a terminal.
 ## Install
 
 - **Marketplace** — [CCoder on JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34281) → *Install to PyCharm*.
-- **From a ZIP** — Settings → Plugins → ⚙ → *Install Plugin from Disk*, then restart the IDE.
-  Get the ZIP by [building it yourself](#development) (`./gradlew buildPlugin`).
+- **From a ZIP** — take `CCoder-<version>.zip` from
+  [Releases](https://github.com/princeyuaner/CCoder/releases) (or [build it yourself](#development)),
+  then Settings → Plugins → ⚙ → *Install Plugin from Disk*.
 
 ## Requirements
 
