@@ -160,50 +160,24 @@
     </ul>
     ]]></description>
 
-    <!-- 口径：**只写相对上一版（0.2.23）的增量**，中英各一份（§八）。
-         0.2.23 已通过 publishPlugin 传上市场、**审核中**（2026-09-21 查 `api/plugins/34281`：
-         `hasUnapprovedUpdate: true`）。万一它没过审，本版就是首个公开版本 —— 那时要把
-         0.2.23 那五条（5485344）并进来，按 a936a6d 那次的做法。复核法见发布设计稿 §五。 -->
+    <!-- 口径：**只写相对上一版（0.2.24）的增量**，中英各一份（§八）。
+         0.2.24 已通过 publishPlugin 传上市场、**审核中**（2026-09-21 查 `api/plugins/34281`：
+         公开列表里最新仍是 0.2.23，`approve`/`listed` 都是 true）。万一它没过审，本版就是
+         首个公开版本 —— 那时要把 0.2.24 那五条并进来，按 a936a6d 那次的做法。那五条在
+         tag `v0.2.24` → 800d641 那棵树的 plugin.xml 里（也就是刚被本提交换掉的这一份）。
+         复核法见发布设计稿 §五。 -->
     <change-notes><![CDATA[
-    <h3>0.2.24</h3>
+    <h3>0.2.25</h3>
     <ul>
-      <li><b>Thinking can start collapsed</b> &mdash; a new setting folds thinking text
-          by default, <b>including the block that is still streaming</b>; the spinner and
-          timer stay in the title, and one click expands it. Off by default.</li>
-      <li><b>A font and size for the transcript</b> &mdash; under Settings &rarr; General
-          &rarr; Interface: four families (plus "follow IDE") and four sizes. They apply
-          to the transcript only; code blocks always stay monospaced, and the composer
-          keeps following the IDE.</li>
-      <li><b>Model, permission mode and thinking effort open as pickers</b> &mdash; the
-          three composer switches now share one card look, with group headings (permission
-          modes that never ask again; effort levels only some models accept).</li>
-      <li><b>Session tabs come back the way you left them</b> &mdash; the tabs open at
-          exit are restored with their session, model, title and which one was current.
-          They used to live in memory only: five tabs reopened as one, and the rest had to
-          be found again in the session list. A tab whose session cannot be reopened now
-          says so instead of starting an empty conversation silently.</li>
-      <li><b>The model is remembered per tab</b> &mdash; with one app-wide selection,
-          switching it relabelled every window and tab while only a single session had
-          actually changed (the model is set in the sidecar's process environment at
-          launch). Each tab now carries its own; a new tab starts from the model this
-          project used last, and upgrading keeps the one you had.</li>
+      <li>TODO: this version's changes, written as the delta against 0.2.24 (see the
+          publish spec, section 8). Do not copy the previous version's list &mdash; it is in
+          git (tag v0.2.24 &rarr; 800d641).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>思考可以默认收起</b> &mdash;&mdash; 新开关让思考内容默认折叠，<b>正在流式的那块也收起</b>；
-          标题里的转圈与秒表照旧，点一下标题即可展开。默认<b>不</b>折叠。</li>
-      <li><b>转录区能选字体与字号</b> &mdash;&mdash; 设置 &rarr;「通用」&rarr;「界面」卡：四档字体
-          （含「跟随 IDE」）与四档字号，只作用在转录区；代码块始终等宽，输入框仍跟随 IDE。</li>
-      <li><b>模型 / 权限 / 思考深度换成弹层选择</b> &mdash;&mdash; 输入区那三个开关共用一套卡面，
-          带分组标题（如「不再问你」「仅部分模型认」）。</li>
-      <li><b>会话标签按上次的样子回来</b> &mdash;&mdash; 退出时开着的那几个标签连会话、模型、
-          标题、哪条是当前一起恢复。从前标签只活在内存里：开五个页签，回来只剩一条，
-          其余得自己去会话列表里找回来。哪条会话打不开了会如实说一句，不再静默开个空会话。</li>
-      <li><b>模型按标签各记各的</b> &mdash;&mdash; 从前全应用一份选中态：切一次会让每个窗口、
-          每个标签都跟着改口，而实际变的只有一条会话（模型是起 sidecar 时烤进进程环境的，
-          改设置到不了别人那个跑着的会话）。现在每条标签记自己的；新标签从「本项目上次
-          用的模型」开局，升级上来的沿用原样，不会突然变成「无模型」。</li>
+      <li>待写：本版相对 0.2.24 的增量（见发布设计稿 §八）。别照抄上一版的清单 —— 它在
+          git 里（tag v0.2.24 &rarr; 800d641）。</li>
     </ul>
     ]]></change-notes>
 
