@@ -161,18 +161,50 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一版（0.2.22）的增量**，中英各一份（§八）。
-         0.2.22 已通过 publishPlugin 传上市场、**审核中**（2026-09-20 查 `api/plugins/34281`：
-         `hasUnapprovedUpdate: true`）。万一它没过审，本版就是首个公开版本 —— 那时要把
-         0.2.22 那三条（77d3b9e）并进来，按 a936a6d 那次的做法。复核法见发布设计稿 §五。 -->
+         2026-09-21 查 `api/plugins/34281/updates`：0.2.22 `approve: true`、`listed: true`
+         —— 已过审上架，所以 77d3b9e 那三条（界面可切英文）**不并进来**（装 0.2.22 的人
+         已经看过那三条了）。复核法见发布设计稿 §五 —— 开版时先打一次那个 API，别靠记忆。 -->
     <change-notes><![CDATA[
     <h3>0.2.23</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.22 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (77d3b9e).</li>
+      <li><b>Settings has been redesigned</b> &mdash; the left column is eight icon tabs,
+          the selected one a solid accent pill; each page is grouped into rounded cards
+          (a header line, hairline-separated rows, destructive actions in red). The
+          two-column pages &mdash; models, presets, MCP, hooks &mdash; are a list card on
+          the left and an edit card on the right.</li>
+      <li><b>Restored transcripts no longer put words in your mouth</b> &mdash; after a
+          restart, the CLI's own envelopes (a local command's echo and output, the
+          compaction summary) came back as messages you had sent. They are filtered out
+          now; only what you actually typed is replayed.</li>
+      <li><b>An idle Agents popup answers first</b> &mdash; it used to open straight into
+          the list of finished subagents, which reads oddly next to an "idle" card. It now
+          says "no subagents are running" and tucks the records behind one clickable
+          "Show N finished &rsaquo;" line; clicking a subagent's <b>name</b> &mdash; not
+          just the blank space beside it &mdash; opens its transcript.</li>
+      <li><b>The connection card tells you when a subagent is the one working</b> &mdash;
+          its action word looks the same whether the main thread or a subagent is running
+          it; a small dot next to the icon now sets the two apart.</li>
+      <li><b>Ask cards</b> &mdash; multi-select questions now say "Pick any" instead of
+          leaving you to guess; and on a single-choice question, picking another answer
+          clears the previous tick (it used to leave both lit).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 <b>0.2.22</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>77d3b9e</code>）。</li>
+      <li><b>设置界面改版</b> &mdash;&mdash; 左栏八个页签各带一枚图标，选中项是实心强调色
+          胶囊；页面内容按语义装进圆角卡片（卡头一行标题，行与行之间一条发丝线，删除这类
+          危险动作标红）。两栏那四页（模型 / 预置 / MCP / hooks）是左边列表卡 + 右边编辑卡。</li>
+      <li><b>恢复历史不再把 CLI 的信封当成你说过的话</b> &mdash;&mdash; 重启后恢复出来的转写里，
+          CLI 自己的信封（本地命令的回显与输出、压缩摘要）会被当成"你发的消息"画出来；
+          现在它们被滤掉了，回来的只有你真打过的那几句。</li>
+      <li><b>没在跑的时候，子代理浮层先回答这一句</b> &mdash;&mdash; 从前点开一张写着「空闲」的卡
+          会直接铺开跑过的子代理，看着自相矛盾；现在先写「当前没有在跑的子代理」，记录收在
+          「看已结束的 N 个 ›」那一行后面。另外，点子代理的<b>名字</b>（不只是它右边的空白）
+          也能打开它的转写。</li>
+      <li><b>连接卡能分出"这活在子代理手里"</b> &mdash;&mdash; 卡面上的动作词，子代理在跑与主线程
+          在跑长得一模一样；现在图标右上角多一个小点。</li>
+      <li><b>提问卡</b> &mdash;&mdash; 多选题写明「可多选」（从前只能靠猜）；单选换选时前一个勾
+          不再留着（那个 bug 会让两个勾一起亮）。</li>
     </ul>
     ]]></change-notes>
 
@@ -196,7 +228,7 @@
         <!--
           设置**没有**注册在这里，是刻意的（2026-09-15 删掉了那个 projectConfigurable）。
           全部设置都在工具窗口右上角那个齿轮里（`com.ccoder.settings.SettingsDialog`，
-          四个页签：模型 / 通用 / 权限 / 环境）—— 从前这里有一页 IDE 设置，
+          八个页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 群交流）—— 从前这里有一页 IDE 设置，
           与对话框各管一半字段，用户得记"哪项在哪儿"。
 
           代价知道：IDE Settings 的搜索框里再也搜不到 CCoder。而齿轮**不随忙闲置灰**，
