@@ -244,8 +244,6 @@ export function Transcript({ state }: { state: TranscriptState }) {
   // 程序化平滑滚动期间会连续派发 scroll 事件，其**中间位置**看起来正是"用户上滚"。
   // 这个标记让处理器跳过程序化滚动产生的事件。
   const programmaticRef = useRef(false)
-  // 我们那一笔写入的回声防护（见 handleScroll）。写入时置起，被读到一次就销。
-  const echoShieldRef = useRef(false)
 
   const [stick, setStick] = useState(true)
   const [hasNewWhilePaused, setHasNewWhilePaused] = useState(false)
@@ -285,57 +283,7 @@ export function Transcript({ state }: { state: TranscriptState }) {
     // 瞬时到底，不走平滑：逐 token 更新下平滑动画每次都被新内容重启，
     // 视口永远追不上，表现为滞后抖动。
     el.scrollTop = el.scrollHeight
-    // 这一笔会派发一条 scroll 事件（位置 = 我们刚写下去的底部）。它到达时**不能**
-    // 被当成"用户滚回底部了"—— 否则刚登记的暂停当场作废（见 handleScroll 的回声防护）。
-    echoShieldRef.current = true
   }, [state])
-
-  /**
-   * 恢复跟随的公共动作：「回到底部」按钮、滚轮向下到底。
-   *
-   * 「最后一条用户消息换了 id → 强制回到底部」那条**没有**并进来：它还要记
-   * `lastUserItemIdRef`（判据本身），留在 layout effect 里那句一眼能读完。
-   */
-  const resumeFollow = useCallback(() => {
-    stickRef.current = true
-    setStick(true)
-    setHasNewWhilePaused(false)
-  }, [])
-
-  /**
-   * 滚轮意图 —— 暂停与恢复的**主判据**。
-   *
-   * 为什么不能靠 scroll 事件判：跟随是每帧一次 `scrollTop = scrollHeight` 的**绝对写入**，
-   * 而它总是排在**同一帧的 scroll steps 之前**（帧间隔与写入代价都在真实浏览器里量过：
-   * 16.7ms / 0.1ms，见 2026-09-14-streaming-perf-design.md §6）—— 于是处理器读到的
-   * 位置永远是"已经被我们自己写回去"的那一个，用户上滚这件事**从读数里看不出来**，
-   * 表现就是"滚上去一点、又被弹回来"（2026-09-21 用户报）。
-   *
-   * 滚轮事件自带方向，不需要任何位置读数，因此不会被我们自己的写入污染。
-   */
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      const el = scrollerRef.current
-      if (!el) return
-      // 只认符号：deltaMode 在 Chromium/JCEF 下恒为像素，换算没有意义。
-      // 已知漏网一条：passive 监听下同一帧的滚轮会被合并，上滚与下滚抵消成
-      // deltaY = 0 时两个分支都不命中 —— 概率极小，用户再滚一下就回来了。
-      if (e.deltaY < 0) {
-        // 已经贴着顶：转写区根本没得向上滚（触控板的斜向手势也落在这里），
-        // 别把跟随关掉 —— 那是"暂停"变成谎报
-        if (el.scrollTop <= 0) return
-        // 用户接管了「回到底部」那条平滑动画：标记就此作废。留着它会有更坏的后果 ——
-        // 动画被打断后再也读不到"已到底"，于是之后**所有** scroll 事件被它吞掉，
-        // 跟随再也关不掉
-        programmaticRef.current = false
-        stickRef.current = false
-        setStick(false)
-        return
-      }
-      if (e.deltaY > 0 && isAtBottom(el)) resumeFollow()
-    },
-    [resumeFollow],
-  )
 
   const handleScroll = useCallback(() => {
     const el = scrollerRef.current
@@ -347,13 +295,6 @@ export function Transcript({ state }: { state: TranscriptState }) {
       return
     }
     const atBottom = isAtBottom(el)
-    // 回声防护：这一条很可能是**我们自己那笔写入**派发的（位置 = 刚写下的底部），
-    // 不是用户的动作。挡的只有"恢复"一种：暂停是滚轮意图登记的，任何位置读数
-    // 都不该撤销它。盾读到一次就销 —— 一条写入最多对应一条回声；此后无论用户
-    // 真的滚回底部（位置连续变化，早就销掉了）还是拖动到底，恢复判据照常生效。
-    const shielded = echoShieldRef.current
-    echoShieldRef.current = false
-    if (atBottom && shielded) return
     stickRef.current = atBottom
     setStick(atBottom)
     if (atBottom) setHasNewWhilePaused(false)
@@ -362,7 +303,9 @@ export function Transcript({ state }: { state: TranscriptState }) {
   const jumpToBottom = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
-    resumeFollow()
+    stickRef.current = true
+    setStick(true)
+    setHasNewWhilePaused(false)
     // 只有这一次跳转值得动画，因此在这里显式请求，而不是让 CSS 全局生效。
     // scrollTo 在 jsdom 中不存在（实测）—— 这也是真实浏览器的老版本兜底路径。
     if (typeof el.scrollTo === 'function') {
@@ -371,7 +314,7 @@ export function Transcript({ state }: { state: TranscriptState }) {
     } else {
       el.scrollTop = el.scrollHeight
     }
-  }, [resumeFollow])
+  }, [])
 
   // 子代理那一块：按 `parent` 把流水归位（A1）。两个 memo 都只依赖 items 与那两张表，
   // 所以**流式的每一帧都不重算** —— 与上面那条 memo 同一条账。
@@ -401,7 +344,6 @@ export function Transcript({ state }: { state: TranscriptState }) {
         data-testid="transcript"
         ref={scrollerRef}
         onScroll={handleScroll}
-        onWheel={handleWheel}
       >
         {/* 一次调用一张卡 —— 「归堆」已按用户要求撤销（2026-09-14）：
             并成一组之后，每次调用各自的描述与对应文件就看不见了 */}
