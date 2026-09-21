@@ -9,6 +9,7 @@
     "test": "vitest run",
     "probe:layout": "node tools/layout-probe.mjs",
     "probe:perf": "npm run build && node tools/perf-probe.mjs",
+    "probe:scroll": "npm run build && node tools/scroll-follow-probe.mjs",
     "probe:image": "node tools/image-push-probe.mjs"
   },
   "dependencies": {
