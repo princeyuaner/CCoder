@@ -110,6 +110,26 @@ JetBrains 账号 → plugins.jetbrains.com → Profile → Add new plugin → �
 **同日更晚**：0.2.20 **也已过审上架**（同一个 API 复核：`approve: true`、`listed: true`）。
 开 0.2.21 时因此按"0.2.20 已上架"写增量，b490a9d 那五条不并进来。
 
+**2026-09-21 更新**：**0.2.22 已过审上架**（开 0.2.23 时同一个 API 复核：`approve: true`、
+`listed: true`），所以 0.2.23 的清单只写增量（五条，5485344），77d3b9e 那三条不并进来。
+
+同日 `./gradlew publishPlugin` 上传 **0.2.23**。回读 `api/plugins/34281`：
+`hasUnapprovedUpdate: true` —— 已落库、等审核（0.2.23 此时**不在** `/updates` 里，
+过审前那里看不到，这条同 0.2.22）。过审后的复核还是那一句：`/updates` 里出现
+`version: 0.2.23` 且 `approve: true`、`listed: true`。
+
+这版的发布链与绿数（照 §五 的顺序）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin（zh） | **1573 条全绿** |
+| Kotlin（`-PtestLang=en`） | 1573 条、161 失败 —— 全是"断言钉中文"的老形状（英文那遍只用来出图与量宽，见 english-ui-design §五），不是回归 |
+| sidecar | **213 条全绿** |
+| web | **279 条全绿**（19 个文件） |
+| `buildPlugin` | zip 8,728,176 字节；打包校验 `[verify] OK: manifest 5001 entries`；jar 里 plugin.xml 已是 0.2.23 且**不含**占位字样 |
+| `verifyPlugin` | PY-253 / 261 / 262 / 263 **四份都 Compatible**，只有 deprecated 用法（`JBUI.scale(float)`×5、`SimpleListCellRenderer.create`×3 等，全是旧版就在的），无 internal API 违规 |
+| `publishPlugin` | BUILD SUCCESSFUL（`signPlugin SKIPPED`，照旧没证书） |
+
 ## 六、还没解决的前提
 
 插件包里带着 `@anthropic-ai/claude-agent-sdk` 的 6035 个文件，而它的 `LICENSE.md` 只有一行：
