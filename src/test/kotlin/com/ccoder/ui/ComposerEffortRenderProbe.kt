@@ -9,7 +9,9 @@ import java.awt.Container
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
+import com.intellij.ide.ui.laf.darcula.DarculaLaf
 import javax.swing.JPanel
+import javax.swing.UIManager
 import javax.swing.SwingUtilities
 
 /**
@@ -29,6 +31,30 @@ class ComposerEffortRenderProbe {
 
     @Test
     fun `把档位弹层画成图片`() {
+        render("build/probe/composer-effort-popup.png")
+    }
+
+    /**
+     * 深色主题下再画一遍。
+     *
+     * 探针默认跑在测试的浅色 LAF 下，而这个弹层绝大多数时候出现在深色 IDE 里 ——
+     * 同一档颜色在两个主题里差得很远（警示色浅色是 #D84315、深色是 #FF8A65），
+     * 只看浅色等于没看。换不上 Darcula 就什么都不做（这条是给人看的，不是断言）。
+     *
+     * 同 ComposerModelRenderProbe 里那条。
+     */
+    @Test
+    fun `把档位弹层画成图片（深色）`() {
+        val before = UIManager.getLookAndFeel()
+        if (runCatching { UIManager.setLookAndFeel(DarculaLaf()) }.isFailure) return
+        try {
+            render("build/probe/composer-effort-popup-dark.png")
+        } finally {
+            runCatching { UIManager.setLookAndFeel(before) }
+        }
+    }
+
+    private fun render(path: String) {
         SwingUtilities.invokeAndWait {
             val list = buildEffortList(EffortSetting.XHIGH) {}
             val pad = JBUI.scale(10)
@@ -46,7 +72,7 @@ class ComposerEffortRenderProbe {
             println("probe: 档位弹层首选尺寸 ${list.preferredSize.width} x ${list.preferredSize.height}")
             outer.setSize(w, h)
             layoutAll(outer)
-            write(outer, w, h, "build/probe/composer-effort-popup.png")
+            write(outer, w, h, path)
         }
     }
 

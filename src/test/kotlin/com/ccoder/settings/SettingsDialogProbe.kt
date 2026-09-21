@@ -241,7 +241,7 @@ class SettingsDialogProbe {
     // ---- 另外三页（2026-09-15 四页签）----
 
     /**
-     * 通用页。四项都填上东西 —— 空着的话「浏览」按钮、下拉的宽度对不对都看不出来。
+     * 通用页。该填的都填上 —— 空着的话「浏览」按钮、下拉的宽度对不对都看不出来。
      */
     @Test
     fun `把通用页画成图片`() = render(
@@ -249,6 +249,35 @@ class SettingsDialogProbe {
         claudePath = "C:\\Users\\CY\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\claude.exe",
         model = "claude-sonnet-5",
         page = "settings.page.general",
+    )
+
+    /**
+     * 通用页 · 思考折叠**勾上**的那一帧（2026-09-21）。
+     *
+     * 与权限页那两张同一个道理：勾与不勾是两种形态，而"说明那两行会不会把卡片撑长、
+     * 卡片会不会顶出可视区"只有图上看得见（这一页的卡是量出来贴边的，见页面里那段注释）。
+     */
+    @Test
+    fun `把通用页勾上思考折叠画成图片`() = render(
+        "build/probe/settings-general-thinkfold.png",
+        model = "claude-sonnet-5",
+        page = "settings.page.general",
+        thinkingFold = true,
+    )
+
+    /**
+     * 通用页 · 换了字体与字号的那一帧（2026-09-21）。
+     *
+     * 与上面那张同一个道理：下拉里选中的那一项、以及说明会不会把卡片顶出可视区，
+     * 都只有图上看得见（这一页本来就贴边，见页面里那段注释）。
+     */
+    @Test
+    fun `把通用页换字体与字号画成图片`() = render(
+        "build/probe/settings-general-font.png",
+        model = "claude-sonnet-5",
+        page = "settings.page.general",
+        font = FontChoice.GEORGIA,
+        scale = FontScale.XLARGE,
     )
 
     /** 权限页。默认停在「标准」上 —— 这也是新用户点开看到的那一眼。 */
@@ -437,6 +466,12 @@ class SettingsDialogProbe {
         pickMode: PermissionModeSetting? = null,
         /** 把「我明白风险」那个勾去掉 —— `reload()` 会照 settings 勾上，得手动反悔一次。 */
         uncheckOptIn: Boolean = false,
+        /** 「思考折叠」那一格：true = 画"勾上了"的那一帧（默认那一帧是不勾的）。 */
+        thinkingFold: Boolean = false,
+        /** 「字体」那一档：不给就是默认（跟随 IDE）。传的可能没装 —— 页里会带上它。 */
+        font: FontChoice? = null,
+        /** 「字号」那一档：不给就是默认（标准）。 */
+        scale: FontScale? = null,
         selected: String? = null,
         clicking: String? = null,
         revealSecret: Boolean = false,
@@ -503,6 +538,13 @@ class SettingsDialogProbe {
                 mcpStatus,
                 deps,
                 UiLanguageSettings(),
+                // 界面偏好照 `reload()` 那条路勾上 —— 与"手动反悔一次"的 uncheckOptIn
+                // 相反，这一格探针只画它自然的样子（两种形态各出一张图）
+                UiPreferences().apply {
+                    collapseThinking = thinkingFold
+                    font?.let { fontChoice = it }
+                    scale?.let { fontScale = it }
+                },
                 DepsUi(os = Os.WINDOWS, tools = { tools }),
                 base,
             )
@@ -592,7 +634,7 @@ class SettingsDialogSaveTest {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
             dialog = SettingsDialog(
                 fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(),
-                UiLanguageSettings(), TEST_DEPS_UI,
+                UiLanguageSettings(), UiPreferences(), TEST_DEPS_UI,
             )
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }

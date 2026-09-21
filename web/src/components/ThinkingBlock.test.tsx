@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
 import { setLang } from '../i18n'
+import { applyPrefs } from '../prefs'
 
 // 「思考中」/「思考过程」两个标题的断言先把语言钉住
 beforeEach(() => {
@@ -18,6 +19,9 @@ beforeEach(() => {
  *
  * 2026-09-14 改：两个阶段都**默认展开**（用户要"流式输出"看得见）。
  * 转圈与秒数留着 —— 收起之后它们是唯一还在动的信号。
+ *
+ * 2026-09-21 加了「思考折叠」那个开关：上面那两条是**默认档**（不勾）的样子，
+ * 勾上之后两种块都收起 —— 见文件末那一组。
  */
 describe('LiveThinkingBlock（进行中）', () => {
   it('默认展开：标题是「思考中」，正文直接看得见', () => {
@@ -70,5 +74,77 @@ describe('ThinkingBlock（完成态）', () => {
     render(<ThinkingBlock text="想完了" />)
     expect(screen.getByText('思考过程')).toBeInTheDocument()
     expect(screen.getByText('想完了')).toBeInTheDocument()
+  })
+})
+
+/**
+ * 界面偏好（设置里那个「思考折叠」开关）。
+ *
+ * 上面那两条是**默认档**（不勾）的样子；这里测勾上之后的两种块，以及
+ * **开关一改当场生效** —— 后者是 `Collapsible` 里那条复位 effect 的唯一守门人。
+ */
+describe('界面偏好：思考折叠', () => {
+  afterEach(() => {
+    // 偏好的 store 是**模块级**的：vitest 按文件隔离、同文件内会串 ——
+    // 不收尾的话下一条用例会带着上一条的开关跑（见 prefs.test.ts）
+    act(() => applyPrefs(undefined))
+    delete window.ccoderPrefs
+  })
+
+  it('勾上之后：完成的思考块默认收起', () => {
+    act(() => applyPrefs({ collapseThinking: true }))
+    render(<ThinkingBlock text="想完了" />)
+
+    expect(screen.getByText('思考过程')).toBeInTheDocument()
+    expect(screen.queryByText('想完了')).not.toBeInTheDocument()
+  })
+
+  it('勾上之后：进行中那块也收起 —— 但转圈还在（"它在想"不能丢）', () => {
+    act(() => applyPrefs({ collapseThinking: true }))
+    render(<LiveThinkingBlock text="在想" />)
+
+    expect(screen.getByText('思考中')).toBeInTheDocument()
+    expect(screen.queryByText('在想')).not.toBeInTheDocument()
+    expect(screen.getByTestId('thinking-spin')).toBeInTheDocument()
+  })
+
+  it('渲染之后改偏好，当场跟着收/展 —— Collapsible 那条 effect 的守门人', () => {
+    render(<ThinkingBlock text="想完了" />)
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+
+    act(() => applyPrefs({ collapseThinking: true }))
+    expect(screen.queryByText('想完了')).not.toBeInTheDocument()
+
+    act(() => applyPrefs({ collapseThinking: false }))
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+  })
+
+  it('手动点开的那一块：同一个值再推一遍不许动它（幂等的那一次推送）', async () => {
+    act(() => applyPrefs({ collapseThinking: true }))
+    render(<ThinkingBlock text="想完了" />)
+    expect(screen.queryByText('想完了')).not.toBeInTheDocument()
+
+    // 用户自己点开
+    await userEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+
+    // Kotlin 那边每次关设置对话框都会推一次同样的值 —— 不许把它按回去
+    act(() => applyPrefs({ collapseThinking: true }))
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+  })
+
+  it('偏好真的变了才复位 —— 手动开着的那块会被拉回新默认', async () => {
+    act(() => applyPrefs({ collapseThinking: true }))
+    render(<ThinkingBlock text="想完了" />)
+    await userEvent.click(screen.getByRole('button')) // 用户点开
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+
+    // 关掉折叠：新默认是"展开"，它本来就是开的 —— 仍在
+    act(() => applyPrefs({ collapseThinking: false }))
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+
+    // 再勾上：新默认是"收起" —— 这一次它被拉回去
+    act(() => applyPrefs({ collapseThinking: true }))
+    expect(screen.queryByText('想完了')).not.toBeInTheDocument()
   })
 })

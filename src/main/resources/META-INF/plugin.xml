@@ -167,12 +167,40 @@
     <change-notes><![CDATA[
     <h3>0.2.24</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.23 (see the publish spec, section 8). Do not copy the previous version's list &mdash; it is in git (5485344).</li>
+      <li><b>Streaming no longer drags you back to the bottom</b> &mdash; scrolling up
+          while a reply streams (or while the model is thinking) now stays where you put
+          it; before this release every frame pulled the view back down, which made
+          reading history during a long answer impossible. The "back to bottom" button
+          works as before, and scrolling back down, clicking it or sending a message all
+          resume following.</li>
+      <li><b>Thinking can start collapsed</b> &mdash; a new setting folds thinking text
+          by default, <b>including the block that is still streaming</b>; the spinner and
+          timer stay in the title, and one click expands it. Off by default.</li>
+      <li><b>A font and size for the transcript</b> &mdash; under Settings &rarr; General
+          &rarr; Interface: four families (plus "follow IDE") and four sizes. They apply
+          to the transcript only; code blocks always stay monospaced, and the composer
+          keeps following the IDE.</li>
+      <li><b>Model, permission mode and thinking effort open as pickers</b> &mdash; the
+          three composer switches now share one card look, with group headings (permission
+          modes that never ask again; effort levels only some models accept).</li>
+      <li><b>A tab whose session cannot be reopened says so</b> &mdash; it used to start
+          an empty conversation silently; now it tells you (deleted, or already open in
+          another tab).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 <b>0.2.23</b> 的增量（口径见发布设计稿 §八）。上一版的清单<b>不要</b>抄过来 —— 它在 git 里（<code>5485344</code>）。</li>
+      <li><b>流式输出时向上滚不再被拽回底部</b> &mdash;&mdash; 从前每一拍都会把视口弹回最底下，
+          长回答里想往上翻历史基本不可能；现在滚上去就停在那儿。「回到底部」按钮照旧，
+          滚回底部、点它、或自己发一条都会恢复跟随。</li>
+      <li><b>思考可以默认收起</b> &mdash;&mdash; 新开关让思考内容默认折叠，<b>正在流式的那块也收起</b>；
+          标题里的转圈与秒表照旧，点一下标题即可展开。默认<b>不</b>折叠。</li>
+      <li><b>转录区能选字体与字号</b> &mdash;&mdash; 设置 &rarr;「通用」&rarr;「界面」卡：四档字体
+          （含「跟随 IDE」）与四档字号，只作用在转录区；代码块始终等宽，输入框仍跟随 IDE。</li>
+      <li><b>模型 / 权限 / 思考深度换成弹层选择</b> &mdash;&mdash; 输入区那三个开关共用一套卡面，
+          带分组标题（如「不再问你」「仅部分模型认」）。</li>
+      <li><b>标签页的会话打不开时会说明</b> &mdash;&mdash; 从前静默开一个空会话；现在会告诉你
+          （已删除，或已在别的标签里开着）。</li>
     </ul>
     ]]></change-notes>
 

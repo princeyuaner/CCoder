@@ -50,6 +50,7 @@ fun showSettingsDialog(project: Project) {
         mcpStatus = McpStatus.getInstance(project),
         deps = RuntimeDepsService.getInstance(project),
         language = UiLanguageSettings.getInstance(),
+        prefs = UiPreferences.getInstance(),
     ).show()
 }
 
@@ -101,6 +102,11 @@ internal class SettingsDialog(
      */
     private val language: UiLanguageSettings,
     /**
+     * 界面偏好（APP 级：今天只有「思考折叠」那一项）。**不给默认值**，同 [language] 的理由
+     * —— 默认值只能写成 `UiPreferences.getInstance()`，而它在纯 JVM 的探针里会抛。
+     */
+    private val prefs: UiPreferences,
+    /**
      * 「运行依赖」那块的确认框/剪贴板/浏览器外壳。生产用默认值；渲染探针换掉它
      * （要画"这台机器上装不了"那一屏就得把平台与工具一起换掉）。
      */
@@ -125,7 +131,7 @@ internal class SettingsDialog(
         listOf(
             models to NavIcon.Models,
             PromptPresetsPage(presets) to NavIcon.Presets,
-            GeneralSettingsPage(project, settings, language) to NavIcon.General,
+            GeneralSettingsPage(project, settings, language, prefs) to NavIcon.General,
             PermissionSettingsPage(settings) to NavIcon.Permission,
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——
             // 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了

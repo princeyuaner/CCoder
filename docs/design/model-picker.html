@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 模型切换弹层 · 五种样式</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm 2025.3 New UI 的真实主题变量，
+   与 session-tabs.html / settings-v3.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --row-hover:#3a3d42;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --warn-line:rgba(217,163,67,.42); --warn-soft:rgba(217,163,67,.12);
+  --band-1:#6f9ef5; --band-2:#56b6a8; --band-3:#b78ce0; --band-4:#d98f5a;
+  --pop-shadow: 0 16px 42px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#ffffff; --editor:#f7f8fa; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --row-hover:#eef0f4;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --warn-line:rgba(176,125,26,.45); --warn-soft:rgba(176,125,26,.12);
+  --band-1:#3b6fd4; --band-2:#2f8f83; --band-3:#8a5cc4; --band-4:#b96a35;
+  --pop-shadow: 0 12px 32px rgba(0,0,0,.16), 0 1px 4px rgba(0,0,0,.10);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased; transition: background .2s, color .2s;
+}
+.wrap { max-width: 1240px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+            padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 76ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--page-card); padding: 1px 5px; border-radius: 4px; color: var(--text); border:1px solid var(--page-line); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; transition:.15s; }
+.toggle button.on { background: var(--accent); color: var(--accent-fg); }
+.toggle button:not(.on):hover { color: var(--page-fg); }
+
+.hint { display:flex; gap:10px; align-items:flex-start; margin: 26px 0 0; padding: 14px 18px;
+  border:1px solid var(--page-line); border-left:3px solid var(--accent); border-radius: 8px;
+  background: var(--page-card); color: var(--page-dim); font-size: 13.5px; }
+.hint b { color: var(--page-fg); }
+
+.variant { margin-top: 62px; padding-top: 34px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom: 6px; }
+.vhead h2 { font-family: var(--serif); font-size: 25px; margin: 0; font-weight: 600; }
+.vhead .letter { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing:.1em; }
+.tag { font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase;
+       padding: 3px 9px; border-radius: 5px; border:1px solid var(--page-line); color: var(--page-dim); }
+.tag.cost-lo { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.tag.cost-mid { color: var(--warn); border-color: var(--warn-line); }
+.tag.cost-hi { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.vsub { color: var(--page-dim); margin: 0 0 22px; max-width: 78ch; font-size: 14px; }
+.vsub b { color: var(--page-fg); }
+
+.cols { display:grid; grid-template-columns: 520px minmax(0,1fr); gap: 40px; align-items:start; }
+@media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
+
+/* ---------- 假的工具窗口（只要宽度对，别的都是布景） ---------- */
+.win { position:relative; height: 560px; border-radius: 10px; overflow:hidden;
+       border:1px solid var(--page-line); background: var(--editor); }
+.win-bar { height:30px; display:flex; align-items:center; gap:8px; padding:0 12px;
+           border-bottom:1px solid var(--page-line); background: var(--panel);
+           font-family: var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--page-dim); }
+.win-bar i { width:8px; height:8px; border-radius:50%; background: var(--page-line); display:inline-block; }
+.win-body { position:absolute; inset:30px 0 0; padding: 18px 16px; }
+.fake-line { height:9px; border-radius:5px; background: var(--page-line); opacity:.55; margin-bottom: 11px; }
+.win .mark-420 { position:absolute; top:30px; bottom:0; left:420px; border-left:1px dashed var(--page-line); z-index: 5; pointer-events:none; }
+.win .mark-420 span { position:absolute; bottom:6px; left:6px; font-family:var(--mono); font-size:9.5px;
+  letter-spacing:.08em; color:var(--page-dim); opacity:.8; white-space:nowrap; }
+
+.composer-zone { position:absolute; left:0; right:0; bottom:0; padding: 12px; }
+.composer-zone::before { content:''; position:absolute; inset:0; background: linear-gradient(to top, var(--editor) 60%, transparent); }
+.composer-row { position:relative; display:flex; align-items:center; gap:14px; height: 40px; padding:0 10px;
+  border:1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.composer-row .clabel { color: var(--dim); font-size: 12.5px; white-space:nowrap; }
+.composer-row .clabel.hot { color: var(--text); }
+.composer-row .grow { flex:1; }
+.send { width:26px; height:26px; border-radius: 8px; background: var(--accent); color: var(--accent-fg);
+  display:flex; align-items:center; justify-content:center; font-size:13px; }
+
+/* ---------- 弹层外壳（所有变体共用：宽 442、圆角、投影） ---------- */
+.popup { position:absolute; left:12px; bottom: calc(100% + 8px); width: 442px; z-index: 6;
+  background: var(--panel); border:1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--pop-shadow); }
+
+/* ---------- 变体内部的通用零件 ---------- */
+.tick { display:inline-block; width:16px; flex:0 0 16px; text-align:left; }
+.tick::before { content:'✓'; opacity:0; }
+.row.sel .tick::before { opacity:1; }
+.mrow { display:flex; align-items:center; cursor:pointer; }
+.host { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.warn-txt { font-size: 11px; color: var(--warn); white-space:nowrap; }
+.manage { display:flex; align-items:center; gap:7px; cursor:pointer; color: var(--dim); font-size: 12.5px; }
+
+/* ============================================================
+   0 · 现状（今天的 ComposerModel.kt 画出来的样子）
+   ============================================================ */
+.v0 { padding: 4px; }
+.v0 .grp { display:flex; justify-content:space-between; align-items:baseline; padding: 7px 6px 2px; }
+.v0 .grp-name { color: var(--dim); font-size: 12px; }
+.v0 .mrow { padding: 3px 6px; font-size: 13px; color: var(--text); }
+.v0 .mrow.sel { font-weight: 700; }
+.v0 .manage { padding: 7px 6px 3px; }
+
+/* ============================================================
+   A · 精修原版：结构不动，把层级做出来
+   ============================================================ */
+.vA { padding: 8px; }
+.vA .grp { display:flex; justify-content:space-between; align-items:baseline; padding: 9px 8px 5px; }
+.vA .grp-name { font-family: var(--mono); font-size: 11px; letter-spacing:.04em; color: var(--dim); }
+.vA .grp-name .host { font-size: 10.5px; }
+.vA .mrow { position:relative; height: 28px; padding: 0 8px; border-radius: 6px; gap: 4px; font-size: 13px; color: var(--text); }
+.vA .mrow:hover { background: var(--row-hover); }
+.vA .mrow.sel { background: var(--accent-soft); }
+.vA .mrow.sel::before { content:''; position:absolute; left:0; top:5px; bottom:5px; width:2px; border-radius:2px; background: var(--accent); }
+.vA .mrow.sel .tick { color: var(--accent); }
+.vA .sep { height:1px; background: var(--border-soft); margin: 6px 8px 2px; }
+.vA .manage { padding: 5px 8px; height: 26px; border-radius: 6px; }
+.vA .manage:hover { background: var(--row-hover); color: var(--text); }
+
+/* ============================================================
+   B · 分组卡片：一个网关一张卡
+   ============================================================ */
+.vB { padding: 0; background: transparent; border:0; box-shadow:none; display:flex; flex-direction:column; gap:8px; }
+.vB .card { background: var(--panel); border:1px solid var(--border-soft); border-radius: 12px;
+            padding: 5px; box-shadow: var(--pop-shadow); }
+.vB .grp { display:flex; justify-content:space-between; align-items:center; gap:10px; padding: 8px 9px 6px; }
+.vB .grp-name { font-size: 12.5px; color: var(--text); font-weight: 600; display:flex; align-items:baseline; gap:8px; min-width:0; }
+.vB .grp-name .host { font-size: 10.5px; font-weight: 400; }
+.vB .warn-chip { font-size: 10.5px; color: var(--warn); border:1px solid var(--warn-line);
+                 background: var(--warn-soft); padding: 1px 8px; border-radius: 999px; white-space:nowrap; }
+.vB .mrow { height: 30px; padding: 0 9px; border-radius: 8px; gap: 6px; font-size: 13px; color: var(--text); }
+.vB .mrow:hover { background: var(--row-hover); }
+.vB .mrow.sel { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.vB .mrow.sel .tick { color: var(--accent); }
+.vB .manage { margin: 2px 5px 0; padding: 7px 9px; border-radius: 8px; color: var(--page-dim); }
+.vB .manage:hover { background: var(--panel); color: var(--text); }
+
+/* ============================================================
+   C · 自述行：每一行自己说清"这是哪台机器"
+   ============================================================ */
+.vC { padding: 8px 8px 6px; }
+.vC .grp { display:flex; align-items:center; gap:10px; padding: 8px 8px 6px; }
+/* 不能加 text-transform:uppercase —— 名字是中英混排（「公司tokenhub」），
+   转大写会变成「公司 TOKENHUB」，两个词看着像被拆开了 */
+.vC .grp-name { font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; color: var(--dim); }
+.vC .grp-rule { flex:1; height:1px; background: var(--border-soft); }
+.vC .mrow { flex-direction:column; align-items:stretch; padding: 6px 8px; border-radius: 8px; gap: 1px; }
+.vC .mrow:hover { background: var(--row-hover); }
+.vC .mrow.sel { background: var(--accent-soft); }
+.vC .r1 { display:flex; align-items:center; gap:6px; font-size: 13px; color: var(--text); }
+.vC .r1 .tick { color: var(--accent); }
+.vC .r2 { display:flex; align-items:center; gap:6px; padding-left: 22px; font-size: 11px; color: var(--dim); }
+.vC .r2 .host { font-size: 10.5px; }
+.vC .r2 .warn-txt { margin-left:auto; }
+.vC .manage { padding: 6px 8px; border-radius: 8px; margin-top: 2px; border-top:1px solid var(--border-soft); }
+.vC .manage:hover { color: var(--text); }
+
+/* ============================================================
+   D · 紧凑高密度：选中整行填色，后果打在点的那个点上
+   ============================================================ */
+.vD { padding: 6px; }
+.vD .grp { display:flex; justify-content:space-between; align-items:baseline; padding: 8px 8px 4px; }
+.vD .grp-name { font-size: 11px; color: var(--dim); }
+.vD .grp-name b { color: var(--text); font-weight:600; }
+.vD .mrow { height: 25px; padding: 0 8px; border-radius: 5px; gap: 6px; font-size: 12.5px; color: var(--text); }
+.vD .mrow:hover { background: var(--row-hover); }
+.vD .mrow.sel { background: var(--accent); color: var(--accent-fg); }
+.vD .mrow.sel .tick::before { opacity:1; }
+.vD .rgt { margin-left:auto; display:flex; align-items:center; gap:6px; }
+.vD .chip1m { font-family: var(--mono); font-size: 9.5px; letter-spacing:.06em; padding: 0 5px; border-radius: 3px;
+              border:1px solid var(--border); color: var(--dim); line-height: 15px; }
+.vD .mrow.sel .chip1m { border-color: rgba(255,255,255,.45); color: var(--accent-fg); }
+.vD .spin { color: var(--warn); font-size: 12px; }
+.vD .mrow.sel .spin { color: var(--accent-fg); }
+.vD .manage { padding: 5px 8px; height:24px; border-radius:5px; border-top:1px solid var(--border-soft); margin-top:4px; }
+.vD .manage:hover { color: var(--text); background: var(--row-hover); }
+
+/* ============================================================
+   E · 色带分段：一组的左边一条颜色
+   ============================================================ */
+.vE { padding: 8px; }
+.vE .band { margin: 3px 0 3px 2px; padding-left: 9px; border-left: 3px solid var(--band); border-radius: 1px; }
+.vE .grp { display:flex; justify-content:space-between; align-items:baseline; padding: 6px 6px 4px; }
+.vE .grp-name { font-size: 11.5px; color: var(--band); font-weight: 600; }
+.vE .grp-name .host { font-size: 10.5px; font-weight: 400; }
+.vE .mrow { height: 28px; padding: 0 6px; border-radius: 6px; gap: 4px; font-size: 13px; color: var(--text); }
+.vE .mrow:hover { background: var(--row-hover); }
+.vE .mrow.sel { background: var(--accent-soft); }
+.vE .mrow.sel .tick { color: var(--accent); }
+.vE .manage { padding: 6px 6px; border-radius: 6px; margin-top: 2px; }
+.vE .manage:hover { color: var(--text); background: var(--row-hover); }
+
+/* ---------- 规格表 ---------- */
+.spec { margin: 0; }
+.spec dt { font-family: var(--mono); font-size: 10.5px; letter-spacing:.09em; text-transform:uppercase; color: var(--page-dim); margin: 16px 0 5px; }
+.spec dt:first-child { margin-top: 0; }
+.spec dd { margin: 0; font-size: 13.5px; color: var(--text); }
+.spec dd ul { margin: 0; padding-left: 18px; }
+.spec dd li { margin-bottom: 4px; }
+.spec dd li::marker { color: var(--page-dim); }
+.good li::marker { color: var(--ok); }
+.bad li::marker { color: var(--warn); }
+
+table.cmp { width:100%; border-collapse: collapse; margin-top: 26px; font-size: 13px; }
+table.cmp th, table.cmp td { text-align:left; padding: 11px 12px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+table.cmp th { font-family: var(--mono); font-size: 10.5px; letter-spacing:.09em; text-transform:uppercase; color: var(--page-dim); font-weight:600; }
+table.cmp td:first-child { font-weight: 600; white-space: nowrap; }
+table.cmp tr.hl td { background: var(--accent-soft); }
+
+.verdict { margin-top: 52px; padding: 26px 30px; border:1px solid var(--page-line); border-radius: 12px; background: var(--page-card); }
+.verdict h2 { font-family: var(--serif); margin: 0 0 10px; font-size: 22px; }
+.verdict p { margin: 0 0 12px; color: var(--page-dim); max-width: 84ch; }
+.verdict p b { color: var(--page-fg); }
+.verdict ol { margin: 0; padding-left: 20px; color: var(--text); }
+.verdict ol li { margin-bottom: 6px; }
+footer { margin-top: 46px; padding-top: 20px; border-top: 1px solid var(--page-line); color: var(--page-dim); font-size: 12.5px; }
+footer b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-21</p>
+      <h1>模型切换弹层该长什么样</h1>
+      <p class="lede">
+        今天的弹层（变体 0）只有三层灰：组头、模型行、「管理模型」都挤在同一档次要色里，
+        选中只靠一个 <code>✓</code> 和加粗，没有悬停，<code>会重开会话</code> 挂在最右边像装饰。
+        下面五种改法都能落地到 <code>ComposerModel.kt</code>，宽度一律按真实的 <b>442px</b> 画。
+      </p>
+    </div>
+    <div class="toggle">
+      <button id="t-dark" class="on" onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <div class="hint">
+    <span>👉</span>
+    <div>模型行是<b>可以点、可以悬停的真行</b> —— 点一下就能在几套样式之间来回试选中态。虚线是工具窗口的 420px 边界，弹层比它宽是现状，不是画错了。</div>
+  </div>
+
+  <!-- ============ 0 ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">变体 0</span><h2>现状</h2><span class="tag">baseline</span></div>
+    <p class="vsub">照着 <code>buildModelList</code> 今天的画法复刻，用来跟下面几种对照。三个问题一眼可见：<b>选中行没有底色</b>、<b>没有悬停反馈</b>、<b>警告与正文同色</b>。</p>
+    <div class="cols">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><span style="margin-left:6px">CCoder</span></div>
+        <div class="win-body">
+          <div class="fake-line" style="width:72%"></div><div class="fake-line" style="width:88%"></div>
+          <div class="fake-line" style="width:54%"></div><div class="fake-line" style="width:80%"></div>
+          <div class="fake-line" style="width:64%"></div>
+        </div>
+        <div class="mark-420"><span>工具窗口 420px</span></div>
+        <div class="composer-zone">
+          <div class="popup"><div class="v0" id="v0"></div></div>
+          <div class="composer-row">
+            <span class="clabel hot">deepseek-flash[1m] ▾</span>
+            <span class="clabel">标准 ▾</span>
+            <span class="grow"></span>
+            <div class="send">➤</div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>问题</dt>
+        <dd><ul class="bad">
+          <li>三档信息同色同重，扫一遍分不出「哪个是组、哪个能点、哪个是当前」</li>
+          <li>选中态只靠一个字符，眼睛要逐行找 <code>✓</code></li>
+          <li>「会重开会话」是最贵的后果，却长着最安静的灰字</li>
+          <li>鼠标划过没有任何反应，不知道哪一行是可点的</li>
+        </ul></dd>
+        <dt>唯一的好处</dt>
+        <dd>紧凑。7 行只占约 200px 高。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============ A ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">变体 A</span><h2>精修原版</h2><span class="tag cost-lo">成本 低</span></div>
+    <p class="vsub">结构一行不动，只把层级、选中态和悬停补出来：组头退成<b>等宽小字</b>，选中行有<b>整行底色 + 左侧 2px 主色条</b>，警告前面加一颗<b>琥珀色圆点</b>，管理行用一条发丝线隔开。</p>
+    <div class="cols">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><span style="margin-left:6px">CCoder</span></div>
+        <div class="win-body">
+          <div class="fake-line" style="width:72%"></div><div class="fake-line" style="width:88%"></div>
+          <div class="fake-line" style="width:54%"></div><div class="fake-line" style="width:80%"></div>
+          <div class="fake-line" style="width:64%"></div>
+        </div>
+        <div class="mark-420"><span>工具窗口 420px</span></div>
+        <div class="composer-zone">
+          <div class="popup"><div class="vA" id="vA"></div></div>
+          <div class="composer-row">
+            <span class="clabel hot">deepseek-flash[1m] ▾</span>
+            <span class="clabel">标准 ▾</span>
+            <span class="grow"></span>
+            <div class="send">➤</div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>好在哪</dt>
+        <dd><ul class="good">
+          <li>最像 IDE 原生控件，跟旁边的权限弹层、补全弹层是同一族</li>
+          <li>选中行的底色让「我在哪」变成余光可见，不用逐行找勾</li>
+          <li>悬停 → 底色一亮，可点这件事不用教</li>
+          <li>改动最小：行高、分组、文案一个都没变，回归面最窄</li>
+        </ul></dd>
+        <dt>代价</dt>
+        <dd><ul class="bad">
+          <li>三个网关之间还是「平」的，配置一多仍然要找</li>
+          <li>组头用等宽字体是新引入的（不想要就换成小一号常规字，效果差不太多）</li>
+        </ul></dd>
+        <dt>适合</dt>
+        <dd>2–3 个网关、每网关 1–3 个模型 —— 也就是你现在这个规模。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============ B ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">变体 B</span><h2>分组卡片</h2><span class="tag cost-mid">成本 中</span></div>
+    <p class="vsub">一个网关<b>一张卡</b>：组头变卡头（名字加粗 + 主机名跟在后面），「会重开会话」缩成头上一颗<b>琥珀描边胶囊</b>，卡片之间留 8px 空隙。三个网关一眼就是三块。</p>
+    <div class="cols">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><span style="margin-left:6px">CCoder</span></div>
+        <div class="win-body">
+          <div class="fake-line" style="width:72%"></div><div class="fake-line" style="width:88%"></div>
+          <div class="fake-line" style="width:54%"></div><div class="fake-line" style="width:80%"></div>
+          <div class="fake-line" style="width:64%"></div>
+        </div>
+        <div class="mark-420"><span>工具窗口 420px</span></div>
+        <div class="composer-zone">
+          <div class="popup"><div class="vB" id="vB"></div></div>
+          <div class="composer-row">
+            <span class="clabel hot">deepseek-flash[1m] ▾</span>
+            <span class="clabel">标准 ▾</span>
+            <span class="grow"></span>
+            <div class="send">➤</div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>好在哪</dt>
+        <dd><ul class="good">
+          <li>分组辨识最强：卡片边界比一条灰组头硬得多</li>
+          <li>警告胶囊有了边框和底色，终于像「跟你有关」而不是装饰</li>
+          <li>选中行多一道主色内描边，跟「当前配置」分得比 A 更清</li>
+        </ul></dd>
+        <dt>代价</dt>
+        <dd><ul class="bad">
+          <li>卡片圆角 + 内描边都要自绘（<code>paintComponent</code>），比 A 多一份活</li>
+          <li>每张卡上下各有内边距，7 行要吃掉约 300px 高</li>
+          <li>弹层自己也是圆角面板，圆角套圆角，边距调不好会显脏</li>
+        </ul></dd>
+        <dt>适合</dt>
+        <dd>3–6 个网关、且你希望「先选公司还是先选模型」这件事在视觉上先发生。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============ C ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">变体 C</span><h2>自述行</h2><span class="tag cost-mid">成本 中</span></div>
+    <p class="vsub">每个模型占<b>两行</b>：上面是模型名，下面用小字写清<b>它是谁家的、打到哪台机器</b>，右侧跟一句琥珀色的「会重开会话」。组头退成一条带标题的发丝线 —— 因为每行已经自己说清楚了。</p>
+    <div class="cols">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><span style="margin-left:6px">CCoder</span></div>
+        <div class="win-body">
+          <div class="fake-line" style="width:72%"></div><div class="fake-line" style="width:88%"></div>
+          <div class="fake-line" style="width:54%"></div><div class="fake-line" style="width:80%"></div>
+          <div class="fake-line" style="width:64%"></div>
+        </div>
+        <div class="mark-420"><span>工具窗口 420px</span></div>
+        <div class="composer-zone">
+          <div class="popup"><div class="vC" id="vC"></div></div>
+          <div class="composer-row">
+            <span class="clabel hot">deepseek-flash[1m] ▾</span>
+            <span class="clabel">标准 ▾</span>
+            <span class="grow"></span>
+            <div class="send">➤</div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>好在哪</dt>
+        <dd><ul class="good">
+          <li>治的是真病：今天要回答「这个模型是哪台机器上的」得往上翻到组头，名字一长还会看串行</li>
+          <li>「会重开会话」贴在<b>你要点的那一行</b>上，比挂在组头更贴近那个动作</li>
+          <li>分组靠留白和发丝线，不靠第二个视觉容器，比 B 干净</li>
+        </ul></dd>
+        <dt>代价</dt>
+        <dd><ul class="bad">
+          <li>最快长高的一种：7 行约 330px，网关再多弹层就要滚动</li>
+          <li>主机名在每行重复一遍，扫视时是噪音</li>
+          <li>两行行需要重设命中区（整行都要可点，不能只点第一行）</li>
+        </ul></dd>
+        <dt>适合</dt>
+        <dd>网关多、名字像（好几个都叫「中转」）的时候；或者你常忘了自己在哪个端点上。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============ D ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">变体 D</span><h2>紧凑高密度</h2><span class="tag cost-lo">成本 低</span></div>
+    <p class="vsub">行高压到 25px，<b>选中整行填主色</b>（白字），<code>[1m]</code> 剥出来做成小片挂在右边，重开后果缩成一颗 <b>⟳</b>，鼠标停上去出提示。信息最密、最「工具」。</p>
+    <div class="cols">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><span style="margin-left:6px">CCoder</span></div>
+        <div class="win-body">
+          <div class="fake-line" style="width:72%"></div><div class="fake-line" style="width:88%"></div>
+          <div class="fake-line" style="width:54%"></div><div class="fake-line" style="width:80%"></div>
+          <div class="fake-line" style="width:64%"></div>
+        </div>
+        <div class="mark-420"><span>工具窗口 420px</span></div>
+        <div class="composer-zone">
+          <div class="popup"><div class="vD" id="vD"></div></div>
+          <div class="composer-row">
+            <span class="clabel hot">deepseek-flash[1m] ▾</span>
+            <span class="clabel">标准 ▾</span>
+            <span class="grow"></span>
+            <div class="send">➤</div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>好在哪</dt>
+        <dd><ul class="good">
+          <li>选中态最不容置疑：整行填色，隔着一米都看得见</li>
+          <li>最省地方：7 行约 190px，20 个模型也塞得下</li>
+          <li><code>[1m]</code> 从名字里剥出来变成小片，长名字变短、且「这条是大上下文」一眼可见</li>
+        </ul></dd>
+        <dt>代价</dt>
+        <dd><ul class="bad">
+          <li>⟳ 把「会重开会话」这句人话压成了一个符号，得靠悬停才读得到后果 —— 与「后果写在点之前」这条初衷有点拉扯</li>
+          <li>整行填主色比较抢眼，跟旁边安静的权限弹层不是一个语气</li>
+          <li>剥 <code>[1m]</code> 要在显示层解析模型名，名字里真出现方括号时要能原样退回</li>
+        </ul></dd>
+        <dt>适合</dt>
+        <dd>模型很多、天天要切，且你已经熟悉这套人机界面的时候。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============ E ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">变体 E</span><h2>色带分段</h2><span class="tag cost-lo">成本 低</span></div>
+    <p class="vsub">每个网关左边一条<b>3px 色带</b>，组头用同一个颜色，模型行缩进排在色带右侧。颜色按顺序自动分配（蓝 / 青 / 紫 / 橙），不需要你去设置里挑色。</p>
+    <div class="cols">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><span style="margin-left:6px">CCoder</span></div>
+        <div class="win-body">
+          <div class="fake-line" style="width:72%"></div><div class="fake-line" style="width:88%"></div>
+          <div class="fake-line" style="width:54%"></div><div class="fake-line" style="width:80%"></div>
+          <div class="fake-line" style="width:64%"></div>
+        </div>
+        <div class="mark-420"><span>工具窗口 420px</span></div>
+        <div class="composer-zone">
+          <div class="popup"><div class="vE" id="vE"></div></div>
+          <div class="composer-row">
+            <span class="clabel hot">deepseek-flash[1m] ▾</span>
+            <span class="clabel">标准 ▾</span>
+            <span class="grow"></span>
+            <div class="send">➤</div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>好在哪</dt>
+        <dd><ul class="good">
+          <li>分组辨识度几乎免费：一条线就够，不用卡片也不用悬停</li>
+          <li>眼熟 —— 树、时间线、输出分组都用这个手法</li>
+          <li>容易叠在 A 上：A 的底色 + E 的色带 = 层级和分组兼得</li>
+        </ul></dd>
+        <dt>代价</dt>
+        <dd><ul class="bad">
+          <li>颜色是<b>按顺序发的</b>，没有含义 —— 容易被误读成状态（绿=可用、红=坏）</li>
+          <li>要让颜色真有意义，就得在设置里给每条配置挑颜色，那是另一个功能</li>
+          <li>色相一多，在浅色主题下容易变花</li>
+        </ul></dd>
+        <dt>适合</dt>
+        <dd>网关多且你想一眼扫过去就分清 —— 但接受「颜色只是编号」。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============ 对照表 ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">对照</span><h2>一眼对比</h2></div>
+    <table class="cmp">
+      <thead><tr><th>变体</th><th>核心手法</th><th>分组辨识</th><th>7 行占高</th><th>「重开会话」在哪</th><th>实现成本</th></tr></thead>
+      <tbody>
+        <tr><td>0 现状</td><td>——</td><td>弱</td><td>≈200px</td><td>组头右侧，灰字</td><td>——</td></tr>
+        <tr class="hl"><td>A 精修原版</td><td>底色 + 主色条 + 悬停</td><td>中</td><td>≈240px</td><td>组头右侧，琥珀色带圆点</td><td>低（只改绘制）</td></tr>
+        <tr><td>B 分组卡片</td><td>一组一卡</td><td>强</td><td>≈300px</td><td>卡头琥珀胶囊</td><td>中（自绘圆角/描边）</td></tr>
+        <tr><td>C 自述行</td><td>每行自带归属</td><td>中</td><td>≈330px</td><td>每一行右侧（最贴近动作）</td><td>中（行高与命中区重设）</td></tr>
+        <tr><td>D 紧凑高密度</td><td>整行填色 + 右侧小片</td><td>弱</td><td>≈190px</td><td>行内 ⟳ 符号 + 悬停</td><td>低（但要解析 <code>[1m]</code>）</td></tr>
+        <tr><td>E 色带分段</td><td>左色带</td><td>强</td><td>≈250px</td><td>组头右侧</td><td>低</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 建议 ============ -->
+  <section class="verdict">
+    <h2>已选定：B 分组卡片（2026-09-21）</h2>
+    <p>
+      原来的建议是「以 A 打底、把 E 的色带叠上去」，最后选的是 <b>B</b>。
+      已实现到 <code>ComposerModel.kt</code>，真 Swing 的离屏渲染在
+      <code>build/probe/composer-model-popup.png</code>（浅色）与
+      <code>-popup-dark.png</code>（深色）—— 以后再动这处观感，先看那两张图。
+    </p>
+    <p>实现时与这份稿子有三处出入，都是有意的：</p>
+    <ol>
+      <li><b>卡片底色就是弹层面板色</b>：卡靠边 + 圆角 + 8px 缝立起来，不靠色差。稿子里卡比背景亮一档，那是浏览器里弹层底透明的画法；Swing 的弹层自带底色，做成半透明要跟平台的弹层边框打架，不值当。</li>
+      <li><b>主机名没引等宽字体</b> —— 那要往 UI 里拉一个新字族，而"小一号 + 次要色"已经够分主次了。</li>
+      <li><b>勾是单独一个标签</b>（原来缀在名字前面），为的是让它能用强调色；相应地 <code>ComposerModelTest</code> 里那条断言改成看"勾落在哪一行里"。</li>
+    </ol>
+    <p>
+      另外：行高、勾位、卡片内边距都会改宽度，<code>MAX_HOST_CHARS</code> 是在<b>卡片版</b>下用
+      <code>ComposerModelRenderProbe</code> 重新确认过的（<code>弹层不会比工具窗口宽</code> 那条测试守着它）。
+    </p>
+  </section>
+
+  <footer>
+    设计稿，不是产品代码。配色取自 PyCharm 2025.3 New UI 主题变量（与仓库里其它设计稿同源）；
+    弹层宽度 442px、工具窗口 420px、文案「我的ds / 公司tokenhub / 公司dmx」均按真实截图还原。
+    支持 <code>?theme=light</code>。
+  </footer>
+</div>
+
+<script>
+/* ---------------- 真实数据（照截图） ---------------- */
+const DATA = [
+  { name:'我的ds',       host:'api.deepseek.com',        restart:false,
+    models:['deepseek-flash[1m]'] },
+  { name:'公司tokenhub', host:'tokenhub.lihoogame.com…', restart:true,
+    models:['deepseek-v4-flash[1m]','deepseek-v4-pro[1m]'] },
+  { name:'公司dmx',      host:'www.dmxapi.cn',           restart:true,
+    models:['deepseek-flash-guan[1m]'] },
+];
+const CUR = { p:0, m:'deepseek-flash[1m]' };
+const BAND = ['var(--band-1)','var(--band-2)','var(--band-3)','var(--band-4)'];
+
+const isSel = (i,m) => CUR.p === i && CUR.m === m;
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+/* [1m] 剥出来当小片；剥不出来就原样返回 */
+function split1m(id){
+  const r = id.match(/^(.*)\[1m\]$/);
+  return r ? { base:r[1], chip:'1M' } : { base:id, chip:null };
+}
+const tick = () => '<span class="tick"></span>';
+
+/* ---------------- 各变体的行渲染 ---------------- */
+const R = {
+  v0: () => DATA.map((g,i) =>
+      `<div class="grp"><span class="grp-name">${esc(g.name)} · ${esc(g.host)}</span>${
+        g.restart ? '<span style="color:var(--dim);font-size:12px">会重开会话</span>' : ''}</div>`
+    + g.models.map(m =>
+      `<div class="mrow row ${isSel(i,m)?'sel':''}" data-p="${i}" data-m="${esc(m)}">`
+      + `&nbsp;${isSel(i,m)?'✓':'&nbsp;'} ${esc(m)}</div>`).join('')
+  ).join('') + `<div class="manage row" data-manage="1">⚙ 管理模型…</div>`,
+
+  vA: () => DATA.map((g,i) =>
+      `<div class="grp"><span class="grp-name">${esc(g.name)} · <span class="host">${esc(g.host)}</span></span>${
+        g.restart ? '<span class="warn-txt">● 会重开会话</span>' : ''}</div>`
+    + g.models.map(m =>
+      `<div class="mrow row ${isSel(i,m)?'sel':''}" data-p="${i}" data-m="${esc(m)}">`
+      + `${tick()}<span>${esc(m)}</span></div>`).join('')
+    + (i < DATA.length-1 ? '' : '')
+  ).join('') + `<div class="sep"></div><div class="manage row" data-manage="1">⚙ 管理模型…</div>`,
+
+  vB: () => DATA.map((g,i) =>
+      `<div class="card"><div class="grp">`
+      + `<span class="grp-name">${esc(g.name)} <span class="host">${esc(g.host)}</span></span>`
+      + (g.restart ? '<span class="warn-chip">会重开会话</span>' : '')
+      + `</div>`
+      + g.models.map(m =>
+        `<div class="mrow row ${isSel(i,m)?'sel':''}" data-p="${i}" data-m="${esc(m)}">`
+        + `${tick()}<span>${esc(m)}</span></div>`).join('')
+      + `</div>`).join('')
+    + `<div class="manage row" data-manage="1">⚙ 管理模型…</div>`,
+
+  vC: () => DATA.map((g,i) =>
+      `<div class="grp"><span class="grp-name">${esc(g.name)}</span><span class="grp-rule"></span></div>`
+      + g.models.map(m =>
+        `<div class="mrow row ${isSel(i,m)?'sel':''}" data-p="${i}" data-m="${esc(m)}">`
+        + `<div class="r1">${tick()}<span>${esc(m)}</span></div>`
+        + `<div class="r2"><span>${esc(g.name)}</span><span class="host">· ${esc(g.host)}</span>`
+        + (g.restart ? '<span class="warn-txt">⟳ 会重开会话</span>' : '')
+        + `</div></div>`).join('')
+  ).join('') + `<div class="manage row" data-manage="1">⚙ 管理模型…</div>`,
+
+  vD: () => DATA.map((g,i) =>
+      `<div class="grp"><span class="grp-name"><b>${esc(g.name)}</b> · ${esc(g.host)}</span>${
+        g.restart ? '<span class="warn-txt">⟳ 会重开会话</span>' : ''}</div>`
+    + g.models.map(m => {
+        const s = split1m(m);
+        return `<div class="mrow row ${isSel(i,m)?'sel':''}" data-p="${i}" data-m="${esc(m)}">`
+          + `${tick()}<span>${esc(s.base)}</span>`
+          + `<span class="rgt">${s.chip?`<span class="chip1m">${s.chip}</span>`:''}${
+              g.restart ? '<span class="spin" title="会重开会话">⟳</span>' : ''}</span>`
+          + `</div>`;
+      }).join('')
+  ).join('') + `<div class="manage row" data-manage="1">⚙ 管理模型…</div>`,
+
+  vE: () => DATA.map((g,i) =>
+      `<div class="band" style="--band:${BAND[i%4]}">`
+      + `<div class="grp"><span class="grp-name">${esc(g.name)} <span class="host">· ${esc(g.host)}</span></span>${
+          g.restart ? '<span class="warn-txt">● 会重开会话</span>' : ''}</div>`
+      + g.models.map(m =>
+        `<div class="mrow row ${isSel(i,m)?'sel':''}" data-p="${i}" data-m="${esc(m)}">`
+        + `${tick()}<span>${esc(m)}</span></div>`).join('')
+      + `</div>`).join('')
+    + `<div class="manage row" data-manage="1">⚙ 管理模型…</div>`,
+};
+
+function renderAll(){
+  for (const k in R) {
+    const el = document.getElementById(k);
+    if (el) el.innerHTML = R[k]();
+  }
+  // 下面那行输入框里的模型标签跟着一起走，切起来更像真的
+  document.querySelectorAll('.composer-row .clabel.hot')
+          .forEach(el => { el.textContent = CUR.m + ' ▾'; });
+}
+
+/* 点模型行 → 换选中态（跟真控件一样，几套样式一起变） */
+document.addEventListener('click', e => {
+  const row = e.target.closest('.row');
+  if (!row) return;
+  if (row.dataset.manage) return;          // 「管理模型」是跳出去，不改选中
+  CUR.p = Number(row.dataset.p);
+  CUR.m = row.dataset.m;
+  renderAll();
+});
+
+/* ---------------- 主题 ---------------- */
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('t-dark').classList.toggle('on', t === 'dark');
+  document.getElementById('t-light').classList.toggle('on', t === 'light');
+}
+if (new URLSearchParams(location.search).get('theme') === 'light') setTheme('light');
+
+renderAll();
+</script>
+</body>
+</html>

@@ -43,6 +43,17 @@ class ComposerEffortTest {
     }
 
     /** 收集一棵组件树里所有 JLabel 的文字，用来断言弹层里显示了什么。 */
+    private fun labelContaining(root: Container, text: String): JLabel {
+        fun walk(c: Container): JLabel? {
+            for (child in c.components) {
+                if (child is JLabel && child.text.contains(text)) return child
+                if (child is Container) walk(child)?.let { return it }
+            }
+            return null
+        }
+        return walk(root) ?: error("没有找到写着「$text」的标签")
+    }
+
     private fun textsIn(root: Container): List<String> {
         val out = mutableListOf<String>()
         fun walk(c: Container) {
@@ -122,13 +133,68 @@ class ComposerEffortTest {
         }
     }
 
+    /**
+     * 2026-09-21 起勾是**单独一个标签**（好让它用强调色），所以断言从
+     * "哪段文字里有勾"改成"勾落在哪一行里"。
+     */
     @Test
     fun `列表只给当前档位打勾`() {
         val list = buildEffortList(EffortSetting.MEDIUM) {}
-        val checked = textsIn(list).filter { it.startsWith(MARK) }
 
-        assertEquals(1, checked.size, "打勾的应该只有一行：$checked")
-        assertTrue(checked.single().contains(EffortSetting.MEDIUM.label), "勾打错了：$checked")
+        assertEquals(1, textsIn(list).count { it == MARK }, "打勾的应该只有一行：${textsIn(list)}")
+
+        val mediumRow = labelContaining(list, EffortSetting.MEDIUM.label).parent as Container
+        assertTrue(textsIn(mediumRow).contains(MARK), "当前档没打勾：${textsIn(mediumRow)}")
+
+        val maxRow = labelContaining(list, EffortSetting.MAX.label).parent as Container
+        assertTrue(!textsIn(maxRow).contains(MARK), "非当前档也打了勾：${textsIn(maxRow)}")
+    }
+
+    // ---- 分组（2026-09-21：列表分成了「通用档」与「仅部分模型认」两张卡）----
+
+    /**
+     * 分组**不重排**：每一组在枚举里必须是连着的一段。
+     *
+     * 这是分卡片的前提。若哪天有人把某一档挪进另一组，列表顺序就会与枚举
+     * （也就是用户熟悉的那一版：默认/低/中/高/极高/最大）不同，而卡片看上去
+     * 仍然"对" —— 没有这一条，那种改动会静默通过。
+     */
+    @Test
+    fun `分组在枚举顺序里是连着的`() {
+        EffortGroup.entries.forEach { group ->
+            val at = EffortSetting.entries.indices
+                .filter { effortGroup(EffortSetting.entries[it]) == group }
+            assertTrue(at.isNotEmpty(), "$group 一组都没分到")
+            assertEquals(
+                at.size, at.last() - at.first() + 1,
+                "$group 在枚举里不是连着的一段：$at",
+            )
+        }
+    }
+
+    /** 每一档都得归到某一组 —— 漏掉的后果是它在弹层里**根本不显示**。 */
+    @Test
+    fun `每一档都出现在弹层里，且组名不是空白`() {
+        val texts = textsIn(buildEffortList(EffortSetting.DEFAULT) {}).joinToString("\n")
+
+        EffortSetting.entries.forEach {
+            assertTrue(texts.contains(it.label), "${it.label} 没出现在列表里：\n$texts")
+        }
+        EffortGroup.entries.forEach {
+            assertTrue(it.title.isNotBlank(), "$it 没有组名")
+            assertTrue(texts.contains(it.title), "少了组名「${it.title}」：\n$texts")
+        }
+    }
+
+    /**
+     * 弹层的宽度是内容撑开的，而「极高/最大」那两句说明是最长的 ——
+     * 卡片又比原来平铺多占了内边距。这条钉住它塞得进工具窗口（420px）。
+     */
+    @Test
+    fun `弹层不会比工具窗口宽`() {
+        val list = buildEffortList(EffortSetting.DEFAULT) {}
+
+        assertTrue(list.preferredSize.width < 420, "弹层宽 ${list.preferredSize.width}px，比工具窗口还宽")
     }
 
     @Test
@@ -160,24 +226,58 @@ class ComposerEffortTest {
         val picked = mutableListOf<EffortSetting>()
         val list = buildEffortList(EffortSetting.DEFAULT) { picked += it }
 
-        // 最后一行是 MAX；点它的**说明**那个标签
-        val row = list.components.last() as Container
-        click(row.components.last())
+        // 点「最大」那一行的**说明**标签 —— 它在一行里是另一个组件，
+        // 而 Swing 的鼠标事件不冒泡：不给它挂监听，点上去就毫无反应
+        click(labelContaining(list, effortDescription(EffortSetting.MAX)))
 
         assertEquals(listOf(EffortSetting.MAX), picked)
     }
 
+    /**
+     * 鼠标压在**名字或说明**上，这一行也要亮。
+     *
+     * Swing 的鼠标事件**不冒泡** —— 一行里几乎每一寸都被子标签盖着，只把
+     * 悬停挂在行自己的话，鼠标压在文字上时这一行根本不亮，只有压在行边那几
+     * 像素上才亮，看起来就像悬停是坏的。**渲染探针看不出这一条**（它是直接
+     * 喊监听器的，绕过了真实的命中测试），所以只能在这儿钉。
+     */
+    @Test
+    fun `鼠标压在文字上这一行也要亮`() {
+        val list = buildEffortList(EffortSetting.DEFAULT) {}
+        val name = labelContaining(list, EffortSetting.HIGH.label)
+        val desc = labelContaining(list, effortDescription(EffortSetting.HIGH))
+
+        assertFalse(rowOf(name).isHovered, "还没碰它就已经是悬停态了")
+        hover(name, true)
+        assertTrue(rowOf(name).isHovered, "压着名字时这一行不亮")
+
+        hover(name, false)
+        hover(desc, true)
+        assertTrue(rowOf(desc).isHovered, "压着说明时这一行不亮")
+
+        hover(desc, false)
+        assertFalse(rowOf(desc).isHovered, "移开之后没灭")
+    }
+
+    /** 从行里的某个标签往上找那一行。 */
+    private fun rowOf(c: Component): RoundedRow {
+        var at: Container? = c.parent
+        while (at != null) {
+            if (at is RoundedRow) return at
+            at = at.parent
+        }
+        error("这个组件上面没有行")
+    }
+
     @Test
     fun `勾位在未选中的行上也占着，文字不会左右跳`() {
-        // 打勾时行首多一个字符宽度，若不给未选中的行补上，切换时
-        // 整列文字会横向跳一下
-        val list = buildEffortList(EffortSetting.DEFAULT) {}
-        val rows = (0 until list.componentCount).map { list.getComponent(it) as Container }
-        val nameTexts = rows.map { (it.components.first() as JLabel).text }
+        // 打勾时行首多一个勾的宽度，若不给未选中的行补上，切换时整列文字会横向跳。
+        // 2026-09-21 卡片版：勾住在一个**固定宽度的面板**里（[tickGutter]），
+        // 所以直接钉它的宽度，不用再去翻组件树的形状
+        val on = tickGutter(selected = true).preferredSize
+        val off = tickGutter(selected = false).preferredSize
 
-        // 未打勾的行以空格开头，打勾的以 MARK 开头 —— 两者都是两个字符
-        assertTrue(nameTexts.any { it.startsWith(MARK) }, "没有一行打勾：$nameTexts")
-        assertFalse(nameTexts.any { it.isNotEmpty() && !it.startsWith(MARK) && !it.startsWith(" ") },
-            "有行的首字符既不是勾也不是空格，缩进对不齐：$nameTexts")
+        assertEquals(on.width, off.width, "选中与未选中的勾位宽度不一样，文字会左右跳")
+        assertTrue(off.width > 0, "未选中时勾位没有宽度")
     }
 }

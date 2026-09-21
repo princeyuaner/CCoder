@@ -136,7 +136,7 @@ class ComposerModelTest {
                 ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro")),
                 ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
             ),
-            "a",
+            null,
             { PickEffect.Hot }, {}, {},
         )
         val texts = textsIn(list)
@@ -148,7 +148,12 @@ class ComposerModelTest {
         assertTrue(texts.any { it.contains("qwen") }, "少了 qwen：$texts")
     }
 
-    /** 勾判的是**两级**：选中的那条配置、以及它当前那个模型。 */
+    /**
+     * 勾判的是**两级**：选中的那条配置、以及它当前那个模型。
+     *
+     * 2026-09-21 起勾是**单独一个标签**（好让它用强调色），所以断言从
+     * "哪段文字里有勾"改成"勾落在哪一行里" —— 同一个意思，而且更贴题。
+     */
     @Test
     fun `当前项只打一个勾`() {
         val list = buildModelList(
@@ -156,13 +161,17 @@ class ComposerModelTest {
                 ModelProfile(id = "a", name = "中转", modelId = "pro", modelIds = mutableListOf("flash", "pro")),
                 ModelProfile(id = "b", name = "本地", modelId = "qwen", modelIds = mutableListOf("qwen")),
             ),
-            "a",
+            ModelPick("a", "pro"),
             { PickEffect.Hot }, {}, {},
         )
-        val marked = textsIn(list).filter { it.contains(MARK) }
 
-        assertEquals(1, marked.size, "应当且只应当标一个当前项：$marked")
-        assertTrue(marked[0].contains("pro"), "标错了：${marked[0]}")
+        assertEquals(1, textsIn(list).count { it == MARK }, "应当且只应当标一个当前项：${textsIn(list)}")
+
+        val proRow = labelContaining(list, "pro").parent as Container
+        assertTrue(textsIn(proRow).contains(MARK), "当前项没打勾：${textsIn(proRow)}")
+
+        val flashRow = labelContaining(list, "flash").parent as Container
+        assertTrue(!textsIn(flashRow).contains(MARK), "非当前项也打了勾：${textsIn(flashRow)}")
     }
 
     /**
@@ -190,7 +199,7 @@ class ComposerModelTest {
         val picked = mutableListOf<ModelPick>()
         val list = buildModelList(
             listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro"))),
-            "a",
+            null,
             { PickEffect.Hot },
             { picked += it },
             {},
@@ -214,7 +223,7 @@ class ComposerModelTest {
                 ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash")),
                 ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
             ),
-            "a",
+            null,
             { p -> if (p.id == "a") PickEffect.Hot else PickEffect.Restart },
             {}, {},
         )
@@ -245,7 +254,7 @@ class ComposerModelTest {
         var managed = 0
         val list = buildModelList(
             listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
-            "a", { PickEffect.Hot }, {}, { managed++ },
+            null, { PickEffect.Hot }, {}, { managed++ },
         )
 
         click(labelContaining(list, MANAGE_LABEL))
@@ -262,7 +271,7 @@ class ComposerModelTest {
         val texts = textsIn(
             buildModelList(
                 listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
-                "a", { PickEffect.Hot }, {}, {},
+                null, { PickEffect.Hot }, {}, {},
             )
         ).joinToString("\n")
 
@@ -272,29 +281,31 @@ class ComposerModelTest {
         }
     }
 
-    // ---- 组头写什么 ----
+    // ---- 卡头写什么 ----
 
     @Test
-    fun `组头写配置名与端点主机`() {
-        // 两条配置可以都叫「中转」，光看名字选不出来 —— 得让用户认出是哪条
+    fun `卡头写配置名与端点主机`() {
+        // 两条配置可以都叫「中转」，光看名字选不出来 —— 得让用户认出是哪条。
+        // 2026-09-21 起这两个是**两个标签**（主次不同色），所以断言看渲染出来的文字
         val p = ModelProfile(name = "中转", baseUrl = "https://api.deepseek.com/v1")
 
-        assertEquals("中转 · api.deepseek.com", groupHeaderText(p))
+        val texts = textsIn(buildModelList(listOf(p), null, { PickEffect.Hot }, {}, {}))
+
+        assertTrue(texts.contains("中转"), "少了配置名：$texts")
+        assertTrue(texts.contains("api.deepseek.com"), "少了端点主机：$texts")
     }
 
     @Test
-    fun `组头不出现空白：没填端点写官方端点`() {
-        assertEquals("官方 · 官方端点", groupHeaderText(ModelProfile(name = "官方")))
+    fun `端点不出现空白：没填写官方端点`() {
+        assertEquals("官方端点", endpointLabel(""))
     }
 
     @Test
     fun `主机名再长也会截断`() {
-        val p = ModelProfile(name = "公司中转", baseUrl = "https://api.anthropic-relay.internal.corp.example.com")
+        val host = endpointLabel("https://api.anthropic-relay.internal.corp.example.com")
 
-        val header = groupHeaderText(p)
-
-        assertTrue(header.endsWith("…"), "没有截断：$header")
-        assertTrue(header.length < 40, "截完还是太长：$header")
+        assertTrue(host.endsWith("…"), "没有截断：$host")
+        assertTrue(host.length < 40, "截完还是太长：$host")
     }
 
     /**
@@ -314,7 +325,7 @@ class ComposerModelTest {
 
         val list = buildModelList(
             listOf(long, ModelProfile(id = "b", name = "本地 Qwen", modelIds = mutableListOf("qwen"))),
-            "b",
+            null,
             { PickEffect.Restart },
             {}, {},
         )

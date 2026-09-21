@@ -117,6 +117,9 @@ class ProfileEnvWiringTest {
     ): ClaudeSettings {
         profiles.upsert(selected.withModelList())
         profiles.setSecret(selected.id, secret)
+        // 选中态 2026-09-21 起按会话标签分，起会话时由调用方把"这个会话用哪个"传给
+        // toStartParams。这些用例测的是**由选中的配置推导 env**，所以下面各条用
+        // `profiles.recent()` 顶上 —— 它就是改版前 toStartParams 自己会去读的那个值
         profiles.select(selected.id)
         return ClaudeSettings().apply(configure)
     }
@@ -135,7 +138,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         ) { model = "老字段" }
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("glm-4.6", p.model, "选中了配置，模型就该由它说了算")
         assertEquals("https://api.example.com", p.envOverrides["ANTHROPIC_BASE_URL"])
@@ -153,7 +156,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("1", p.envOverrides[HOST_MANAGED_PROVIDER_VAR])
     }
@@ -169,7 +172,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         for (key in ROUTING_MODEL_ENV_VARS) {
             assertEquals("glm-4.6", p.envOverrides[key], "$key 该指到配置的模型")
@@ -188,7 +191,7 @@ class ProfileEnvWiringTest {
             secret = "sk-ant-live",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         for (key in ROUTING_MODEL_ENV_VARS) {
             assertNull(p.envOverrides[key], "$key 不该被设")
@@ -204,7 +207,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         for (key in ROUTING_MODEL_ENV_VARS) {
             assertNull(p.envOverrides[key], "没填 modelId 就没得给，不该瞎指")
@@ -222,7 +225,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("true", p.envOverrides[TASK_TOOLS_VAR])
     }
@@ -238,7 +241,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         ) { envOverrides = mutableMapOf(TASK_TOOLS_VAR to "false") }
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("false", p.envOverrides[TASK_TOOLS_VAR], "手填的没被默认值盖掉")
     }
@@ -253,7 +256,7 @@ class ProfileEnvWiringTest {
             secret = "",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertNull(p.envOverrides[TASK_TOOLS_VAR])
     }
@@ -269,7 +272,7 @@ class ProfileEnvWiringTest {
             secret = "sk-ant-live",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("sk-ant-live", p.envOverrides["ANTHROPIC_API_KEY"])
         assertEquals("1", p.envOverrides[HOST_MANAGED_PROVIDER_VAR])
@@ -287,7 +290,7 @@ class ProfileEnvWiringTest {
             secret = "",
         ) { envOverrides = mutableMapOf("ANTHROPIC_AUTH_TOKEN" to "sk-user") }
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertNull(
             p.envOverrides[HOST_MANAGED_PROVIDER_VAR],
@@ -307,7 +310,7 @@ class ProfileEnvWiringTest {
             envOverrides = mutableMapOf("ANTHROPIC_BASE_URL" to "https://old", "MY_VAR" to "1")
         }
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("https://new.example.com", p.envOverrides["ANTHROPIC_BASE_URL"])
         assertEquals("1", p.envOverrides["MY_VAR"])
@@ -325,7 +328,7 @@ class ProfileEnvWiringTest {
             secret = "sk-live",
         ) { model = "claude-opus-5" }
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertNull(p.model, "选中了配置就该由它说了算，老字段不该被读到，实际：${p.model}")
         assertEquals("https://api.example.com", p.envOverrides["ANTHROPIC_BASE_URL"], "其它字段照常来自配置")
@@ -342,7 +345,7 @@ class ProfileEnvWiringTest {
 
         assertEquals(
             s.toStartParams(Path.of("/proj")),
-            s.toStartParams(Path.of("/proj"), profiles),
+            s.toStartParams(Path.of("/proj"), profiles, profiles.recent()),
         )
     }
 
@@ -358,7 +361,7 @@ class ProfileEnvWiringTest {
         )
 
         assertThrows(ModelProfileIncomplete::class.java) {
-            s.toStartParams(Path.of("/proj"), profiles)
+            s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
         }
     }
 
@@ -371,7 +374,7 @@ class ProfileEnvWiringTest {
             secret = "",
         )
 
-        val p = s.toStartParams(Path.of("/proj"), profiles)
+        val p = s.toStartParams(Path.of("/proj"), profiles, profiles.recent())
 
         assertEquals("claude-opus-5", p.model)
         assertNull(p.envOverrides["ANTHROPIC_API_KEY"], "没密钥就是没密钥，CLI 登录态走它自己")

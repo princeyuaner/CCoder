@@ -210,6 +210,32 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         var envOverrides: MutableMap<String, String> = mutableMapOf(),
         var sendShortcut: String = SendShortcut.DEFAULT.name,
         var effort: String = EffortSetting.DEFAULT.name,
+
+        /**
+         * 这个**项目**最近用的模型：哪条配置（[lastProfileId]）+ 它里面的哪个模型
+         * （[lastModelId]）。
+         *
+         * 2026-09-21 起选中态是**按会话标签**记的（见 [lastModel]），而这里是它
+         * 持久化的那一份：新标签从它开局，所以换个会话不必重选，重启 IDE 也记得。
+         *
+         * 存的是两个 id 而不是一份配置快照：配置列表是全应用共享的、随时会被改
+         * （删掉、改端点、删模型），存快照会存下一份跟不上的旧值。
+         */
+        var lastProfileId: String? = null,
+        var lastModelId: String? = null,
+
+        /**
+         * 上次退出时**开着**的那几个会话标签（2026-09-21），按开出来的顺序。
+         *
+         * 在这之前标签集合是纯内存的（`SessionTabs.panels`），关 IDE 就只剩工厂
+         * 重建的那一条 —— 开了 5 个页签，回来只剩 1 个，另外 4 条得自己去会话
+         * 列表里找回来。这一份就是"照原样回来"的依据。
+         *
+         * 每条只是一组 id（见 [OpenTab]），**不是**"这几条会话由本插件持有"：
+         * 会话始终住在 claude 自己的 jsonl 里，删了就是删了，回来时那条标签
+         * 会如实变成空的。
+         */
+        var openTabs: MutableList<OpenTab> = mutableListOf(),
     )
 
     private var myState = State()
@@ -244,6 +270,56 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             ?: EffortSetting.DEFAULT
         set(value) { myState.effort = value.name }
 
+    /**
+     * 这个项目最近用的模型 —— **会话标签开局时的那一份**（2026-09-21 起）。
+     *
+     * 为什么选中态按会话标签而不按项目：模型是起 sidecar 时烤进进程环境的，
+     * 改了设置也到不了另一个**跑着的**会话。全局一份的话，切一次会让别的窗口、
+     * 别的标签都显示成"已切"，而它们手里的会话根本没变 —— 标签于是开始撒谎。
+     * 按标签记，标签说的话就只是它自己那个会话的事。
+     *
+     * 三级回退：
+     *  1. 本项目记过 → 用它（**并且按记下的那条模型名重新挑**，而不是用配置里
+     *     存的 `modelId`：配置是共享的，别的项目可能刚把它改过）
+     *  2. 本项目没记过 → 借全应用的"最近一次选择"（[ModelProfiles.recent]）。
+     *     这一条是**给升级上来的用户兜底**：改版前只有全局那一份，没有它，
+     *     所有人打开项目都会看到"无模型"
+     *  3. 都借不到（配置被删了、模型被删了）→ null，就是"没选模型"，
+     *     启动参数里不传 `--model`，与从前一字不差
+     *
+     * 返回的是**快照**（`modelId` 已经落成选中的那个），可以直接拿去算 env。
+     */
+    fun lastModel(profiles: ModelProfiles): ModelProfile? {
+        val profileId = myState.lastProfileId
+        val modelId = myState.lastModelId
+        if (profileId != null && modelId != null) {
+            profiles.profiles()
+                .firstOrNull { it.id == profileId && modelId in it.modelIds }
+                ?.let { return it.copy(modelId = modelId) }
+        }
+        return profiles.recent()
+    }
+
+    /** 记下"这个项目现在用这条配置里的这个模型"。见 [lastModel]。 */
+    fun rememberModel(profileId: String, modelId: String) {
+        myState.lastProfileId = profileId
+        myState.lastModelId = modelId
+    }
+
+    /**
+     * 上次退出时开着的那些标签（[State.openTabs]）。给的是**快照**。
+     *
+     * 复制而不是直接把 `myState` 里那份交出去：调用方（`SessionTabs`）拿到之后
+     * 会 pruning、会往回调里传，交出活的那一份等于让两处共用一个可变列表 ——
+     * 同 [loadState] 里那段注释说的坑。
+     */
+    fun openTabs(): List<OpenTab> = myState.openTabs.map { it.copy() }
+
+    /** 记下现在开着哪些标签。见 [State.openTabs]。 */
+    fun rememberOpenTabs(tabs: List<OpenTab>) {
+        myState.openTabs = tabs.map { it.copy() }.toMutableList()
+    }
+
     override fun getState(): State = myState
 
     /**
@@ -259,6 +335,13 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
             envOverrides = state.envOverrides.toMutableMap(),
             sendShortcut = state.sendShortcut,
             effort = state.effort,
+            // 逐字段复制是这份代码的规矩（见上面那段注释）—— 新加的字段忘了写
+            // 就会**静默**丢掉，症状是"重启 IDE 之后模型又变回去了"
+            lastProfileId = state.lastProfileId,
+            lastModelId = state.lastModelId,
+            // 同一条坑，症状是"重启后页签又只剩一个"：这里漏了的话，磁盘上的
+            // 存档每次都被读成空表，而写盘那边照样在写
+            openTabs = state.openTabs.map { it.copy() }.toMutableList(),
         )
     }
 
@@ -288,12 +371,21 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
      *   自己去 `getInstance()` —— 单测环境里没有 Application 服务，而 Kotlin 的
      *   默认参数**照样会被求值**，那种 `runCatching` 兜底兜不住任何东西，还会顺手
      *   把生产路径上真实的注册失败也吞掉。生产侧由 `sendStart` 显式传入（Task 6）。
+     * @param picked 这个**会话**要用哪条配置、哪个模型，由调用方（那个标签）给。
+     *   2026-09-21 起它不再从 `profiles.selected()` 现取 —— 那是个全应用的
+     *   选中态，拿它起会话等于让"我选的"跟"这个标签在用的"变成两回事。
+     *   默认 null = 这个会话没选模型（走 CLI 自己的默认档）。生产侧只有
+     *   `sendStart` 一处调用，它必须把本标签那份显式传进来。
      */
-    fun toStartParams(cwd: Path, profiles: ModelProfiles? = null): StartParams {
-        val picked = profiles?.selected()
+    fun toStartParams(
+        cwd: Path,
+        profiles: ModelProfiles? = null,
+        picked: ModelProfile? = null,
+    ): StartParams {
         val pickedEnv = picked?.let { profile ->
-            // 官方端点下密钥为空是合法的，modelProfileEnv 自己会处理
-            modelProfileEnv(profile, profiles.secretOf(profile.id))
+            // `profiles` 为 null 就等于"一条都没配"，那时没有地方能读到密钥 ——
+            // 给空串。官方端点下空密钥本来就是合法的（modelProfileEnv 自己会处理）
+            modelProfileEnv(profile, profiles?.secretOf(profile.id).orEmpty())
         } ?: emptyMap()
         // 别名与后台任务的等价模型名。它也是"配置那一侧"的产出 —— 手填的
         // envOverrides 盖不过它，与 §6 同一条规矩（冲突的键由模型页列出来）

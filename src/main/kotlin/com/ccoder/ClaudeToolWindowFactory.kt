@@ -26,7 +26,8 @@ class ClaudeToolWindowFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         // 面板的创建、上限、关闭确认、标题都归 SessionTabs —— 这里只负责"把容器接上、
-        // 开第一个标签"。面板自己仍然只吃一个 project（见 SessionTabs 的类注释）
-        SessionTabs.getInstance(project).apply { attach(project, toolWindow) }.openFirstTab()
+        // 开第一批标签"（有存档就照存档开，见 openInitialTabs）。面板自己仍然只吃
+        // 一个 project（见 SessionTabs 的类注释）
+        SessionTabs.getInstance(project).apply { attach(project, toolWindow) }.openInitialTabs()
     }
 }

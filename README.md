@@ -107,7 +107,7 @@ them.
 |---|---|
 | **Models** | Model profiles: name, auth kind, Base URL, model ids, key |
 | **Presets** | Your own prompt presets (`/` in the input box) |
-| **General** | Runtime (the `claude` executable), session defaults (fallback model, effort, send shortcut), interface language |
+| **General** | Runtime (the `claude` executable), session defaults (fallback model, effort, send shortcut), interface language, font family and size (transcript only), thinking collapse (off by default) |
 | **Permissions** | The permission mode new sessions start in |
 | **Environment** | Runtime dependencies (detect / install `claude` and Node), extra directories (`--add-dir`), environment variables |
 | **MCP** | The project's `.mcp.json` + the live status of each server |

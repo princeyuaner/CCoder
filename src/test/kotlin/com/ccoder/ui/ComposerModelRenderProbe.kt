@@ -12,8 +12,11 @@ import java.awt.Container
 import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import java.io.File
+import javax.swing.UIManager
+import com.intellij.ide.ui.laf.darcula.DarculaLaf
 import javax.imageio.ImageIO
 import javax.swing.BoxLayout
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
@@ -122,14 +125,55 @@ class ComposerModelRenderProbe {
     fun `把切换弹层画成图片`() = renderPopup(
         "build/probe/composer-model-popup.png",
         profiles = listOf(opus, longDetail, qwen, official, bare),
-        currentId = "p1",
+        current = ModelPick("p1", "claude-opus-4-6"),
         effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
     )
 
     /** 一条配置都没有时。这是新用户点开看到的第一眼。 */
     @Test
     fun `把空弹层画成图片`() =
-        renderPopup("build/probe/composer-model-popup-empty.png", profiles = emptyList(), currentId = null)
+        renderPopup("build/probe/composer-model-popup-empty.png", profiles = emptyList(), current = null)
+
+    /**
+     * 深色主题下再画一遍。
+     *
+     * 探针默认跑在测试的浅色 LAF 下，而这个弹层绝大多数时候出现在深色 IDE 里 ——
+     * 同一档颜色在两个主题里差得很远（警示色浅色是 #D84315、深色是 #FF8A65），
+     * 只看浅色等于没看。
+     *
+     * 换不上 Darcula 就**什么都不做**（测试环境不一定带这套 LAF）—— 这条是给人
+     * 看的，不是断言，画不出来不该红。
+     */
+    @Test
+    fun `把切换弹层画成图片（深色）`() {
+        val before = UIManager.getLookAndFeel()
+        if (runCatching { UIManager.setLookAndFeel(DarculaLaf()) }.isFailure) return
+        try {
+            renderPopup(
+                "build/probe/composer-model-popup-dark.png",
+                profiles = listOf(opus, longDetail, qwen, official, bare),
+                current = ModelPick("p1", "claude-opus-4-6"),
+                effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
+            )
+        } finally {
+            runCatching { UIManager.setLookAndFeel(before) }
+        }
+    }
+
+    /**
+     * 悬停的那一行。
+     *
+     * 底色是这次新加的（悬停、选中、勾位三样），而"看得出悬停"这件事**只能看** ——
+     * 单测钉得住"用的是哪一档颜色"，钉不住"隔着一行看不看得出来"。
+     */
+    @Test
+    fun `把弹层里悬停的那一行画成图片`() = renderPopup(
+        "build/probe/composer-model-popup-hover.png",
+        profiles = listOf(opus, longDetail, qwen, official, bare),
+        current = ModelPick("p1", "claude-opus-4-6"),
+        effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
+        hoverModel = "qwen3-coder-30b",
+    )
 
     /** 弹层最宽的那一版：模型名与主机名都很长。 */
     private val longDetail = ModelProfile(
@@ -200,11 +244,13 @@ class ComposerModelRenderProbe {
     private fun renderPopup(
         path: String,
         profiles: List<ModelProfile>,
-        currentId: String?,
+        current: ModelPick?,
         effectOf: (ModelProfile) -> PickEffect = { PickEffect.Hot },
+        hoverModel: String? = null,
     ) {
         SwingUtilities.invokeAndWait {
-            val list = buildModelList(profiles, currentId, effectOf, {}, {})
+            val list = buildModelList(profiles, current, effectOf, {}, {})
+            hoverModel?.let { hoverRow(list, it) }
             val pad = JBUI.scale(10)
             val outer = JPanel(BorderLayout()).apply {
                 isOpaque = true
@@ -228,6 +274,23 @@ class ComposerModelRenderProbe {
         // 离屏组件收不到真实的鼠标进出事件，直接喊监听器
         val e = MouseEvent(c, MouseEvent.MOUSE_ENTERED, System.currentTimeMillis(), 0, 5, 5, 0, false)
         c.mouseListeners.forEach { it.mouseEntered(e) }
+    }
+
+    /**
+     * 悬停写着某个模型名的那一行。
+     *
+     * 行自己不是 `JLabel`（也不在测试的可见范围内），所以先找到名字标签，
+     * 再喊它爹 —— 行是标签的父容器。
+     */
+    private fun hoverRow(root: Container, model: String) {
+        fun walk(c: Container): java.awt.Component? {
+            for (child in c.components) {
+                if (child is JLabel && child.text.contains(model)) return child.parent
+                if (child is Container) walk(child)?.let { return it }
+            }
+            return null
+        }
+        walk(root)?.let { hover(it) }
     }
 
     private fun write(c: Container, w: Int, h: Int, path: String) {

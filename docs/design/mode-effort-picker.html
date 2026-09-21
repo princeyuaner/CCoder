@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder · 权限模式 / 思考深度弹层 · 四种样式</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   配色与 model-picker.html 同一套（PyCharm 2025.3 New UI）。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --accent-line:rgba(84,138,247,.5);
+  --row-hover:#3a3d42; --sel:#2e436e;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --warn-line:rgba(217,163,67,.42); --warn-soft:rgba(217,163,67,.12);
+  --pop-shadow: 0 16px 42px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#ffffff; --editor:#f7f8fa; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --accent-line:rgba(53,116,240,.45);
+  --row-hover:#eef0f4; --sel:#d4e2ff;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --warn-line:rgba(176,125,26,.45); --warn-soft:rgba(176,125,26,.12);
+  --pop-shadow: 0 12px 32px rgba(0,0,0,.16), 0 1px 4px rgba(0,0,0,.10);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased; transition: background .2s, color .2s; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+            padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 36px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 78ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--page-card); padding: 1px 5px; border-radius: 4px; color: var(--text); border:1px solid var(--page-line); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; transition:.15s; }
+.toggle button.on { background: var(--accent); color: var(--accent-fg); }
+.toggle button:not(.on):hover { color: var(--page-fg); }
+
+.hint { display:flex; gap:10px; align-items:flex-start; margin: 26px 0 0; padding: 14px 18px;
+  border:1px solid var(--page-line); border-left:3px solid var(--accent); border-radius: 8px;
+  background: var(--page-card); color: var(--page-dim); font-size: 13.5px; }
+.hint b { color: var(--page-fg); }
+
+/* 参照区：已经装上的模型弹层 */
+.ref { display:grid; grid-template-columns: 300px minmax(0,1fr); gap:34px; align-items:start;
+       margin-top: 30px; padding: 22px; border:1px dashed var(--page-line); border-radius: 12px; }
+@media (max-width: 900px) { .ref { grid-template-columns: 1fr; } }
+.ref h3 { font-family: var(--mono); font-size: 11px; letter-spacing:.09em; text-transform:uppercase;
+          color: var(--page-dim); margin: 0 0 10px; font-weight: 600; }
+.ref p { margin: 0 0 10px; color: var(--page-dim); font-size: 13.5px; max-width: 70ch; }
+.ref p b { color: var(--page-fg); }
+
+.variant { margin-top: 58px; padding-top: 32px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom: 6px; }
+.vhead h2 { font-family: var(--serif); font-size: 24px; margin: 0; font-weight: 600; }
+.vhead .letter { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing:.1em; }
+.tag { font-family: var(--mono); font-size: 10.5px; letter-spacing:.1em; text-transform:uppercase;
+       padding: 3px 9px; border-radius: 5px; border:1px solid var(--page-line); color: var(--page-dim); }
+.tag.lo { color: var(--ok); border-color: rgba(95,173,101,.45); }
+.tag.mid { color: var(--warn); border-color: var(--warn-line); }
+.vsub { color: var(--page-dim); margin: 0 0 22px; max-width: 80ch; font-size: 14px; }
+.vsub b { color: var(--page-fg); }
+
+/* 两个弹层并排 + 各自的输入框那一行 */
+.pair { display:grid; grid-template-columns: 1fr 1fr; gap: 26px; align-items:start; }
+@media (max-width: 860px) { .pair { grid-template-columns: 1fr; } }
+.stage { border:1px solid var(--page-line); border-radius: 10px; background: var(--editor); padding: 16px 16px 0; }
+.stage .cap { font-family: var(--mono); font-size: 10px; letter-spacing:.1em; text-transform:uppercase;
+              color: var(--page-dim); margin-bottom: 10px; }
+.composer { display:flex; align-items:center; gap:12px; height: 38px; padding:0 10px; margin-top: 10px;
+  border:1px solid var(--border); border-bottom:0; border-radius: 12px 12px 0 0; background: var(--surface);
+  position: relative; z-index: 1; }
+.composer span { color: var(--dim); font-size: 12.5px; white-space:nowrap; }
+.composer span.live { color: var(--text); }
+.composer .grow { flex:1; }
+
+/* ---------- 弹层外壳（两个弹层都照真实宽度画） ---------- */
+.pop { position:relative; width: 296px; margin: 0 auto 10px; background: var(--panel);
+  border:1px solid var(--border); border-radius: 10px; box-shadow: var(--pop-shadow); }
+
+/* ---------- 行：两个弹层共用一套，正是要证明"它们是一族" ---------- */
+.orow { display:flex; gap:8px; cursor:pointer; }
+.oname { font-size: 13px; color: var(--text); }
+.odesc { font-size: 11.5px; color: var(--dim); line-height: 1.45; }
+.tick { flex:0 0 15px; color: var(--accent); }
+.tick::before { content:'✓'; opacity:0; }
+.orow.sel .tick::before { opacity:1; }
+.orow.danger .oname { color: var(--warn); }
+
+/* ============ 0 · 现状 ============ */
+.v0 { padding: 4px; }
+.v0 .orow { padding: 3px 6px; }
+.v0 .oname { font-weight: 400; }
+.v0 .orow.sel .oname { font-weight: 700; }
+.v0 .oname { display:flex; }
+.v0 .tick { flex:0 0 15px; }
+.v0 .body { flex:1; }
+
+/* ============ A · 同族精修 ============ */
+.vA { padding: 6px; }
+.vA .orow { padding: 6px 8px; border-radius: 8px; align-items: flex-start; }
+.vA .orow:hover { background: var(--row-hover); }
+.vA .orow.sel { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.vA .body { flex:1; min-width:0; }
+.vA .tick { margin-top: 1px; }
+
+/* ============ B · 右列标记（模式用词、档位用条） ============ */
+.vB { padding: 6px; }
+.vB .orow { padding: 6px 8px; border-radius: 8px; align-items: center; }
+.vB .orow:hover { background: var(--row-hover); }
+.vB .orow.sel { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.vB .body { flex:1; min-width:0; }
+.vB .mk { font-size: 10.5px; white-space:nowrap; padding: 1px 7px; border-radius: 999px;
+          border:1px solid var(--border); color: var(--dim); }
+.vB .mk.danger { color: var(--warn); border-color: var(--warn-line); background: var(--warn-soft); }
+.vB .bars { display:flex; align-items:flex-end; gap:2px; height: 14px; }
+.vB .bars i { width:3px; border-radius:1px; background: var(--border); }
+.vB .bars i.on { background: var(--accent); }
+.vB .bars i:nth-child(1){height:4px} .vB .bars i:nth-child(2){height:6px}
+.vB .bars i:nth-child(3){height:8px} .vB .bars i:nth-child(4){height:11px}
+.vB .bars i:nth-child(5){height:14px}
+
+/* ============ C · 卡片分组 ============ */
+.vC { padding: 0; background: transparent; border:0; box-shadow:none;
+      display:flex; flex-direction:column; gap:8px; }
+.vC .card { background: var(--panel); border:1px solid var(--border-soft); border-radius: 12px;
+            padding: 5px; box-shadow: var(--pop-shadow); }
+.vC .chead { font-size: 10.5px; letter-spacing:.04em; color: var(--dim); padding: 7px 9px 3px; }
+.vC .card.careful .chead { color: var(--warn); }
+.vC .card.careful { border-color: var(--warn-line); }
+.vC .orow { padding: 6px 8px; border-radius: 8px; align-items: flex-start; }
+.vC .orow:hover { background: var(--row-hover); }
+.vC .orow.sel { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.vC .body { flex:1; min-width:0; }
+.vC .tick { margin-top: 1px; }
+
+/* ============ D · 紧凑单行 + 底部说明条 ============ */
+.vD { padding: 6px; }
+.vD .orow { padding: 0 8px; height: 26px; border-radius: 6px; align-items: center; }
+.vD .orow:hover { background: var(--row-hover); }
+.vD .orow.sel { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.vD .body { flex:1; min-width:0; display:flex; align-items:center; }
+.vD .odesc { display:none; }
+.vD .foot { border-top:1px solid var(--border-soft); margin-top: 5px; padding: 8px 9px 9px;
+            font-size: 11.5px; color: var(--dim); min-height: 48px; line-height: 1.45; }
+.vD .foot b { color: var(--text); font-weight: 400; }
+.vD .foot.warn { color: var(--warn); }
+
+/* ---------- 规格 & 对照表 ---------- */
+.spec { margin: 20px 0 0; display:grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+@media (max-width: 860px) { .spec { grid-template-columns: 1fr; } }
+.spec dt { font-family: var(--mono); font-size: 10.5px; letter-spacing:.09em; text-transform:uppercase; color: var(--page-dim); margin: 0 0 5px; }
+.spec dd { margin: 0 0 14px; font-size: 13.5px; color: var(--text); }
+.spec dd ul { margin: 0; padding-left: 18px; }
+.spec dd li { margin-bottom: 4px; }
+.spec dd li::marker { color: var(--page-dim); }
+.good li::marker { color: var(--ok); }
+.bad li::marker { color: var(--warn); }
+
+table.cmp { width:100%; border-collapse: collapse; margin-top: 26px; font-size: 13px; }
+table.cmp th, table.cmp td { text-align:left; padding: 11px 12px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+table.cmp th { font-family: var(--mono); font-size: 10.5px; letter-spacing:.09em; text-transform:uppercase; color: var(--page-dim); font-weight:600; }
+table.cmp td:first-child { font-weight: 600; white-space: nowrap; }
+table.cmp tr.hl td { background: var(--accent-soft); }
+
+.verdict { margin-top: 52px; padding: 26px 30px; border:1px solid var(--page-line); border-radius: 12px; background: var(--page-card); }
+.verdict h2 { font-family: var(--serif); margin: 0 0 10px; font-size: 22px; }
+.verdict p { margin: 0 0 12px; color: var(--page-dim); max-width: 86ch; }
+.verdict p b { color: var(--page-fg); }
+.verdict ol { margin: 0; padding-left: 20px; color: var(--text); }
+.verdict ol li { margin-bottom: 6px; }
+footer { margin-top: 46px; padding-top: 20px; border-top: 1px solid var(--page-line); color: var(--page-dim); font-size: 12.5px; }
+footer b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-21</p>
+      <h1>权限模式与思考深度：这两个弹层该长什么样</h1>
+      <p class="lede">
+        它俩和刚换过样式的<b>模型弹层</b>并排站在同一行里，所以问题不只是"好不好看"，
+        还有"三个弹层像不像一家人"。今天的两个弹层共有的毛病：<b>没有悬停</b>、
+        <b>选中只有勾和加粗</b>、<b>十二行灰字一样重</b>，而「绕过权限」那句最该被看见的
+        危险说明，就埋在这片灰里。
+      </p>
+    </div>
+    <div class="toggle">
+      <button id="t-dark" class="on" onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <div class="hint">
+    <span>👉</span>
+    <div>每一行都<b>可以悬停、可以点</b> —— D 案的底部说明条会跟着鼠标走，点一下就能试。两个弹层的行是<b>同一套样式</b>，这是有意的：它们本来就是一族。</div>
+  </div>
+
+  <!-- ============ 参照：已经装上的模型弹层 ============ -->
+  <section class="ref">
+    <div>
+      <h3>参照 · 已装上的模型弹层</h3>
+      <div class="pop"><div class="vC" style="padding:0">
+        <div class="card">
+          <div style="padding:7px 9px 3px;display:flex;gap:8px;align-items:baseline">
+            <span style="font-size:12.5px;font-weight:600;color:var(--text)">公司tokenhub</span>
+            <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">tokenhub.lihoogame.com…</span>
+          </div>
+          <div class="orow sel" style="padding:0 8px;height:30px;border-radius:8px;align-items:center"><span class="tick"></span><div class="body"><div class="oname">deepseek-v4-flash[1m]</div></div></div>
+          <div class="orow" style="padding:0 8px;height:30px;border-radius:8px;align-items:center"><span class="tick"></span><div class="body"><div class="oname">deepseek-v4-pro[1m]</div></div></div>
+        </div>
+      </div></div>
+    </div>
+    <div>
+      <h3>为什么拿它当尺子</h3>
+      <p>它昨天刚定稿（B 分组卡片）：<b>卡片分组、30px 行、勾位 + 悬停底 + 选中底 + 强调色勾</b>。
+        这三个弹层会连着被点开，样式差一档就会立刻看出来。</p>
+      <p>所以下面每个方案都同时画<b>权限模式</b>和<b>思考深度</b>两个弹层 —— 一个方案只在其中一个上好看，不算数。</p>
+    </div>
+  </section>
+
+  <!-- ============ 0 ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">方案 0</span><h2>现状</h2><span class="tag">baseline</span></div>
+    <p class="vsub">照 <code>buildModeList</code> / <code>buildEffortList</code> 今天的画法复刻：名字一行、说明一行，勾是文字前缀，选中加粗，其余一视同仁。</p>
+    <div class="pair" id="p0"></div>
+  </section>
+
+  <!-- ============ A ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">方案 A</span><h2>同族精修</h2><span class="tag lo">成本 低</span></div>
+    <p class="vsub">一行结构不动，把模型弹层那套行的做法搬过来：<b>固定勾位 + 悬停底 + 选中底 + 强调色勾</b>。两个字读起来更清楚 —— 名字是常规文字色，说明退一档。</p>
+    <div class="pair" id="pA"></div>
+    <dl class="spec">
+      <div><dt>好在哪</dt><dd><ul class="good">
+        <li>零新概念：和模型弹层是同一套行，三个弹层连起来点像一家人</li>
+        <li>选中一眼可见（底色），不用逐行找勾</li>
+        <li>改动只在绘制层，<code>modeColor</code> 那些判定一个字不动</li>
+      </ul></dd></div>
+      <div><dt>代价</dt><dd><ul class="bad">
+        <li>「绕过权限」还是只靠一行琥珀色的名字，没有别的分量</li>
+        <li>十二行仍然平铺，档位高低、问不问，还得逐行读说明</li>
+      </ul></dd></div>
+    </dl>
+  </section>
+
+  <!-- ============ B ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">方案 B</span><h2>右列标记</h2><span class="tag mid">成本 中</span></div>
+    <p class="vsub">在 A 的基础上，右列加一个"这一行是什么性质"的标记：<b>权限用词</b>（会问 / 只读 / 不问 / 危险），<b>档位用条</b>（五格竖条，越高档亮得越多）。两个列表的标记不同，因为它们要说的本来就是两件事。</p>
+    <div class="pair" id="pB"></div>
+    <dl class="spec">
+      <div><dt>好在哪</dt><dd><ul class="good">
+        <li>不用读说明就能扫：一眼看出哪几档是"会问你"的、哪几档是高的</li>
+        <li>危险那档有了一个专属的琥珀胶囊，跟模型弹层的〔会重开会话〕同一个语言</li>
+        <li>档位条把"低→最大"这条阶梯画出来了 —— 说明里那句"仅部分模型认"才有落点</li>
+      </ul></dd></div>
+      <div><dt>代价</dt><dd><ul class="bad">
+        <li>右列要新画三样东西（胶囊、竖条、问不问的标），比 A 多一份绘制活</li>
+        <li>"会问 / 只读 / 不问"是我替每一档归的类，算新的判断，得你认一下</li>
+      </ul></dd></div>
+    </dl>
+  </section>
+
+  <!-- ============ C ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">方案 C</span><h2>卡片分组</h2><span class="tag mid">成本 中</span></div>
+    <p class="vsub">直接用模型弹层那套卡片，把两个列表<b>各切一刀</b>：权限分成「会先问你」/「不再问你」，档位分成「通用档」/「仅部分模型认」。<b>都不重排</b> —— 刀口落在列表本来就有的那道缝上（枚举顺序里 4/5 之间）。</p>
+    <div class="pair" id="pC"></div>
+    <dl class="spec">
+      <div><dt>好在哪</dt><dd><ul class="good">
+        <li>三个弹层完全同族：同样的卡、同样的行、同样的勾位</li>
+        <li>把"说明里的小字"变成"结构"：极高/最大那两条的小字警告，现在是整张卡的标题</li>
+        <li>危险那一组自带琥珀卡头，绕过的分量终于对得上它的后果</li>
+      </ul></dd></div>
+      <div><dt>代价</dt><dd><ul class="bad">
+        <li>要新增一个"这条属于哪一组"的判定（<code>groupOf</code>），并给它写测试</li>
+        <li>卡片要多占约 45px 高；分组标题是我拟的词，得你认</li>
+        <li>"仅规划"归在「会先问你」那一组 —— 严格说它是"根本不用问"，措辞要么改要么忍</li>
+      </ul></dd></div>
+    </dl>
+  </section>
+
+  <!-- ============ D ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">方案 D</span><h2>紧凑单行 + 底部说明条</h2><span class="tag lo">成本 低</span></div>
+    <p class="vsub">列表只留名字（26px 一行），<b>说明挪到底部一条</b>：默认显示当前这档的说明，鼠标划过哪一行就换成哪一行。十二行灰字压成六行名字 + 一句说明。</p>
+    <div class="pair" id="pD"></div>
+    <dl class="spec">
+      <div><dt>好在哪</dt><dd><ul class="good">
+        <li>最省地方：6 行从约 230px 压到约 190px，两个弹层都不占屏幕</li>
+        <li>一次只读一句说明，眼睛不用在两列文字之间来回对</li>
+        <li>危险那档划过时，底部整条说明变琥珀色 —— 提示落在要点的那个动作上</li>
+      </ul></dd></div>
+      <div><dt>代价</dt><dd><ul class="bad">
+        <li>说明是"挑模式"的主要依据，藏到悬停后面有发现成本（默认只显示当前档那句）</li>
+        <li>两个弹层各自多一个会变的标签，比 A 多一处状态</li>
+      </ul></dd></div>
+    </dl>
+  </section>
+
+  <!-- ============ 对照表 ============ -->
+  <section class="variant">
+    <div class="vhead"><span class="letter">对照</span><h2>一眼对比</h2></div>
+    <table class="cmp">
+      <thead><tr><th>方案</th><th>核心手法</th><th>两个弹层高度</th><th>危险档的分量</th><th>与模型弹层同族</th><th>成本</th></tr></thead>
+      <tbody>
+        <tr><td>0 现状</td><td>——</td><td>≈230px</td><td>一行琥珀色名字</td><td>否（无卡、无悬停、无选中底）</td><td>——</td></tr>
+        <tr><td>A 同族精修</td><td>勾位 + 悬停 + 选中底</td><td>≈250px</td><td>仍是琥珀色名字</td><td>行一致，分组不一致</td><td>低</td></tr>
+        <tr><td>B 右列标记</td><td>右列"性质"标 / 档位条</td><td>≈250px</td><td>琥珀胶囊</td><td>行一致，多一个标记语言</td><td>中</td></tr>
+        <tr class="hl"><td>C 卡片分组</td><td>各切一刀，分两张卡</td><td>≈300px</td><td>整张卡琥珀描边</td><td>完全一致（同一套卡片）</td><td>中</td></tr>
+        <tr><td>D 紧凑 + 说明条</td><td>名字单行，说明在底部</td><td>≈190px</td><td>划过时底部整条变琥珀</td><td>行一致，但少了说明行</td><td>低</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 建议 ============ -->
+  <section class="verdict">
+    <h2>已选定：C 卡片分组（2026-09-21）</h2>
+    <p>
+      已实现到 <code>ComposerMode.kt</code> / <code>ComposerEffort.kt</code>。三处弹层共用的那套
+      "卡与行"抽成了 <code>PickerList.kt</code> —— 样式只写一遍。
+      真 Swing 的离屏渲染在 <code>build/probe/composer-mode-popup.png</code> 与
+      <code>composer-effort-popup.png</code>，动这处观感之前先看它们。
+    </p>
+    <p><b>组名定的是</b>：权限「常规 / 不再问你」，档位「通用档 / 仅部分模型认」。
+      第一组不叫「会先问你」——「仅规划」是只读、根本不执行工具，说它会问是反的。</p>
+    <p>实现时踩到并修掉的两个坑（都不在稿子的视野里，记在这儿免得下次再踩）：</p>
+    <ol>
+      <li><b>鼠标事件不冒泡</b>：一行里几乎每寸都被子标签盖着，悬停只挂在行自己的话，鼠标压在文字上这一行不亮 —— 而探针是直接喊监听器的，<b>看不出这类问题</b>。现在悬停挂到整棵子树上，并由一条单测钉住（<code>鼠标压在文字上这一行也要亮</code>）。这条同时修好了模型弹层那边的同一处毛病。</li>
+      <li><b>勾位在横向 <code>BoxLayout</code> 里会吃掉富余宽度</b>，把名字顶到行右端。<code>preferredSize / minimumSize / maximumSize</code> 三样得一起钉。</li>
+    </ol>
+    <p>另外补了两条宽度上限测试（两个弹层原先都没有），照模型弹层那条的样子写的。</p>
+  </section>
+
+  <footer>
+    设计稿，不是产品代码。文案全部取自 <code>CcoderBundle_zh.properties</code> 的真实词条，
+    行序按枚举顺序（权限：标准/自动接受编辑/自动判定/仅规划/不询问/绕过权限；档位：默认/低/中/高/极高/最大），
+    当前项按截图取「自动判定」与「思考·默认」。支持 <code>?theme=light</code>。
+  </footer>
+</div>
+
+<script>
+/* ---------------- 真实数据（照枚举顺序与词表） ---------------- */
+const MODES = [
+  { n:'标准',        d:'危险操作会先询问' },
+  { n:'自动接受编辑', d:'文件改动自动接受，其余仍询问' },
+  { n:'自动判定',    d:'模型逐条判定放不放行；拿不准的仍会询问' },
+  { n:'仅规划',      d:'只读：只做计划，不执行工具' },
+  { n:'不询问',      d:'不询问；未预先允许的一律拒绝' },
+  { n:'绕过权限',    d:'所有操作都不再询问', danger:true },
+];
+const EFFORTS = [
+  { n:'默认', d:'不干预，按模型自己的默认档执行' },
+  { n:'低',   d:'最少思考，最快回复' },
+  { n:'中',   d:'适度思考' },
+  { n:'高',   d:'深度推理（CLI 的默认档）' },
+  { n:'极高', d:'比「高」更深；仅部分模型认，其余降级为「高」' },
+  { n:'最大', d:'最高档；仅少数模型认，其余会降级' },
+];
+const CUR = { mode:'自动判定', effort:'默认' };
+
+/* 方案 B 的右列标记：权限用词，档位用条 */
+const MODE_TAG = { '标准':'会问', '自动接受编辑':'会问', '自动判定':'会问', '仅规划':'只读', '不询问':'不问', '绕过权限':'危险' };
+const EFFORT_BARS = { '默认':0, '低':1, '中':2, '高':3, '极高':4, '最大':5 };
+
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+/* ---------------- 行 ---------------- */
+function row(item, kind, v) {
+  const sel = (kind === 'mode' ? CUR.mode : CUR.effort) === item.n;
+  const cls = ['orow', sel ? 'sel' : '', item.danger ? 'danger' : ''].join(' ').trim();
+  let mark = '';
+  if (v === 'B') {
+    if (kind === 'mode') {
+      const t = MODE_TAG[item.n];
+      mark = `<span class="mk ${t === '危险' ? 'danger' : ''}">${t}</span>`;
+    } else {
+      const lv = EFFORT_BARS[item.n];
+      mark = `<span class="bars">${[1,2,3,4,5].map(i => `<i class="${i <= lv ? 'on' : ''}"></i>`).join('')}</span>`;
+    }
+  }
+  return `<div class="${cls}" data-kind="${kind}" data-name="${esc(item.n)}">`
+       + `<span class="tick"></span>`
+       + `<div class="body"><div class="oname">${esc(item.n)}</div>`
+       + (v === 'D' ? '' : `<div class="odesc">${esc(item.d)}</div>`)
+       + `</div>${mark}</div>`;
+}
+
+/* ---------------- C 案的两张卡 ---------------- */
+function cards(items, kind, v, groups) {
+  return groups.map(g => {
+    const body = items.slice(g.from, g.to).map(i => row(i, kind, v)).join('');
+    return `<div class="card ${g.careful ? 'careful' : ''}">`
+         + `<div class="chead">${esc(g.title)}</div>${body}</div>`;
+  }).join('');
+}
+
+const GROUPS = {
+  mode:  [ {title:'会先问你', from:0, to:4},
+           {title:'不再问你', from:4, to:6, careful:true} ],
+  effort:[ {title:'通用档',   from:0, to:4},
+           {title:'仅部分模型认', from:4, to:6, careful:true} ],
+};
+
+/* ---------------- 一个弹层 ---------------- */
+function popup(items, kind, v) {
+  const inner = (v === 'C')
+    ? cards(items, kind, v, GROUPS[kind])
+    : items.map(i => row(i, kind, v)).join('');
+  return `<div class="pop"><div class="v${v}">${inner}</div></div>`;
+}
+
+/* ---------------- 一个"舞台"：弹层 + 输入框那一行 ---------------- */
+function stage(items, kind, v, which) {
+  const lens = `<span class="${which==='model'?'live':''}">deepseek-flash[1m] ▾</span>
+                <span class="${which==='mode'?'live':''}">自动判定 ▾</span>
+                <span class="${which==='effort'?'live':''}">思考·默认 ▾</span>`;
+  return `<div class="stage">
+      <div class="cap">${kind === 'mode' ? '权限模式' : '思考深度'} · ${which === 'mode' ? '点「自动判定」' : '点「思考·默认」'}弹出来的</div>
+      ${popup(items, kind, v)}
+      <div class="composer">${lens}<span class="grow"></span>
+        <span style="color:var(--accent)">➤</span></div>
+    </div>`;
+}
+
+const SCHEMES = { p0:'0', pA:'A', pB:'B', pC:'C', pD:'D' };
+for (const [id, v] of Object.entries(SCHEMES)) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  el.innerHTML = stage(MODES, 'mode', v, 'mode') + stage(EFFORTS, 'effort', v, 'effort');
+  if (v === 'D') el.querySelectorAll('.stage').forEach(s => {
+    const rows = [...s.querySelectorAll('.orow')];
+    const foot = document.createElement('div');
+    foot.className = 'foot';
+    s.querySelector('.pop').appendChild(foot);
+    const show = r => {
+      const kind = r.dataset.kind;
+      const list = kind === 'mode' ? MODES : EFFORTS;
+      const item = list.find(x => x.n === r.dataset.name);
+      foot.innerHTML = `<b>${esc(item.n)}</b> · ${esc(item.d)}`;
+      foot.classList.toggle('warn', !!item.danger);
+    };
+    const cur = rows.find(r => r.classList.contains('sel'));
+    if (cur) show(cur);
+    rows.forEach(r => {
+      r.addEventListener('mouseenter', () => show(r));
+    });
+  });
+}
+
+/* 点一行 → 换选中（同一种列表的几个弹层一起变，跟真控件一样） */
+document.addEventListener('click', e => {
+  const r = e.target.closest('.orow');
+  if (!r) return;
+  if (r.dataset.kind === 'mode') CUR.mode = r.dataset.name;
+  else CUR.effort = r.dataset.name;
+  document.querySelectorAll('.orow').forEach(x => {
+    if (x.dataset.kind !== r.dataset.kind) return;
+    x.classList.toggle('sel', x.dataset.name === r.dataset.name);
+  });
+});
+
+/* ---------------- 主题 ---------------- */
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('t-dark').classList.toggle('on', t === 'dark');
+  document.getElementById('t-light').classList.toggle('on', t === 'light');
+}
+if (new URLSearchParams(location.search).get('theme') === 'light') setTheme('light');
+</script>
+</body>
+</html>

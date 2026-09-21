@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { applyPrefs } from './prefs'
 
 /**
  * 桥握手。
@@ -20,11 +21,17 @@ describe('App 与 Kotlin 的桥握手', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     delete window.ccoder
+    delete window.ccoderPrefs
   })
 
   afterEach(() => {
     vi.useRealTimers()
     delete window.ccoder
+    delete window.ccoderPrefs
+    delete window.ccoderSetPrefs
+    // 偏好的 store 是**模块级**的（vitest 按文件隔离、同文件内会串）——
+    // 不收尾的话下一条用例会带着上一条的开关跑（见 prefs.test.ts）
+    act(() => applyPrefs(undefined))
   })
 
   it('桥晚于挂载注入时，仍会补发 ready', async () => {
@@ -146,5 +153,46 @@ describe('App 与 Kotlin 的桥握手', () => {
     // 页面卸掉之后不许再留着一个会往死页面里推语言的接收端
     unmount()
     expect(window.ccoderLocaleSink).toBeUndefined()
+  })
+
+  // ---- 偏好的调用约定 ----
+  //
+  // 与语言那一段同一个道理：偏好也是**跨进程的约定**（Kotlin 写 `ccoderPrefs`、
+  // 调 `ccoderSetPrefs`，页面读哪一份、把接收端挂在哪个名字上）。两侧各自的
+  // 测试都绿，照样可能对不上 —— 所以这里把整条走一遍。
+
+  it('注入的快照定初始偏好，ccoderSetPrefs 换偏好（不重载页面）', async () => {
+    window.ccoder = { locale: 'zh' }
+    window.ccoderPrefs = { collapseThinking: true }
+    // Kotlin 侧注入的那一对（见 types.ts）：写快照，再叫醒页面挂着的 sink
+    window.ccoderSetPrefs = (prefs: unknown) => {
+      window.ccoderPrefs = prefs as { collapseThinking?: boolean }
+      window.ccoderPrefsSink?.(prefs)
+    }
+
+    const { unmount } = render(<App />)
+    // 接收端必须在挂载这一刻就挂上，否则关设置对话框时没人接
+    expect(typeof window.ccoderPrefsSink).toBe('function')
+
+    await act(async () => {
+      window.ccoder?.pushBatch?.(
+        JSON.stringify([
+          { op: 'append', item: { id: 't1', ts: 1, kind: 'thinking', text: '想完了' } },
+        ]),
+      )
+    })
+    // 注入的那一份是"折叠"：这块一上来就是收起的（而不是先展开、再被纠正）
+    expect(screen.getByText('思考过程')).toBeInTheDocument()
+    expect(screen.queryByText('想完了')).not.toBeInTheDocument()
+
+    act(() => {
+      window.ccoderSetPrefs?.({ collapseThinking: false })
+    })
+    // 不用重载页面，正文当场出来
+    expect(screen.getByText('想完了')).toBeInTheDocument()
+
+    // 页面卸掉之后不许再留着一个会往死页面里推偏好的接收端
+    unmount()
+    expect(window.ccoderPrefsSink).toBeUndefined()
   })
 })

@@ -131,17 +131,59 @@ internal fun titleFromFirstMessage(text: String, current: String?): String? =
     if (current != null || text.startsWith("/")) null else titleSnippet(text)
 
 /**
- * 第一次上屏要不要恢复"最近那条会话"。
+ * 第一次上屏该开哪一个会话。
  *
- * 只有**开工具窗口时建的那个面板**该恢复（用户要的是"接着上次聊"）；
- * 点「＋」开出来的标签必须是**空的** —— 那个面板的"第一次上屏"是它被创建的那一刻，
- * 与"用户第一次打开这个工具窗口"不是一回事。
+ * 一个面板的"第一次上屏"是它被创建之后第一次真的显示出来那一刻（不是"它被创建的
+ * 那一刻"），而三种面板要的东西不一样：
  *
- * 2026-09-16 的 bug 就在这儿：`＋` 出来的标签"第一次上屏"也成立，于是它悄悄
- * resume 了最近那条会话，用户截图来问"新建会话不应该是空的吗"。
+ *  - 开工具窗口时建的那条：用户要的是"接着上次聊" → [MostRecent]
+ *  - 点「＋」开出来的：必须是**空的** → [New]。2026-09-16 的 bug 就在这儿：那时
+ *    只判了"是不是第一次上屏"，于是「＋」悄悄 resume 了最近那条会话，用户截图
+ *    来问"新建会话不应该是空的吗"
+ *  - 重启后照存档恢复出来的：要回到**它自己那条** → [Given]
+ *    （存档见 `ClaudeSettings.State.openTabs`）
+ *
+ * [Nothing] 不是"什么都不开"，是"这不是第一次上屏"—— 切走又切回来、关掉工具窗口
+ * 再打开都走这一档，那时按"手上这条继续"处理（会话还活着的话 `startSession`
+ * 自己会早退，见那边第一行）。
  */
-internal fun resumeOnFirstShow(firstShow: Boolean, openedByPlus: Boolean): Boolean =
-    firstShow && !openedByPlus
+internal enum class FirstShow {
+    /** 不是第一次上屏：手上这条继续。 */
+    Nothing,
+
+    /** 起一条全新的。 */
+    New,
+
+    /** 恢复本项目**最近改过**的那条会话。 */
+    MostRecent,
+
+    /** 恢复**指定的**那条会话（重启前这个标签在跑的那条）。 */
+    Given,
+}
+
+/**
+ * 第一次上屏该开哪一个。
+ *
+ * @param restoredSessionId 存档点名要恢复的那条会话号。空（null 或空白）= 这条面板
+ *   要么不是恢复出来的，要么它存档里本来就没有会话。
+ * @param restored 这条面板是不是**照存档恢复出来的**。它与上一条是两件事：
+ *   恢复出来的标签也可能**没有**会话号（「＋」开出来、一个字没发就关了 IDE 的
+ *   那一条），那时它要的是一条**空**标签，而不是"最近那条会话"。
+ *
+ * 恢复的优先级**高于**"最近会话"：一条存了会话 id 的标签把身份说得很明确，
+ * 拿"最近改过的那条"去顶它，等于把用户开着的会话换了。
+ */
+internal fun firstShowPlan(
+    firstShow: Boolean,
+    openedByPlus: Boolean,
+    restoredSessionId: String? = null,
+    restored: Boolean = false,
+): FirstShow = when {
+    !firstShow -> FirstShow.Nothing
+    !restoredSessionId.isNullOrBlank() -> FirstShow.Given
+    restored || openedByPlus -> FirstShow.New
+    else -> FirstShow.MostRecent
+}
 
 /**
  * 打开面板时该恢复哪一条：修改时间最新的那条；没有历史会话时给 null
@@ -198,6 +240,37 @@ internal fun openPick(
             OpenPick.Unavailable(CcoderText.text("session.list.unexpected"))
         } else {
             mostRecentSession(msg.sessions, isTaken)?.let { OpenPick.Resume(it) } ?: OpenPick.None
+        }
+    }
+}
+
+/**
+ * [OpenPick] 的读法，但要的是**点名的那一条**（重启后恢复某个标签，见 [FirstShow.Given]）。
+ *
+ * 结局仍是 [OpenPick] 那三种，所以面板那一侧不必多写一套分支；区别只在"挑哪一条"：
+ * 这里按 [sessionId] 找。
+ *
+ * **找不到时给 [OpenPick.None]，不给 Unavailable**：那条会话多半是被删了（用户自己
+ * 删的、「清空全部」清的），这是一件确凿的事，不是"问不出来"。要报一句真实原因的
+ * 是后者。面板那一侧对"点名却没找到"会补一句说明 —— 与 [openPick] 的 None 不同，
+ * 那边的 None 是"这个项目还没有历史会话"，什么都不必说。
+ */
+internal fun openPickGiven(
+    outcome: RequestOutcome,
+    sessionId: String,
+    /** 跳过已被别的标签占住的会话（正常不会碰上，见 [pruneOpenTabs]）。 */
+    isTaken: (String) -> Boolean = { false },
+): OpenPick = when (outcome) {
+    is RequestOutcome.Failed -> OpenPick.Unavailable(outcome.reason)
+
+    is RequestOutcome.Answered -> {
+        val msg = outcome.message as? SidecarMessage.SessionList
+        if (msg == null) {
+            OpenPick.Unavailable(CcoderText.text("session.list.unexpected"))
+        } else {
+            msg.sessions.firstOrNull { it.sessionId == sessionId && !isTaken(it.sessionId) }
+                ?.let { OpenPick.Resume(it) }
+                ?: OpenPick.None
         }
     }
 }

@@ -72,9 +72,71 @@ class SessionSwitchStateTest {
     fun `只有开工具窗口那一次该恢复最近会话`() {
         // 「＋」出来的标签必须是**空**的 —— 它那个面板的"第一次上屏"是它被创建
         // 的那一刻，与"用户第一次打开这个工具窗口"不是一回事（2026-09-16 的 bug）
-        assertTrue(resumeOnFirstShow(firstShow = true, openedByPlus = false))
-        assertFalse(resumeOnFirstShow(firstShow = true, openedByPlus = true), "「＋」出来的该是空会话")
-        assertFalse(resumeOnFirstShow(firstShow = false, openedByPlus = false), "切回来不该又恢复一次")
+        assertEquals(
+            FirstShow.MostRecent,
+            firstShowPlan(firstShow = true, openedByPlus = false),
+        )
+        assertEquals(
+            FirstShow.New,
+            firstShowPlan(firstShow = true, openedByPlus = true),
+            "「＋」出来的该是空会话",
+        )
+        assertEquals(
+            FirstShow.Nothing,
+            firstShowPlan(firstShow = false, openedByPlus = false),
+            "切回来不该又恢复一次",
+        )
+    }
+
+    @Test
+    fun `重启后恢复的标签回到它自己那条，不去抢最近那条`() {
+        // 判成 MostRecent 的话，开 IDE 时 N 个恢复出来的标签会**一起**去抢
+        // "最近改过的那条"会话 —— 第一条占上，其余全变成空标签，而存档里
+        // 明明一条条都写着各自该回哪儿
+        assertEquals(
+            FirstShow.Given,
+            firstShowPlan(firstShow = true, openedByPlus = false, restoredSessionId = "s1"),
+        )
+        // 就算有人把「＋」和存档一起传进来，也是存档那条说了算（见 firstShowPlan）
+        assertEquals(
+            FirstShow.Given,
+            firstShowPlan(firstShow = true, openedByPlus = true, restoredSessionId = "s1"),
+        )
+    }
+
+    @Test
+    fun `存档里没有会话号的标签要的是一条空标签`() {
+        // 空串是合法存档（「＋」开出来、一个字没发就关了 IDE 的标签），它的意思是
+        // "这条标签还没有会话"。判成 MostRecent 的后果很具体：那条本该是空的标签
+        // 会**凭空接上**一条旧会话，而用户根本没点过它
+        assertEquals(
+            FirstShow.New,
+            firstShowPlan(true, openedByPlus = false, restoredSessionId = "", restored = true),
+        )
+        assertEquals(
+            FirstShow.New,
+            firstShowPlan(true, openedByPlus = false, restoredSessionId = "   ", restored = true),
+        )
+    }
+
+    @Test
+    fun `没有存档时那条面板照旧恢复最近会话`() {
+        // 升级上来的用户：老版本没存过标签表（也没有 [restored] 这回事），
+        // 开工具窗口那条面板必须还是"接着上次聊" —— 少判一条就退化成"每次都开新的"
+        assertEquals(
+            FirstShow.MostRecent,
+            firstShowPlan(firstShow = true, openedByPlus = false, restored = false),
+        )
+    }
+
+    @Test
+    fun `上过屏之后存档就不再牵着走了`() {
+        // 用户可能已经在这条标签里点了「新建会话」或切到了别的会话 ——
+        // 那时再照存档去恢复，等于把人家刚换的会话换回去
+        assertEquals(
+            FirstShow.Nothing,
+            firstShowPlan(firstShow = false, openedByPlus = false, restoredSessionId = "s1"),
+        )
     }
 
     @Test
@@ -285,6 +347,64 @@ class SessionSwitchStateTest {
     fun `回执是别的消息时也算问不出来`() {
         val pick = openPick(RequestOutcome.Answered(SidecarMessage.SessionDeleted("r1", "s1")))
         assertEquals(true, pick is OpenPick.Unavailable, "实际：$pick")
+    }
+
+    // ---- 照存档恢复：点名要哪一条 ----
+
+    @Test
+    fun `点名要的那条在列表里就恢复它，而不是最新那条`() {
+        // 存档里写的是 id。重启前这个标签在聊 b，而 a 改得更近 ——
+        // 回来要的还是 b，否则"照原样回来"就成了"挑一条回来"
+        val pick = openPickGiven(
+            RequestOutcome.Answered(
+                SidecarMessage.SessionList("r1", listOf(at("a", 3_000), at("b", 1_000)))
+            ),
+            sessionId = "b",
+        )
+
+        assertEquals(OpenPick.Resume(at("b", 1_000)), pick)
+    }
+
+    @Test
+    fun `点名的那条已经被删了，就是没有历史`() {
+        // 用户删过它、「清空全部」清过它、或者另一个 IDE 窗口删的。
+        // 这不是"问不出来"（那是有原因的失败，要说原因），而是一件确凿的事：
+        // 面板那边会补一句说明，然后开一条新的
+        val pick = openPickGiven(
+            RequestOutcome.Answered(SidecarMessage.SessionList("r1", listOf(at("a", 3_000)))),
+            sessionId = "b",
+        )
+
+        assertEquals(OpenPick.None, pick)
+    }
+
+    @Test
+    fun `点名的那条被别的标签占着时不去抢`() {
+        // 两边同时写同一个 jsonl 比"这条标签变成空的"严重得多。
+        // 存档里两条标签写同一条的情况在 prune 那一步就去掉了，剩下这一路
+        // 只能是"用户在它上屏之前，从别的标签手动打开了同一条"
+        val pick = openPickGiven(
+            RequestOutcome.Answered(SidecarMessage.SessionList("r1", listOf(at("b", 1_000)))),
+            sessionId = "b",
+        ) { it == "b" }
+
+        assertEquals(OpenPick.None, pick)
+    }
+
+    @Test
+    fun `点名那条路上的失败与畸形回执照样报出来`() {
+        // 与 openPick 同一条规矩：问不出来是异常，不能静默 ——
+        // 静默的后果是用户以为"上次那条标签的会话不见了"，而其实只是超时
+        assertEquals(
+            OpenPick.Unavailable("请求超时"),
+            openPickGiven(RequestOutcome.Failed("请求超时"), sessionId = "b"),
+        )
+        assertTrue(
+            openPickGiven(
+                RequestOutcome.Answered(SidecarMessage.SessionDeleted("r1", "b")),
+                sessionId = "b",
+            ) is OpenPick.Unavailable,
+        )
     }
 
     // ---- 标签上的会话名 ----

@@ -3,6 +3,15 @@
  *
  * 所有颜色与字体都走 CSS 变量，由 Kotlin 侧从平台 API 读出后注入
  * （见 ThemeInjector）——因此明暗主题自动正确，这里不硬编码任何颜色。
+ *
+ * 字号同理：每一处 px 字号都写成 `calc(Npx * var(--fs-scale, 1))`，
+ * 倍率由设置里的「字号」四档决定（见 UiFont.kt）。**兜底是 1** ——
+ * 离屏探针读的就是磁盘上这份文件、不注入任何变量，量到的仍是设计值那套几何。
+ * 相对的 `em` 字号（标题、行内码）不用乘：它们本来就跟着父级缩放。
+ *
+ * 间距、圆角与固定尺寸**不乘**这个倍率：那是另一档偏好（密度），分开做 ——
+ * 也正因为这样，字号四档不会把缩略图、转圈的尺寸一起带着跑。
+ * 漏乘会被 `styles.test.ts` 的源码扫描当场拦下。
  */
 
 *,
@@ -24,7 +33,7 @@ body {
   background: var(--bg, #1e1f22);
   color: var(--text, #dcdcdc);
   font-family: var(--font-ui, sans-serif);
-  font-size: 13px;
+  font-size: calc(13px * var(--fs-scale, 1));
   line-height: 1.55;
 }
 
@@ -96,7 +105,7 @@ body {
   background: var(--surface, #2b2d30);
   color: var(--text, #dcdcdc);
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs-scale, 1));
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
@@ -280,12 +289,12 @@ body {
 
 .lightbox__hint {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: #b9bec7;
 }
 
 .timestamp {
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: var(--text-dim, #8c8c8c);
   padding: 0 4px;
   user-select: text;
@@ -311,7 +320,7 @@ body {
   padding: 2px 0;
   color: var(--text-dim, #8c8c8c);
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs-scale, 1));
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -413,7 +422,7 @@ body {
   background: none;
   border: none;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs-scale, 1));
   color: var(--text-dim, #8c8c8c);
   cursor: pointer;
   text-align: left;
@@ -434,7 +443,7 @@ body {
 .tool__chevron {
   display: inline-block;
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--fs-scale, 1));
   transition: transform 160ms ease;
 }
 
@@ -454,7 +463,7 @@ body {
   border: 1px solid var(--border, #393b40);
   background: var(--code-bg, #191a1c);
   font-family: var(--font-mono, monospace);
-  font-size: 9px;
+  font-size: calc(9px * var(--fs-scale, 1));
 }
 
 /* 工具徽标的色调。图形用 currentColor 画，所以色号只在这一处给。
@@ -497,7 +506,7 @@ body {
 .tool__name {
   flex: 0 0 auto;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
 }
 
 /* 唯一可伸缩的元素：命令、文件名的省略都在它身上 */
@@ -508,7 +517,7 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: var(--text, #dcdcdc);
 }
 
@@ -529,7 +538,7 @@ body {
   border: none;
   color: var(--text, #dcdcdc);
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   text-align: left;
   cursor: pointer;
   text-decoration: underline;
@@ -546,7 +555,7 @@ body {
   display: flex;
   gap: 5px;
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: calc(10px * var(--fs-scale, 1));
 }
 
 .tool__add {
@@ -644,7 +653,7 @@ body {
 
 .tool__time {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   /* 2026-09-15：原来是 10px 的 --text-dim —— 比标题更小、还是那口灰，
      用户报"工具调用里的转圈和时间显示也不明显"。时间是要读的信息，提到正文色。 */
   color: var(--text, #dcdcdc);
@@ -690,7 +699,7 @@ body {
 .live-think__time {
   margin-left: 6px;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   font-variant-numeric: tabular-nums;
   /* 从标题继承来的 --text-dim 太淡，秒数也要看得见 */
   color: var(--thinking-fg, #cfc8b8);
@@ -709,7 +718,7 @@ body {
   background: var(--code-bg, #191a1c);
   border-radius: 5px;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   overflow-x: auto;
   white-space: pre;
   /* 命令可能是一整段脚本（heredoc、`&&` 串起来的一串），没有上限时
@@ -728,7 +737,7 @@ body {
   border-radius: 6px;
   overflow: hidden;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   line-height: 1.5;
 }
 
@@ -760,7 +769,7 @@ body {
   border: 1px solid var(--border, #393b40);
   border-radius: 6px;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   line-height: 1.5;
   color: var(--text-dim, #8c8c8c);
   white-space: pre-wrap;
@@ -775,7 +784,7 @@ body {
   background: none;
   border: none;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: var(--accent-text, #7fb0ff);
   cursor: pointer;
 }
@@ -786,7 +795,7 @@ body {
   background: var(--code-bg, #191a1c);
   border-radius: 6px;
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs-scale, 1));
   overflow-x: auto;
   white-space: pre;
 }
@@ -806,7 +815,7 @@ body {
 }
 
 .subagent__head {
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: var(--text-dim, #8c8c8c);
   display: flex;
   align-items: baseline;
@@ -817,7 +826,7 @@ body {
 .subagent__count {
   margin-left: auto;
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: calc(10px * var(--fs-scale, 1));
   font-variant-numeric: tabular-nums;
 }
 
@@ -826,7 +835,7 @@ body {
 .system-note,
 .result-line {
   text-align: center;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: var(--text-dim, #8c8c8c);
   padding: 2px 0;
   user-select: text;
@@ -895,7 +904,7 @@ body {
   padding: 4px 8px;
   background: var(--surface, #2b2d30);
   border-bottom: 1px solid var(--border, #393b40);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs-scale, 1));
   color: var(--text-dim, #8c8c8c);
 }
 
@@ -928,7 +937,7 @@ body {
   padding: 10px 12px;
   overflow-x: auto;
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs-scale, 1));
   line-height: 1.5;
 }
 
@@ -1010,6 +1019,11 @@ body {
 
 .bubble__text table {
   border-collapse: collapse;
+  /* 字号得在**表格这层**拉回来：Chromium 的 UA 样式表给 `table` 钉了
+   * `font-size: medium`（16px），单元格是从它继承的 —— 正文 13px 时表格里是 16px，
+   * 而设置里的字号档（--fs-scale）也永远到不了表格里（实测过：只给 td 写 inherit 没用，
+   * 因为 td 继承的是那个被钉住的 table）。写在这一层，整张表跟着正文走。 */
+  font-size: inherit;
 }
 
 /* 单元格。2026-09-18 重写 —— 用户截图"A 档"那张 4 列表格"怎么这么难看"。
@@ -1039,6 +1053,9 @@ body {
   vertical-align: top;
   /* 没写对齐行的表格默认左对齐；写了的话由行内样式覆盖 */
   text-align: left;
+  /* 与表格那层同一条理由（UA 给 td/th 也钉了 medium）；真正的修复在
+   * `.bubble__text table` 上，这里只是把链条补完整，免得日后有人只改一处 */
+  font-size: inherit;
 }
 
 .bubble__text th {

@@ -44,6 +44,17 @@ class ComposerModeTest {
     }
 
     /** 收集一棵组件树里所有 JLabel 的文字，用来断言弹层里显示了什么。 */
+    private fun labelContaining(root: Container, text: String): JLabel {
+        fun walk(c: Container): JLabel? {
+            for (child in c.components) {
+                if (child is JLabel && child.text.contains(text)) return child
+                if (child is Container) walk(child)?.let { return it }
+            }
+            return null
+        }
+        return walk(root) ?: error("没有找到写着「$text」的标签")
+    }
+
     private fun textsIn(root: Container): List<String> {
         val out = mutableListOf<String>()
         fun walk(c: Container) {
@@ -171,14 +182,68 @@ class ComposerModeTest {
         }
     }
 
+    /**
+     * 2026-09-21 起勾是**单独一个标签**（好让它用强调色），所以断言从
+     * "哪段文字里有勾"改成"勾落在哪一行里" —— 同一个意思，而且更贴题。
+     */
     @Test
     fun `列表标出当前模式`() {
         val list = buildModeList(PermissionModeSetting.PLAN) {}
-        val lines = textsIn(list)
 
-        val marked = lines.filter { it.contains(MARK) }
-        assertEquals(1, marked.size, "应当且只应当标一个当前项：$lines")
-        assertTrue(marked[0].contains(PermissionModeSetting.PLAN.label), "标错了：${marked[0]}")
+        assertEquals(1, textsIn(list).count { it == MARK }, "应当且只应当标一个当前项：${textsIn(list)}")
+
+        val planRow = labelContaining(list, PermissionModeSetting.PLAN.label).parent as Container
+        assertTrue(textsIn(planRow).contains(MARK), "当前项没打勾：${textsIn(planRow)}")
+
+        val bypass = labelContaining(list, PermissionModeSetting.BYPASS_PERMISSIONS.label).parent as Container
+        assertTrue(!textsIn(bypass).contains(MARK), "非当前项也打了勾：${textsIn(bypass)}")
+    }
+
+    // ---- 分组（2026-09-21：列表分成了「常规」与「不再问你」两张卡）----
+
+    /**
+     * 分组**不重排**：每一组在枚举里必须是连着的一段。
+     *
+     * 这是分卡片的前提。若哪天有人把某一档挪进另一组，列表顺序就会与枚举
+     * （也就是用户熟悉的那一版）不同，而卡片看上去仍然"对" —— 没有这一条，
+     * 那种改动会静默通过。
+     */
+    @Test
+    fun `分组在枚举顺序里是连着的`() {
+        ModeGroup.entries.forEach { group ->
+            val at = PermissionModeSetting.entries.indices
+                .filter { modeGroup(PermissionModeSetting.entries[it]) == group }
+            assertTrue(at.isNotEmpty(), "$group 一组都没分到")
+            assertEquals(
+                at.size, at.last() - at.first() + 1,
+                "$group 在枚举里不是连着的一段：$at",
+            )
+        }
+    }
+
+    /** 每一档都得归到某一组 —— 漏掉的后果是它在弹层里**根本不显示**。 */
+    @Test
+    fun `每个模式都出现在弹层里，且组名不是空白`() {
+        val texts = textsIn(buildModeList(PermissionModeSetting.DEFAULT) {}).joinToString("\n")
+
+        PermissionModeSetting.entries.forEach {
+            assertTrue(texts.contains(it.label), "${it.label} 没出现在列表里：\n$texts")
+        }
+        ModeGroup.entries.forEach {
+            assertTrue(it.title.isNotBlank(), "$it 没有组名")
+            assertTrue(texts.contains(it.title), "少了组名「${it.title}」：\n$texts")
+        }
+    }
+
+    /**
+     * 弹层的宽度是内容撑开的，而说明是文案里最长的那些 —— 卡片又比原来
+     * 平铺多占了内边距。这条钉住它塞得进工具窗口（420px）。
+     */
+    @Test
+    fun `弹层不会比工具窗口宽`() {
+        val list = buildModeList(PermissionModeSetting.DEFAULT) {}
+
+        assertTrue(list.preferredSize.width < 420, "弹层宽 ${list.preferredSize.width}px，比工具窗口还宽")
     }
 
     @Test

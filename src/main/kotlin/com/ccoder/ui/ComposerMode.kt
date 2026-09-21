@@ -1,19 +1,15 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.PermissionModeSetting
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonObject
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
-import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
-import javax.swing.JPanel
 
 /** 当前项的标记。实现与测试共用，免得两边各写一个字符然后漂移。 */
 internal const val MARK = "✓"
@@ -147,54 +143,73 @@ private fun JsonObject.str(key: String): String? =
  *
  * 全部列出、包括绕过 —— 用户明确要了"全都列出来，直接生效"。取走掉
  * "绕过权限"的做法会让这个下拉在半数场景下答非所问（"我要切回绕过"）。
+ *
+ * **分两张卡**（2026-09-21 改，设计稿 `docs/design/mode-effort-picker.html` 的 C 案）：
+ * 上面是还会按规则问你的常规几个，下面是"不再问你"的那两个 —— 后者描一圈琥珀边。
+ * 刀口落在枚举本来就有的那道缝上（[PermissionModeSetting.PLAN] 与
+ * [PermissionModeSetting.DONT_ASK] 之间），**一项都不重排**。
+ *
+ * 为什么值得分：绕过的后果是"所有操作都不再询问"，而它原先只是六个灰名字里的
+ * 一个琥珀色名字。分完组，这件事由**结构**说出来了，不靠用户去读那一行说明。
+ *
+ * 卡与行本身住在 [PickerList] —— 与模型、思考那两个弹层是同一套东西。
  */
 internal fun buildModeList(
     current: PermissionModeSetting,
     onPick: (PermissionModeSetting) -> Unit,
-): JComponent = JPanel().apply {
-    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-    isOpaque = false
-    border = JBUI.Borders.empty(4, 4)
-    PermissionModeSetting.entries.forEach { add(modeRow(it, it == current, onPick)) }
+): JComponent = cardColumn().apply {
+    ModeGroup.entries.forEach { group ->
+        val modes = PermissionModeSetting.entries.filter { modeGroup(it) == group }
+        if (modes.isEmpty()) return@forEach
+        addCard(optionGroup(group.title, group.warn, modes.map { modeRow(it, it == current, onPick) }))
+    }
+}
+
+/**
+ * 这个模式归哪一组。
+ *
+ * 穷尽式 `when`（同 [effortDescription]）：将来 SDK 加了模式，这里会是**编译错误**，
+ * 而不是一条悄悄漏在两张卡外面的模式。
+ */
+internal fun modeGroup(mode: PermissionModeSetting): ModeGroup = when (mode) {
+    PermissionModeSetting.DEFAULT,
+    PermissionModeSetting.ACCEPT_EDITS,
+    PermissionModeSetting.AUTO,
+    PermissionModeSetting.PLAN,
+    -> ModeGroup.REGULAR
+
+    PermissionModeSetting.DONT_ASK,
+    PermissionModeSetting.BYPASS_PERMISSIONS,
+    -> ModeGroup.SILENT
+}
+
+/**
+ * 权限模式的两组。
+ *
+ * 组名**故意不写"会先问你"**：「仅规划」是只读、根本不执行工具，说它会问是反的
+ * （2026-09-21 定的词）。「常规」不含这个断言，第二组的「不再问你」也与那两档的
+ * 说明对得上 —— 两个名字都不撒谎。
+ */
+internal enum class ModeGroup(private val titleKey: String, val warn: Boolean) {
+    REGULAR("composer.mode.group.regular", warn = false),
+    SILENT("composer.mode.group.silent", warn = true),
+    ;
+
+    /** 界面上的组名。取一次读一次词表 —— 语言变了下次取就是新语言。 */
+    val title: String get() = CcoderText.text(titleKey)
 }
 
 private fun modeRow(
     mode: PermissionModeSetting,
     selected: Boolean,
     onPick: (PermissionModeSetting) -> Unit,
-): JComponent {
-    // 显式取字体：未挂到层级上时 getFont() 可能是 null，
-    // deriveFont 会直接 NPE（RunStripView 上踩过同一个坑）
-    val base = UIUtil.getLabelFont()
-
-    val row = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        border = JBUI.Borders.empty(3, 6)
-    }
-
-    // 未选中的行也缩进同样的宽度，勾出现或消失时文字不会左右跳
-    val name = JLabel((if (selected) MARK else " ") + " " + mode.label).apply {
-        foreground = modeColor(mode)
-        font = if (selected) base.deriveFont(Font.BOLD) else base
-    }
-
-    val desc = JLabel(modeDescription(mode)).apply {
-        foreground = UIUtil.getInactiveTextColor()
-        font = base.deriveFont(base.size2D - 1f)
-    }
-
-    row.add(name, BorderLayout.NORTH)
-    row.add(desc, BorderLayout.SOUTH)
-
-    // 整行可点，不只是文字那一小块 —— 一行里拆成了两个标签，
-    // 点到描述上没反应会显得很钝
-    val handler = object : MouseAdapter() {
-        override fun mouseClicked(e: MouseEvent) {
-            onPick(mode)
-        }
-    }
-    listOf(row, name, desc).forEach { it.addMouseListener(handler) }
-
-    return row
-}
+): JComponent = optionRow(
+    name = mode.label,
+    // 只有绕过是警示色。与标签那颗（[modeColor]）**不同**，那是有意的：
+    // 标签是状态显示，那里的颜色是"现在开着绕过"的常驻提醒；这里是列表，
+    // 若每个模式都上色，等到真是绕过时就没人会注意到了
+    nameColor = if (mode.requiresDangerousOptIn) warningColor() else UIUtil.getLabelForeground(),
+    description = modeDescription(mode),
+    selected = selected,
+    onClick = { onPick(mode) },
+)

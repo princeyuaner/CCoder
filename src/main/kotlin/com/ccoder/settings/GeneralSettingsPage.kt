@@ -6,6 +6,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
@@ -42,13 +43,34 @@ internal val LANGUAGE_LABEL: String get() = CcoderText.text("settings.language.l
 internal val LANGUAGE_HINT: String get() = CcoderText.text("settings.language.hint")
 
 /**
- * 通用页：claude 可执行文件 · 兜底模型名 · 发送快捷键 · 思考深度 · 界面语言。
+ * 「思考折叠」那一行的标签与说明（2026-09-21）。
+ *
+ * 同 [LANGUAGE_LABEL]：两条都从词表取，它们本身就是要被翻译的东西。
+ * 用例按 [COLLAPSE_THINKING_LABEL] 找那个复选框（照权限页先例）。
+ */
+internal val COLLAPSE_THINKING_LABEL: String get() = CcoderText.text("settings.thinkingFold.label")
+internal val COLLAPSE_THINKING_HINT: String get() = CcoderText.text("settings.thinkingFold.hint")
+
+/**
+ * 「字体」「字号」两行的标签与说明（2026-09-21）。
+ *
+ * 说明里都写清了**只影响转录区** —— 这一页的其余项改的是整个工具窗口，
+ * 而这两项只管网页那半（输入框、状态卡跟随 IDE 主题，见 [UiFonts]）。
+ */
+internal val FONT_LABEL: String get() = CcoderText.text("settings.font.label")
+internal val FONT_HINT: String get() = CcoderText.text("settings.font.hint")
+internal val FONT_SCALE_LABEL: String get() = CcoderText.text("settings.font.scaleLabel")
+internal val FONT_SCALE_HINT: String get() = CcoderText.text("settings.font.scaleHint")
+
+/**
+ * 通用页：claude 可执行文件 · 兜底模型名 · 发送快捷键 · 思考深度 · 界面语言 · 思考折叠。
  *
  * 前四项都是**控件一变就写** `ClaudeSettings`（各页统一的即时保存，见 [SettingsDialog]）。
  * 内容照搬 2026-09-15 删掉的那个 `ClaudeSettingsPanel` —— 那些灰色提示语是那次
  * 唯一"已经调好的东西"，逐字留着。
  *
- * 「界面语言」写的是另一个服务（[UiLanguageSettings] 是 APP 级，这一页别的项是项目级），
+ * 「界面语言」与「界面」卡里那三项（字体、字号、思考折叠）写的是**另外两个服务**
+ * （[UiLanguageSettings] / [UiPreferences]，都是 APP 级；这一页别的项是项目级），
  * 由调用方注入 —— 同 [SettingsDialog] 那条"服务由调用方注入"的道理：探针要在
  * 没有 Application 的纯 JVM 里跑。
  */
@@ -57,6 +79,7 @@ internal class GeneralSettingsPage(
     private val project: Project?,
     private val settings: ClaudeSettings,
     private val language: UiLanguageSettings,
+    private val prefs: UiPreferences,
 ) : SettingsPage {
 
     override val title: String get() = CcoderText.text("settings.page.general")
@@ -66,6 +89,24 @@ internal class GeneralSettingsPage(
     private val shortcutBox = ComboBox(SendShortcut.entries.toTypedArray())
     private val effortBox = ComboBox(EffortSetting.entries.toTypedArray())
     private val languageBox = ComboBox(UiLanguage.entries.toTypedArray())
+
+    /**
+     * 「思考折叠」。
+     *
+     * 复选框**不套 `settingsRow`**：它没有"左边的标签"，它自己就是那一行的字
+     * （先例：权限页那个"我明白风险"，见 `PermissionSettingsPage` 里同一条注释）。
+     */
+    private val collapseThinking = JBCheckBox(COLLAPSE_THINKING_LABEL)
+
+    /**
+     * 「字体」。列表在**建页时**算一次：它要问本机装了哪些字族
+     * （[FontChoice.availableChoices]），而这一页每开一次设置才建一次。
+     * 算的时候把当前选的那一档带进去 —— 装过又卸了的字体也照样显示得出来。
+     */
+    private val fontBox = ComboBox(FontChoice.availableChoices(prefs.fontChoice).toTypedArray())
+
+    /** 「字号」四档。四档是定死的，不需要过滤。 */
+    private val scaleBox = ComboBox(FontScale.entries.toTypedArray())
 
     private var built: JComponent? = null
 
@@ -111,6 +152,9 @@ internal class GeneralSettingsPage(
         shortcutBox.addActionListener { save() }
         effortBox.addActionListener { save() }
         languageBox.addActionListener { save() }
+        collapseThinking.addActionListener { save() }
+        fontBox.addActionListener { save() }
+        scaleBox.addActionListener { save() }
 
         val column = settingsColumn().apply {
             add(runtimeCard())
@@ -167,10 +211,27 @@ internal class GeneralSettingsPage(
         )
     }
 
-    /** 卡三「界面」：语言（写的是另一个服务，见类注释）。 */
+    /** 卡三「界面」：语言 + 字体 + 字号 + 思考折叠（写的是另外两个服务，见类注释）。 */
     private fun interfaceCard(): JComponent {
         val language = settingsRow(LANGUAGE_LABEL, languageBox, hint = LANGUAGE_HINT)
-        return settingsCard(CcoderText.text("settings.general.card.ui"), cardRows(language))
+        val font = settingsRow(FONT_LABEL, fontBox, hint = FONT_HINT)
+        val scale = settingsRow(FONT_SCALE_LABEL, scaleBox, hint = FONT_SCALE_HINT)
+        return settingsCard(
+            CcoderText.text("settings.general.card.ui"),
+            cardRows(
+                language,
+                font,
+                scale,
+                cardBlock(
+                    // 复选框自己是一条，不套 settingsRow —— 它没有"左边的标签"，
+                    // 自己留出上下的间距（同权限页那条注释）
+                    collapseThinking.apply { border = JBUI.Borders.empty(8, 0, 4, 0) },
+                    // 说明要明说"进行中的也收起"：那正是这条偏好最容易被误解的地方
+                    // （2026-09-14 定的是"两个阶段都展开，流式看得见"）
+                    wrappedHint(COLLAPSE_THINKING_HINT, CARD_CONTENT_WIDTH),
+                ),
+            ),
+        )
     }
 
     override fun reload() {
@@ -181,6 +242,9 @@ internal class GeneralSettingsPage(
             shortcutBox.selectedItem = settings.sendShortcut
             effortBox.selectedItem = settings.effort
             languageBox.selectedItem = language.language
+            collapseThinking.isSelected = prefs.collapseThinking
+            fontBox.selectedItem = prefs.fontChoice
+            scaleBox.selectedItem = prefs.fontScale
         } finally {
             loading = false
         }
@@ -204,5 +268,11 @@ internal class GeneralSettingsPage(
         // 并通知界面上的东西重译（面板那一遍见 `ClaudePanel.retranslate`）。
         // 这里不需要再做什么 —— 设置页只负责"把用户选的写进去"。
         language.language = languageBox.selectedItem as UiLanguage
+        // 三项界面偏好都只写到服务为止：往转写区推是关框之后 ClaudePanel 的事
+        // （见 `openModelSettings` 里那两行）—— 与模型、权限那两项同一条"关框对账"的语义。
+        // 设置页自己**不**去够转写区：那一页要能在纯 JVM 的探针里跑
+        prefs.collapseThinking = collapseThinking.isSelected
+        prefs.fontChoice = fontBox.selectedItem as FontChoice
+        prefs.fontScale = scaleBox.selectedItem as FontScale
     }
 }

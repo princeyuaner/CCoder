@@ -1,6 +1,10 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.FontChoice
+import com.ccoder.settings.FontScale
+import com.ccoder.settings.resolveUiFonts
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
@@ -45,34 +49,58 @@ class ThemeInjectorTest {
             "--surface", "--code-bg", "--ref-bg", "--error-bg",
             "--diff-add-bg", "--diff-del-bg", "--diff-add-fg", "--diff-del-fg",
             "--thinking-fg",
-            "--font-ui", "--font-mono",
+            "--font-ui", "--font-mono", "--fs-scale",
         )) {
             assertTrue(css.contains("$name:"), "缺少变量 $name")
         }
     }
 
     @Test
-    fun `字体以 family size 输出且 family 带引号`() {
-        // 断言用**实际解析出**的 family：Java 的 Font 在请求的字体不存在时
-        // 会静默回退到默认逻辑字体，getFamily() 返回解析后的值而非请求的名字。
-        // 假设字体名原样往返会让测试依赖机器上装了什么字体。
+    fun `字体只输出家族名 —— 带字号那条会被浏览器丢掉（2026-09-21 修的）`() {
+        // 从前这里是 `"家族名", 13px`（给 `font:` 简写准备的），而 styles.css 按
+        // `font-family:` 消费 —— 整条声明非法、被浏览器丢掉，于是"尊重用户的编辑器字体"
+        // 从 2026-09-11 写下那天起就没生效过（实测 body 落到浏览器兜底的 Noto Sans SC）。
+        //
+        // 断言用**实际解析出**的 family：Java 的 Font 在请求的字体不存在时会静默回退到
+        // 默认逻辑字体，`getFamily()` 返回的是解析后的值 —— 假设字体名原样往返会让这条
+        // 用例依赖机器上装了什么字体。
         val colors = sample()
         val css = ThemeInjector.buildCss(colors)
         assertTrue(
-            css.contains("""--font-ui: "${colors.fontUi.family}", ${colors.fontUi.size}px;"""),
+            css.contains("""--font-ui: "${colors.fontUi.family}", "Segoe UI", sans-serif;"""),
             "实际：$css",
         )
         assertTrue(
-            css.contains("""--font-mono: "${colors.fontMono.family}", ${colors.fontMono.size}px;"""),
+            css.contains("""--font-mono: "${colors.fontMono.family}", "Consolas", monospace;"""),
             "实际：$css",
         )
+        // 平台字号（13）一个都不许再混进这份 CSS：页面的字号全在 styles.css 里，
+        // 乘的是 --fs-scale
+        assertFalse(css.contains("px"), "家族名里又混进字号了：$css")
     }
 
     @Test
-    fun `字号变化被反映到输出`() {
-        val colors = sample().copy(fontMono = Font(Font.MONOSPACED, Font.PLAIN, 15))
+    fun `字号档位进 --fs-scale`() {
+        val fonts = resolveUiFonts(
+            FontChoice.DEFAULT,
+            FontScale.XLARGE,
+            "JetBrains Sans",
+            "JetBrains Mono",
+        )
+        val css = ThemeInjector.buildCss(sample(), fonts)
+        assertTrue(css.contains("--fs-scale: 1.3;"), "实际：$css")
+    }
+
+    @Test
+    fun `不传字体时 = 跟随 IDE + 标准字号（没人动过设置的样子）`() {
+        val colors = sample()
         val css = ThemeInjector.buildCss(colors)
-        assertTrue(css.contains("15px"), "实际：$css")
+
+        assertTrue(css.contains("--fs-scale: 1.0;"), "实际：$css")
+        assertTrue(
+            css.contains("""--font-ui: "${colors.fontUi.family}", "Segoe UI", sans-serif;"""),
+            "实际：$css",
+        )
     }
 
     @Test

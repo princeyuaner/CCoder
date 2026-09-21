@@ -252,13 +252,17 @@ internal class ModelProfilesPage(
      *
      * 行上有**两个互不相干**的信号，别把它们并成一个：
      *   - 背景高亮 = **我正在编辑哪条**（点出来的，只在本次会话里有意义）
-     *   - 右侧「使用中」= **哪条在生效**（`ModelProfiles.selectedId()`，是落盘的配置）
+     *   - 右侧「使用中」= **哪条在生效**
      * 它们回答的是两个问题（"我在改谁"和"谁在跑"），合成一个就会出现"点开看看
      * 就把在用的模型换掉了"这种事。
+     *
+     * 「使用中」取的是**本项目的最近一次**（[ClaudeSettings.lastModel]）。2026-09-21
+     * 起选中态按会话标签分了，全应用不再有"当前选中那条"这个东西 —— 页面只能给
+     * 这一个近似：这个项目最近用的是哪条。开着的标签有可能跟它不同。
      */
     private fun rebuildList() {
         listSlot.removeAll()
-        val inUse = profiles.selectedId()
+        val inUse = settings.lastModel(profiles)?.id
         profiles.profiles().forEach { p ->
             listSlot.add(listRow(p, isEditing = p.id == editing?.id, inUse = p.id == inUse))
         }

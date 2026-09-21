@@ -1,5 +1,9 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.FontChoice
+import com.ccoder.settings.FontScale
+import com.ccoder.settings.UiFonts
+import com.ccoder.settings.resolveUiFonts
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.ui.JBColor
@@ -53,12 +57,23 @@ data class ThemeColors(
  * 生成逻辑与"读平台 API"分成两个对象，是为了让生成逻辑可测 ——
  * 单测环境里拿不到真实主题，混在一起就什么都测不了。
  *
+ * ## 字体的形状：家族名与字号**分开**（2026-09-21 修）
+ *
+ * 从前这里发的是 `--font-ui: "家族名", 13px`（给 `font:` 简写准备的），而
+ * `styles.css` 那边按 `font-family:` 消费 —— 整条声明**非法、被浏览器丢掉**
+ * （实测：`getComputedStyle(body).fontFamily` 落到浏览器兜底的 `Noto Sans SC`），
+ * 于是"尊重用户的编辑器字体"这件事从 2026-09-11 写下那天起就没生效过。
+ *
+ * 现在：家族名只进 `--font-ui` / `--font-mono`，字号走 `--fs-scale`
+ * （`styles.css` 里每一处都是 `calc(Npx * var(--fs-scale, 1))`）。
+ * 栈怎么拼、倍率取哪一档在 `resolveUiFonts` 里（`settings/UiFont.kt`，纯函数）。
+ *
  * 不依赖 [com.intellij.ui.ColorUtil]：自己写颜色运算，让这一层完全自包含，
  * 不随平台 API 变化而失效。
  */
 object ThemeInjector {
 
-    fun buildCss(colors: ThemeColors): String = buildString {
+    fun buildCss(colors: ThemeColors, fonts: UiFonts = defaultFontsFor(colors)): String = buildString {
         append(":root {")
         append(" --bg: ${colors.bg.hex()};")
         append(" --text: ${colors.text.hex()};")
@@ -75,14 +90,19 @@ object ThemeInjector {
         append(" --diff-add-fg: ${colors.diffAddFg.hex()};")
         append(" --diff-del-fg: ${colors.diffDelFg.hex()};")
         append(" --thinking-fg: ${colors.thinkingFg.hex()};")
-        append(" --font-ui: ${colors.fontUi.css()};")
-        append(" --font-mono: ${colors.fontMono.css()};")
+        append(" --font-ui: ${fonts.ui};")
+        append(" --font-mono: ${fonts.mono};")
+        append(" --fs-scale: ${fonts.scale};")
         append(" }")
     }
 
     /** 把 CSS 包成可直接 executeJavaScript 的赋值语句。必须单行。 */
-    fun buildInjectScript(colors: ThemeColors): String =
-        "window.ccoderSetTheme && window.ccoderSetTheme('${escapeForJsString(buildCss(colors))}');"
+    fun buildInjectScript(colors: ThemeColors, fonts: UiFonts = defaultFontsFor(colors)): String =
+        "window.ccoderSetTheme && window.ccoderSetTheme('${escapeForJsString(buildCss(colors, fonts))}');"
+
+    /** 没人动过设置时的字体：跟随 IDE + 标准字号。 */
+    private fun defaultFontsFor(colors: ThemeColors): UiFonts =
+        resolveUiFonts(FontChoice.DEFAULT, FontScale.DEFAULT, colors.fontUi.family, colors.fontMono.family)
 
     /**
      * 转义为可安全嵌入单引号 JS 字符串的形式。
@@ -101,8 +121,6 @@ object ThemeInjector {
         .replace("\r", " ")
 
     private fun Color.hex(): String = "#%02x%02x%02x".format(red, green, blue)
-
-    private fun Font.css(): String = "\"$family\", ${size}px"
 }
 
 /**

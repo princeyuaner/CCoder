@@ -59,6 +59,20 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
 
     data class State(
         var profiles: MutableList<ModelProfile> = mutableListOf(),
+        /**
+         * **最近一次选择**（全应用）。
+         *
+         * 2026-09-21 之前它是"当前选中的那条"，是唯一的选中态 —— 于是两个 IDE
+         * 窗口、同一个窗口的两个会话标签全共用它，而模型是起 sidecar 时烤进进程
+         * 环境的：改设置根本到不了别人那个跑着的会话，标签于是会说着一个别的
+         * 会话在用的模型。现在选中态按**会话标签**各记各的（见
+         * [ClaudeSettings.lastModel]），这个字段只剩一个用途：**给还没选过的
+         * 项目兜底**（升级上来的、以及新建的项目不会突然变成"无模型"）。
+         *
+         * **字段名不改**：它写在 `ccoderModelProfiles.xml` 里，改了就读不回老值，
+         * 而那个值正是这次迁移要借的东西。方法名改成了 [recent]，免得有人以为
+         * 它还是"当前选中的那条"。
+         */
         var selectedId: String? = null,
     )
 
@@ -109,16 +123,21 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
     /** 快照。理由同 [selected]。 */
     fun profiles(): List<ModelProfile> = myState.profiles.toList()
 
-    fun selectedId(): String? = myState.selectedId
+    fun recentId(): String? = myState.selectedId
 
     /**
-     * 先对整个列表取快照再找。
+     * 最近一次选择的那条配置（见 [State.selectedId]）。
      *
-     * 这个读会在**池化线程**上发生（见 [secretCache]），而 EDT 上的 [upsert] /
-     * [remove] 正同时往 `myState.profiles` 里增删。直接遍历那个活 `ArrayList`
-     * 可能读到半个列表 —— 症状不是崩溃，是"密钥时有时无"这类最难查的形态。
+     * **别拿它当"当前在用的那条"** —— 那是每个会话标签各自的事
+     * （`ClaudeSettings.lastModel`）。这里只在两处用得上：给还没选过的项目
+     * 兜底、以及设置页显示"最近用的是哪条"。
+     *
+     * 先对整个列表取快照再找。这个读会在**池化线程**上发生（见 [secretCache]），
+     * 而 EDT 上的 [upsert] / [remove] 正同时往 `myState.profiles` 里增删。
+     * 直接遍历那个活 `ArrayList` 可能读到半个列表 —— 症状不是崩溃，
+     * 是"密钥时有时无"这类最难查的形态。
      */
-    fun selected(): ModelProfile? =
+    fun recent(): ModelProfile? =
         myState.profiles.toList().firstOrNull { it.id == myState.selectedId }
 
     /** 传一个不存在的 id 等于没选 —— 免得启动路径读到一个空引用。 */
@@ -127,10 +146,15 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
     }
 
     /**
-     * 记下"现在用这条配置里的这个模型"：**选中它，并把它当前用的模型指到它**。
+     * 记下"这条配置最近用的就是这个模型"：**把它当前用的模型指过去，并记成最近一次选择**。
      *
-     * 两件事必须一起做。分开写会留下"选中的是 A、而当前模型还指着 B"的中间态，
-     * 而标签读的正是这两个字段 —— 那一瞬间它会显示一个不存在的东西。
+     * 2026-09-21 起这**不是**"选中态"—— 选中态按会话标签各记各的（见
+     * [State.selectedId]）。这里做两件事：把模型写回配置（设置页要显示它，
+     * [normalizeModelProfile] 也要求 `modelId` 落在 `modelIds` 里），
+     * 以及更新全应用的"最近一次选择"（新项目的兜底值）。
+     *
+     * 两件事必须一起做。分开写会留下"最近用的是 A、而它的模型还指着 B"的中间态，
+     * 而设置页读的正是这两个字段 —— 那一瞬间它会显示一个不存在的东西。
      *
      * 配置不存在、或模型不在它的列表里，**整个不动**（不是只做一半）：
      * 这两件事都发生在"回执到达时用户已经改过设置了"那条竞态上，
@@ -153,8 +177,8 @@ class ModelProfiles(private val secrets: SecretStore) : PersistentStateComponent
 
     fun remove(id: String) {
         myState.profiles.removeAll { it.id == id }
-        // 选中态跟着走 —— 留一个指向已删配置的 selectedId，
-        // 启动时会静默地什么都不应用
+        // 兜底值也得跟着走 —— 留一个指向已删配置的 id，
+        // 新项目会静默地什么都借不到
         if (myState.selectedId == id) myState.selectedId = null
         setSecret(id, "")
     }

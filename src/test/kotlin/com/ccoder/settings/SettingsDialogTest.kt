@@ -145,7 +145,7 @@ class SettingsDialogLayoutTest {
                 PromptPresets(),
                 McpStatus(),
                 // 假服务：用例不真跑 `node --version` / `claude --version`
-                depsService(), UiLanguageSettings(), TEST_DEPS_UI,
+                depsService(), UiLanguageSettings(), UiPreferences(), TEST_DEPS_UI,
             )
             val pane = dialog.contentPane ?: dialog.contentPanel
             pane.setSize(DIALOG_WIDTH, DIALOG_HEIGHT)
@@ -270,12 +270,16 @@ private fun clickTab(dialog: SettingsDialog, title: String) {
  */
 class SettingsPagesTest {
 
-    private fun open(settings: ClaudeSettings = ClaudeSettings()): Pair<SettingsDialog, ClaudeSettings> {
+    private fun open(
+        settings: ClaudeSettings = ClaudeSettings(),
+        /** 界面偏好（APP 级）。要用例能种一个值进去，所以做成可注入的。 */
+        prefs: UiPreferences = UiPreferences(),
+    ): Pair<SettingsDialog, ClaudeSettings> {
         lateinit var dialog: SettingsDialog
         SwingUtilities.invokeAndWait {
             dialog = SettingsDialog(
                 layoutProbeProject(), settings, ModelProfiles(emptyStore()), PromptPresets(), McpStatus(),
-                depsService(), UiLanguageSettings(), TEST_DEPS_UI,
+                depsService(), UiLanguageSettings(), prefs, TEST_DEPS_UI,
             )
             layoutAll(dialog.contentPane)
         }
@@ -406,6 +410,96 @@ class SettingsPagesTest {
         pick(body, EFFORT_LABEL, EffortSetting.HIGH)
 
         assertEquals(EffortSetting.HIGH, settings.effort)
+    }
+
+    @Test
+    fun `通用页勾上思考折叠立刻落库`() {
+        val prefs = UiPreferences()
+        val (dialog, _) = open(prefs = prefs)
+        val body = pageBody(dialog, "通用")
+
+        // 用 `doClick()` 而不是 `isSelected = true`：后者只动模型、**不发 ActionEvent**
+        // （同权限页那条注释）
+        SwingUtilities.invokeAndWait { checkboxOf(body, COLLAPSE_THINKING_LABEL).doClick() }
+
+        assertTrue(prefs.collapseThinking)
+    }
+
+    @Test
+    fun `通用页改字体立刻落库`() {
+        val prefs = UiPreferences()
+        val (dialog, _) = open(prefs = prefs)
+        val body = pageBody(dialog, "通用")
+
+        pick(body, FONT_LABEL, FontChoice.SYSTEM)
+
+        assertEquals(FontChoice.SYSTEM, prefs.fontChoice)
+    }
+
+    @Test
+    fun `通用页改字号立刻落库 —— 存的是枚举名`() {
+        val prefs = UiPreferences()
+        val (dialog, _) = open(prefs = prefs)
+        val body = pageBody(dialog, "通用")
+
+        pick(body, FONT_SCALE_LABEL, FontScale.XLARGE)
+
+        assertEquals(FontScale.XLARGE, prefs.fontScale)
+        assertEquals("XLARGE", prefs.state.fontScale)
+    }
+
+    @Test
+    fun `打开设置时字体与字号照服务里的值显示`() {
+        // 挑一个**可能没装**的档（Georgia）：列表要把它带进去，下拉才选得中 ——
+        // 少带它，combo 会默默显示成别的一档，用户一按就把那份选择写没了
+        val prefs = UiPreferences().apply {
+            fontChoice = FontChoice.GEORGIA
+            fontScale = FontScale.SMALL
+        }
+        val (dialog, _) = open(prefs = prefs)
+        val body = pageBody(dialog, "通用")
+
+        assertEquals(FontChoice.GEORGIA, comboOf(body, FONT_LABEL).selectedItem)
+        assertEquals(FontScale.SMALL, comboOf(body, FONT_SCALE_LABEL).selectedItem)
+    }
+
+    /**
+     * 手改过 XML 的人写出一个不存在的档：设置页照常开、盘上那份也**不许被改写**。
+     *
+     * 这条同时钉住两件事：`fromName` 的兜底（下拉拿到的是合法档，`save()` 里那个
+     * `as FontChoice` 才不会抛 ClassCastException —— 一抛，同一批里别的改动也丢），
+     * 以及 `loading` 闸（打开一次设置不该把 "BOGUS" 抹成默认值）。
+     */
+    @Test
+    fun `字体与字号是非法名时照常打开、也不改写盘上那份`() {
+        val prefs = UiPreferences().apply {
+            loadState(UiPreferences.State(fontChoice = "BOGUS", fontScale = "BOGUS"))
+        }
+        val (dialog, _) = open(prefs = prefs)
+        val body = pageBody(dialog, "通用")
+
+        assertEquals(FontChoice.DEFAULT, comboOf(body, FONT_LABEL).selectedItem)
+        assertEquals(FontScale.DEFAULT, comboOf(body, FONT_SCALE_LABEL).selectedItem)
+        assertEquals("BOGUS", prefs.state.fontChoice)
+        assertEquals("BOGUS", prefs.state.fontScale)
+    }
+
+    /**
+     * 打开设置时，那一格要**照服务里的值**显示。
+     *
+     * 与上面那条"打开一次设置什么都别写"是两件事：布尔写回是**幂等**的，所以
+     * "闸门缺了"在这里观察不到（那种情况由那条 trim 探针兜住 —— 两者走同一个 `save()`）。
+     * 这条钉的是另一半：`reload()` 得把值读进控件，否则界面显示的就是假的
+     * （服务里勾着、框里没勾，用户一按就把它改回去）。
+     */
+    @Test
+    fun `打开设置时思考折叠照服务里的值勾上`() {
+        val prefs = UiPreferences().apply { collapseThinking = true }
+        val (dialog, _) = open(prefs = prefs)
+        val body = pageBody(dialog, "通用")
+
+        assertTrue(checkboxOf(body, COLLAPSE_THINKING_LABEL).isSelected, "服务里是勾上的，界面上却显示没勾")
+        assertTrue(prefs.collapseThinking, "打开一次设置把界面偏好写回去了")
     }
 
     // ---- 权限页 ----

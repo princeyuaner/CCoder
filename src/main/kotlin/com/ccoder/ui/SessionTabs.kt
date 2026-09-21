@@ -1,6 +1,9 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.ClaudeSettings
+import com.ccoder.settings.OpenTab
 import com.ccoder.settings.UiLanguageSettings
+import com.ccoder.settings.pruneOpenTabs
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
@@ -30,6 +33,8 @@ internal const val TOOL_WINDOW_ID = "CCoder"
  * 每个标签是一个完整的 `ClaudePanel` —— 它自带一个 node 侧车 + 一个 claude CLI
  * （实测约 250MB，见 `ClaudePanel` 里那段"常驻一个 node + claude 进程"）外加一个
  * JCEF 实例。5 个是产品上限（用户 2026-09-16 拍板），不是性能保险。
+ *
+ * 它同时是**存档的上限**（见 [pruneOpenTabs]）：手改过 XML 也越不过去。
  */
 internal const val MAX_SESSION_TABS = 5
 
@@ -77,6 +82,20 @@ internal fun closeNeedsConfirm(
  * 我们的 ✕ 走 [closeTab]：先问 [closeNeedsConfirm]（忙 / 有待决权限 / 正在启动时
  * [Messages.showYesNoDialog] 问一句），确认了才 `panel.dispose()`。比原来少了
  * `Close All` / `Ctrl+F4` 那两条平台路径 —— 现在根本没有平台标签，它们无从触发。
+ *
+ * ## 重启 IDE 之后（2026-09-21）
+ *
+ * 这一排标签**住在项目设置里**（[ClaudeSettings.State.openTabs]）：关 IDE 时开着
+ * 几条，回来还是几条，各自回到自己那条会话、自己那个模型、自己那个名字。在这之前
+ * 它是纯内存的 —— 工厂只会重建一条，另外几条得用户自己去会话列表里翻出来。
+ *
+ * 两条要紧的规矩：
+ *  - **只有"当前"的那条马上挂进宿主**（[openInitialTabs]）：面板一上屏就起
+ *    sidecar，N 条一起上屏就是开工具窗口时突然多出 N 个 node + claude 进程
+ *    （每个约 250MB），而后台标签本来就不该占这份资源
+ *  - **存档是"该回哪儿"的意思，不是"这几条会话归本插件所有"**：会话被删了
+ *    （用户自己删的、「清空全部」清的），那条标签回来时就是一条空标签，并说一句
+ *     —— 见 `ClaudePanel` 里那条 `chat.note.restoredGone`
  */
 @Service(Service.Level.PROJECT)
 class SessionTabs {
@@ -135,20 +154,32 @@ class SessionTabs {
     fun canOpenNewTab(): Boolean = panels.size < MAX_SESSION_TABS
 
     /**
-     * 开**第一个**标签。由工厂在 `createToolWindowContent` 里调。
+     * 开**第一批**标签。由工厂在 `createToolWindowContent` 里调。
      *
-     * 新标签是**全新会话**：它不 resume 任何历史 —— 那半由 `ClaudePanel` 的首屏闸
-     * （`pickMostRecent`）负责，"第一次上屏"才恢复最近会话。
+     * 有存档就照存档开（重启前开着几条，现在还是几条，各自回到自己那条会话、
+     * 自己那个模型），没有存档就是一条新的 —— 那半由 `ClaudePanel` 的首屏闸负责
+     * （[firstShowPlan]）："第一次上屏"才恢复会话。
+     *
+     * **只把存档里"当前"的那条挂进宿主**，其余的等用户点它才上屏。这条很要紧：
+     * 面板一上屏就会起 sidecar（node + claude，约 250MB 一条），5 条一起上屏
+     * 就是开 IDE 时突然多出 5 个进程 —— 而用户可能只是想看看昨天那条会话。
      */
-    fun openFirstTab() {
-        addTab(openedByPlus = false)
+    fun openInitialTabs() {
+        val saved = pruneOpenTabs(archivedTabs(), MAX_SESSION_TABS)
+        if (saved.isEmpty()) {
+            addTab(openedByPlus = false)
+            return
+        }
+        saved.forEach { addTab(openedByPlus = false, restore = it, select = false) }
+        // 上次退出时当前的那条（prune 只保证至多一条标着它；一条都没有就取第一条）
+        selectOwner(panels[saved.indexOfFirst { it.selected }.takeIf { it >= 0 } ?: 0])
     }
 
     /**
      * 开一个新标签。到上限了返回 false（调用方负责说一句话，不静默）。
      *
      * **新标签是空的**：它不恢复任何历史（`openedByPlus = true` 一路传到面板的
-     * 首屏闸）。"接着上次聊"只属于开工具窗口那一次 —— 见 [resumeOnFirstShow]。
+     * 首屏闸）。"接着上次聊"只属于第一次上屏那一次 —— 见 [firstShowPlan]。
      */
     fun openNewTab(): Boolean {
         if (!canOpenNewTab()) return false
@@ -240,7 +271,46 @@ class SessionTabs {
         ) == Messages.YES
     }
 
-    private fun addTab(openedByPlus: Boolean) {
+    /**
+     * 磁盘上那份存档（重启前开着的标签）。读不出来就是空表 —— 与"从来没开过"
+     * 同一条路（[openInitialTabs] 会退回"开一条新的"）。
+     */
+    private fun archivedTabs(): List<OpenTab> {
+        val project = project ?: return emptyList()
+        if (project.isDisposed) return emptyList()
+        return ClaudeSettings.getInstance(project).openTabs()
+    }
+
+    /**
+     * 把现在这几个标签落盘（[ClaudeSettings.rememberOpenTabs]）。
+     *
+     * 谁改了"标签那边的事"就该喊一声 —— [notifyTabsChanged] 已经喊了，另外两处
+     * 面板自己调：切模型（`ClaudePanel.applyModel`）与切会话，它们不改胶囊的样子，
+     * 但改的正是存档里的内容。
+     *
+     * 写的是**内存里的状态**（平台按自己的节奏存盘），所以这里可以随便调 ——
+     * 但别改成"只在关窗口时存一次"：那个钩子在崩溃/强杀时不会来，而用户丢掉的是
+     * 一整排页签。
+     */
+    fun rememberTabs() {
+        val project = project ?: return
+        // 关项目那一路会走到这儿（Disposer 里挨个 dispose），那时服务已经在拆了
+        if (project.isDisposed) return
+        ClaudeSettings.getInstance(project).rememberOpenTabs(
+            panels.map { panel ->
+                val model = panel.tabModel()
+                OpenTab(
+                    sessionId = panel.tabSessionId().orEmpty(),
+                    profileId = model?.id.orEmpty(),
+                    modelId = model?.modelId.orEmpty(),
+                    title = panel.tabTitle(),
+                    selected = panel === current,
+                )
+            }
+        )
+    }
+
+    private fun addTab(openedByPlus: Boolean, restore: OpenTab? = null, select: Boolean = true) {
         // 「界面语言」在这里定下来：一个面板（= 一条会话的界面）诞生时读一次设置，
         // 之后它整个生命周期都用这一种语言。**不在设置里改的那一刻推**：状态卡
         // 每轮 token 都重算文案，中途换语言会得到"卡片英文、面板中文"。
@@ -252,12 +322,16 @@ class SessionTabs {
         val panel = ClaudePanel(
             requireNotNull(project) { "SessionTabs 还没 attach 就要开标签" },
             openedByPlus = openedByPlus,
+            restoredTab = restore,
         )
         panels += panel
-        // 挂进宿主由 selectOwner 做（新开的必须是当前这条）
+        // 挂进宿主由 selectOwner 做。[select] 为 false 是恢复那一条路：一次开 N 个，
+        // 只在最后挂上"上次当前的那条"—— 否则中途每挂一个都会让上一个摘下来，
+        // 而摘下来的那个已经上过屏、已经起过 sidecar 了（白白起一个进程）
+        if (!select) return
         selectOwner(panel)
         // 通知要在 selectOwner 之后：那一步已经把 tabs() 的形状定下来了。
-        // 注意 openFirstTab 这条路上 host 还没上屏，selectOwner 里的 revalidate
+        // 注意开第一批这条路上 host 还没上屏，selectOwner 里的 revalidate
         // 只是排个队，等真正上屏时 Swing 会照常走 addNotify（首屏闸在面板那边）
         notifyTabsChanged()
     }
@@ -274,8 +348,12 @@ class SessionTabs {
      * 标签那边有变化（多一个 / 少一个 / 谁忙了 / 谁改名字了）时喊一声。
      *
      * **面板自己调**：忙碌与待决权限是面板的私有状态，服务看不见它们。
+     *
+     * 顺手落一次盘（[rememberTabs]）：多一个少一个、谁改了名字、谁换了会话，
+     * 全都从这儿过 —— 而且这些事在面板那边调之前就已经改完了状态。
      */
     fun notifyTabsChanged() {
+        rememberTabs()
         // 复制一份再遍历：监听器可能在回调里退订（同 PendingPermissionCount 的写法）
         listeners.toList().forEach { it() }
     }

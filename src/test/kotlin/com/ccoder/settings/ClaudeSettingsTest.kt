@@ -9,6 +9,67 @@ import java.nio.file.Path
 
 class ClaudeSettingsTest {
 
+    // ---- 会话级的模型选中态（2026-09-21）----
+    //
+    // 选中态从"全应用一份"改成"每个会话标签各记各的"，落盘的那一份住在这里。
+    // 这几条钉的是它**三级回退的顺序**：顺序错了的后果要么是升级上来的用户
+    // 打开项目看到"无模型"，要么是手里跑着 A、标签写着 B。
+
+    /** 不碰 PasswordSafe 的密钥库。 */
+    private fun profilesWith(vararg ps: ModelProfile): ModelProfiles =
+        ModelProfiles(
+            object : SecretStore {
+                override fun read(id: String): String = ""
+                override fun write(id: String, secret: String) = Unit
+            }
+        ).apply { ps.forEach { upsert(it) } }
+
+    @Test
+    fun `本项目没记过时借全应用的最近一次选择`() {
+        val p = ModelProfile(name = "中转", modelIds = mutableListOf("flash", "pro"), modelId = "pro")
+        val profiles = profilesWith(p)
+        profiles.pick(p.id, "pro")
+
+        val chosen = ClaudeSettings().lastModel(profiles)
+
+        assertEquals("pro", chosen?.modelId, "兜底没借到，升级上来的用户会看到「无模型」")
+    }
+
+    @Test
+    fun `本项目记过就用它，且按记下的模型名重新挑`() {
+        // 配置里存的 modelId 是全应用共享的，别的项目可能刚把它改过 ——
+        // 本项目记下的是"哪条 + 哪个模型"，两个都得按记下的来
+        val p = ModelProfile(name = "中转", modelIds = mutableListOf("flash", "pro"), modelId = "pro")
+        val profiles = profilesWith(p)
+        val settings = ClaudeSettings().apply { rememberModel(p.id, "flash") }
+
+        val chosen = settings.lastModel(profiles)
+
+        assertEquals(p.id, chosen?.id)
+        assertEquals("flash", chosen?.modelId, "用了配置里存的 modelId（别的项目刚改过的那个）")
+    }
+
+    @Test
+    fun `记下的配置或模型被删了，就当作没选`() {
+        val p = ModelProfile(name = "中转", modelIds = mutableListOf("flash"))
+        val profiles = profilesWith(p)
+        val settings = ClaudeSettings().apply { rememberModel(p.id, "已经删掉的模型") }
+
+        assertNull(settings.lastModel(profiles), "给不出一个不存在的模型，就该是「没选」")
+    }
+
+    @Test
+    fun `重启 IDE 之后还记得这个项目用哪条`() {
+        // loadState 是**逐字段复制**的（见那边注释）：新字段忘了写就会静默丢掉，
+        // 症状是"重启 IDE 之后模型又变回去了"
+        val p = ModelProfile(id = "p1", name = "中转", modelIds = mutableListOf("flash"))
+        val loaded = ClaudeSettings().apply {
+            loadState(ClaudeSettings.State(lastProfileId = "p1", lastModelId = "flash"))
+        }
+
+        assertEquals("flash", loaded.lastModel(profilesWith(p))?.modelId)
+    }
+
     @Test
     fun `默认值的权限模式是 default`() {
         assertEquals(PermissionModeSetting.DEFAULT, ClaudeSettings().permissionMode)
@@ -164,6 +225,7 @@ class ClaudeSettingsTest {
             effort = EffortSetting.XHIGH
             extraDirs = mutableListOf("/a")
             envOverrides = mutableMapOf("K" to "V")
+            rememberOpenTabs(listOf(OpenTab(sessionId = "s1", selected = true)))
         }
         val restored = ClaudeSettings().apply { loadState(s.state) }
         assertEquals("/x/claude", restored.claudePath)
@@ -172,6 +234,9 @@ class ClaudeSettingsTest {
         assertEquals(EffortSetting.XHIGH, restored.effort)
         assertEquals(listOf("/a"), restored.extraDirs)
         assertEquals(mapOf("K" to "V"), restored.envOverrides)
+        // 开关着的标签那一份也在里面：它在 loadState 里是**逐字段复制**的那一串
+        // 之一，漏了就是"重启后页签又只剩一个"（见 OpenTabsTest 里那条同名的用例）
+        assertEquals(listOf(OpenTab(sessionId = "s1", selected = true)), restored.openTabs())
     }
 
     @Test

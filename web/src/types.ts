@@ -133,5 +133,26 @@ declare global {
      * 不该炸（桥晚于挂载注入是常态，见 App.test.tsx 的握手用例）。
      */
     ccoderLocaleSink?: (tag: string) => void
+    /**
+     * 当前界面偏好的快照（今天只有「思考折叠」）。Kotlin 在页面加载时注入并推一次，
+     * 页面**惰性**读一次（见 prefs.ts 的 getPrefs）；此后只在 ready 握手与设置
+     * 对话框关掉时回推，页面不必重载。
+     *
+     * 形状是**对象**而不是裸布尔：字号、密度、配色（还没做）要往同一份快照里继续加键。
+     * 值是跨进程来的外部输入，所以这里每个键都可选 —— 归一化在 prefs.ts 里，那里看得见。
+     */
+    ccoderPrefs?: { collapseThinking?: boolean }
+    /**
+     * 换偏好：把快照落到 `window.ccoderPrefs` 上，再叫醒页面这一侧的接收端。
+     *
+     * 与 `ccoderSetLocale` 是同一对分工：Kotlin 注入、Kotlin 调，页面不主动调。
+     */
+    ccoderSetPrefs?: (prefs: unknown) => void
+    /**
+     * 页面这一侧的偏好接收端，由 App 在装 `ccoderLocaleSink` 的同一处装上。
+     *
+     * 可选的，理由同 `ccoderLocaleSink`：页面还没挂上时推过来不该炸。
+     */
+    ccoderPrefsSink?: (prefs: unknown) => void
   }
 }

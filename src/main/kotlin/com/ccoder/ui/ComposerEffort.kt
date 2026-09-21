@@ -2,17 +2,12 @@ package com.ccoder.ui
 
 import com.ccoder.settings.EffortSetting
 import com.ccoder.text.CcoderText
-import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import java.awt.BorderLayout
 import java.awt.Cursor
-import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
-import javax.swing.JPanel
 
 /**
  * 思考深度。可点，点了弹列表切换。
@@ -84,15 +79,59 @@ internal fun effortLabelText(setting: EffortSetting): String =
  * 第二行的说明**必须把「哪些档分模型」讲在明面上**：xhigh 与 max 在不支持的
  * 模型上会被 CLI 静默降级，而界面上没有任何别的办法能看出来。与其让用户
  * 以为自己选了「最大」就真的最大，不如一开始就说清楚前提。
+ *
+ * **分两张卡**（2026-09-21 改，设计稿 `docs/design/mode-effort-picker.html` 的 C 案）：
+ * 「通用档」与「仅部分模型认」—— 后者描一圈琥珀边。刀口落在枚举本来就有的
+ * 那道缝上（[EffortSetting.HIGH] 与 [EffortSetting.XHIGH] 之间），**一档都不重排**。
+ *
+ * 为什么值得分：原来那句"仅部分模型认"是**说明里的小字**，而它是选这一档
+ * 之前唯一该知道的事。分完组，它成了整张卡的标题。
+ *
+ * 卡与行本身住在 [PickerList] —— 与模型、权限那两个弹层是同一套东西。
  */
 internal fun buildEffortList(
     current: EffortSetting,
     onPick: (EffortSetting) -> Unit,
-): JComponent = JPanel().apply {
-    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-    isOpaque = false
-    border = JBUI.Borders.empty(4, 4)
-    EffortSetting.entries.forEach { add(effortRow(it, it == current, onPick)) }
+): JComponent = cardColumn().apply {
+    EffortGroup.entries.forEach { group ->
+        val levels = EffortSetting.entries.filter { effortGroup(it) == group }
+        if (levels.isEmpty()) return@forEach
+        addCard(optionGroup(group.title, group.warn, levels.map { effortRow(it, it == current, onPick) }))
+    }
+}
+
+/**
+ * 这一档归哪一组。
+ *
+ * 穷尽式 `when`（同 [effortDescription]）：将来 SDK 加了档位，这里会是**编译错误**，
+ * 而不是一档悄悄漏在两张卡外面的档位。
+ */
+internal fun effortGroup(setting: EffortSetting): EffortGroup = when (setting) {
+    EffortSetting.DEFAULT,
+    EffortSetting.LOW,
+    EffortSetting.MEDIUM,
+    EffortSetting.HIGH,
+    -> EffortGroup.GENERAL
+
+    EffortSetting.XHIGH,
+    EffortSetting.MAX,
+    -> EffortGroup.PARTIAL
+}
+
+/**
+ * 思考深度的两组。
+ *
+ * 第二组叫「仅部分模型认」而不是「高级档」：那两档真正的区别不是"更高"，
+ * 而是**在不认它的模型上会被静默降级**（[effortDescription] 里写着的就是这句）。
+ * 组名说这件事，用户才知道挑它之前要看一眼自己用的是什么模型。
+ */
+internal enum class EffortGroup(private val titleKey: String, val warn: Boolean) {
+    GENERAL("composer.effort.group.common", warn = false),
+    PARTIAL("composer.effort.group.partial", warn = true),
+    ;
+
+    /** 界面上的组名。取一次读一次词表 —— 语言变了下次取就是新语言。 */
+    val title: String get() = CcoderText.text(titleKey)
 }
 
 /**
@@ -114,42 +153,12 @@ private fun effortRow(
     setting: EffortSetting,
     selected: Boolean,
     onPick: (EffortSetting) -> Unit,
-): JComponent {
-    // 显式取字体：未挂到层级上时 getFont() 可能是 null，
-    // deriveFont 会直接 NPE（RunStripView 上踩过同一个坑）
-    val base = UIUtil.getLabelFont()
-
-    val row = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        border = JBUI.Borders.empty(3, 6)
-    }
-
-    // 未选中的行也缩进同样的宽度，勾出现或消失时文字不会左右跳
-    val name = JLabel((if (selected) MARK else " ") + " " + setting.label).apply {
-        // 与 [modelRow] 一样用常规文字色：档位名是这一行的主体，
-        // 说明在下面一档更淡。模式列表那边用模式色，是因为那里
-        // 颜色本身在传达安全性，这里没有那个负担
-        foreground = UIUtil.getLabelForeground()
-        font = if (selected) base.deriveFont(Font.BOLD) else base
-    }
-
-    val desc = JLabel(effortDescription(setting)).apply {
-        foreground = UIUtil.getInactiveTextColor()
-        font = base.deriveFont(base.size2D - 1f)
-    }
-
-    row.add(name, BorderLayout.NORTH)
-    row.add(desc, BorderLayout.SOUTH)
-
-    // 整行可点，不只是文字那一小块 —— 一行里拆成了两个标签，
-    // 点到说明上没反应会显得很钝
-    val handler = object : MouseAdapter() {
-        override fun mouseClicked(e: MouseEvent) {
-            onPick(setting)
-        }
-    }
-    listOf(row, name, desc).forEach { it.addMouseListener(handler) }
-
-    return row
-}
+): JComponent = optionRow(
+    name = setting.label,
+    // 用常规文字色：档位名是这一行的主体，说明在下面一档更淡。
+    // 权限模式那边用警示色是因为那里的颜色在传达安全性，这里没有那个负担
+    nameColor = UIUtil.getLabelForeground(),
+    description = effortDescription(setting),
+    selected = selected,
+    onClick = { onPick(setting) },
+)

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Transcript } from './components/Transcript'
 import { applyOps, parseOps } from './codec'
 import { setLang } from './i18n'
+import { applyPrefs } from './prefs'
 // window.ccoder 的全局声明在 types.ts，此处不重复声明
 import type { TranscriptState } from './types'
 
@@ -42,6 +43,14 @@ export function App() {
     window.ccoderLocaleSink = (tag: string) => setLang(tag)
     setLang(window.ccoder?.locale)
 
+    // 偏好（思考折叠）走同一套：页面这一侧挂接收端，再把**注入的那一份**读一次。
+    //
+    // 读这一下不是多余的：桥可能比 React 先到 —— 那时 Kotlin 已经推过一遍，
+    // 而推的时候还没有 sink（桥脚本里那句 `&&` 把它变成了"只写值"）。
+    // 与语言同理，两次落到同一个地方，幂等（见 prefs.ts 的 applyPrefs）。
+    window.ccoderPrefsSink = (raw: unknown) => applyPrefs(raw)
+    applyPrefs(window.ccoderPrefs)
+
     // 通知 Kotlin 侧可以开始推送了。
     //
     // 必须放在 pushBatch 赋值**之后**：否则 Kotlin 收到 ready 立刻推送时
@@ -76,8 +85,9 @@ export function App() {
 
     return () => {
       stopPolling()
-      // 摘掉接收端：App 卸载后 Kotlin 再推语言就是打到一个已经不存在的页面上
+      // 摘掉接收端：App 卸载后 Kotlin 再推语言/偏好就是打到一个已经不存在的页面上
       delete window.ccoderLocaleSink
+      delete window.ccoderPrefsSink
     }
   }, [])
 

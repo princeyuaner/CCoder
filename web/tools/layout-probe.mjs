@@ -309,6 +309,14 @@ function buildPage(scenario) {
     })(),
     numRects: numRects,
     cellStyle: cellStyle,
+    // 表格字号必须**跟着正文**：Chromium 的 UA 样式表给 table/td 钉了
+    // font-size: medium（16px），不显式拉回来就是"表格比正文大一号"，
+    // 而且设置里的字号档（--fs-scale）永远到不了表格里（2026-09-21 实测）
+    cellFontSize: numCell ? getComputedStyle(numCell).fontSize : null,
+    bubbleFontSize: (() => {
+      const el = t.querySelector('.bubble__text')
+      return el ? getComputedStyle(el).fontSize : null
+    })(),
     bubbleWhiteSpace: bubbleWhiteSpace,
     scrollH: t.scrollHeight,
     clientH: t.clientHeight,
@@ -426,6 +434,15 @@ for (const scenario of SCENARIOS) {
       'overflow-wrap: anywhere 又回到单元格上了吗？',
     )
   }
+  // 表格字号要跟正文一致（第四处"继承坑"，2026-09-21 补）：UA 给 table/td 钉了
+  // medium，光看 styles.css 是看不出来的 —— 而正文一缩放，差得就更明显
+  if (m.cellFontSize !== null && m.cellFontSize !== m.bubbleFontSize) {
+    problems.push(
+      `表格单元格字号 ${m.cellFontSize} ≠ 正文字号 ${m.bubbleFontSize} —— ` +
+      'Chromium 的 UA 给 table/td 钉了 font-size: medium，' +
+      '要在 .bubble__text table 上把字号拉回来（见 styles.css 那段注释）',
+    )
+  }
   if (m.bubbleWhiteSpace !== 'pre-wrap') {
     problems.push(
       `正文的 white-space 变成了 ${m.bubbleWhiteSpace} —— 它得是 pre-wrap，` +
@@ -443,7 +460,7 @@ for (const scenario of SCENARIOS) {
     ` headOverflow=${m.headOverflow}` +
     ` bubbleW=${m.bubbleW}/${m.rowW} userW=${m.userW}` +
     ` thumbW=${m.thumbW} imagesOverflow=${m.imagesOverflow}` +
-    ` numRects=${m.numRects} cell=[${m.cellStyle}]` +
+    ` numRects=${m.numRects} cell=[${m.cellStyle}] cellFont=${m.cellFontSize}/${m.bubbleFontSize}` +
     ` scrollH=${m.scrollH} clientH=${m.clientH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)

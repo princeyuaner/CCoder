@@ -23,6 +23,7 @@ import com.ccoder.settings.EffortSetting
 import com.ccoder.settings.McpStatus
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.ModelProfiles
+import com.ccoder.settings.OpenTab
 import com.ccoder.settings.PermissionModeSetting
 import com.ccoder.settings.PromptPreset
 import com.ccoder.settings.PromptPresets
@@ -103,7 +104,26 @@ class ClaudePanel(
      * 用户截图来问"新建会话不应该是空的吗"。
      */
     private val openedByPlus: Boolean = false,
+    /**
+     * 这条面板是**重启后照存档恢复**出来的那一条（见 [ClaudeSettings.openTabs]）。
+     *
+     * 非 null 表示"第一次上屏时回到它自己那条会话"，而不是去找最近改过的那条 ——
+     * 见 [firstShowPlan]。空 `sessionId` 的存档（「＋」开出来还没聊过的标签）
+     * 与 null 等价：它本来就该是条空标签。
+     *
+     * 只有 [SessionTabs] 装配标签时给这个参数，别处一律 null。
+     */
+    private val restoredTab: OpenTab? = null,
 ) : JPanel(BorderLayout()), SidecarListener, Disposable {
+
+    /**
+     * 存档里点名要恢复的那条会话。null = 这条面板没有"自己那条"（新建的）。
+     *
+     * 它是**请求**，与 [resumeTargetId]（正在办的那件事）分开：listSessions 回来
+     * 才把前者兑现成后者。空串的存档在这一步就被滤掉，免得后面每条分支都要判一次。
+     */
+    private val restoreTargetId: String? =
+        restoredTab?.sessionId?.trim()?.takeIf { it.isNotEmpty() }
 
     private val transcriptView = ClaudeTranscriptView(project)
 
@@ -230,6 +250,49 @@ class ClaudePanel(
      */
     private val modelLabel = ModelLabel { toggleModelChooser() }
 
+    /**
+     * **这个标签**当前用的模型（哪条配置 + 它里面的哪个模型）。
+     *
+     * 2026-09-21 起它是本标签自己的一份，不再是全应用共用的一个选中态。
+     * 起因是一个真问题：两个 IDE 窗口（或同一个窗口的两个会话标签）会互相改 ——
+     * 而模型是**起 sidecar 时烤进进程环境**的，改设置根本到不了另一个跑着的会话。
+     * 于是切一次，别人那边标签显示"已切"、手里的会话却还是原来那个：标签撒谎。
+     *
+     * 现在：本标签点的、本标签用；持久化到**本项目**的最近一次
+     * （[ClaudeSettings.lastModel]），新标签从它开局。
+     *
+     * [Volatile]：`toStartParams` 会在**池化线程**上读它（见 [sendStart] 那条注释），
+     * 而写在 EDT 上。
+     */
+    @Volatile
+    private var currentModel: ModelProfile? = initialModel()
+
+    /**
+     * 这条标签开局用哪个模型。
+     *
+     * 恢复出来的那条用它**自己存档里**的配置与模型 —— 这就是"每条标签各记各的"
+     * 落地的地方：重启前 A 用 flash、B 用 pro，回来还是各用各的。其余标签（新建的、
+     * 以及升级上来的老项目）沿用本项目最近一次的选择（[ClaudeSettings.lastModel]）。
+     *
+     * 存档里的东西可能已经变了样，两条分开处理，理由不一样：
+     *  - **配置被删了** → 当"没选过"（[fallback]）
+     *  - **空 modelId** → 原样保留：它是**合法**取值（那条配置不指定模型，官方端点
+     *    走 CLI 的默认档）。它不能进 [reconcileModel] —— 那边判的是"这个模型还在
+     *    不在列表里"，空串永远不在，于是会退回本项目最近一次的选择：标签用着的
+     *    **配置**就不是它原来那条了（比如从"官方端点"变成"公司中转"）
+     *  - **模型被删了** → [reconcileModel] 判，退回 [fallback]
+     */
+    private fun initialModel(): ModelProfile? {
+        val profiles = ModelProfiles.getInstance()
+        val available = profiles.profiles()
+        val fallback = ClaudeSettings.getInstance(project).lastModel(profiles)
+        val tab = restoredTab ?: return fallback
+
+        val fresh = available.firstOrNull { it.id == tab.profileId } ?: return fallback
+        if (tab.modelId.isBlank()) return fresh.copy(modelId = "")
+        return reconcileModel(fresh.copy(modelId = tab.modelId), available, fallback)
+    }
+
     /** 权限模式。可点，点开切换。 */
     private val modeLabel = ModeLabel { toggleModeChooser() }
 
@@ -302,8 +365,13 @@ class ClaudePanel(
      * **界面上永远不显示会话 id** —— 列表里显示的是标题，一串 UUID 前缀
      * 对不上号，纯噪音。标签的显示规则就一条：有标题显示标题，没有显示
      * 斜体的「新会话」。
+     *
+     * 恢复出来的标签先拿存档里那个名字顶着（见 [OpenTab.title]）：它要等上屏、
+     * 要等 sidecar 起来才问得到会话列表，而胶囊行**现在**就要画 —— 不顶的话
+     * 一开 IDE 会看到一排「新会话」。真拿到了会话列表就换成权威的那份
+     * （`sessionLabelTitle`），所以这只是一个占位，不是第二份真相。
      */
-    private var currentSessionTitle: String? = null
+    private var currentSessionTitle: String? = restoredTab?.title?.takeIf { it.isNotBlank() }
 
     /**
      * 当前会话 id。
@@ -810,9 +878,10 @@ class ClaudePanel(
     private val showingWatcher = HierarchyListener { e ->
         if (e.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L && isShowing) {
             LOG.info("CCoder 面板显示（SHOWING_CHANGED），据此决定是否建会话")
-            // 第一次上屏默认回到最近那条会话 —— 用户要的是"接着上次聊"，
-            // 而不是每次开窗都从零开始（旧行为见 session-switch spec §1.3）
-            startSession(pickMostRecent = consumeFirstShow())
+            // 第一次上屏要开哪一个由 [firstShowPlan] 定：开工具窗口那条回到最近
+            // 会话（用户要的是"接着上次聊"），「＋」出来的必须是空的，
+            // 重启后照存档恢复的那条回到它自己那条
+            startSession(consumeFirstShow())
             checkChangelogOnUpdate()
         }
     }
@@ -826,7 +895,7 @@ class ClaudePanel(
         ApplicationManager.getApplication().invokeLater {
             LOG.info("CCoder 面板上屏：isShowing=$isShowing，据此决定是否建会话")
             if (isShowing) {
-                startSession(pickMostRecent = consumeFirstShow())
+                startSession(consumeFirstShow())
                 checkChangelogOnUpdate()
             }
             // 切到这个标签（或者它刚建出来）：把**本会话**的 MCP 状态重新发布 ——
@@ -836,20 +905,26 @@ class ClaudePanel(
     }
 
     /**
-     * "打开面板恢复最近会话"只该发生**一次**。
+     * "第一次上屏要开哪一个"只该算**一次**。
      *
      * 多标签之后 [showingWatcher] 与 [addNotify] 会被反复触发（切走再切回 =
      * `removeNotify`/`addNotify`），而今天那条路里"起失败 / 断开导致 `proc == null`"
-     * 会重新走 `pickMostRecent = true` —— 于是一个起失败的标签会**悄悄接到
-     * 别的会话上**（还会撞上 [OpenSessions] 的占用登记）。
+     * 会重新走"挑一条会话"—— 于是一个起失败的标签会**悄悄接到别的会话上**
+     * （还会撞上 [OpenSessions] 的占用登记）。
      *
-     * 两个触发点共用这一个开关，所以谁先到谁赢，后到的那个拿到 false。
+     * 两个触发点共用这一个开关，所以谁先到谁赢，后到的那个拿到 [FirstShow.Nothing]。
      */
-    private fun consumeFirstShow(): Boolean {
-        if (firstShowDone) return false
+    private fun consumeFirstShow(): FirstShow {
+        if (firstShowDone) return FirstShow.Nothing
         firstShowDone = true
-        // 只有**开工具窗口时建的那个**面板该恢复最近会话；「＋」开出来的必须是空的
-        return resumeOnFirstShow(firstShow = true, openedByPlus = openedByPlus)
+        return firstShowPlan(
+            firstShow = true,
+            openedByPlus = openedByPlus,
+            restoredSessionId = restoreTargetId,
+            // 恢复出来的标签即便不是「＋」开出来的，也不是"开工具窗口那一条" ——
+            // 存档里没有会话号的那种要的是一条空标签，见 [firstShowPlan]
+            restored = restoredTab != null,
+        )
     }
 
     /**
@@ -1099,11 +1174,43 @@ class ClaudePanel(
     /**
      * 模型标签的唯一出口，与 [refreshModeLabel] 同一个道理。
      *
-     * 显示的是**选中的配置**，而选中态存在 [ModelProfiles] 里 —— 谁改了它就
-     * 调一下这里，免得标签与真实生效的那条对不上。
+     * 显示的是**这个标签在用的那份**（[currentModel]）—— 谁改了它就调一下这里。
+     *
+     * 2026-09-21 之前读的是 `ModelProfiles.selected()`（全应用一份），于是别的
+     * 窗口一切，这边的标签就跟着变，而这边跑着的会话根本没动。现在读自己的。
      */
     private fun refreshModelLabel() {
-        modelLabel.setProfile(ModelProfiles.getInstance().selected())
+        val profiles = ModelProfiles.getInstance()
+        // 核一遍：设置对话框可能刚把这条配置删了、改过、或删掉了那个模型。
+        // currentModel 是快照，不核的话标签会显示一条已经不存在的配置
+        // （推理见 [reconcileModel]）
+        currentModel = reconcileModel(
+            current = currentModel,
+            available = profiles.profiles(),
+            fallback = ClaudeSettings.getInstance(project).lastModel(profiles),
+        )
+        modelLabel.setProfile(currentModel)
+    }
+
+    /**
+     * 把"这个标签现在用这条配置里的这个模型"落下去（三处一起）：
+     * 本标签的 [currentModel]、配置里的当前模型（设置页要显示它）、
+     * 本项目的最近一次（[ClaudeSettings.lastModel]，新标签从它开局）。
+     *
+     * 配置没了、或模型已不在它的列表里就**整个不动** —— 这两件事发生在
+     * "回执到达时用户已经改过设置了"那条竞态上，那时宁可什么都不改。
+     */
+    private fun applyModel(profileId: String, modelId: String) {
+        val profiles = ModelProfiles.getInstance()
+        val target = profiles.profiles().firstOrNull { it.id == profileId } ?: return
+        if (modelId !in target.modelIds) return
+        profiles.pick(profileId, modelId)
+        currentModel = target.copy(modelId = modelId)
+        ClaudeSettings.getInstance(project).rememberModel(profileId, modelId)
+        refreshModelLabel()
+        // 标签的存档里那份模型也得跟着走：它是"每条标签各记各的"唯一的落点，
+        // 不在这里落一次，重启后这个标签用的是**上一次存盘时**那个模型
+        SessionTabs.getInstance(project).rememberTabs()
     }
 
     /**
@@ -1427,11 +1534,22 @@ class ClaudePanel(
      * 同理还有 [applySavedSettingsToSession]：那一页现在也能改权限模式与思考深度，
      * 而这两项的活控制本来是输入框左下角的标签 —— 在设置里改完却要等下次开会话
      * 才生效，与标签那儿的即时手感是两套规矩。
+     *
+     * 「界面」卡里的偏好走第三条路：**纯界面的事，只往转写区推一次** —— 它们不碰会话，
+     * 所以不进 [applySavedSettingsToSession]（那个函数有"会话没就绪"的早退分支，
+     * 偏好塞进去会被顺手吃掉）。与主题同一条道理。
+     *
+     * 推的是两条通道，各管各的：思考折叠走偏好快照（[ClaudeTranscriptView.setPreferences]），
+     * 字体与字号走**主题 CSS**（[ClaudeTranscriptView.setTheme] —— 颜色与字体从 2026-09-11 起
+     * 就是同一份注入，见 `ThemeInjector`）。
      */
     private fun openModelSettings() {
         // 先把 MCP 状态问一遍：右栏读的是 McpStatus 服务，不先问就显示上一次的
         requestMcpStatus()
         showSettingsDialog(project)
+        // 关框那一刻推一次：已经画在屏幕上的思考块跟着收/展、字体与字号当场换
+        // （"界面立刻切换"那条承诺）。三条通道一起推，见 pushUiState
+        transcriptView.pushUiState()
         refreshModelLabel()
         applySavedSettingsToSession()
     }
@@ -1474,7 +1592,7 @@ class ClaudePanel(
         val profiles = ModelProfiles.getInstance()
         modelPopup = showTogglePopup(modelLabel, buildModelList(
             profiles = profiles.profiles(),
-            currentId = profiles.selectedId(),
+            current = currentModel?.let { ModelPick(it.id, it.modelId) },
             // 弹层上那句〔会重开会话〕与真正怎么切，走的是**同一个判定**
             effectOf = { p -> effectFor(p, profiles) },
             onPick = { pick -> switchModel(pick) },
@@ -1497,7 +1615,7 @@ class ClaudePanel(
      * 就等于让标签撒谎。
      */
     private fun effectFor(target: ModelProfile, profiles: ModelProfiles): PickEffect {
-        val current = profiles.selected()
+        val current = currentModel
         return pickEffect(
             hasSession = ready,
             current = current,
@@ -1540,7 +1658,7 @@ class ClaudePanel(
         // 从 ModelProfiles 现取，不用弹层里那份快照：设置对话框是模态的，
         // 用户完全可能在弹层开着的时候改过这条配置
         val target = profiles.profiles().firstOrNull { it.id == pick.profileId } ?: return
-        val current = profiles.selected()
+        val current = currentModel
         if (current?.id == target.id && current.modelId == pick.modelId) return
 
         if (effectFor(target, profiles) == PickEffect.Hot) {
@@ -1569,8 +1687,7 @@ class ClaudePanel(
         // 一旦忘了写，选中态就永久跑偏 —— 这里干脆不给它跑偏的机会
         if (busy && !confirmModelSwitch(target, pick.modelId)) return
 
-        profiles.pick(target.id, pick.modelId)
-        refreshModelLabel()
+        applyModel(pick.profileId, pick.modelId)
         restartSession()
     }
 
@@ -1687,6 +1804,11 @@ class ClaudePanel(
         stopSession()
         currentSessionId = null
         currentSessionTitle = null
+        // 「新建会话」绝不能带着上一个会话的 resume 目标 —— [sendStart] 读的正是它。
+        // 留着的后果有两条：一条起失败的标签会"新建"出上一个会话（磁盘上不出现新
+        // 会话，用户以为新建没生效），以及 [tabSessionId] 会把那条旧会话当成这条
+        // 标签的现状存下去
+        resumeTargetId = null
         refreshSessionLabel(enabled = true)
         pushOp(TranscriptOp.Reset)
         startSession()
@@ -2163,6 +2285,26 @@ class ClaudePanel(
     internal fun tabState(): TabState = tabStateOf(permissionQueue.totalPending, busy, starting)
 
     /**
+     * 这条标签**现在**是哪条会话 —— 落进 `ClaudeSettings.openTabs` 的就是它
+     * （见 [SessionTabs.rememberTabs]）。
+     *
+     * 三处取值按"谁更权威"排：
+     *  1. [currentSessionId]：会话已经建起来了，这是事实
+     *  2. [resumeTargetId]：正在恢复它（回执还没回来）
+     *  3. 存档里那个 id：**只在这个标签还没上过屏时算数**。上过屏之后它就不再代表
+     *     这条标签了 —— 用户可能已经点了「新建会话」或切到了别的会话，那时再拿
+     *     存档里的 id 存下去，重启后会把一条早就被换掉的会话认回来
+     *
+     * 空串（不是 null）：XmlSerializer 那边"没值"和"空串"是一回事，而 [OpenTab]
+     * 的空串是有意义的那一种（"这条标签还没起过会话"）。
+     */
+    internal fun tabSessionId(): String? =
+        currentSessionId ?: resumeTargetId ?: restoreTargetId?.takeIf { !firstShowDone }
+
+    /** 这条标签用的哪个模型（存标签时读它，见 [tabSessionId]）。 */
+    internal fun tabModel(): ModelProfile? = currentModel
+
+    /**
      * 把刚发出去的这条消息认成会话标题（用户 2026-09-15 的要求）。
      *
      * 改之前：**全新会话的标签一直是斜体的「新会话」**，聊一小时也还是它 ——
@@ -2238,14 +2380,19 @@ class ClaudePanel(
     /**
      * 起一个会话。
      *
-     * @param pickMostRecent 打开面板时用：先列出本项目的历史会话，恢复**最近**
-     *   的那一条；没有历史或问不出来则退回新会话。**只有打开这条路**传 true ——
-     *   「＋」新建、删掉当前会话、断开后重启，语义都是"要一个新的"，不该被抢走。
+     * @param open 这条会话从哪儿起步，三档见 [FirstShow]：新建、恢复**最近**那条、
+     *   或恢复**点名**的那条（重启后照存档回来的标签）。**只有第一次上屏这条路**
+     *   会传后两档（见 [consumeFirstShow]）；「＋」新建、删掉当前会话、断开后重启
+     *   都走默认的 [FirstShow.New] —— 它们的语义都是"要一个新的"，不该被抢走。
      *
-     * 打开这条路刻意**不是**"先起新会话再切过去"：那样会在硬盘上真的留下一条
+     * 恢复那两条路刻意**不是**"先起新会话再切过去"：那样会在硬盘上真的留下一条
      * 空会话（列表里越攒越多），用户也会看见转写区闪一下。
+     *
+     * `internal` 而不是 public：参数类型 [FirstShow] 是内部的（同 [ChangelogStore]
+     * 那条规矩，public 函数不许暴露 internal 类型）。外面本来也没人调它 ——
+     * 面板起来之后，会话的生杀都由面板自己那几条路走。
      */
-    fun startSession(pickMostRecent: Boolean = false) {
+    internal fun startSession(open: FirstShow = FirstShow.New) {
         if (proc != null || starting) return
         starting = true
         // 这一趟的令牌。异世界（池线程）走一遭回来要拿它问一句"我还算数吗"
@@ -2357,10 +2504,16 @@ class ClaudePanel(
                 }
                 c.start()
 
-                if (!pickMostRecent) {
+                // 新建那条不走列表：起手就是一条空会话。只有"恢复"两档才要去问
+                // 一句有哪些历史会话 —— 见 [FirstShow]
+                if (open != FirstShow.MostRecent && open != FirstShow.Given) {
                     sendStart(c, base)
                     return@executeOnPooledThread
                 }
+
+                // 点名要恢复的那条。只有 Given 那一档上它才非空（见 [firstShowPlan]），
+                // 所以这里取的就是"存档里写的那条"
+                val wantedId = if (open == FirstShow.Given) restoreTargetId else null
 
                 // 打开面板：先问一句"这个项目有哪些历史会话"，再决定起哪一个。
                 // listSessions 不需要活会话（sidecar/index.js:117），所以这里问得出口
@@ -2380,11 +2533,19 @@ class ClaudePanel(
                         // 跳过已被别的标签占住的会话（见 [OpenSessions]）——
                         // 两个标签开同一条会两边同时写同一个 jsonl
                         val claims = OpenSessions.getInstance(project)
-                        when (val pick = openPick(outcome) { claims.isTaken(it) }) {
+                        // 「点名要哪条」（重启后照存档回来的标签）与「挑最近那条」共用
+                        // 同一套结局与后续动作，只有"挑哪一条"不同。分开各写一遍的话
+                        // 下面这段"占用登记 + 设标题 + 挂 resumeTargetId"迟早会漂移
+                        val pick = if (wantedId != null) {
+                            openPickGiven(outcome, wantedId) { claims.isTaken(it) }
+                        } else {
+                            openPick(outcome) { claims.isTaken(it) }
+                        }
+                        when (pick) {
                             is OpenPick.Resume -> {
                                 val sid = pick.session.sessionId
                                 if (claims.reserve(sid, this@ClaudePanel)) {
-                                    LOG.info("CCoder 打开时恢复最近会话：$sid")
+                                    LOG.info("CCoder 第一次上屏恢复会话：$sid（恢复来源：${if (wantedId != null) "存档" else "最近"}）")
                                     currentSessionTitle = sessionLabelTitle(pick.session)
                                     resumeTargetId = sid
                                     refreshSessionLabel(enabled = true)
@@ -2397,8 +2558,21 @@ class ClaudePanel(
 
                             // 没有历史：一个字都不说，与「＋」新建同一条路。
                             // 这里报"列不出会话"的话，每开一个新项目都会收到一句
-                            // 并不存在的错误
-                            OpenPick.None -> Unit
+                            // 并不存在的错误。
+                            //
+                            // 但**存档点名却没找着**是另一回事，用户明确期待看到那条 ——
+                            // 说一句，别让这个标签看起来像是"自己变成了新会话"。两种
+                            // 可能都在那句话里：它被删了，或者它已经被别的标签开着
+                            // （后者要用户先在别的标签里手动打开同一条，才可能发生 ——
+                            // 存档里两条标签写同一条的情况在 prune 那一步就去掉了）
+                            OpenPick.None -> if (wantedId != null) {
+                                LOG.info("CCoder 恢复标签：存档里的会话 $wantedId 拿不到（已删或在别的标签里），开新会话")
+                                // 存档里那个标题也得作废：会话都没了，顶着它的胶囊
+                                // 就是一个在撒谎的名字（见 currentSessionTitle）
+                                currentSessionTitle = null
+                                refreshSessionLabel(enabled = true)
+                                pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.restoredGone")))
+                            }
 
                             is OpenPick.Unavailable ->
                                 pushItem(
@@ -2434,7 +2608,7 @@ class ClaudePanel(
                     // 模型配置必须显式传进来：toStartParams 的默认值是 null，
                     // 也就是"一条配置都没配"。漏传不会报错，只会安静地退回旧行为，
                     // 症状是"配了模型却不生效"（spec §5）
-                    .toStartParams(Path.of(base), ModelProfiles.getInstance())
+                    .toStartParams(Path.of(base), ModelProfiles.getInstance(), currentModel)
                     // 语言与 resumeSessionId 一样是"发出时才读"的字段：这一条让新会话
                     // 用上当前语言（node 进程是复用的，光靠启动环境变量做不到）
                     .copy(resumeSessionId = resumeTargetId, uiLang = CcoderText.tag()),
@@ -2860,8 +3034,7 @@ class ClaudePanel(
                             // "配置已被删掉"与"模型已不在列表里"这两种情况
                             // （那说明用户在我们等回执的时候改过设置），
                             // 挡住了标签就保持原样，不会指向一个不存在的东西
-                            profiles.pick(pick.profileId, pick.modelId)
-                            refreshModelLabel()
+                            applyModel(pick.profileId, pick.modelId)
                             // 窗口大小跟着模型走：不重问的话，用量卡还会用上一个
                             // 模型的分母，而那多半是另一个窗口
                             requestContextUsage()

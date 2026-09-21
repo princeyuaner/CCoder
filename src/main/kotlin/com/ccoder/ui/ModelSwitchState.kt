@@ -45,6 +45,36 @@ internal fun pickEffect(
 }
 
 /**
+ * 把"这个会话标签用哪个模型"跟当前的配置列表核一遍。
+ *
+ * [current] 是**快照** —— 这是"选中态按标签分"的代价：它不再跟着配置走，
+ * 所以每次刷新都得自己核。三条后果都是具体的：
+ *
+ *  - 配置被删了 → 不核的话标签还显示着它，而**下一次起会话**会拿一个不再存在的
+ *    端点去连（密钥也已经跟着删了，第三方网关上就是一次 401）
+ *  - 模型从这条配置的列表里被删了 → 同上，而且是"把一个 CLI 不认识的模型名发过去"
+ *  - 配置**改过**（换端点、改名、换认证方式）→ 不核的话这里起会话还去连老地址，
+ *    而设置页明明写着新地址
+ *
+ * 核得上就返回**列表里那份**（端点/名字取最新的）配**本标签选的那个模型**；
+ * 核不上就退回 [fallback] —— 本项目最近用的那条，与新标签开局拿到的完全一样，
+ * 所以"退回"之后的行为是可预期的。
+ *
+ * **别把它简化成"每次都取 fallback"**：那正是改版前那个全应用共用的选中态
+ * （谁点一下别的窗口全跟着变），也就是这次要拆掉的东西。这条函数存在的全部
+ * 意义就是"本标签自己选的优先，只有它没了才退"。
+ */
+internal fun reconcileModel(
+    current: ModelProfile?,
+    available: List<ModelProfile>,
+    fallback: ModelProfile?,
+): ModelProfile? {
+    if (current == null) return fallback
+    val fresh = available.firstOrNull { it.id == current.id } ?: return fallback
+    return if (current.modelId in fresh.modelIds) fresh.copy(modelId = current.modelId) else fallback
+}
+
+/**
  * 这一行要不要标「会重开会话」。
  *
  * 只有 [PickEffect.Restart] 标。热切不标（它本来就不丢东西，标了反而像警告），

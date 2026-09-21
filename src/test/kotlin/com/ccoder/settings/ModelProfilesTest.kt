@@ -58,17 +58,17 @@ class ModelProfilesTest {
     }
 
     @Test
-    fun `删掉当前选中的那条时选中态跟着清空`() {
+    fun `删掉最近选择的那条时兜底值跟着清空`() {
         val m = fresh()
         val a = ModelProfile(name = "A")
         m.upsert(a)
         m.select(a.id)
-        assertEquals(a.id, m.selected()?.id)
+        assertEquals(a.id, m.recent()?.id)
 
         m.remove(a.id)
 
-        assertNull(m.selected(), "选中一条已经不存在的配置会让启动路径读到一个空引用")
-        assertNull(m.selectedId())
+        assertNull(m.recent(), "留一个指向已删配置的兜底值，新项目会静默地什么都借不到")
+        assertNull(m.recentId())
     }
 
     @Test
@@ -91,7 +91,7 @@ class ModelProfilesTest {
     fun `选一个不存在的 id 等于没选`() {
         val m = fresh()
         m.select("nope")
-        assertNull(m.selected())
+        assertNull(m.recent())
     }
 
     /**
@@ -162,7 +162,7 @@ class ModelProfilesTest {
         val loaded = m.profiles().single()
         assertEquals(listOf("glm-4.6"), loaded.modelIds)
         assertEquals("glm-4.6", loaded.modelId, "升级不该把用户填的模型名丢掉")
-        assertEquals(old.id, m.selectedId())
+        assertEquals(old.id, m.recentId())
     }
 
     /** 写入时同样收敛，免得绕开 loadState 的那几条路（对话框、热切换回执）留下坏状态。 */
@@ -216,7 +216,7 @@ class ModelProfilesTest {
         m.pick(a.id, "y")
 
         assertEquals("y", m.profiles().first { it.id == a.id }.modelId)
-        assertEquals(a.id, m.selectedId(), "选中态也得跟着 —— 两件事分开写会留下半截状态")
+        assertEquals(a.id, m.recentId(), "最近一次选择也得跟着 —— 两件事分开写会留下半截状态")
     }
 
     @Test
@@ -230,6 +230,6 @@ class ModelProfilesTest {
         m.pick("不存在的配置", "x")
 
         assertEquals("x", m.profiles().single().modelId)
-        assertEquals(a.id, m.selectedId())
+        assertEquals(a.id, m.recentId())
     }
 }

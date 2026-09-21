@@ -1,5 +1,9 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.FontChoice
+import com.ccoder.settings.FontScale
+import com.ccoder.settings.UiPreferences
+import com.ccoder.settings.resolveUiFonts
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.text.CcoderText
 import com.google.gson.JsonObject
@@ -96,6 +100,13 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
      * 在加载前注入等于白做。所以挂在 onLoadEnd 上而不是直接执行一次。
      */
     private fun injectBridge(b: JBCefBrowser, query: JBCefJSQuery) {
+        // 注入时那份偏好快照 —— 与下面那行 `window.ccoder.locale` 同一用意：页面在
+        // React 的挂载 effect 之前（首帧）就能读到它，`prefs.ts` 的惰性读也才有东西可读。
+        // 之后的新值由 ready 握手补推（见 [setPreferences]）。
+        // 服务取不到就按默认档 —— 桥建不起来比偏好读不准严重得多（同 [setPreferences]）。
+        val prefsJson = PrefsInjector.encode(
+            UiPreferences.getInstanceOrNull()?.collapseThinking ?: false,
+        )
         val script = """
             window.ccoder = window.ccoder || {};
             window.ccoder.send = function(m) { ${query.inject("m")} };
@@ -112,6 +123,11 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             window.ccoderSetLocale = function(tag) {
               window.ccoder.locale = tag;
               window.ccoderLocaleSink && window.ccoderLocaleSink(tag);
+            };
+            window.ccoderPrefs = $prefsJson;
+            window.ccoderSetPrefs = function(prefs) {
+              window.ccoderPrefs = prefs;
+              window.ccoderPrefsSink && window.ccoderPrefsSink(prefs);
             };
         """.trimIndent()
 
@@ -194,14 +210,49 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         pump?.enqueue(op)
     }
 
-    /** 重新注入主题。必须在 EDT 上调用（PlatformTheme 不是线程安全的）。 */
+    /**
+     * 重新注入主题（颜色**与字体**）。必须在 EDT 上调用（PlatformTheme 不是线程安全的）。
+     *
+     * 字体走同一条路：家族名与字号档位一起算进那份 CSS（见 `resolveUiFonts`），
+     * 所以"设置里换字体/字号"也是调这个方法（`ClaudePanel.openModelSettings`）。
+     *
+     * 偏好服务取不到就按默认档（跟随 IDE / 标准）—— 同 [setPreferences] 那条理由：
+     * 这条路跑在 ready 分支与 LAF 切换里，抛出去会把后面"补推转写"整段吞掉。
+     */
     fun setTheme() {
         val b = browser ?: return
+        val colors = PlatformTheme.read()
+        val prefs = UiPreferences.getInstanceOrNull()
+        if (prefs == null) {
+            LOG.warn("CCoder 转写视图：界面偏好服务没取到，主题里的字体按默认档（跟随 IDE / 标准）")
+        }
+        val fonts = resolveUiFonts(
+            prefs?.fontChoice ?: FontChoice.DEFAULT,
+            prefs?.fontScale ?: FontScale.DEFAULT,
+            colors.fontUi.family,
+            colors.fontMono.family,
+        )
         b.cefBrowser.executeJavaScript(
-            ThemeInjector.buildInjectScript(PlatformTheme.read()),
+            ThemeInjector.buildInjectScript(colors, fonts),
             b.cefBrowser.url,
             0,
         )
+    }
+
+    /**
+     * 把"页面要用、但 Kotlin 才有的真相"一次推齐：主题（颜色**与字体**）、语言、界面偏好。
+     *
+     * 为什么合成一个入口：这三条各有各的调用时机，但**调用点只有两处** ——
+     * `ready` 握手与设置对话框关掉之后。分开写的话，下次再加一条通道总会漏掉一处，
+     * 而漏掉的表现是**静默的**（某一项一直不生效，界面看起来完全正常）。
+     *
+     * **顺序即语义**：主题在最前、偏好最后，而三者都排在补推转写内容之前 ——
+     * 那正是"第一个含思考块的渲染就拿着正确的主题/字体/偏好"的证明（见 ready 分支）。
+     */
+    fun pushUiState() {
+        setTheme()
+        setLocale()
+        setPreferences()
     }
 
     /**
@@ -214,6 +265,31 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         val b = browser ?: return
         b.cefBrowser.executeJavaScript(
             LocaleInjector.buildInjectScript(CcoderText.tag()),
+            b.cefBrowser.url,
+            0,
+        )
+    }
+
+    /**
+     * 把界面偏好推给页面（今天只有一个「思考折叠」，见 `UiPreferences`）。
+     *
+     * 与主题、语言同路、同理由：页面加载完就推一次（`ready` 那一步），而且必须排在
+     * **补推转写之前** —— 否则第一个思考块会先按默认（展开）画一帧再收起，那一下是
+     * 看得见的跳。设置对话框关掉之后再推一次，管的是"改完当场生效"。
+     *
+     * 服务在 `browser ?: return` **之后**才读，而且**取不到也不抛**：这条跑在 ready 分支
+     * 这一侧（CEF 回调线程），抛出去会把后面那句"补推滞留的转写"整段吞掉 ——
+     * 症状是**界面全空、零报错**（2026-09-11 那次排查花了半程）。取不到就按默认档推
+     * （不折叠），界面必须能开（2026-09-20 那次 NPE 起不来的教训）。
+     */
+    fun setPreferences() {
+        val b = browser ?: return
+        val prefs = UiPreferences.getInstanceOrNull()
+        if (prefs == null) {
+            LOG.warn("CCoder 转写视图：界面偏好服务没取到，本次按默认（不折叠）推")
+        }
+        b.cefBrowser.executeJavaScript(
+            PrefsInjector.buildInjectScript(prefs?.collapseThinking ?: false),
             b.cefBrowser.url,
             0,
         )
@@ -250,7 +326,9 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                     pushBatch: typeof (window.ccoder && window.ccoder.pushBatch),
                     send: typeof (window.ccoder && window.ccoder.send),
                     locale: typeof (window.ccoder && window.ccoder.locale),
-                    setLocale: typeof window.ccoderSetLocale
+                    setLocale: typeof window.ccoderSetLocale,
+                    prefs: typeof (window.ccoder && window.ccoderPrefs),
+                    setPrefs: typeof window.ccoderSetPrefs
                   };
                   ${q.inject("JSON.stringify(info)")}
                 })();
@@ -274,10 +352,10 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             "ready" -> {
                 ready = true
                 LOG.info("CCoder 转写视图：收到前端 ready，补推滞留的 ${beforeReady.size} 条")
-                // 主题必须紧跟着注入，否则会闪一帧无样式内容；语言同理
-                // （不推的话页面会先按基础语言画一帧，再被纠正过来）
-                setTheme()
-                setLocale()
+                // 主题、语言、偏好都得排在**补推转写之前**：主题不推会闪一帧无样式内容；
+                // 语言不推会先按基础语言画一帧；偏好不推则第一个思考块先展开再收起。
+                // 三条合成一个入口，顺序就在它的注释里（pushUiState）
+                pushUiState()
                 beforeReady.forEach { pump?.enqueue(it) }
                 beforeReady.clear()
                 pump?.flushNow()
