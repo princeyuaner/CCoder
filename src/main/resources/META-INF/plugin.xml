@@ -169,15 +169,40 @@
     <change-notes><![CDATA[
     <h3>0.2.25</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.24 (see the
-          publish spec, section 8). Do not copy the previous version's list &mdash; it is in
-          git (tag v0.2.24 &rarr; 800d641).</li>
+      <li><b>Tool cards are born when the tool starts</b> &mdash; the card appears as soon
+          as the model decides to use a tool (name, spinner, timer), fills in the file name
+          or command as the arguments stream in, and takes its check when the result
+          arrives. Reading a file or searching used to draw nothing at all until it was
+          over &mdash; the card was born already finished, so the spinner never got seen.</li>
+      <li><b>The whole context, in one place</b> &mdash; clicking the context card opens a
+          window with the per-category breakdown (each row with its share of the window)
+          plus a tab for each of MCP tools, memory files, subagents and skills, the count
+          on the tab. Copy it as text with one button.</li>
+      <li><b>Fixed: the first message after switching models no longer disappears</b> &mdash;
+          switching to a model on a different endpoint restarts the session behind you, and
+          a late reset wiped the message you had just typed. It <i>had</i> been sent, so you
+          got an answer with no question. Restarting after a disconnect also keeps the
+          transcript on screen now, as it was always meant to, and a message typed while the
+          session is still coming up is sent once it is ready, instead of never.</li>
+      <li><b>Fixed: Settings &rarr; Models no longer cuts off the list</b> &mdash; with three
+          or four models the last row was half visible and "&#xFF0B; Add model" was out of
+          sight entirely; the list now shrinks and scrolls inside the card instead.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 0.2.24 的增量（见发布设计稿 §八）。别照抄上一版的清单 —— 它在
-          git 里（tag v0.2.24 &rarr; 800d641）。</li>
+      <li><b>工具卡在操作开始时出生</b> &mdash;&mdash; 模型一决定用某个工具，卡片就出现
+          （名字 + 转圈 + 秒表），参数生成完补上文件名或命令，结果到达时打勾。从前读文件、
+          搜索这类操作**跑完之前什么都不显示**（卡片生下来就是完成态，那个转圈根本没机会被看见）。</li>
+      <li><b>上下文详情一屏给全</b> &mdash;&mdash; 点上下文卡打开一个框：分类明细（每行带它
+          占窗口的比例条），另有 MCP 工具 / 记忆文件 / 子代理 / 技能各一个页签，页签上带条数。
+          一个按钮即可复制成文本。</li>
+      <li><b>修复：换模型后重开会话，第一条消息不再消失</b> &mdash;&mdash; 切到端点不一样的
+          模型会在背后重开会话，而一次迟到的 Reset 会把你刚敲的那条消息抹掉。它其实**已经发出去**了，
+          于是屏幕上成了"只有回答、没有问题"。顺带两处同类漏洞：断开后重启，转写历史现在真的
+          留在界面上（本来就是这么写的）；会话还没起来时敲的消息会在就绪后发出去，不再永远发不出去。</li>
+      <li><b>修复：设置 &rarr;「模型」列表不再被裁掉</b> &mdash;&mdash; 三四个模型起，最后一行
+          只见半截、「&#xFF0B; 添加模型」整个看不见了；现在改成列表自己收短并在卡身里滚动。</li>
     </ul>
     ]]></change-notes>
 
