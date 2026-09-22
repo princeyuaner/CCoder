@@ -12,6 +12,7 @@ import com.ccoder.sidecar.SidecarClient
 import com.ccoder.sidecar.SidecarExit
 import com.ccoder.sidecar.SidecarListener
 import com.ccoder.sidecar.SidecarLocator
+import com.ccoder.sidecar.ContextDetail
 import com.ccoder.sidecar.SidecarMessage
 import com.ccoder.sidecar.SidecarNotFoundException
 import com.ccoder.sidecar.SubagentInfo
@@ -198,6 +199,14 @@ class ClaudePanel(
 
     /** 最近一次拿到的上下文用量。取不到时保持 null —— 不造零值。 */
     private var lastUsage: ContextUsage? = null
+
+    /**
+     * 上一次量到的**明细**（分类表 + 四张清单）。
+     *
+     * 与 [lastUsage] 一起来、一起去（同一处赋值、同一处清空）—— 两个字段分开走，
+     * 就会出现"数变了、明细还是上一轮的"，而那张框正是把两者摆在一起读给用户看的。
+     */
+    private var lastContextDetail: ContextDetail? = null
 
     /**
      * 正在问子代理列表。
@@ -1014,6 +1023,7 @@ class ClaudePanel(
                             LOG.warn("上下文用量返回了意外的消息")
                         } else {
                             lastUsage = ContextUsage(report.usedTokens, report.windowTokens)
+                            lastContextDetail = report.detail
                             refreshStatusCards()
                         }
                     }
@@ -1239,8 +1249,23 @@ class ClaudePanel(
 
         openDetail = card
         when (card) {
-            // 上下文那段是纯本地的（用量就在手上），不用问 sidecar
-            DetailCard.Context -> showDetailPopup(view, buildContextDetail(lastUsage))
+            // 上下文：**模态框**（2026-09-22，用户从选型稿 `docs/design/context-details.html`
+            // 里挑的乙）。show() 一进去就阻塞到用户关掉它，所以这条路不用浮层、
+            // 也没有"再点一次收起"——高亮在框关掉之后立刻收掉（浮层那边是靠
+            // "点外面"的回调收的）。
+            //
+            // 用的是**上一次量到的数**：每轮跑完都刷过一次，最多差一个回合。
+            // 点一下就该看见东西，不该先转个圈 —— 运行中那张卡的"先请求、收到才弹"
+            // 是因为它的记录在磁盘上，不是这个理由。
+            DetailCard.Context -> {
+                view.setOpen(true)
+                try {
+                    showContextDetail(project, lastUsage ?: ContextUsage(0, 0), lastContextDetail)
+                } finally {
+                    view.setOpen(false)
+                    openDetail = null
+                }
+            }
 
             DetailCard.Todos -> showDetailPopup(
                 view,
@@ -1413,7 +1438,13 @@ class ClaudePanel(
         detailOf(card)?.let { openDetail = it }
     }
 
-    /** 浮层锚在哪张卡 → 它是哪一页。连接卡没有详情，给 null。 */
+    /**
+     * 浮层锚在哪张卡 → 它是哪一页。连接卡没有详情，给 null。
+     *
+     * **上下文那张不再走浮层**（2026-09-22 起它开对话框，见 [toggleDetail]），
+     * 所以这里的 Context 那一档今天到不了 —— 留着是为了让"哪张卡有详情"这件事
+     * 在一处看全：以后它要是回到浮层，改回去只是删掉 [toggleDetail] 里那个分支。
+     */
     private fun detailOf(card: StatusCardView): DetailCard? = when (card) {
         statusCards.context -> DetailCard.Context
         statusCards.todos -> DetailCard.Todos
@@ -1688,6 +1719,10 @@ class ClaudePanel(
         if (busy && !confirmModelSwitch(target, pick.modelId)) return
 
         applyModel(pick.profileId, pick.modelId)
+        // 重开 = 这段上下文真的没了（用户刚在确认框里点过）。**现在就清**，不等新
+        // 会话的 init 回来再清 —— 迟到的清会吃掉用户在这中间发出的第一条消息
+        // （2026-09-22 用户报的正是这个：气泡刚推上去，就被那次 Reset 抹掉）
+        clearForNewSession()
         restartSession()
     }
 
@@ -2137,6 +2172,18 @@ class ClaudePanel(
                 pushItem(
                     RenderItem.SystemNote(CcoderText.text("chat.note.restored", items.size, rendered))
                 )
+
+                // **回放期间用户敲的消息要在这里接上**（2026-09-22 修的）。那一段
+                // 有两条岔路，从前两条都会把它弄丢：
+                //  - 会话还没起来就敲 → 走的是"暂存首条"，而补发它的只有 Ready 那
+                //    一支；恢复这条路 Ready 已经过去了，于是那条消息永远发不出去，
+                //    气泡还被回放开头的 Reset 抹掉了（用户看到的就是"消息不见了"）
+                //  - 正在回放时敲 → busy，进的是队列；而 flushQueue 只在回合结束
+                //    （result）时被调，回放之后根本没有回合会跑 —— 队列会一直悬着
+                // 补推气泡的那一档：回放的 Reset 已经把 submit 推的那条抹了，
+                // 所以这里按同样的内容补一遍（用的是用户敲的原样 `typed`）
+                flushPendingFirstMessage(repushBubble = true)
+                flushQueue()
             }
         }
     }
@@ -2366,13 +2413,60 @@ class ClaudePanel(
         refreshCardActions()
     }
 
-    /** fatal 断开后重开：只换会话，转写历史留在界面上供参考。 */
+    /**
+     * 换一条**新的**会话重开（改完模型要重开、以及 fatal 断开后重开）。
+     *
+     * ## 为什么必须清 [currentSessionId]（2026-09-22 修的那个 bug）
+     *
+     * 新进程回来时会带一个**新的 session id**，而这个字段还指着上一条 —— 那条
+     * `init` 于是被 [isSessionSwitch] 当成 `/clear`，**迟到地把转写区清了一次**。
+     * 用户看到的是「重开之后发出的第一条消息不见了」：那条消息的气泡刚推上去
+     * （[submit] 先推气泡、再暂存），就被这次 Reset 抹掉 —— 而消息其实已经发出去，
+     * 回答照样会回来（屏幕上就成了"只有回答、没有问题"）。
+     *
+     * 清成 null 之后，[isSessionSwitch] 按它自己的规矩不判切换（"`current` 为 null
+     * 时不算 —— 全新会话的第一个 init 就是这种情况"），新 id 只是被记下来。
+     *
+     * ## 两档调用方要的东西不同，所以清空不在这里做
+     *
+     * - fatal 断开后重开：转写历史**留着**（本轮之前那句文档要的就是"留在界面上
+     *   供参考"）—— 从前它其实留不住，会被上面那次迟到的 Reset 抹掉；
+     * - 换模型重开：上下文真的没了，由调用方**当场**清（见 [switchModel]）——
+     *   在场清才是对的：迟到的清会吃掉用户在这中间发的消息。
+     */
     private fun restartSession() {
         stopSession()
+        currentSessionId = null
+        currentSessionTitle = null
+        // 重开 = 起一条**新的**：带着上次的恢复目标会让新进程又去恢复旧会话，
+        // 与"重开"这个动作的本意相反（[startNewSession] 里同一条规矩）
+        resumeTargetId = null
+        refreshSessionLabel(enabled = true)
         disconnected = false
         setBusy(false)
+        // 用量归零：新会话**确实**没有用量。不清的话上下文卡会挂着上一段的读数，
+        // 而那正是"看着还在、其实没了"
+        lastUsage = null
+        lastContextDetail = null
         refreshMainButton()
         startSession()
+    }
+
+    /**
+     * 换会话时的清空：转写区 + 标题 + 用量读数。
+     *
+     * **两处共用**，因为它们是同一件事，只是谁先开口不同：`/clear` 是 CLI 说它换了
+     * （见 init 那一支），换模型重开是我们自己要换（见 [switchModel]）。
+     * 清哪几样必须一致 —— 少清用量，新会话的上下文卡就会挂着上一段的读数。
+     *
+     * 标题也回「新会话」：旧标题描述的是那条已经不在的会话。
+     */
+    private fun clearForNewSession() {
+        pushOp(TranscriptOp.Reset)
+        currentSessionTitle = null
+        refreshSessionLabel(enabled = true)
+        lastUsage = null
+        lastContextDetail = null
     }
 
     // ---- 会话生命周期 ----
@@ -2406,6 +2500,7 @@ class ClaudePanel(
         // 不清的话，换模型重开会话之后那一格会继续显示上一场的百分比 ——
         // 一个又大又吓人的数，而新会话其实什么都没装
         lastUsage = null
+        lastContextDetail = null
         refreshStatusCards()
 
         // 标题由 [switchToSession] 在切之前就设好了（列表里现成的）；
@@ -2793,25 +2888,16 @@ class ClaudePanel(
                         currentSessionTitle = null
                         refreshSessionLabel(enabled = true)
 
-                        // 补发窗口就绪前暂存的首条消息
-                        pendingFirstMessage?.let { text ->
-                            pendingFirstMessage = null
-                            // 暂存过的那条就是这条会话的第一条消息 —— 标题在这儿认
-                            // （上面那个 currentSessionTitle = null 刚把它清干净）
-                            adoptTitleFrom(pendingFirstMessageTitle ?: text)
-                            pendingFirstMessageTitle = null
-                            val images = pendingFirstMessageImages
-                            pendingFirstMessageImages = emptyList()
-                            client?.sendLine(Protocol.encodeSend(nextId(), text, outgoing(images)))
-                            setBusy(true)
-                        }
+                        // 补发窗口就绪前暂存的首条消息。气泡还在（submit 推过、中间
+                        // 没有任何东西清过），所以不必重新推
+                        flushPendingFirstMessage(repushBubble = false)
                     }
                 }
 
                 is SidecarMessage.Event -> {
                     val items = MessageRenderer.render(msg)
                     // 命令回合里的空输出丢掉；其余一律照常（设计稿 §5.1）。
-                    // pushItem 会自动跳掉 ToolStarting —— 那种项只喂状态卡
+                    // pushItem 只在 ToolStarting 没 id 时跳过它（那种卡片配不上结果）
                     items.filterNot { lastSendWasCommand && isEmptyCommandOutput(it) }
                         .forEach { pushItem(it) }
 
@@ -2894,13 +2980,8 @@ class ClaudePanel(
                                 // 清空转写区而不是插一条分隔线 —— 留着一段
                                 // 已经不在上下文里的历史，正是 §7.5 反对的
                                 // 那种"看着还在、其实没了"
-                                pushOp(TranscriptOp.Reset)
-                                currentSessionTitle = null
-                                refreshSessionLabel(enabled = true)
+                                clearForNewSession()
                                 refreshSessionList()
-                                // /clear 之后上下文也归零：不清的话这一格会一直
-                                // 挂着上一个对话的读数
-                                lastUsage = null
                                 pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.contextCleared")))
                             }
                             // 占用登记对账：init 报的 id 才是事实（见 [confirmOwnership]）
@@ -3099,9 +3180,19 @@ class ClaudePanel(
     private fun toOp(item: RenderItem): TranscriptOp? {
         val now = { System.currentTimeMillis() }
         return when (item) {
-            // 只喂状态卡，**不进转写区**：它说的是"参数还在生成"，而参数生成完
-            // 会有一条真正的 ToolUse 进来。给它推一条项就会出现两张卡片
-            is RenderItem.ToolStarting -> null
+            // 起头帧：模型刚决定要用这个工具，参数还在生成。卡片**这时就出生**
+            // （名字 + 转圈 + 秒表），参数到了由下面那条同 id 的 ToolUse 补全 ——
+            // 界面按 toolUseId 合并成一张（见 web/src/codec.ts 的 applyOps）。
+            //
+            // 从前这里给 null（卡片要等完整消息，于是读取/搜索那类卡生下来就是
+            // 完成态）。id 空时 `startedToolCard` 仍给 null —— 那种卡片配不上结果。
+            is RenderItem.ToolStarting -> startedToolCard(item)?.let {
+                TranscriptOp.Append(
+                    TranscriptItem.ToolUse(
+                        nextMessageId(), now(), it.id, it.name, it.input, it.parent,
+                    )
+                )
+            }
 
             is RenderItem.UserText ->
                 TranscriptOp.Append(
@@ -3170,7 +3261,7 @@ class ClaudePanel(
     private fun pushOp(op: TranscriptOp) = transcriptView.push(op)
 
     /**
-     * 推一条渲染项。产出 null 的那些（[RenderItem.ToolStarting]）自动跳过。
+     * 推一条渲染项。产出 null 的那些（没带 id 的 [RenderItem.ToolStarting]）自动跳过。
      *
      * 有这个包装，调用点就不必各自判断"这一项要不要画" —— 那个判断只该有
      * [toOp] 一个出处。
@@ -3791,6 +3882,35 @@ class ClaudePanel(
     /** 界面上的图 → 协议要的那份。转换只有这一处，改协议时只改这里。 */
     private fun outgoing(images: List<AttachedImage>): List<OutgoingImage> =
         images.map { OutgoingImage(it.mediaType, it.base64) }
+
+    /**
+     * 补发"窗口就绪前暂存的首条消息"（见 [submit] 里那条暂存）。
+     *
+     * **两个出口共用**：`Ready` 那一拍（新会话起好了）与回放结束那一拍（恢复的会话
+     * 铺完了，见 [replayItems]）。两处都必须接上 —— 只接前者的话，恢复会话那条路上
+     * 暂存的消息永远发不出去，而它在转写区里已经露过一次面。
+     *
+     * @param repushBubble 转写区里那条气泡**还在不在**。新会话那条路是**还在**的
+     *   （[submit] 推完就存起来，中间没有任何东西清过）；恢复会话那条路**不在了**
+     *   —— 回放开头的 Reset 把它抹了，所以这里要按同样的内容补推一遍。
+     *   推的是**用户敲的那份**（`typed`，记号原样留着），与 [submit] 同一个口径：
+     *   铺一份展开后的几百行代码进气泡，自己写的那句话就淹了。
+     */
+    private fun flushPendingFirstMessage(repushBubble: Boolean) {
+        val text = pendingFirstMessage ?: return
+        // 标题在这儿认：暂存过的那条就是这条会话的第一条消息
+        // （[titleFromFirstMessage] 只在标题还空着时才取名，所以恢复来的标题不会被抢）
+        val typed = pendingFirstMessageTitle ?: text
+        val images = pendingFirstMessageImages
+        pendingFirstMessage = null
+        pendingFirstMessageTitle = null
+        pendingFirstMessageImages = emptyList()
+
+        if (repushBubble) pushItem(RenderItem.UserText(typed, images.map { it.transcriptDataUrl }))
+        adoptTitleFrom(typed)
+        client?.sendLine(Protocol.encodeSend(nextId(), text, outgoing(images)))
+        setBusy(true)
+    }
 
     /**
      * 真正把一条消息发出去。**直接发与排队后发唯一的出口**（spec §5.1）。

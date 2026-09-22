@@ -87,6 +87,11 @@ sealed interface SidecarMessage {
         val requestId: String,
         val usedTokens: Long,
         val windowTokens: Long,
+        /**
+         * 明细。null = 这一份报文里没有（老版本 sidecar、或那次调用没拿到）——
+         * 界面据此退回"只有三个数"的老样子，而不是画一张空表。
+         */
+        val detail: ContextDetail? = null,
     ) : SidecarMessage
 
     /** 错误。fatal=true 表示会话已终止。 */
@@ -210,6 +215,65 @@ sealed interface SidecarMessage {
  * 之一（原样透传，不当枚举认 —— CLI 将来加一档不该让我们解析失败）；
  * [error] 只在失败时有意义；[tools] 是它提供的工具名。
  */
+/**
+ * 上下文明细 —— `getContextUsage()` 里除那三个数之外的全部内容
+ * （SDK 原话：*"Structured twin of the /context report"*）。
+ *
+ * **这是显示用的原始事实，不是结论**："哪一行算不算进用量""英文名翻成哪个键"
+ * 那些判断在 `ui/ContextDetail.kt` 里（纯函数，能单独测）—— 协议这层只负责
+ * 把线格式读成类型，读不出来的给空/省略，不猜。
+ *
+ * ## 拼法：两种都读
+ *
+ * d.ts 写的是 snake_case（`server_name`），而顶层那两个数 2026-09-14 实测是
+ * **驼峰**（`totalTokens`）。这几层谁也没实测过，所以 [contextRowOf] 两种拼法都认
+ * （`serverName` 与 `server_name`），都读不到就给空串 —— 少一列是看得见的，
+ * 而"整页空着"不是。
+ */
+data class ContextDetail(
+    /** 用量是按哪个模型算的。空串 = 没给。 */
+    val model: String,
+    /** SDK 自己四舍五入的比例，0-100+。null = 没给。 */
+    val percentage: Int?,
+    /** 超窗时才有。 */
+    val overLimit: ContextOverLimit?,
+    /** `/context` 那张表的行：名字 · token 数 · 类别（used/free/buffer/deferred）。 */
+    val categories: List<ContextRow>,
+    /** 逐个 MCP 工具：[sub] 是它属于哪个 server。**在窗口外**，不计入用量。 */
+    val mcpTools: List<ContextRow>,
+    /** 记忆文件：[label] 是路径，[sub] 是 CLI 给的来源标签（Project / User…）。 */
+    val memoryFiles: List<ContextRow>,
+    /** 子代理：[label] 是类型，[sub] 是来源（projectSettings / plugin…）。 */
+    val agents: List<ContextRow>,
+    /** 技能。没有就整个是空的（SDK 那条字段本身是可选的）。 */
+    val skills: List<ContextRow>,
+)
+
+/** 超窗：超了多少、以及窗口是怎么定下来的。 */
+data class ContextOverLimit(val tokensOver: Long, val kind: String) {
+    companion object {
+        /** 模型承认的硬上限 —— 再发就真被 API 拒绝。 */
+        const val HARD_LIMIT = "hard_limit"
+
+        /** 压缩策略收窄出来的窗口（比如 1M 模型上的 200K）—— 会自动压缩，不是拒绝。 */
+        const val COMPACTION_WINDOW = "compaction_window"
+    }
+}
+
+/**
+ * 明细里的一行。
+ *
+ * [kind] 只有 [categories] 那些行才有意义（`used` / `free` / `buffer` / `deferred`），
+ * 四张清单里一律是空串 —— 判类**只认 [kind]**，不认 [label]（SDK 原话：
+ * "Classify on this, never on the English name"）。
+ */
+data class ContextRow(
+    val label: String,
+    val sub: String,
+    val tokens: Long,
+    val kind: String,
+)
+
 data class McpServerStatus(
     val name: String,
     val status: String,
@@ -403,6 +467,7 @@ object Protocol {
                         requestId = requestId,
                         usedTokens = obj.long("usedTokens") ?: 0L,
                         windowTokens = obj.long("windowTokens") ?: 0L,
+                        detail = obj.obj("detail")?.let(::contextDetailOf),
                     )
                 }
             }
@@ -856,4 +921,58 @@ object Protocol {
     /** 数组元素版的容错取串（判定同 [str]）—— `deleted` 里混进非字符串时跳过那一个。 */
     private fun JsonElement.strOrNull(): String? =
         takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+
+    /**
+     * 明细报文 → [ContextDetail]。
+     *
+     * 每一块都**容错**：缺的给空列表、空串，读不出的元素丢掉 —— 一条坏行不该让
+     * 整页读不出来（与工具结果那条"配不上就丢这一条"同一个容忍口径）。
+     * 明细**整块没有**时给 null（老版本 sidecar）：调用方据此退回老样子。
+     */
+    private fun contextDetailOf(obj: JsonObject): ContextDetail = ContextDetail(
+        model = obj.str("model") ?: "",
+        percentage = obj.num("percentage"),
+        overLimit = obj.obj("overLimit")?.let { o ->
+            ContextOverLimit(
+                tokensOver = o.long("tokensOver") ?: o.long("tokens_over") ?: 0L,
+                kind = o.str("kind") ?: "",
+            )
+        },
+        // 五张清单的主标签字段名各不相同（SDK 就是这么定的）：分类与 MCP 技能用 name、
+        // 记忆文件用 path、子代理用 agent_type。**每种都把两种拼法列全**，
+        // 读不出来就丢那一行 —— 猜一个字段名填上去，界面上会出现一行看着像真的的错东西
+        categories = obj.contextRows("categories", labelKeys = listOf("name"), kindKeys = listOf("kind")),
+        mcpTools = obj.contextRows(
+            "mcpTools", labelKeys = listOf("name"),
+            subKeys = listOf("serverName", "server_name"),
+        ),
+        memoryFiles = obj.contextRows("memoryFiles", labelKeys = listOf("path"), subKeys = listOf("type")),
+        agents = obj.contextRows(
+            "agents", labelKeys = listOf("agentType", "agent_type"),
+            subKeys = listOf("source"),
+        ),
+        skills = obj.contextRows("skills", labelKeys = listOf("name"), subKeys = listOf("source")),
+    )
+
+    /**
+     * 一张清单 → 行。
+     *
+     * 每个字段都是一串**候选键**，按顺序试第一个非 null 的 —— 这是"两种拼法都认"
+     * 的落点（见 [ContextDetail] 的注释）。主标签一个都试不出来 → 这一行丢掉。
+     */
+    private fun JsonObject.contextRows(
+        arrayKey: String,
+        labelKeys: List<String>,
+        subKeys: List<String> = emptyList(),
+        kindKeys: List<String> = emptyList(),
+    ): List<ContextRow> = arr(arrayKey)?.mapNotNull { el ->
+        val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+        val label = labelKeys.firstNotNullOfOrNull { o.str(it) } ?: return@mapNotNull null
+        ContextRow(
+            label = label,
+            sub = subKeys.firstNotNullOfOrNull { o.str(it) } ?: "",
+            tokens = o.long("tokens") ?: 0L,
+            kind = kindKeys.firstNotNullOfOrNull { o.str(it) } ?: "",
+        )
+    } ?: emptyList()
 }

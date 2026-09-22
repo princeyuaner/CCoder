@@ -175,6 +175,46 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
 
   let finalizeCounter = 0
 
+  /**
+   * 把还挂在逐字缓冲里的东西**落成条目**（思考与正文各一种）。
+   *
+   * 正常情况下轮不到它：正文由 `finalizeDelta` 收尾、思考由「整块到达」那条
+   * append 收尾。但**被打断 / 出错的一轮不会再产那两条消息** —— 缓冲留着，界面
+   * 就永远停在「思考中」那只转圈加还在走的秒表上（2026-09-21 用户报「思考中时
+   * 点击停止按钮，思考中不会停止」）。
+   *
+   * 回合结束是还认得出"它不会再来了"的唯一时刻：SDK 的契约是**一轮恰好一条
+   * result**，把它当回合结束的信号（sdk.d.ts:5390）。
+   *
+   * 落成条目而不是丢掉：那些字是这一轮真实发生过的思考与输出，丢掉等于把用户
+   * 唯一能看的东西抹了。
+   */
+  const flushLive = (): void => {
+    const thinking = live['thinking']
+    const text = live['assistant']
+    if (thinking !== undefined && thinking !== '') {
+      mutateItems().push({
+        kind: 'thinking',
+        id: `flushed-thinking-${items.length}-${finalizeCounter++}`,
+        ts: Date.now(),
+        text: thinking,
+      })
+    }
+    if (text !== undefined && text !== '') {
+      mutateItems().push({
+        kind: 'assistant',
+        id: `flushed-assistant-${items.length}-${finalizeCounter++}`,
+        ts: Date.now(),
+        text,
+      })
+    }
+    if (thinking !== undefined || text !== undefined) {
+      const next = mutateLive()
+      delete next['thinking']
+      delete next['assistant']
+    }
+  }
+
   for (const op of ops) {
     switch (op.op) {
       case 'reset':
@@ -184,15 +224,52 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
         liveCloned = true
         break
 
-      case 'append':
-        mutateItems().push(op.item)
+      case 'append': {
+        // 回合结束那一条**最后**压：先把没收尾的落下来，再放结果行 ——
+        // 顺序反过来的话，被打断的那段思考会跑到「回合结束」那行下面，
+        // 看着像下一轮的东西
+        if (op.item.kind === 'result') flushLive()
+
+        const arrived = op.item
+        // 同一次工具调用的**第二条**（参数生成完的那条）不是一张新卡片：起头帧那条
+        // 已经把它画出来了（input 是空串），这里把参数补上去。不合并就是一次调用
+        // 两张卡 —— 而结果按 toolUseId 配对，**两张都会配上**，屏幕上并排两张一样
+        // 的卡，其中一张永远没有参数（2026-09-22：卡片提前到起头帧出生，见 Kotlin
+        // 侧的 startedToolCard）。
+        //
+        // 只吸收**空参数那张**（`input === ''`）：完整卡 → 完整卡不走这条路。宁可
+        // 多画一张，也不要凭空少一张。
+        //
+        // 保留旧的 `id` / `ts` 是要害不是美观：React 的 key 用的是 item.id，换掉
+        // 等于重挂组件 —— 秒表归零（elapsed.ts 的 mountedAt）、展开态与「显示全部」
+        // 也一起丢。
+        //
+        // 找的是**本地 items** 而不是 state.items：起头帧与完整消息可能落在同一批
+        // applyOps 里（Kotlin 侧按 16ms 一批推），那时 state.items 里还没有前一条。
+        if (arrived.kind === 'toolUse' && arrived.toolUseId !== '') {
+          const toolUseId = arrived.toolUseId
+          const next = mutateItems()
+          const at = next.findIndex(
+            (it) => it.kind === 'toolUse' && it.toolUseId === toolUseId && it.input === '',
+          )
+          if (at >= 0) {
+            const started = next[at]
+            next[at] = { ...arrived, id: started.id, ts: started.ts }
+          } else {
+            next.push(arrived)
+          }
+        } else {
+          mutateItems().push(arrived)
+        }
+
         // 整块思考到了，逐字缓冲就作废 —— 两条来源都留着，同一段思考会在转写区
         // 里出现两遍。正文那边靠 finalizeDelta 收尾，思考这边完成时是一个普通的
         // append（没有 finalize 语义），所以由这条规则收
-        if (op.item.kind === 'thinking' && live['thinking'] !== undefined) {
+        if (arrived.kind === 'thinking' && live['thinking'] !== undefined) {
           delete mutateLive()['thinking']
         }
         break
+      }
 
       case 'appendDelta': {
         const next = mutateLive()

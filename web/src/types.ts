@@ -35,11 +35,17 @@ export interface SystemNoteItem extends Base { kind: 'systemNote'; text: string 
  * `toolUseId` 是 SDK 的 `tool_use.id`；结果项带着同一个 id 回来，
  * 界面靠它把输出挂到这张卡片上。空串表示这次调用没有可配对的 id
  * （老版本 Kotlin 不送这个字段），卡片照画，只是不会等到输出。
+ *
+ * **同一次调用会来两条**（2026-09-22 起）：起头帧那条 `input` 是空串 —— 卡片在
+ * 模型刚决定要用这个工具时就出生（卡面只有名字 + 转圈 + 秒表），参数生成完的完整
+ * 消息那条才带着真参数。`applyOps` 按 `toolUseId` 把后者合并进前者（保留前一条的
+ * `id`/`ts`），所以这里**不能假设"一个 id 只会来一条"**。
  */
 export interface ToolUseItem extends Base {
   kind: 'toolUse'
   toolUseId: string
   name: string
+  /** 工具参数原文（JSON）。**空串 = 参数还在生成**，不是"这个工具没有参数"。 */
   input: string
   /**
    * **子代理归属**：非空时这一项是某个子代理干的，值是主线程那条 `Task` 的
@@ -52,7 +58,8 @@ export interface ToolUseItem extends Base {
 
 /**
  * 一次工具调用的输出。它与调用是**两条独立的项** —— 协议里本来就是两条
- * 消息，操作序列因此保持只追加。
+ * 消息，操作序列因此保持只追加（同一次调用的两条 toolUse 也不改已推出的项，
+ * 合并发生在 `applyOps` 里，见 [ToolUseItem] 的说明）。
  */
 export interface ToolResultItem extends Base {
   kind: 'toolResult'

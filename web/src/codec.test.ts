@@ -30,8 +30,8 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    // 17 = 14 + 末尾三条子代理那层（A1，2026-09-18 补）
-    expect(ops).toHaveLength(17)
+    // 18 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条（2026-09-22 补）
+    expect(ops).toHaveLength(18)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
   })
@@ -39,7 +39,11 @@ describe('契约 fixture', () => {
   it('fixture 能被完整应用到状态上而不丢内容', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
     const state = applyOps(emptyState(), ops)
-    // fixture 里有 13 条 append/finalize 产生的消息（含工具调用与它的结果）
+    // fixture 里有 13 条 append/finalize 产生的消息（含工具调用与它的结果）。
+    //
+    // **13 这个数是合并规则的守门员，别改成 14**：夹具里 18 条 op、其中 14 条 append，
+    // 之所以只落下 13 条项，正是因为同一次调用那两条 toolUse（m3s + m3）合成了一张卡。
+    // 谁把合并删了，这一条立刻变红。
     expect(state.items).toHaveLength(13)
     expect(state.live.assistant).toBeUndefined()
   })
@@ -47,8 +51,86 @@ describe('契约 fixture', () => {
   it('工具调用带着配对的 toolUseId 过来', () => {
     // 结果要挂回这次调用，全靠这个 id。丢了这个字段界面上就配不上对
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    const use = ops.find((o) => o.op === 'append' && o.item.kind === 'toolUse')
-    expect(use).toMatchObject({ item: { name: 'Read', toolUseId: 'toolu_1' } })
+    const uses = ops.filter((o) => o.op === 'append' && o.item.kind === 'toolUse')
+    // 第一条是起头帧（参数空）、第二条是完整消息 —— 两条都得带着这个 id
+    expect(uses[0]).toMatchObject({ item: { name: 'Read', toolUseId: 'toolu_1', input: '' } })
+    expect(uses[1]).toMatchObject({
+      item: { name: 'Read', toolUseId: 'toolu_1', input: '{"file_path":"/a.txt"}' },
+    })
+  })
+
+  it('同一次调用的两条 toolUse 合并成一张卡（起头帧 + 完整参数）', () => {
+    // 卡片在起头帧就出生（只有名字 + 转圈），参数到了补上去。不合并的话这次调用
+    // 就是两张卡 —— 而结果按 toolUseId 配对，**两张都会配上**，于是并排两张一样的卡
+    const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
+    const state = applyOps(emptyState(), ops)
+    const cards = state.items.filter((it) => it.kind === 'toolUse' && it.toolUseId === 'toolu_1')
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({ name: 'Read', input: '{"file_path":"/a.txt"}' })
+    // id / ts 仍是**起头帧那一条**的：React 的 key 用它，换掉等于重挂组件 ——
+    // 秒表归零（elapsed.ts 的 mountedAt）、展开态也跟着丢
+    expect(cards[0].id).toBe('m3s')
+    expect(cards[0].ts).toBe(1726050002500)
+  })
+
+  it('同一次调用的两条落在同一批 op 里也能合并（Kotlin 按 16ms 一批推）', () => {
+    const state = applyOps(emptyState(), [
+      ...parseOps([
+        {
+          op: 'append',
+          item: { kind: 'toolUse', id: 'a', ts: 1, toolUseId: 't', name: 'Read', input: '' },
+        },
+        {
+          op: 'append',
+          item: {
+            kind: 'toolUse',
+            id: 'b',
+            ts: 2,
+            toolUseId: 't',
+            name: 'Read',
+            input: '{"file_path":"/x"}',
+          },
+        },
+      ]),
+    ])
+
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0]).toMatchObject({ id: 'a', input: '{"file_path":"/x"}' })
+  })
+
+  it('两条都是完整参数时不合并 —— 只有空参数那张能被吸收', () => {
+    // 宁可多画一张，也不要凭空少一张：配对规则一旦把完整项也吞掉，
+    // 两个真的不同的项里就有一个永远看不见了
+    const state = applyOps(emptyState(), [
+      { op: 'append', item: { kind: 'toolUse', id: 'a', ts: 1, toolUseId: 't', name: 'Read', input: '{}' } },
+      {
+        op: 'append',
+        item: { kind: 'toolUse', id: 'b', ts: 2, toolUseId: 't', name: 'Read', input: '{"file_path":"/x"}' },
+      },
+    ])
+
+    expect(state.items).toHaveLength(2)
+  })
+
+  it('带 parent 的完整项合并进无 parent 的起头帧卡（合并取新项那一份字段）', () => {
+    // 起头帧今天不带 parent（子代理的流事件实测 0 条），但合并规则必须认新项那一份：
+    // 真发过来时这张卡要落到 Task 卡里（见 nesting.ts），而不是留在主流水里
+    const state = applyOps(emptyState(), [
+      { op: 'append', item: { kind: 'toolUse', id: 'task', ts: 1, toolUseId: 'toolu_task', name: 'Task', input: '{}' } },
+      { op: 'append', item: { kind: 'toolUse', id: 's', ts: 2, toolUseId: 'toolu_sub', name: 'Write', input: '' } },
+      {
+        op: 'append',
+        item: {
+          kind: 'toolUse', id: 'f', ts: 3, toolUseId: 'toolu_sub',
+          name: 'Write', input: '{"file_path":"/b.txt"}', parent: 'toolu_task',
+        },
+      },
+    ])
+
+    const cards = state.items.filter((it) => it.kind === 'toolUse')
+    expect(cards).toHaveLength(2)
+    expect(cards[1]).toMatchObject({ id: 's', parent: 'toolu_task', input: '{"file_path":"/b.txt"}' })
   })
 
   it('子代理的 parent 一路解析过来，主线程那条不带这个字段（A1）', () => {
@@ -178,6 +260,66 @@ describe('applyOps', () => {
     ])
     expect(state.items).toHaveLength(2)
     expect(state.items[0]).toMatchObject({ text: '最终' })
+    expect(state.items[1].kind).toBe('result')
+  })
+
+  it('回合结束把还没收尾的思考落成条目 —— 界面不再一直「思考中」', () => {
+    // 用户 2026-09-21 报的现场：「思考中时点击停止按钮，思考中不会停止」。
+    // 停止（interrupt）之后 CLI 不会再产那条"整块思考"的消息，逐字缓冲留着的话
+    // 那块就永远转着（秒表还在走）—— 回合结束（result）是还认得出这回事的时刻
+    const midway = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'thinking', text: '它在想第一件事' },
+    ])
+    expect(midway.live.thinking).toBe('它在想第一件事')
+
+    const ended = applyOps(midway, [
+      {
+        op: 'append',
+        item: { kind: 'result', id: 'r1', ts: 2, subtype: 'error_during_execution' },
+      },
+    ])
+
+    expect(ended.live.thinking).toBeUndefined()
+    expect(ended.items.map((i) => i.kind)).toEqual(['thinking', 'result'])
+    expect(ended.items[0]).toMatchObject({ kind: 'thinking', text: '它在想第一件事' })
+  })
+
+  it('被打断的正文也一样落下来，而不是永远"正在输入"', () => {
+    const midway = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'assistant', text: '我打算先' },
+    ])
+
+    const ended = applyOps(midway, [
+      { op: 'append', item: { kind: 'result', id: 'r1', ts: 2, subtype: 'success' } },
+    ])
+
+    expect(ended.live.assistant).toBeUndefined()
+    expect(ended.items[0]).toMatchObject({ kind: 'assistant', text: '我打算先' })
+  })
+
+  it('正常收尾的回合不会因为这个多出条目', () => {
+    // 正文由 finalizeDelta 收尾、思考由"整块到达"收尾 —— 两条都到过的回合，
+    // 到了 result 时缓冲本来就是空的
+    const state = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'thinking', text: '想' },
+      { op: 'append', item: { kind: 'thinking', id: 't1', ts: 1, text: '想完了' } },
+      { op: 'appendDelta', target: 'assistant', text: '你' },
+      { op: 'finalizeDelta', target: 'assistant', text: '你好' },
+      { op: 'append', item: { kind: 'result', id: 'r', ts: 2, subtype: 'success' } },
+    ])
+
+    expect(state.items.map((i) => i.kind)).toEqual(['thinking', 'assistant', 'result'])
+    expect(state.live).toEqual({})
+  })
+
+  it('落下来的条目排在结果行前面', () => {
+    // 反过来的话，被打断的那段思考会出现在「回合结束」下面，看着像下一轮的东西
+    const state = applyOps(
+      applyOps(emptyState(), [{ op: 'appendDelta', target: 'thinking', text: '半截思考' }]),
+      [{ op: 'append', item: { kind: 'result', id: 'r', ts: 2, subtype: 'success' } }],
+    )
+
+    expect(state.items[0].kind).toBe('thinking')
     expect(state.items[1].kind).toBe('result')
   })
 

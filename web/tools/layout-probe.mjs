@@ -71,6 +71,10 @@ function findChromium() {
 const SCENARIOS = [
   { name: 'overflow', note: '内容严重溢出（38 文字 + 86 卡片）', entries: 38, tools: 86, thinking: 6, notes: 3 },
   { name: 'fits', note: '内容不溢出（2 文字 + 2 卡片）', entries: 2, tools: 2, thinking: 1, notes: 1 },
+  // 起头帧那张卡：卡片刚出生，**参数还没生成完**，所以标题行是空的
+  // （2026-09-22：卡片提前到 content_block_start 出生，见 startedToolCard）。
+  // 它和上面两条量的是同一批几何，多出来的那条断言是"没有标题时状态位也得贴住右沿"
+  { name: 'started', note: '起头帧的卡（没有标题，只有名字 + 转圈）', entries: 1, tools: 4, thinking: 0, notes: 0, titleless: true },
 ]
 
 /** 卡片高度下限。卡片头是 5px 内边距 + 一行 12px 文字 + 2px 边框 ≈ 29px。 */
@@ -155,6 +159,17 @@ function buildPage(scenario) {
     // <button class="tool__file">，它**不带** aria-expanded。
     // 两种卡面交替出现：长路径与长文件名都必须在 420px 里能省略
     const file = i % 2 === 0
+    // 起头帧那张卡（S.titleless）：标题行**整个不画** —— ToolCallBlock 里那句
+    // title !== '' && (…) 在参数还没生成时两边都不成立；展开体也没有
+    // （hasBody 为假）。状态位固定是"进行中"，这时的卡就是全部的样子
+    // （这段注释在外层模板字符串里，反引号会把它截断）
+    const title = S.titleless
+      ? ''
+      : file
+        ? '<button type="button" class="tool__title tool__file">' +
+          'SessionSwitchStateTestWithAVeryLongName.kt</button>'
+        : '<span class="tool__title">ls -la /some/very/long/path/that/should/ellipsize/' +
+          i + '</span>'
     d.innerHTML = '<div class="tool__head" role="button" tabindex="0" aria-expanded="true">' +
       '<span class="tool__chevron is-open">▸</span>' +
       // 徽标从"首字母"换成了图形 + 色调（2026-09-15），这里照抄 ToolCallBlock
@@ -164,20 +179,18 @@ function buildPage(scenario) {
       '<svg class="tool__glyph" viewBox="0 0 12 12">' +
       '<path d="M2.6 3.2 L5.4 5.6 L2.6 8"/><path d="M6.4 8.4 h3.2"/></svg></span>' +
       '<span class="tool__name">Bash</span>' +
-      (file
-        ? '<button type="button" class="tool__title tool__file">' +
-          'SessionSwitchStateTestWithAVeryLongName.kt</button>'
-        : '<span class="tool__title">ls -la /some/very/long/path/that/should/ellipsize/' +
-          i + '</span>') +
-      STATUS[i % STATUS.length] +
+      title +
+      (S.titleless ? STATUS[0] : STATUS[i % STATUS.length]) +
       '</div>' +
       // 卡片默认收着，但**展开态**才是高度最大的那种 —— 溢出场景要的就是最坏
       // 情况，所以这里画的是展开体（只画卡头的话量不出压缩问题）
-      '<div class="tool__body">' +
-      '<div class="tool__cmd"><span class="tool__prompt">$ </span>node --test test/x.test.js</div>' +
-      // 这里是**外层模板字符串**里，\\n 才是生成页面里的换行转义
-      '<pre class="tool__out">ok 1 - 第一条\\nok 2 - 第二条\\nok 3 - 第三条</pre>' +
-      '</div>'
+      (S.titleless
+        ? ''
+        : '<div class="tool__body">' +
+          '<div class="tool__cmd"><span class="tool__prompt">$ </span>node --test test/x.test.js</div>' +
+          // 这里是**外层模板字符串**里，\\n 才是生成页面里的换行转义
+          '<pre class="tool__out">ok 1 - 第一条\\nok 2 - 第二条\\nok 3 - 第三条</pre>' +
+          '</div>')
     t.appendChild(d)
   }
   // 一张 4 列表格。DOM 结构照抄 Markdown.tsx 的 table 分支：
@@ -293,6 +306,17 @@ function buildPage(scenario) {
     thinking: h('.thinking-text'),
     note: h('.system-note'),
     status: h('.tool__status'),
+    // 状态位右沿离卡片头**内容右沿**还有多远（应当 ≈ 0：它钉在最右）。
+    // 起头帧那张卡没有标题 —— 少 margin-left:auto 时这个数会是几十像素，
+    // 屏幕上表现为转圈紧挨着工具名，等标题到了再往右跳一下
+    statusGapRight: (() => {
+      const st = t.querySelector('.tool__status')
+      const hd = t.querySelector('.tool__head')
+      if (!st || !hd) return null
+      const padRight = parseFloat(getComputedStyle(hd).paddingRight) || 0
+      return Math.round((hd.getBoundingClientRect().right - padRight -
+        st.getBoundingClientRect().right) * 100) / 100
+    })(),
     clipped: card.scrollHeight > card.clientHeight + 1,
     headOverflow: headOverflow,
     bubbleW: bubbleW,
@@ -380,6 +404,15 @@ for (const scenario of SCENARIOS) {
   if (m.headOverflow > 1) {
     problems.push(`.tool__head 比卡片宽 ${m.headOverflow}px（div 化以后漏了 box-sizing: border-box?）`)
   }
+  // 状态位（转圈/勾）必须贴住卡片头右沿。**没有标题的卡最容易露馅** ——
+  // 从前它靠"标题恰好是个弹性元素"吸掉空档，而标题是有条件渲染的
+  // （起头帧那张卡就没有），于是转圈会挨着工具名、等参数到了再往右跳
+  if (m.statusGapRight === null || Math.abs(m.statusGapRight) > 1) {
+    problems.push(
+      `.tool__status 右沿离卡片头右沿 ${m.statusGapRight}px（应为 0）—— ` +
+      '状态位没钉在最右：margin-left:auto 掉了吗？',
+    )
+  }
   // 长正文必须铺满整行：差多少，右边就空多少（92% 那阵子是 8% 行宽）
   if (Math.abs(m.bubbleW - m.rowW) > 1) {
     problems.push(
@@ -404,7 +437,9 @@ for (const scenario of SCENARIOS) {
   if (m.thumbW !== -1 && m.thumbW !== 150) {
     problems.push(`缩略图宽 ${m.thumbW} ≠ 150 —— 尺寸被别处的规则改掉了`)
   }
-  if (m.fileDecoration !== 'underline') {
+  // 只对**画了文件按钮**的场景查下划线：起头帧那张卡没有标题，本来就没有按钮
+  // （按场景而不是按 m.fileDecoration === null 判，免得真丢了按钮也一起放过去）
+  if (!scenario.titleless && m.fileDecoration !== 'underline') {
     problems.push(
       `可点文件名没有下划线（text-decoration-line=${m.fileDecoration}）——` +
       ' 没有它没人知道文件名能点',

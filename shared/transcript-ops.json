@@ -6,6 +6,7 @@
   {"op":"appendDelta","target":"assistant","text":"好"},
   {"op":"finalizeDelta","target":"assistant","text":"你好呀"},
   {"op":"append","item":{"kind":"thinking","id":"m2","ts":1726050002000,"text":"让我想想"}},
+  {"op":"append","item":{"kind":"toolUse","id":"m3s","ts":1726050002500,"toolUseId":"toolu_1","name":"Read","input":""}},
   {"op":"append","item":{"kind":"toolUse","id":"m3","ts":1726050003000,"toolUseId":"toolu_1","name":"Read","input":"{\"file_path\":\"/a.txt\"}"}},
   {"op":"append","item":{"kind":"toolResult","id":"m3r","ts":1726050003500,"toolUseId":"toolu_1","text":"1\tpackage a\n2\t\n","isError":false}},
   {"op":"clearDelta","target":"assistant"},

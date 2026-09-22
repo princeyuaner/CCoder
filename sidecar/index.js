@@ -618,6 +618,25 @@ export function createDispatcher({
             // 分母取 rawMaxTokens：文档说 usage 是 "measured against" 它，
             // percentage 也是拿它算的（maxTokens 是另一个，实测这里同值）
             windowTokens: cu?.rawMaxTokens ?? cu?.maxTokens ?? 0,
+            // 明细（2026-09-22）。这一层（信封）的键名是我们自己定的驼峰 —— 与上面
+            // 两个数同源，读的时候不必猜拼法。
+            //
+            // **里面那几行的字段名原样透传，不在这里改名**：`categories` / `mcpTools`
+            // 等的**元素**字段谁也没实测过（d.ts 写 snake_case，而顶层这一实测是驼峰）。
+            // 在这一层改名就是替读的那一侧猜一次；原样过去、让 Kotlin 两种拼法都认
+            // （见 Protocol.kt 的 contextRowOf），读不到就给空 —— 一条读不出来
+            // 不该让整页空着。
+            detail: {
+              model: cu?.model ?? null,
+              percentage: typeof cu?.percentage === 'number' ? cu.percentage : null,
+              // over_limit 单拎出来是因为它**只**在超窗时在。拼法同样两说，两种都认
+              overLimit: cu?.overLimit ?? cu?.over_limit ?? null,
+              categories: cu?.categories ?? [],
+              mcpTools: cu?.mcpTools ?? [],
+              memoryFiles: cu?.memoryFiles ?? [],
+              agents: cu?.agents ?? [],
+              skills: cu?.skills ?? [],
+            },
           }))
           .catch((err) => fail('CONTEXT_USAGE_FAILED', String(err?.message ?? err), false));
         return session;

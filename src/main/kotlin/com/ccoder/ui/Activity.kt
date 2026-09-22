@@ -92,8 +92,9 @@ internal fun activityChangeOf(item: RenderItem, toolsStillRunning: Boolean): Act
     is RenderItem.ThinkingDelta, is RenderItem.Thinking -> ActivityChange.Now(Activity.Thinking)
     is RenderItem.AssistantDelta, is RenderItem.AssistantText -> ActivityChange.Now(Activity.Replying)
     is RenderItem.ToolUse -> ActivityChange.Now(toolActivity(item.name))
-    // 参数还在生成时就先把动作词摆出来 —— 那一段转写区是静的，
-    // 状态卡是唯一能说明"它在动"的地方（见 renderStreamEvent 里那段）
+    // 参数还在生成时就先把动作词摆出来 —— 那一段转写区里卡片刚出生、只有名字
+    // 与转圈（2026-09-22 起），状态卡这行仍是抬头一眼能看见的那句
+    // 「编辑文件 / 运行指令」（见 renderStreamEvent 里那段）
     is RenderItem.ToolStarting -> ActivityChange.Now(toolActivity(item.name))
     // 一批工具全跑完了：接下来是模型自己要想（TTFT 那几十秒就落在这里）
     is RenderItem.ToolResult ->
@@ -111,20 +112,23 @@ internal fun activityChangeOf(item: RenderItem, toolsStillRunning: Boolean): Act
  * （见 [StatusCardView] 里那层 `paintChildren`）。
  *
  * 三条规则：
- * - **带 `parent` 的渲染项就是子代理的**（`ToolUse` / `Thinking` / `AssistantText`，
- *   归属的形状见 `MessageRenderer.renderAssistant`）；
+ * - **带 `parent` 的渲染项就是子代理的**（`ToolUse` / `ToolStarting` / `Thinking` /
+ *   `AssistantText`，归属的形状见 `MessageRenderer.renderAssistant`）；
  * - **「等待响应」由工具结果触发，继承上一刻的归属**：等的人还是刚才那个跑者 ——
  *   不继承的话，子代理每次调用工具之后那几十秒（TTFT，实测 P90 10.3s）角标就会灭
  *   一下，闪得比不标还糟；
  * - 其余（回合结束、报错、用户消息）一律 false。
  *
- * [RenderItem.ToolStarting] 与两个增量帧**不带 `parent` 是刻意的**（流事件只走
- * 主线程，见子代理设计稿事实 5/12），所以它们天然落到 false，不用特判。
+ * [RenderItem.ToolStarting] 与两个增量帧在今天**实测都拿不到 `parent`**（流事件只走
+ * 主线程，见子代理设计稿事实 5/12）—— 但 ToolStarting 认它：流的信封上真带着归属时
+ * 卡片会直接生在 Task 卡里，不必先在主流水里露一张裸卡再跳进去（见 `renderStreamEvent`）。
+ * 两个增量帧仍是天然落到 false，不用特判。
  */
 internal fun subagentOf(item: RenderItem, previous: Boolean): Boolean = when (item) {
-    // 三种分开写而不是并成一个分支：Kotlin 对"多类型的 is"不做智能转换，
+    // 分开写而不是并成一个分支：Kotlin 对"多类型的 is"不做智能转换，
     // 并起来 `item.parent` 直接是编译错误（它们各自带 parent，没有公共父类型）
     is RenderItem.ToolUse -> item.parent != null
+    is RenderItem.ToolStarting -> item.parent != null
     is RenderItem.Thinking -> item.parent != null
     is RenderItem.AssistantText -> item.parent != null
     is RenderItem.ToolResult -> previous

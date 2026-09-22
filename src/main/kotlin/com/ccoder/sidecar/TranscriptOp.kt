@@ -43,6 +43,12 @@ sealed interface TranscriptItem {
      *
      * [toolUseId] 是 SDK 的 `tool_use.id`（**不是**这一项的 [id]，那个是渲染用的
      * 消息号）。[ToolResult] 靠它与这次调用配对。
+     *
+     * **同一次调用会推两条**（2026-09-22 起）：起头帧那条 [input] 是空串
+     * （卡片先出生，见 `startedToolCard`），完整 assistant 消息那条带着真参数。
+     * 界面按 [toolUseId] **合并成一张卡**（`web/src/codec.ts` 的 `applyOps`），
+     * 所以流水仍然是只追加，只是同一个 id 会出现两次。合并时保留**前一条**的
+     * [id] / [ts] —— React 的 key 用的是 [id]，换掉等于重挂组件、秒表归零。
      */
     data class ToolUse(
         override val id: String,

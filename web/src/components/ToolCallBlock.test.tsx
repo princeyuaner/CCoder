@@ -315,6 +315,30 @@ describe('工具状态', () => {
     expect(screen.queryByTestId('tool-done')).not.toBeInTheDocument()
   })
 
+  it('起头帧那张卡（参数还没到）就有名字与转圈，且点开不画空盒子', async () => {
+    // 2026-09-22：卡片在起头帧就出生，那时 input 还是空串 —— 卡面只有名字 + 转圈
+    // + 秒表，标题行是空的。这条钉的就是"读取/搜索那类快工具终于看得到转圈了"
+    const { container } = render(<ToolCallBlock item={{ ...use('Read', {}), input: '' }} />)
+
+    expect(screen.getByText('Read')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-running')).toBeInTheDocument()
+    expect(screen.queryByTestId('tool-done')).not.toBeInTheDocument()
+    // 还没有参数：标题行什么都不画（也不该凭空画一个可点的文件名）
+    expect(screen.queryByTestId('tool-file')).not.toBeInTheDocument()
+
+    await userEvent.click(header())
+    // 展开体里什么都没有 —— 那就不该有这个盒子（点开弹一个空框看着像坏了）
+    expect(container.querySelector('.tool__body')).toBeNull()
+  })
+
+  it('参数到了之后展开体正常出现（同一张卡）', async () => {
+    // 上一条的反面：参数到了就该能点开看。参数是怎么补到那张卡上的，见 codec.test.ts
+    const { container } = render(<ToolCallBlock item={use('Read', { file_path: '/a.txt' })} />)
+
+    await userEvent.click(header())
+    expect(container.querySelector('.tool__body')).not.toBeNull()
+  })
+
   it('结果到了 → 绿勾，不再转圈', () => {
     render(<ToolCallBlock item={use('Bash', { command: 'ls' })} result={result('out')} />)
     expect(screen.getByTestId('tool-done')).toBeInTheDocument()

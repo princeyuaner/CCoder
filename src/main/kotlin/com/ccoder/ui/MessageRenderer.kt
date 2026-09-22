@@ -27,6 +27,11 @@ sealed interface RenderItem {
      * [id] 是 SDK 给的 `tool_use.id`，[ToolResult] 靠它与这次调用配对 ——
      * 界面上"把输出挂回那张卡片"全指望它。
      *
+     * **同一次调用会产出两条这个**：起头帧那条 [ToolStarting] 先画一张参数还是空串的卡
+     * （2026-09-22 起），完整消息到了再画一条同 [id] 的 —— 界面按 id **合并成一张**
+     * （见 web/src/codec.ts 的 applyOps）。不合并就是一次调用两张卡，而且结果按 id 配对，
+     * 两张都会配上。
+     *
      * [parent] 是**子代理归属**：非空时它的值就是主线程那条 `Task` 的 `tool_use.id`，
      * 界面据此把这一项收进那张卡里（A1，2026-09-18）。空 = 主线程自己跑的。
      *
@@ -43,10 +48,25 @@ sealed interface RenderItem {
     /**
      * 工具调用**刚开始**（参数还在生成）。
      *
-     * 它唯一的去处是状态卡那行「现在在做什么」（见 Activity.kt），**不进转写区** ——
-     * 所以 `toOp` 给它 null。理由见 `renderStreamEvent` 里那段。
+     * 从 2026-09-22 起它**会进转写区**：卡片在模型刚决定要用这个工具时就出生
+     * （名字 + 转圈 + 秒表），参数生成完再由完整消息那条同 [id] 的项把它补全 ——
+     * 见 [startedToolCard]。在此之前转写区要等完整消息，而"参数生成完"约等于
+     * "工具也跑完了"：实测 Read 从卡片出生到结果**中位 21ms**，读取/搜索那类卡
+     * 生下来就已经是完成态，用户的原话是「只有调用完成才会显示出来」。
+     *
+     * 它同时仍然是状态卡那行「现在在做什么」的来源（见 Activity.kt）。
+     *
+     * [id] 是起头帧里就带着的 `tool_use.id`。**空 = 画不了卡**（结果靠 id 配对，
+     * 空 id 的卡会永远转圈），那种情况只喂状态卡，退回老路。
+     *
+     * [parent] 同 [ToolUse.parent]。实测子代理的流事件是 0 条，所以今天恒为 null；
+     * 带着它只是防将来 —— 真发过来时卡片会直接生在 Task 卡里（见 Activity.subagentOf）。
      */
-    data class ToolStarting(val name: String) : RenderItem
+    data class ToolStarting(
+        val name: String,
+        val id: String = "",
+        val parent: String? = null,
+    ) : RenderItem
 
     /**
      * 一次工具调用的结果。
@@ -98,6 +118,31 @@ internal const val NO_CONTENT_PLACEHOLDER = "(no content)"
 internal fun isEmptyCommandOutput(item: RenderItem): Boolean =
     item is RenderItem.AssistantText &&
         (item.text.isBlank() || item.text.trim() == NO_CONTENT_PLACEHOLDER)
+
+/**
+ * 起头帧要提前画的那张卡：**参数还是空串**的那条 [RenderItem.ToolUse]。
+ *
+ * 为什么要有它：一张卡原先只在完整 assistant 消息到达时才出生，而那时参数已经生成完、
+ * 工具也基本跑完了 —— 实测 Read 从卡片出生到结果中位 21ms，读取/搜索那类卡生下来就是
+ * 完成态，屏幕上永远看不到转圈（2026-09-22 用户报「只有调用完成才会显示出来」）。
+ * 起头帧（`content_block_start[tool_use]`）里已经带着 id 与工具名，卡片从这里出生，
+ * 参数到了由完整消息那条同 id 的项补全（界面按 id 合并）。
+ *
+ * **id 空 → null**：`ToolResult` 靠 `tool_use.id` 配对，空 id 的卡永远等不到自己的结果，
+ * 只会一直转圈 —— 而且转得和"真的在跑"一模一样，用户没有任何办法分辨。那种情况退回
+ * 老路：只喂状态卡（见 `Activity.kt`），等完整消息到了再画。
+ */
+internal fun startedToolCard(started: RenderItem.ToolStarting): RenderItem.ToolUse? =
+    started.id.takeIf { it.isNotBlank() }?.let {
+        RenderItem.ToolUse(
+            name = started.name,
+            // 空串 = 「参数还没拿到」，不是「这个工具没有参数」—— 界面上那张卡
+            // 这时只有名字与转圈，标题行是空的（见 web/src/tools.ts）
+            input = "",
+            id = it,
+            parent = started.parent,
+        )
+    }
 
 /**
  * 把 sidecar 消息翻译为渲染项。
@@ -346,26 +391,40 @@ object MessageRenderer {
      * 逐 token 增量。
      *
      * 载荷是 Messages API 的原始流事件（sdk.d.ts:5147），文本要下钻到
-     * `event.delta.text`。只有 content_block_delta 带内容 ——
-     * message_start / content_block_start / content_block_stop / message_stop
-     * 都是无内容的边界帧，多产生渲染项会让 UI 出现空行。
+     * `event.delta.text`。带内容的是 content_block_delta 与**带 tool_use 的
+     * content_block_start**（后者让工具卡提前出生，见 [startedToolCard]）——
+     * message_start / content_block_stop / message_stop 是无内容的边界帧，
+     * 多产生渲染项会让 UI 出现空行。
      */
     private fun renderStreamEvent(event: JsonObject): List<RenderItem> {
         val inner = event.obj("event") ?: return emptyList()
 
-        // 工具调用的**开头**。这时只知道工具名：参数还在逐字生成，而对 Write 来说
-        // 参数就是整个文件内容 —— 几百行的话要十几秒。这一段转写区什么都没有可画
-        // （见下面 input_json_delta 那条），于是屏幕上完全静止，用户的原话是
-        // 「看起来像卡住了」。而能证明"它在动"的转圈与耗时都长在工具卡上，
-        // 工具卡又要等参数生成完才出现 —— 指示器恰好缺席在最需要它的那一段。
+        // 工具调用的**开头**。这时只知道工具名与 id：参数还在逐字生成，而对 Write
+        // 来说参数就是整个文件内容 —— 几百行的话要十几秒。这一段没有正文可画
+        // （见下面 input_json_delta 那条），从前转写区是**完全静止**的，用户的原话是
+        // 「看起来像卡住了」。
         //
-        // 这一项**不进转写区**（toOp 给它 null），只让状态卡立刻从「回复中」
-        // 变成「编辑文件 / 运行指令」，至少回答"它还在动"。
+        // 这一项有两个去处（2026-09-22 起）：
+        // - **转写区**：卡片在这里出生，先只有名字 + 转圈 + 秒表（见 [startedToolCard]）。
+        //   从前它要等完整消息，而那时参数已经生成完、工具也基本跑完 —— 读取/搜索那类
+        //   卡生下来就是完成态，用户报的「只有调用完成才会显示出来」说的就是它。
+        // - **状态卡**：立刻从「回复中」变成「编辑文件 / 运行指令」（见 Activity.kt）。
+        //
+        // id 在这帧里就带着（实测形状见 MessageRendererTest 那条用例）；万一没有，
+        // `startedToolCard` 会给 null，只剩状态卡这一条路 —— 与改动前一样。
         if (inner.str("type") == "content_block_start") {
             val block = inner.obj("content_block") ?: return emptyList()
             if (block.str("type") != "tool_use") return emptyList()
             val name = block.str("name")?.takeIf { it.isNotBlank() } ?: return emptyList()
-            return listOf(RenderItem.ToolStarting(name))
+            return listOf(
+                RenderItem.ToolStarting(
+                    name = name,
+                    id = block.str("id") ?: "",
+                    // 子代理归属取**信封上**那个字段，不取 content_block 里的：
+                    // 流事件的归属写在消息层（见 SDKPartialAssistantMessage 的形状）
+                    parent = event.str("parent_tool_use_id"),
+                )
+            )
         }
 
         if (inner.str("type") != "content_block_delta") return emptyList()

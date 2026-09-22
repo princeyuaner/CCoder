@@ -211,6 +211,67 @@ class SettingsDialogProbe {
     fun `把空对话框画成图片`() =
         render("build/probe/model-profiles-dialog-empty.png", profiles = emptyList())
 
+    /**
+     * **模型很多**的那一帧（2026-09-22）。
+     *
+     * 用户报的是"模型配多了后 后面的看不到了"：表单挂在 `BorderLayout.NORTH` 上、
+     * 够高时不缩只裁，三四个模型起最后一行只剩半截、「＋ 添加模型」直接消失。
+     * 这张图只回答一件事：列表里每一行还在不在卡身里、滚动条露没露出来。
+     */
+    @Test
+    fun `把模型很多的对话框画成图片`() = render(
+        "build/probe/model-profiles-dialog-many-models.png",
+        profiles = listOf(
+            deepseek.copy(
+                id = "p-many",
+                name = "公司tokenhub",
+                baseUrl = "http://tokenhub.lihoogame.com:3000",
+                modelIds = mutableListOf(
+                    "deepseek-v4-flash[1m]",
+                    "deepseek-v4-pro[1m]",
+                    "deepseek-v4-flash",
+                    "deepseek-v4-pro",
+                    "glm-4.6",
+                    "kimi-k2.5",
+                ),
+                modelId = "deepseek-v4-flash[1m]",
+                authKind = AuthKind.API_KEY.name,
+            ),
+        ),
+        secrets = mapOf("p-many" to "sk-9f2c4e6a8b0d1f3a5c7e9b1d4f2a"),
+        clicking = "公司tokenhub",
+    )
+
+    /**
+     * 模型很多、而且**字号还大**（2026-09-22）。
+     *
+     * 光看默认字号那一张不够：高度预算是按控件首选高度加出来的，字号一涨
+     * 每一格都变高，最先被裁掉的还是模型列表。这张与上面那张对照着看。
+     */
+    @Test
+    fun `把模型很多且字号很大画成图片`() = render(
+        "build/probe/model-profiles-dialog-many-models-xl.png",
+        profiles = listOf(
+            deepseek.copy(
+                id = "p-many-xl",
+                name = "公司tokenhub",
+                baseUrl = "http://tokenhub.lihoogame.com:3000",
+                modelIds = mutableListOf(
+                    "deepseek-v4-flash[1m]",
+                    "deepseek-v4-pro[1m]",
+                    "deepseek-v4-flash",
+                    "glm-4.6",
+                    "kimi-k2.5",
+                ),
+                modelId = "deepseek-v4-flash[1m]",
+                authKind = AuthKind.API_KEY.name,
+            ),
+        ),
+        secrets = mapOf("p-many-xl" to "sk-9f2c4e6a8b0d1f3a5c7e9b1d4f2a"),
+        clicking = "公司tokenhub",
+        scale = FontScale.XLARGE,
+    )
+
     /** `envOverrides` 抢变量时，警告条长什么样、会不会把列表挤下去。 */
     @Test
     fun `把带冲突警告的对话框画成图片`() = render(
@@ -802,6 +863,62 @@ class SettingsDialogSaveTest {
         assertEquals(3, modelFields(dialog).size, "点一下该多一行")
         // 空行**不落库**：normalizeModelProfile 会把空串滤掉，写了等于没写
         assertEquals(2, service.profiles().single().modelIds.size, "空行不该被存进去")
+    }
+
+    /**
+     * 模型很多时，**每一行都还得够得着**（2026-09-22）。
+     *
+     * 用户报的是"模型配多了后 后面的看不到了"。病因是表单挂在 `BorderLayout.NORTH`
+     * 上、高度不够时不缩只裁 —— 模型列表那个滚动框被裁出卡身，里面的滚动条
+     * 跟着没了，后几行连同「＋ 添加模型」一起消失。单看代码看不出"裁没裁"：
+     * `modelListBox` 有封顶也有 `JBScrollPane`，两条都对，合起来还是够不着。
+     *
+     * 这里钉三件事：
+     *  1. 六行输入框都在树里（重建没丢行）；
+     *  2. 滚动框**整块**落在卡身矩形里（不是露半截）；
+     *  3. 「＋ 添加模型」在滚动视口的内容里（滚到底就够得着）。
+     */
+    @Test
+    fun `模型很多时每一行都够得着，滚动框不被裁出卡身`() {
+        val store = MemoryStore()
+        val many = p1.copy(
+            id = "p-many",
+            modelIds = mutableListOf("m1", "m2", "m3", "m4", "m5", "m6"),
+            modelId = "m1",
+        )
+        val (dialog, _) = openOn(store, many)
+
+        SwingUtilities.invokeAndWait {
+            val pane = dialog.contentPane ?: dialog.contentPanel
+            pane.setSize(DIALOG_WIDTH, DIALOG_HEIGHT)
+            layoutAll(pane)
+
+            assertEquals(6, modelFields(dialog).size, "六行模型输入框都该在树里")
+
+            val list = inputOf(dialog.contentPanel, MODEL_IDS_LABEL)
+            val scroll = list as? javax.swing.JScrollPane
+                ?: error("模型 ID 那一栏应当是滚动框，实际：${list.javaClass.name}")
+            check(scroll.height > 0) { "滚动框高度不该是 0" }
+
+            // 滚动框整块落在卡里：露半截的症状就是下面几行再也滚不出来
+            var card: java.awt.Component? = scroll.parent
+            while (card != null && card !is CardPanel) card = card.parent
+            checkNotNull(card) { "模型列表不在任何一张卡里" }
+            val scrollInCard = SwingUtilities.convertPoint(scroll.parent, scroll.location, card)
+            check(scrollInCard.y + scroll.height <= card.height + 1) {
+                "模型列表被裁出卡身了：卡内 y=${scrollInCard.y} 高=${scroll.height} 卡高=${card.height}"
+            }
+
+            // 「＋ 添加模型」在滚动内容里，滚到底就够得着
+            val view = scroll.viewport.view as? Container ?: error("滚动框没有内容")
+            val addOnView = findLabel(view, ADD_MODEL_LABEL)
+                ?: error("「$ADD_MODEL_LABEL」不在模型列表的内容里")
+            val addInView = SwingUtilities.convertPoint(addOnView.parent, addOnView.location, view)
+            check(addInView.y + addOnView.height <= view.preferredSize.height + 1) {
+                "「$ADD_MODEL_LABEL」落在滚动内容之外：bottom=${addInView.y + addOnView.height}" +
+                    " 内容高=${view.preferredSize.height}"
+            }
+        }
     }
 
     @Test

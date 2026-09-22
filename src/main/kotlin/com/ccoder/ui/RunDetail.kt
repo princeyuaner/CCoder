@@ -89,43 +89,6 @@ internal fun buildTodoDetail(todos: TaskList): JComponent {
     return box
 }
 
-/**
- * 上下文那一段。点"上下文"卡弹它。
- *
- * 卡面只有一个百分比 —— 这里补上**绝对数**：分母（窗口多大）才是"还能聊多久"
- * 的关键，而它恰恰是卡面放不下的那个数（改版时它被让到 tooltip 里，这里给它
- * 一个正经位置）。
- *
- * 没有测量值时不装作有：照实说"还没拿到窗口大小"，与卡面显示 0 是同一条规矩。
- */
-internal fun buildContextDetail(usage: ContextUsage?): JComponent {
-    val box = detailBox()
-    val u = usage ?: ContextUsage(usedTokens = 0, windowTokens = 0)
-    val percent = contextPercentOf(u)
-    box.add(sectionHeader(CARD_CONTEXT, percent?.let { "$it%" } ?: formatTokenCount(u.usedTokens)))
-
-    box.add(detailRow(CcoderText.text("transcript.detail.used"), "${formatTokenCount(u.usedTokens)} tokens"))
-    if (u.windowTokens <= 0) {
-        box.add(hint(CcoderText.text("transcript.detail.noWindowMeasured")))
-        return box
-    }
-
-    box.add(detailRow(CcoderText.text("transcript.detail.window"), "${formatTokenCount(u.windowTokens)} tokens"))
-    val left = (u.windowTokens - u.usedTokens).coerceAtLeast(0)
-    box.add(detailRow(CcoderText.text("transcript.detail.left"), "${formatTokenCount(left)} tokens"))
-    box.add(
-        hint(
-            when {
-                percent == null -> CcoderText.text("transcript.detail.hint.noWindow")
-                percent >= 90 -> CcoderText.text("transcript.detail.hint.over90")
-                percent >= 70 -> CcoderText.text("transcript.detail.hint.over70")
-                else -> CcoderText.text("transcript.detail.hint.plenty")
-            }
-        )
-    )
-    return box
-}
-
 /** 一行"标题 —— 值"。与 [taskRow] 同一套观感，但只读、不可点。 */
 private fun detailRow(label: String, value: String): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
@@ -138,8 +101,8 @@ private fun detailRow(label: String, value: String): JComponent = JPanel(BorderL
     add(JBLabel(value), BorderLayout.EAST)
 }
 
-/** 一句话的说明，压在最后。 */
-private fun hint(text: String): JComponent = JBLabel(text).apply {
+/** 一句话的说明，压在最后。详情浮层与上下文详情框共用。 */
+internal fun hint(text: String): JComponent = JBLabel(text).apply {
     foreground = UIUtil.getInactiveTextColor()
     // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
     // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了

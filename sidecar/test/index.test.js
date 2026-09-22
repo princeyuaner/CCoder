@@ -736,6 +736,36 @@ test('contextUsage 失败时回错误，不静默给 0', async () => {
   assert.ok(!out.some((m) => m.type === 'contextUsage'), '失败时不能报一个假读数');
 });
 
+test('contextUsage 带上明细 —— 元素字段原样透传，不在这一层改名', async () => {
+  // 信封那几个键（usedTokens / windowTokens / detail）是**我们自己的**，驼峰。
+  // 而明细里那几行的字段谁也没实测过：d.ts 写 snake_case、顶层那两个数实测是驼峰。
+  // 在这一层改名就是替 Kotlin 侧猜一次 —— 原样过去，让读的那侧两种拼法都认
+  // （见 Protocol.kt 的 contextRows）
+  const { d, out } = withUsageSession(async () => ({
+    totalTokens: 268000,
+    rawMaxTokens: 1000000,
+    model: 'm',
+    percentage: 27,
+    over_limit: { tokens_over: 12, kind: 'hard_limit' },
+    categories: [{ name: 'Messages', tokens: 250000, kind: 'used' }],
+    mcpTools: [{ name: 'mcp__a__b', server_name: 'srv', tokens: 8100 }],
+  }));
+
+  d.handle({ id: '9', method: 'contextUsage', params: {} });
+  await tick();
+
+  const ack = out.find((m) => m.type === 'contextUsage');
+  assert.equal(ack.detail.model, 'm');
+  assert.equal(ack.detail.percentage, 27);
+  // 元素里那两种拼法**都留着** —— 搬成一种就等于替读的那侧猜了一次
+  assert.equal(ack.detail.overLimit.kind, 'hard_limit');
+  assert.equal(ack.detail.mcpTools[0].server_name, 'srv');
+  assert.equal(ack.detail.categories[0].kind, 'used');
+  // 缺的给空数组：undefined 漏过线会在 JSON 里整个消失，收端就得多写一层防御
+  assert.deepEqual(ack.detail.skills, []);
+  assert.deepEqual(ack.detail.memoryFiles, []);
+});
+
 test('还没 start 就 contextUsage 时回错误，不抛', async () => {
   const out = [];
   const sf = fakeSessionFactory();

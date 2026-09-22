@@ -28,34 +28,42 @@ class TranscriptOpCodecTest {
         assertEquals("appendDelta", kinds[3])
         assertEquals("finalizeDelta", kinds[5])
 
-        // 7 是工具调用，8 是它的结果 —— **两条独立的 append**，
-        // 靠 toolUseId 配对（界面按它把输出挂回卡片）
-        fun itemKindAt(index: Int) =
-            array[index].asJsonObject.getAsJsonObject("item").get("kind").asString
+        // 7 是工具的**起头帧**、8 是完整消息、9 是它的结果 —— 三条独立 append：
+        // 前两条靠 toolUseId 被界面**合并成一张卡**（起头帧先把卡生出来，
+        // 2026-09-22 补），第三条靠同一个 toolUseId 把输出挂回那张卡。
+        //
+        // **两条都要钉**：只断言 kind 的话，7/8 都是 toolUse、把其中一条删掉或
+        // 顺序换过来都不报错 —— 而这两条正是"卡片提前出生"的全部依据。
+        fun itemAt(index: Int) = array[index].asJsonObject.getAsJsonObject("item")
+        fun itemKindAt(index: Int) = itemAt(index).get("kind").asString
         assertEquals("toolUse", itemKindAt(7))
-        assertEquals("toolResult", itemKindAt(8))
+        assertEquals("", itemAt(7).get("input").asString, "起头帧那条参数是空的")
+        assertEquals("toolUse", itemKindAt(8))
+        assertEquals("toolu_1", itemAt(8).get("toolUseId").asString)
+        assertTrue(itemAt(8).get("input").asString.isNotEmpty(), "完整消息那条带着真参数")
+        assertEquals("toolResult", itemKindAt(9))
 
-        assertEquals("clearDelta", kinds[9])
+        assertEquals("clearDelta", kinds[10])
 
-        // 最后一条是**带图的用户消息**：契约里有它，两侧才会一起去管 images。
+        // 带图的用户消息：契约里有它，两侧才会一起去管 images。
         // 2026-09-15 补：此前夹具里一张图都没有，web 侧把 images 整个丢掉都测不出来
-        val withImages = array[13].asJsonObject.getAsJsonObject("item")
+        val withImages = itemAt(14)
         assertEquals("user", withImages.get("kind").asString)
         assertEquals(2, withImages.getAsJsonArray("images").size())
 
         // 末尾三条是**子代理那层**（A1）：一张 Task 卡 + 它名下的一次工具与一句正文。
         // 2026-09-18 补：此前夹具里一条都不带 parent，两端任何一侧把这个字段吃掉
         // 都测不出来 —— 与 images 那次（见上）是同一类漏洞
-        val taskCard = array[14].asJsonObject.getAsJsonObject("item")
+        val taskCard = itemAt(15)
         assertEquals("toolu_task", taskCard.get("toolUseId").asString)
         assertTrue(!taskCard.has("parent"), "主线程那条 Task 卡不该带 parent")
 
-        val subTool = array[15].asJsonObject.getAsJsonObject("item")
+        val subTool = itemAt(16)
         assertEquals("toolu_task", subTool.get("parent").asString)
-        val subText = array[16].asJsonObject.getAsJsonObject("item")
+        val subText = itemAt(17)
         assertEquals("toolu_task", subText.get("parent").asString)
 
-        assertEquals(17, kinds.size)
+        assertEquals(18, kinds.size)
     }
 
     @Test

@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 上下文卡 · 点开后的详情</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm New UI 的真实主题变量，与
+   tool-progress / status-cards-b / context-card 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --water:#323c50; --water-fg:#a9c2fb;
+  --track:#2b2d30;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --water:#d8e3f8; --water-fg:#2b5bd7;
+  --track:#e8eaed;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1340px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 68ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 7px 13px; border:0; background:none; color: var(--page-dim); cursor:pointer;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--page-fg); }
+
+.section-title { font-family: var(--serif); font-size: 27px; font-weight: 600; margin: 52px 0 0; letter-spacing:-.005em; }
+.section-note { color: var(--page-dim); max-width: 76ch; margin: 8px 0 0; font-size: 13.5px; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 22px 20px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; margin:0; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.card > p.note { color: var(--page-dim); margin: 0 0 16px; font-size: 13.5px; max-width: 64ch; }
+.cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 20px; margin-top: 22px; }
+
+/* ---- 事实表 ---- */
+.facts { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap:14px; margin-top:20px; }
+.fact { border:1px solid var(--page-line); border-radius:11px; padding:14px 16px; background:var(--page-card); }
+.fact .n { font-family:var(--mono); font-size:11px; color:var(--accent); letter-spacing:.1em; }
+.fact h3 { margin:6px 0 6px; font-size:15px; font-weight:600; }
+.fact p { margin:0; color:var(--page-dim); font-size:13px; }
+.fact code { font-family:var(--mono); font-size:12px; background:var(--code); padding:1px 5px; border-radius:4px; color:var(--page-fg); }
+
+/* ---- 面板（模拟真实的 420px 工具窗口）----
+   固定高度 + position:relative：浮层/对话框都是**面板内部的覆盖层**，
+   与真实产品一样（它们不会长到面板外面去）。 */
+.bench { margin: 18px 0 4px; }
+.panel {
+  width: 420px; max-width:100%; height: 520px; position: relative;
+  background: var(--editor);
+  border:1px solid var(--page-line); border-radius: 10px; overflow:hidden;
+  display:flex; flex-direction:column;
+}
+.strip { display:flex; gap:6px; padding:8px; border-bottom:1px solid var(--border-soft); background:var(--editor); }
+.scard {
+  flex:1 1 0; min-width:0; height:46px; border-radius:8px; border:1px solid var(--border);
+  padding:5px 7px; position:relative; overflow:hidden; background:var(--panel);
+}
+.scard .lb { font-size:10px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.scard .vl { font-family:var(--mono); font-size:13px; color:var(--text); line-height:1.15; }
+.scard .sb { font-size:9.5px; color:var(--dim); font-family:var(--mono); }
+.scard.is-ctx { border-color:var(--accent); cursor:pointer; }
+.scard.is-ctx .lb { color:var(--text); }
+/* 水位：真实产品里由 StatusCardView 从卡底画上来，这里用渐变冒充 */
+.scard .water { position:absolute; left:0; right:0; bottom:0; height:27%; background:var(--water); }
+.scard .inner { position:relative; }
+.scard.is-hot { border-color:var(--warn); }
+.scard.is-hot .vl { color:var(--warn); }
+
+.transcript { padding:8px; display:flex; flex-direction:column; gap:8px; background:var(--editor); flex:1 1 auto; overflow:hidden; }
+.bubble { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:8px 12px; font-size:12.5px; color:var(--text); }
+.fake-card { border:1px solid var(--border); border-radius:10px; padding:6px 9px; font-family:var(--mono); font-size:11px; color:var(--dim); background:var(--panel); }
+
+/* ---- 甲：贴着状态区弹出的浮层（在面板内部，盖住转写区）---- */
+.popover {
+  position:absolute; left:8px; top:62px; width:404px; z-index:5;
+  background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 10px 28px rgba(0,0,0,.4); padding:10px 11px 11px;
+}
+[data-theme="light"] .popover { box-shadow:0 10px 28px rgba(20,25,40,.18); }
+
+/* ---- 乙：居中对话框 ---- */
+.dim { position:relative; }
+.dim::after { content:""; position:absolute; inset:0; background:rgba(0,0,0,.45); }
+[data-theme="light"] .dim::after { background:rgba(30,35,50,.28); }
+.dialog {
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:392px;
+  background:var(--panel); border:1px solid var(--border); border-radius:12px;
+  box-shadow:0 16px 40px rgba(0,0,0,.45); z-index:6; overflow:hidden;
+}
+.dialog__head { padding:10px 13px; border-bottom:1px solid var(--border-soft); font-weight:600; font-size:13px; display:flex; justify-content:space-between; align-items:center; }
+.dialog__body { padding:11px 13px; }
+.dialog__foot { padding:9px 13px; border-top:1px solid var(--border-soft); display:flex; justify-content:flex-end; gap:8px; }
+.btn { font:inherit; font-size:12px; padding:4px 12px; border-radius:6px; border:1px solid var(--border); background:var(--panel); color:var(--text); cursor:pointer; }
+.btn--primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
+
+/* ---- 丙：转写区顶部插一张横向详情卡 ---- */
+.inlinecard { border:1px solid var(--border); border-radius:10px; background:var(--panel); padding:9px 11px; }
+.inlinecard__head { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--dim); font-family:var(--mono); margin-bottom:7px; }
+.inlinecard__head .x { margin-left:auto; }
+
+/* ---- 详情内容（三案共用）---- */
+.total { display:flex; align-items:baseline; gap:8px; margin-bottom:9px; }
+.total b { font-family:var(--mono); font-size:19px; font-weight:600; color:var(--text); }
+.total span { font-family:var(--mono); font-size:11px; color:var(--dim); }
+.chip { font-family:var(--mono); font-size:10px; color:var(--dim); border:1px solid var(--border); border-radius:20px; padding:1px 7px; margin-left:auto; }
+
+/* 堆叠条：used 各段 + buffer + free，deferred 不参与 */
+.stack { display:flex; height:9px; border-radius:5px; overflow:hidden; background:var(--track); margin:0 0 9px; }
+.stack i { display:block; height:100%; }
+.seg-msg { background:var(--accent); }
+.seg-sys { background:var(--water-fg); }
+.seg-mem { background:var(--ok); }
+.seg-buf { background:var(--warn); }
+.seg-free { background:var(--track); flex:1; }
+
+.cat { display:grid; grid-template-columns: 1fr auto; align-items:center; gap:4px 8px; padding:3px 0; font-size:12px; color:var(--text); }
+.cat .bar { grid-column:1 / -1; height:3px; border-radius:2px; background:var(--track); overflow:hidden; }
+.cat .bar i { display:block; height:100%; background:var(--accent); }
+.cat .tk { font-family:var(--mono); font-size:10.5px; color:var(--dim); }
+.cat--sys .bar i { background:var(--water-fg); }
+.cat--mem .bar i { background:var(--ok); }
+.cat--buf .bar i { background:var(--warn); }
+.cat--defer { opacity:.62; }
+.cat--defer .bar { background:repeating-linear-gradient(90deg, var(--border) 0 4px, transparent 4px 8px); }
+.cat--defer .bar i { background:none; }
+.cat .hint { font-size:10.5px; color:var(--dim); grid-column:1 / -1; margin-top:-1px; }
+
+.sec { margin-top:10px; border-top:1px solid var(--border-soft); padding-top:8px; }
+.sec__head { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text); cursor:pointer; user-select:none; }
+.sec__head .chev { color:var(--dim); font-size:10px; }
+.sec__head .cnt { margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--dim); }
+.row { display:flex; align-items:baseline; gap:6px; padding:2px 0 2px 14px; font-size:11.5px; }
+.row .nm { font-family:var(--mono); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.row .tk { margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--dim); }
+.row .meta { color:var(--dim); font-size:10.5px; }
+.tabs { display:flex; gap:4px; margin:0 0 8px; }
+.tab { font-size:11px; padding:2px 8px; border-radius:12px; border:1px solid var(--border); color:var(--dim); background:none; font-family:inherit; cursor:pointer; }
+.tab[aria-selected="true"] { background:var(--accent-soft); color:var(--text); border-color:var(--accent); }
+.warnline { margin:2px 0 8px; font-size:11.5px; color:var(--danger); display:flex; gap:6px; align-items:baseline; }
+.warnline .tk { font-family:var(--mono); font-size:10.5px; }
+
+/* ---- 优点 / 代价 ---- */
+.pros { display:grid; grid-template-columns:1fr; gap:6px; margin:14px 0 0; padding:0; list-style:none; }
+.pros li { font-size:13px; color:var(--page-dim); padding-left:18px; position:relative; }
+.pros li::before { content:"＋"; position:absolute; left:0; color:var(--ok); font-family:var(--mono); }
+.pros li.c::before { content:"−"; color:var(--warn); }
+.pros li b { color:var(--page-fg); font-weight:600; }
+
+/* ---- 对照小表 ---- */
+.tbl { width:100%; border-collapse:collapse; margin-top:12px; font-size:13px; }
+.tbl th, .tbl td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--page-line); vertical-align:top; }
+.tbl th { color:var(--page-dim); font-weight:600; font-size:12px; letter-spacing:.04em; }
+.tbl td code { font-family:var(--mono); font-size:12px; background:var(--code); padding:1px 5px; border-radius:4px; }
+.tbl tr:last-child td { border-bottom:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media (max-width: 900px) { .two { grid-template-columns:1fr; } }
+
+.choose { margin-top:14px; padding:11px 14px; border-left:3px solid var(--accent); background:var(--accent-soft); border-radius:0 8px 8px 0; font-size:13.5px; }
+.choose b { color:var(--page-fg); }
+footer { margin-top:60px; padding-top:18px; border-top:1px solid var(--page-line); color:var(--page-dim); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计选型</p>
+      <h1>上下文卡：点开之后看什么</h1>
+      <p class="lede">
+        你要的是「点开上下文卡 → 看到上下文的具体详情」。数据侧已经确认：<b>SDK 早就在返回完整明细</b>
+        （分类表 + 四张清单），只是 sidecar 现在只取了两个数，其余全丢。<b>这一页要你挑的是"详情长在哪儿、长什么样"</b>，
+        不是能不能拿到数据。三个方案都在真实的 420px 宽度里画，右上角可切深浅两色。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button type="button" data-set-theme="dark" aria-pressed="true">Dark</button>
+      <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+    </div>
+  </div>
+
+  <!-- ============ 先说四条事实 ============ -->
+  <h2 class="section-title">先说四条事实 —— 它们决定了三套方案差在哪</h2>
+  <p class="section-note">
+    前三条来自 SDK 自己的类型注释（不是我推的），第四条是你们的既有约束。三张卡片同时出现，
+    是因为下面每一套方案都要照顾到它们。
+  </p>
+
+  <div class="facts">
+    <div class="fact">
+      <div class="n">FACT 01</div>
+      <h3>数据早就在响应里</h3>
+      <p><code>getContextUsage()</code> 返回的不只是两个数：<code>categories[]</code>（每行 name / tokens / kind）、
+      <code>mcp_tools[]</code>、<code>memory_files[]</code>、<code>agents[]</code>、<code>skills[]?</code>，外加
+      <code>over_limit</code> 与 <code>model</code>。现在只取了 <code>totalTokens</code> 和 <code>rawMaxTokens</code>。</p>
+    </div>
+    <div class="fact">
+      <div class="n">FACT 02</div>
+      <h3>分类要按 kind，不能按名字</h3>
+      <p>SDK 原话：<i>"Classify on this, never on the English name."</i> —— 行名是 CLI 给的<b>英文展示串</b>
+      （Messages / System prompt / …）。三套方案里都按 <code>used | free | buffer | deferred</code> 判类。</p>
+    </div>
+    <div class="fact">
+      <div class="n">FACT 03</div>
+      <h3>deferred 不计入用量</h3>
+      <p><code>deferred</code> 行是<b>窗口外</b>的工具 schema（MCP 那些），SDK 明说"列出来只为知会，不进用量数学"。
+      所以它在条里不占宽度、求和时也不参与 —— 画错的话百分比和数字当场对不上。</p>
+    </div>
+    <div class="fact">
+      <div class="n">FACT 04</div>
+      <h3>没有逐条消息的明细</h3>
+      <p>拿不到"这条消息吃了多少 token"。粒度的天花板就是上面那张分类表 + 四张清单。所以别把这一页设计成
+      "可以一条条翻账"的样子 —— 它做不到，会变成撒谎。</p>
+    </div>
+  </div>
+
+  <!-- ============ 三套方案 ============ -->
+  <h2 class="section-title">三套画法</h2>
+  <p class="section-note">
+    三套用的都是同一份数据、同一套行样式（名字 · 细条 · token 数），差的是<b>详情长在哪儿</b>：
+    浮层、对话框、还是转写区里的一张卡。下面每张图都是"已经点开"的状态。
+  </p>
+
+  <div class="cards">
+
+    <!-- ---------- 甲 ---------- -->
+    <div class="card">
+      <p class="tag">方案 甲</p>
+      <h2>贴着卡片弹出的浮层</h2>
+      <p class="note">
+        与既有的「运行中」浮层同一个形状：点一下卡片，详情从状态区下方展开，点外面关掉。
+        420px 里它最多约 400px 高，清单长了要滚。
+      </p>
+
+      <div class="bench">
+        <div class="panel">
+          <div class="strip">
+            <div class="scard"><div class="inner"><div class="lb">已连接</div><div class="vl">●</div><div class="sb">v0.2.25</div></div></div>
+            <div class="scard is-ctx"><div class="water"></div><div class="inner"><div class="lb">上下文</div><div class="vl">27%</div><div class="sb">268k / 1M</div></div></div>
+            <div class="scard"><div class="inner"><div class="lb">任务</div><div class="vl">3/4</div><div class="sb">待办</div></div></div>
+            <div class="scard"><div class="inner"><div class="lb">运行中</div><div class="vl">1</div><div class="sb">子代理</div></div></div>
+          </div>
+
+          <div class="popover">
+            <div class="total">
+              <b>27%</b><span>268k / 1M</span>
+              <span class="chip">deepseek-v4-flash</span>
+            </div>
+            <div class="stack">
+              <i class="seg-msg" style="width:25%"></i>
+              <i class="seg-sys" style="width:1.2%"></i>
+              <i class="seg-mem" style="width:.3%"></i>
+              <i class="seg-buf" style="width:3.3%"></i>
+              <i class="seg-free"></i>
+            </div>
+
+            <div class="cat"><span>对话消息</span><span class="tk">250.0k</span>
+              <span class="bar"><i style="width:93%"></i></span></div>
+            <div class="cat cat--sys"><span>系统提示</span><span class="tk">12.4k</span>
+              <span class="bar"><i style="width:5%"></i></span></div>
+            <div class="cat cat--mem"><span>记忆文件</span><span class="tk">3.2k</span>
+              <span class="bar"><i style="width:1.2%"></i></span></div>
+            <div class="cat cat--buf"><span>压缩预留</span><span class="tk">33.0k</span>
+              <span class="bar"><i style="width:12%"></i></span></div>
+            <div class="cat"><span>剩余空间</span><span class="tk">699.0k</span>
+              <span class="bar"><i style="width:100%"></i></span></div>
+            <div class="cat cat--defer"><span>MCP 工具（窗口外）</span><span class="tk">41.8k</span>
+              <span class="bar"></span>
+              <span class="hint">不占窗口 —— 列出来只为知会</span></div>
+
+            <div class="sec">
+              <div class="sec__head"><span class="chev">▾</span><span>MCP 工具</span><span class="cnt">12 个 · 41.8k</span></div>
+              <div class="row"><span class="nm">mcp__codegraph__explore</span><span class="meta">codegraph</span><span class="tk">8.1k</span></div>
+              <div class="row"><span class="nm">mcp__codegraph__search</span><span class="meta">codegraph</span><span class="tk">4.2k</span></div>
+              <div class="row"><span class="nm">mcp__review__semantic_search</span><span class="meta">code-review-graph</span><span class="tk">3.6k</span></div>
+              <div class="row"><span class="nm">…还有 9 个</span><span class="tk"></span></div>
+            </div>
+
+            <div class="sec">
+              <div class="sec__head"><span class="chev">▸</span><span>记忆文件 · 子代理 · 技能</span><span class="cnt">3 项</span></div>
+            </div>
+          </div>
+
+          <div class="transcript">
+            <div class="bubble">上下文卡现在只画水位，点开才有明细 —— 转写区照旧在下面。</div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="pros">
+        <li><b>与既有「运行中」浮层同一套形状</b> —— 用户已经在这个面板里见过它，不用学新东西</li>
+        <li><b>不打断</b>：转写区不动、不遮挡，点一下看、点外面消失</li>
+        <li>宽度可以给到 404px（比卡片宽得多），行名、token 数都放得下</li>
+        <li class="c"><b>高度受限</b>：浮层长不高，MCP 工具几十个时中段要滚，"一眼看全"做不到</li>
+        <li class="c">不能一边读转写一边对照（点到别处就关）—— 真要对照得改成"点别处不关"</li>
+      </ul>
+    </div>
+
+    <!-- ---------- 乙 ---------- -->
+    <div class="card">
+      <p class="tag">方案 乙</p>
+      <h2>居中对话框 · 左表右单</h2>
+      <p class="note">
+        点开是一个正经的对话框：左边分类表与总量，右边四张清单分页签，底下关闭。
+        装得下几十个 MCP 工具，也能给"技能 / 子代理"这类长名字留出宽度。
+      </p>
+
+      <div class="bench">
+        <div class="panel dim">
+          <div class="strip">
+            <div class="scard"><div class="inner"><div class="lb">已连接</div><div class="vl">●</div><div class="sb">v0.2.25</div></div></div>
+            <div class="scard is-ctx"><div class="water"></div><div class="inner"><div class="lb">上下文</div><div class="vl">27%</div><div class="sb">268k / 1M</div></div></div>
+            <div class="scard"><div class="inner"><div class="lb">任务</div><div class="vl">3/4</div><div class="sb">待办</div></div></div>
+            <div class="scard is-hot"><div class="inner"><div class="lb">运行中</div><div class="vl">92%</div><div class="sb">压缩中</div></div></div>
+          </div>
+
+          <div class="dialog">
+            <div class="dialog__head"><span>上下文详情</span><span class="chip">deepseek-v4-flash · 1M</span></div>
+            <div class="dialog__body">
+              <div class="total"><b>268k / 1M</b><span>27%</span><span class="chip">已用</span></div>
+              <div class="stack">
+                <i class="seg-msg" style="width:25%"></i>
+                <i class="seg-sys" style="width:1.2%"></i>
+                <i class="seg-mem" style="width:.3%"></i>
+                <i class="seg-buf" style="width:3.3%"></i>
+                <i class="seg-free"></i>
+              </div>
+
+              <div class="tabs" role="tablist">
+                <button class="tab" role="tab" aria-selected="true">分类</button>
+                <button class="tab" role="tab" aria-selected="false">MCP 工具 12</button>
+                <button class="tab" role="tab" aria-selected="false">记忆 2</button>
+                <button class="tab" role="tab" aria-selected="false">子代理 3</button>
+              </div>
+
+              <div class="cat"><span>对话消息</span><span class="tk">250.0k</span>
+                <span class="bar"><i style="width:93%"></i></span></div>
+              <div class="cat cat--sys"><span>系统提示</span><span class="tk">12.4k</span>
+                <span class="bar"><i style="width:5%"></i></span></div>
+              <div class="cat cat--mem"><span>记忆文件</span><span class="tk">3.2k</span>
+                <span class="bar"><i style="width:1.2%"></i></span></div>
+              <div class="cat cat--buf"><span>压缩预留</span><span class="tk">33.0k</span>
+                <span class="bar"><i style="width:12%"></i></span></div>
+              <div class="cat"><span>剩余空间</span><span class="tk">699.0k</span>
+                <span class="bar"><i style="width:100%"></i></span></div>
+              <div class="cat cat--defer"><span>MCP 工具（窗口外）</span><span class="tk">41.8k</span>
+                <span class="bar"></span>
+                <span class="hint">不占窗口 —— 列出来只为知会</span></div>
+            </div>
+            <div class="dialog__foot">
+              <button class="btn">复制明细</button>
+              <button class="btn btn--primary">关闭</button>
+            </div>
+          </div>
+
+          <div class="transcript">
+            <div class="bubble">底下的转写内容被压暗 —— 它还在，但这一眼不看它。</div>
+            <div class="fake-card">▸ Bash &nbsp;npm run build &nbsp;&nbsp;✓ 12s</div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="pros">
+        <li><b>装得下</b>：MCP 工具、技能、子代理名单再长也不怕，右栏滚动即可</li>
+        <li><b>一屏给全</b>：分类表与清单分栏/分页签，不必折叠来折叠去</li>
+        <li>「复制明细」这类动作有地方放（浮层里放不下第三个按钮）</li>
+        <li class="c"><b>模态打断</b>：IDE 里弹框要主动关掉，而"看上下文"往往只是扫一眼</li>
+        <li class="c">与近期三次选型的方向相反（工具卡收起、思考折叠 —— 都在往"轻"走）</li>
+      </ul>
+    </div>
+
+    <!-- ---------- 丙 ---------- -->
+    <div class="card">
+      <p class="tag">方案 丙</p>
+      <h2>转写区顶部插一张详情卡</h2>
+      <p class="note">
+        点上下文卡 → 在状态区下面（转写区顶部）插一张横向的「上下文拆解」卡，再点收起。
+        它不遮挡任何东西，可以一直开着对照；代价是转写区少一截高度。
+      </p>
+
+      <div class="bench">
+        <div class="panel">
+          <div class="strip">
+            <div class="scard"><div class="inner"><div class="lb">已连接</div><div class="vl">●</div><div class="sb">v0.2.25</div></div></div>
+            <div class="scard is-ctx"><div class="water"></div><div class="inner"><div class="lb">上下文</div><div class="vl">27%</div><div class="sb">268k / 1M</div></div></div>
+            <div class="scard"><div class="inner"><div class="lb">任务</div><div class="vl">3/4</div><div class="sb">待办</div></div></div>
+            <div class="scard"><div class="inner"><div class="lb">运行中</div><div class="vl">1</div><div class="sb">子代理</div></div></div>
+          </div>
+
+          <div class="transcript">
+            <div class="inlinecard">
+              <div class="inlinecard__head">
+                <span>▾ 上下文拆解</span>
+                <span class="tk">268k / 1M · 27%</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="stack">
+                <i class="seg-msg" style="width:25%"></i>
+                <i class="seg-sys" style="width:1.2%"></i>
+                <i class="seg-mem" style="width:.3%"></i>
+                <i class="seg-buf" style="width:3.3%"></i>
+                <i class="seg-free"></i>
+              </div>
+              <div class="cat"><span>对话消息</span><span class="tk">250.0k</span>
+                <span class="bar"><i style="width:93%"></i></span></div>
+              <div class="cat cat--sys"><span>系统提示</span><span class="tk">12.4k</span>
+                <span class="bar"><i style="width:5%"></i></span></div>
+              <div class="cat cat--mem"><span>记忆文件</span><span class="tk">3.2k</span>
+                <span class="bar"><i style="width:1.2%"></i></span></div>
+              <div class="cat cat--buf"><span>压缩预留</span><span class="tk">33.0k</span>
+                <span class="bar"><i style="width:12%"></i></span></div>
+              <div class="cat cat--defer"><span>MCP 工具（窗口外）</span><span class="tk">41.8k</span>
+                <span class="bar"></span>
+                <span class="hint">不占窗口 —— 列出来只为知会</span></div>
+            </div>
+
+            <div class="bubble">下面就是转写区本来的内容，往下滚依旧是对话。</div>
+            <div class="fake-card">▸ Read &nbsp;web/src/toolStatus.ts &nbsp;&nbsp;✓</div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="pros">
+        <li><b>不遮挡、不模态</b>：与工具卡/思考块"点一下展开"的手势完全一致</li>
+        <li><b>能一直开着</b>：边读转写边看着用量涨 —— 这是另两套做不到的</li>
+        <li>宽度就是面板宽，长工具名、长路径都放得下，不必另做截断</li>
+        <li class="c"><b>占掉转写区一截高度</b>：420px 里它至少 180px，展开时阅读区明显变矮</li>
+        <li class="c">"状态区的卡"与"转写区的卡"混在一处，位置上略跳（它其实属于上面那张卡）</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="choose">
+    <b>我的推荐是甲（浮层）。</b>理由：面板里已经有一张「运行中」浮层在用同一个手势，用户不用学第二套；
+    "看一眼就关"正是看用量的典型动作；而它最大的短板（装不下几十个 MCP 工具）可以用
+    <b>「先给总数、点一下再展开清单」</b>补掉 —— 清单本来就只是知会性质。乙适合"审计"、丙适合"对照"，
+    两件事都比"看一眼"低频。
+  </div>
+
+  <!-- ============ 三件必须一起定的小事 ============ -->
+  <h2 class="section-title" id="small-things">三件必须一起定的小事</h2>
+  <p class="section-note">这三条不定，上面三套画法都还是半成品 —— 而它们跟选甲/乙/丙无关，三套都要用。</p>
+
+  <div class="card" style="margin-top:22px">
+    <p class="tag">其一</p>
+    <h2>行名怎么翻（CLI 给的是英文）</h2>
+    <p class="note">
+      分类行的 <code>name</code>、记忆文件的 <code>type</code>、子代理的 <code>source</code> 全是 CLI 给的
+      <b>英文展示串</b>。SDK 明确要求按 <code>kind</code> 判类、别按名字判 —— 但判完之后"写给人看的那几个字"
+      仍得自己出。两条路：
+    </p>
+    <div class="two">
+      <div>
+        <p style="margin:0 0 6px;font-size:13px;color:var(--page-fg)"><b>(a) 我们自己的键</b>（中文界面出中文）</p>
+        <div class="cat"><span>对话消息</span><span class="tk">250.0k</span><span class="bar"><i style="width:93%"></i></span></div>
+        <div class="cat cat--sys"><span>系统提示</span><span class="tk">12.4k</span><span class="bar"><i style="width:5%"></i></span></div>
+        <div class="cat cat--buf"><span>压缩预留</span><span class="tk">33.0k</span><span class="bar"><i style="width:12%"></i></span></div>
+        <div class="cat cat--defer"><span>MCP 工具（窗口外）</span><span class="tk">41.8k</span><span class="bar"></span></div>
+        <p style="font-size:12.5px;color:var(--page-dim);margin:8px 0 0">
+          代价：得维护一份英文名 → 键的映射；CLI 哪天改了措辞，那一行会<b>静默退回英文</b>
+          （不是崩，是"中文界面里冒出一行英文"）。
+        </p>
+      </div>
+      <div>
+        <p style="margin:0 0 6px;font-size:13px;color:var(--page-fg)"><b>(b) 原样显示 CLI 的英文</b></p>
+        <div class="cat"><span>Messages</span><span class="tk">250.0k</span><span class="bar"><i style="width:93%"></i></span></div>
+        <div class="cat cat--sys"><span>System prompt</span><span class="tk">12.4k</span><span class="bar"><i style="width:5%"></i></span></div>
+        <div class="cat cat--buf"><span>Autocompact buffer</span><span class="tk">33.0k</span><span class="bar"><i style="width:12%"></i></span></div>
+        <div class="cat cat--defer"><span>MCP tools (deferred)</span><span class="tk">41.8k</span><span class="bar"></span></div>
+        <p style="font-size:12.5px;color:var(--page-dim);margin:8px 0 0">
+          好处：零维护、永远跟 CLI 一致（与 `SystemNote` 的"Kotlin 侧拼好、web 侧不再翻"是同一类取舍）。
+          代价：中文界面里这一块恒定是英文。
+        </p>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--page-dim);margin:14px 0 0">
+      （有个折中：<b>认识的行给键、不认识的原样透传</b> —— 上面那种"静默退回英文"就变成设计的一部分，
+      而不是事故。要的是一份能容错的映射表，不是全有全无。）
+    </p>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <p class="tag">其二</p>
+    <h2>窗口外的东西（deferred）怎么画</h2>
+    <p class="note">
+      它们<b>不占窗口</b>，所以不能进堆叠条、不能进求和；但"我有 12 个 MCP 工具、它们一共 41.8k"
+      本身是有用信息（决定要不要关掉几个）。画法建议：<b>虚线细轨 + 一句"不占窗口"</b>，
+      颜色压到 62% 不透明度，摆在"剩余空间"下面 —— 与上面几行拉开语义。
+    </p>
+    <div class="cat cat--defer" style="max-width:420px"><span>MCP 工具（窗口外）</span><span class="tk">41.8k</span>
+      <span class="bar"></span>
+      <span class="hint">不占窗口 —— 列出来只为知会</span></div>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <p class="tag">其三</p>
+    <h2>超窗（over_limit）</h2>
+    <p class="note">
+      响应里还带着 <code>over_limit</code>：超了多少、以及是<b>硬顶</b>（模型真装不下了）
+      还是<b>压缩窗</b>（策略设的 200K 之类）。今天这张卡只会变成红色百分比，说不清是哪种 ——
+      详情里应当用一句话说清，而两种的措辞要分开。
+    </p>
+    <div class="warnline"><span>⚠</span><span>已超出窗口 <span class="tk">12.4k</span> —— 达到模型上限，下一步请求会被拒绝</span></div>
+    <div class="warnline" style="color:var(--warn)"><span>⚠</span><span>已超出压缩窗 <span class="tk">12.4k</span> —— 还没到模型上限，但会自动压缩</span></div>
+  </div>
+
+  <footer>
+    数据形状来自 <code>sdk.d.ts</code> 的 <code>SDKContextUsage</code>（结构化版的 <code>/context</code>）；
+    三套画法里的数字是编的，但<b>是自洽的</b>：268k 已用 + 33k 预留 + 699k 剩余 = 1M，
+    MCP 那 41.8k 在窗外、不进求和。<br>
+    定了甲/乙/丙、以及"其一"走 (a) 还是 (b)，我就按这份写 spec。
+  </footer>
+</div>
+
+<script>
+  const KEY = 'ccoder-design-theme'
+  const apply = (t) => {
+    document.documentElement.dataset.theme = t
+    document.querySelectorAll('[data-set-theme]').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b.dataset.setTheme === t)))
+  }
+  document.querySelectorAll('[data-set-theme]').forEach((b) =>
+    b.addEventListener('click', () => { localStorage.setItem(KEY, b.dataset.setTheme); apply(b.dataset.setTheme) }))
+  apply(localStorage.getItem(KEY) || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))
+</script>
+</body>
+</html>

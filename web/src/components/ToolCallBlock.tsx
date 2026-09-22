@@ -242,6 +242,22 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const shown = showAll ? all : all.slice(0, OUTPUT_HEAD_LINES)
   const hidden = all.length - shown.length
 
+  /**
+   * 展开体里到底有没有东西可画。
+   *
+   * 起头帧那张卡（参数还在生成，见 Kotlin 侧的 `startedToolCard`）**什么都没有** ——
+   * 点开它只该什么都不发生，不该弹出一个空盒子。参数到了、结果到了，这里就变成 true。
+   *
+   * `nested` 必须在列：刚出生的 `Task` 卡参数是空的，而**子代理那一块正是它唯一的
+   * 内容**（它排在展开体最前，见下面）。
+   */
+  const hasBody =
+    nested !== undefined ||
+    command !== '' ||
+    diff !== null ||
+    matched !== undefined ||
+    params !== null
+
   const toggle = () => setOpen((v) => !v)
 
   /**
@@ -352,7 +368,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         </span>
       </div>
 
-      {open && (
+      {open && hasBody && (
         <div className="tool__body">
           {/* 子代理那一块**排在最前**：它是这块卡片的"过程"，而下面那些
               （命令 / diff / 输出）是这张卡片自己的参数与结果 —— Task 卡通常没有前者 */}

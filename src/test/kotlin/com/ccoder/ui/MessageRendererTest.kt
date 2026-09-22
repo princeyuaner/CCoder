@@ -252,10 +252,10 @@ class MessageRendererTest {
     }
 
     @Test
-    fun `工具调用的起头帧产出一个只喂状态卡的项`() {
-        // 参数（对 Write 来说就是整个文件内容）还在生成时转写区没有东西可画，
-        // 屏幕上完全静止 —— 这一项让状态卡提前说「编辑文件」，不必等参数生成完。
-        // 它**不进转写区**：ToolStarting 在 toOp 那里给 null
+    fun `工具调用的起头帧产出带 id 的项`() {
+        // 参数（对 Write 来说就是整个文件内容）还在生成时转写区没有正文可画 ——
+        // 这一项让**卡片提前出生**（名字 + 转圈 + 秒表）并让状态卡提前说「编辑文件」。
+        // id 是全部依据：`startedToolCard` 靠它把卡生出来，结果也靠它挂回来
         val items = MessageRenderer.render(
             event(
                 """
@@ -265,7 +265,32 @@ class MessageRendererTest {
             )
         )
 
-        assertEquals(listOf(RenderItem.ToolStarting("Write")), items)
+        assertEquals(listOf(RenderItem.ToolStarting("Write", "toolu_1")), items)
+    }
+
+    @Test
+    fun `起头帧没带 id 时仍然产出这一项（状态卡照常），但生不出卡片`() {
+        // 老版本 CLI / 形状变了的时候：没有 id 就配不上结果，卡片会永远转圈，
+        // 而且转得和"真的在跑"一模一样 —— 所以那种情况退回老路：只喂状态卡，
+        // 等完整消息到了再画卡（见 startedToolCard）
+        val items = MessageRenderer.render(
+            event(
+                """
+                {"type":"stream_event","event":{"type":"content_block_start","index":0,
+                 "content_block":{"type":"tool_use","name":"Write","input":{}}}}
+                """
+            )
+        )
+
+        assertEquals(listOf(RenderItem.ToolStarting("Write", "")), items)
+        assertEquals(null, startedToolCard(items[0] as RenderItem.ToolStarting))
+    }
+
+    @Test
+    fun `起头帧生出的卡片是空参数的那一张（参数到了由完整消息补）`() {
+        val card = startedToolCard(RenderItem.ToolStarting("Write", "toolu_1"))
+
+        assertEquals(RenderItem.ToolUse(name = "Write", input = "", id = "toolu_1"), card)
     }
 
     @Test

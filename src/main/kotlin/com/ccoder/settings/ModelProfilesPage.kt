@@ -52,6 +52,14 @@ private const val IN_USE_WIDTH = 46
 /** 模型列表最多先长这么高（约四行），再多就滚。 */
 private const val MODEL_LIST_MAX_HEIGHT = 132
 
+/**
+ * 模型列表**至少**这么高（约一行 + 那条「＋ 添加模型」）。
+ *
+ * 表单高度不够时 `BoxLayout` 只缩这一格（上面四个字段钉死了高度）——
+ * 缩到这个底就停，再不够宁可让表单露出滚动条，也不要缩成一条缝什么都看不见。
+ */
+private const val MODEL_LIST_MIN_HEIGHT = 56
+
 /** 列表栏宽度。它放 CENTER，所以这是"理想宽度"—— 页窄了它会自己收。 */
 internal const val MODEL_LIST_WIDTH = 240
 
@@ -106,12 +114,31 @@ internal class ModelProfilesPage(
     private fun formBody(): JComponent = JPanel(BorderLayout()).apply {
         isOpaque = false
         border = JBUI.Borders.empty(6, FORM_PADDING_H)
+        // **CENTER 而不是 NORTH**：NORTH 是"给首选高度、不够就裁"，模型一多
+        // 最后一行连同「＋ 添加模型」会被裁出可视区（用户报的正是"后面的看不到了"）。
+        // CENTER 让这一列拿满卡身高度，由 `BoxLayout` 把高度让给唯一能缩的
+        // 模型列表那一格（见 [modelListBox] 的 minimumSize），别的字段钉死不缩。
         add(formSlot.apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
-        }, BorderLayout.NORTH)
+        }, BorderLayout.CENTER)
     }
+
+    /**
+     * 表单里那几个**定高**字段的壳（名称 / Base URL / 认证方式 / API Key）。
+     *
+     * 最大高度必须钉死：放进 `CENTER` 上的 `BoxLayout` 后，不钉的话高度富余时
+     * 会被拉成弹簧、输入框变得很高；最小高度也钉死：高度不够时 `BoxLayout`
+     * 会往最小高度压，而能缩的只该是模型列表那一格 —— 这四个被压扁了
+     * 比"看不到最后几个模型"还糟。
+     */
+    private fun pinnedField(label: String, input: JComponent): JComponent =
+        labeledField(label, input).apply {
+            val h = preferredSize.height
+            minimumSize = Dimension(0, h)
+            maximumSize = Dimension(Int.MAX_VALUE, h)
+        }
 
     /** 卡脚上那颗「删除」。没有在编辑的条目时整条卡脚都不画。 */
     private val deleteLabel = JBLabel(DELETE_LABEL).apply {
@@ -438,13 +465,24 @@ internal class ModelProfilesPage(
         }
         authKind.addActionListener { save() }
 
-        formSlot.add(labeledField(CcoderText.text("settings.models.field.name"), name))
+        formSlot.add(pinnedField(CcoderText.text("settings.models.field.name"), name))
         // 「Base URL」与「API Key」**不进词表**：它们是端点/凭据那一层的词，
         // 中英两版写的是同一串拉丁字（CLI 那边也这么叫）
-        formSlot.add(labeledField("Base URL", url))
-        formSlot.add(labeledField(CcoderText.text("settings.models.field.authKind"), authKind))
-        formSlot.add(labeledField("API Key", secretField(secret)))
-        formSlot.add(labeledField(MODEL_IDS_LABEL, modelListBox(modelRows)))
+        formSlot.add(pinnedField("Base URL", url))
+        formSlot.add(pinnedField(CcoderText.text("settings.models.field.authKind"), authKind))
+        formSlot.add(pinnedField("API Key", secretField(secret)))
+        // 模型那一栏**不走 pinnedField**：它是表单里唯一能缩的（见 [modelListBox]），
+        // 连壳一起钉死就又回到"不够高只裁不缩"了。壳的最小高度 = 首选高度 −
+        // 列表能缩掉的那一截：标签与下间距不许被压掉，缩的只有列表。
+        formSlot.add(
+            labeledField(MODEL_IDS_LABEL, modelListBox(modelRows)).apply {
+                val h = preferredSize.height
+                val listPref = (components.last() as JComponent).preferredSize.height
+                val listMin = minOf(modelListBoxMinHeight(), listPref)
+                minimumSize = Dimension(0, h - (listPref - listMin))
+                maximumSize = Dimension(Int.MAX_VALUE, h)
+            }
+        )
 
         // 删除进**卡脚**（2026-09-20 卡片式改版），与"关闭"分开 ——
         // 它和"保存这次编辑"不是一类动作；放在正文末尾时它跟着字段一起被重建，
@@ -520,18 +558,25 @@ internal class ModelProfilesPage(
     }
 
     /**
-     * 「模型 ID」那一栏的外框：定高 + 可滚。
+     * 「模型 ID」那一栏的外框：**可滚，且是表单里唯一能缩的那一格**。
      *
-     * **必须封顶**：表单挂在 `BorderLayout.NORTH` 上，它自己不会滚，模型一多
-     * 就把整张表单顶出对话框，底部那些字段直接看不见了。
+     * 三档高度：
+     *   - [preferredSize]：内容高与 [MODEL_LIST_MAX_HEIGHT] 的较小者（约四行封顶）
+     *   - [minimumSize]：[MODEL_LIST_MIN_HEIGHT] —— 表单高度不够时往这里缩，
+     *     再不够也不要缩成一条缝
+     *   - [maximumSize]：**等于**首选高度 —— 富余时不要拉成弹簧，把「＋ 添加模型」
+     *     甩到卡脚去（`CardPanel` / `tableBox` / `logBox` 各踩过一次）
      *
-     * 高度是量出来的（同 [conflictWarning] 的写法）：宽度先喂进去，再读
-     * `preferredSize`。封顶必须**等于**量出来的那个值 —— 给 `Int.MAX_VALUE`
-     * 的话这个框会成为表单里的弹簧，把上面的字段顶开。
+     * 2026-09-22 之前它只有一个"封顶"，而表单挂在 `BorderLayout.NORTH` 上、
+     * 够高时**不缩只裁** —— 封顶挡不住"整个滚动框被裁出可视区"，症状是模型
+     * 三四个起最后一行只见半截、「＋ 添加模型」直接消失。现在表单挂 CENTER
+     * （见 [formBody]），高度不够缩的是这一格，滚动条因此始终在卡身里。
      */
     private fun modelListBox(rows: JComponent): JComponent {
         val width = JBUI.scale(FORM_CONTENT_WIDTH)
         rows.setSize(width, Int.MAX_VALUE)
+        val contentH = rows.preferredSize.height
+        val maxH = minOf(contentH, JBUI.scale(MODEL_LIST_MAX_HEIGHT))
         val scroll = JBScrollPane(
             rows,
             ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
@@ -539,15 +584,18 @@ internal class ModelProfilesPage(
         ).apply {
             border = JBUI.Borders.empty()
             isOpaque = false
+            viewport.isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
-            preferredSize = Dimension(
-                width,
-                minOf(rows.preferredSize.height, JBUI.scale(MODEL_LIST_MAX_HEIGHT)),
-            )
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+            preferredSize = Dimension(width, maxH)
+            minimumSize = Dimension(width, minOf(modelListBoxMinHeight(), maxH))
+            maximumSize = Dimension(Int.MAX_VALUE, maxH)
+            verticalScrollBar.unitIncrement = JBUI.scale(16)
         }
         return scroll
     }
+
+    /** [modelListBox] 的最小高度（缩到这个底就停，见 [MODEL_LIST_MIN_HEIGHT]）。 */
+    private fun modelListBoxMinHeight(): Int = JBUI.scale(MODEL_LIST_MIN_HEIGHT)
 
     /**
      * 一个模型：可编辑的输入框 + 右边〔使用中〕与 ✕。
