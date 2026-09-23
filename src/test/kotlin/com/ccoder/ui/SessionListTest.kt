@@ -10,9 +10,11 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.event.MouseEvent
+import java.awt.image.BufferedImage
 import javax.swing.JButton
 import javax.swing.JTextField
 import javax.swing.JComponent
@@ -21,7 +23,7 @@ import javax.swing.JLabel
 /**
  * 会话列表的表层。
  *
- * 这里断言的是**用户能看见什么** —— 标题、时间、当前会话的勾、忙时的说明行。
+ * 这里断言的是**用户能看见什么** —— 标题、时间、当前会话的强调条、忙时的说明行。
  * 布局细节（间距、颜色）不在单测范围内，那属于设计稿与手工冒烟。
  */
 class SessionListTest {
@@ -112,9 +114,45 @@ class SessionListTest {
     }
 
     @Test
-    fun `当前会话有勾`() {
-        val texts = textsIn(buildSessionList(sessions, "s1", SwitchBlock.None) {})
-        assertEquals(1, texts.count { it.startsWith("✓") }, "只该有一条被标记为当前")
+    fun `当前会话那一条画出了强调条 —— 数像素`() {
+        // 改版前这里断言的是那个 `✓` 字。2026-09-22 卡片式之后，"当前"由
+        // **画出来的** 3px 强调条 + 强调色描边 + 加粗标题表示 —— 字面量没了，
+        // 只有数像素才算数（同 ComposerInputTest 里那条"真的画上去了"）
+        val list = buildSessionList(sessions, "s1", SwitchBlock.None)
+        layoutDeep(list, JBUI.scale(SESSION_LIST_WIDTH) - JBUI.scale(8))
+        val cards = sessionCards(list)
+
+        assertEquals(1, cards.count { it.current }, "只该有一条被标成当前")
+        assertTrue(cards[0].current && !cards[1].current, "标错了行：当前是 s1，列表第一条才是它")
+        assertTrue(hasAccentBar(cards[0]), "当前那条没画出强调条")
+        assertFalse(hasAccentBar(cards[2]), "不是当前的那条也画了强调条")
+    }
+
+    /** 列表里的卡片（顶栏那一行不是卡片）。 */
+    private fun sessionCards(list: JComponent): List<SessionCard> =
+        list.components.filterIsInstance<SessionCard>()
+
+    /**
+     * 卡片左边那条 3px 强调条画没画。
+     *
+     * 只扫"描边以内、内容以外"的那一小块（x 4..7）：卡片描边本身也是强调色，
+     * 扫全宽的话**没画强调条**的卡片也会因为那圈边而判成"有"。
+     */
+    private fun hasAccentBar(card: SessionCard): Boolean {
+        val img = BufferedImage(card.width, card.height, BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        g.color = Color.WHITE
+        g.fillRect(0, 0, img.width, img.height)
+        card.paint(g)
+        g.dispose()
+
+        val want = focusColor().rgb
+        for (y in JBUI.scale(8) until img.height - JBUI.scale(8)) {
+            for (x in JBUI.scale(4) until JBUI.scale(8)) {
+                if (img.getRGB(x, y) == want) return true
+            }
+        }
+        return false
     }
 
     // ---- 已被别的标签占住的行（多标签，2026-09-16）----

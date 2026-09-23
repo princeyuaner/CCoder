@@ -1,6 +1,8 @@
 package com.ccoder.settings
 
 import com.ccoder.text.CcoderText
+import com.ccoder.ui.cardFill
+import com.ccoder.ui.copyToClipboard
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter
@@ -30,6 +32,12 @@ import javax.swing.event.DocumentEvent
 
 /** `JBPasswordField` 打码时用的字符。显式写出来，是因为那只眼睛要拿它做比对。 */
 private const val ECHO_MASKED = '•'
+
+/** 复制键的常态。点一下换成 [COPIED_ICON]，指针离开时换回来（见 `copyLabel`）。 */
+private val COPY_ICON = AllIcons.Actions.Copy
+
+/** 刚复制完的样子。 */
+private val COPIED_ICON = AllIcons.Actions.Checked
 
 /** 「模型 ID」那一栏的标题。探针与用例引用它，不抄字面量。 */
 internal val MODEL_IDS_LABEL: String get() = CcoderText.text("settings.models.field.modelIds")
@@ -95,6 +103,12 @@ internal const val FORM_CONTENT_WIDTH = MODEL_FORM_WIDTH - 2 * FORM_PADDING_H
 internal class ModelProfilesPage(
     private val settings: ClaudeSettings,
     private val profiles: ModelProfiles,
+    /**
+     * 把密钥放进剪贴板。默认是生产那条（[copyToClipboard]）；用例换掉它 ——
+     * 纯单测 JVM 里没有 `ApplicationManager`，真那条一调就 NPE。
+     * 同 `DepsUi.copy` 那条先例。
+     */
+    private val copy: (String) -> Unit = ::copyToClipboard,
 ) : SettingsPage {
 
     override val title: String get() = CcoderText.text("settings.page.models")
@@ -508,7 +522,7 @@ internal class ModelProfilesPage(
     }
 
     /**
-     * 密钥框 + 那只眼睛。
+     * 密钥框 + 那两只手：复制、眼睛。
      *
      * 默认打码（spec §7），但得留一个"看一眼"的出口：第三方网关的密钥多半是从
      * 别处复制来的，粘完想核对一下很正常。切换只动 `echoChar`，**不重建组件** ——
@@ -540,12 +554,53 @@ internal class ModelProfilesPage(
         val row = JPanel(BorderLayout()).apply {
             isOpaque = false
             add(secret, BorderLayout.CENTER)
-            add(eye, BorderLayout.EAST)
+            // 两只手在一格里：BorderLayout 每个方位只收得下一个组件（后添的顶掉先添的）
+            add(
+                JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
+                    isOpaque = false
+                    add(copyLabel(secret))
+                    add(eye)
+                },
+                BorderLayout.EAST,
+            )
         }
         // 外面套了一层，宽度就不再由输入框自己撑开 —— 不设这条这个框会比别家窄一截
         row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
         return row
     }
+
+    /**
+     * 「复制密钥」那颗（2026-09-22 用户："设置界面的密钥需要可以被复制"）。
+     *
+     * 复制的是**整条**、不是选区：打码时选区在屏幕上看不见，"复制我选的那几个字"
+     * 在这里没有意义；而密钥这东西本来就是整条有用。
+     *
+     * **打码时也照复制**（密码管理器那条惯例）：要求先点眼睛看明文才让复制的话，
+     * 那一步反倒把明文留在了屏幕上 —— 那正是这个字段唯一要防的事。
+     *
+     * 复制是这一格里**唯一一个成功了也看不出来**的动作（眼睛有状态可看、输入框有
+     * 光标），所以点完换成对勾 —— **指针一离开就换回来**：那一刻正是"我按完了、
+     * 去看别处了"，确认到这里就够了。不用计时器：省一个要在组件销毁时收尾的
+     * 长命 Timer，行为也好测（点一下 → 对勾，移开 → 还原）。
+     */
+    private fun copyLabel(secret: JBPasswordField): JBLabel =
+        JBLabel(COPY_ICON).apply {
+            toolTipText = CcoderText.text("settings.models.secretCopyTip")
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            border = JBUI.Borders.emptyLeft(6)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    // 读 password 而不是 text：同 save()，别把口令变成常驻 String
+                    copy(String(secret.password))
+                    icon = COPIED_ICON
+                }
+
+                override fun mouseExited(e: MouseEvent) {
+                    icon = COPY_ICON
+                }
+            })
+        }
 
     /**
      * 写完一条配置并重建两栏。**结构性**动作走这里（增删模型），

@@ -1,9 +1,10 @@
 package com.ccoder.settings
 
 import com.ccoder.ui.CARD_CORNER_ARC
-import com.ccoder.ui.RoundedLineBorder
+import com.ccoder.ui.cardFill
 import com.ccoder.ui.lineColor
 import com.ccoder.ui.mix
+import com.ccoder.ui.RoundedLineBorder
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -60,18 +61,6 @@ internal const val CARD_BORDER_W = 2
  * （`BoxLayout` 会把宽度夹到列宽，而高度是按更宽的量出来的）。
  */
 internal const val CARD_CONTENT_WIDTH = PAGE_CONTENT_WIDTH - 2 * CARD_PAD_H
-
-/**
- * 卡片底比面板底偏多少。
- *
- * 0.05 是"看得出这是一层，但不像另一块面板"：0.03 几乎看不见，0.09（输入卡底带那个数）
- * 在卡片这么大面积上就开始抢了。改它要重新出图看（`SettingsDialogProbe`）。
- */
-internal const val CARD_TINT = 0.05
-
-/** 卡片底。 */
-internal fun cardFill(): Color =
-    mix(UIUtil.getPanelBackground(), UIUtil.getLabelForeground(), CARD_TINT)
 
 /**
  * 一张卡。

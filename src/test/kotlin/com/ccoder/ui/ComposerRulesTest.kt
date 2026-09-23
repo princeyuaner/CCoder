@@ -13,9 +13,13 @@ import org.junit.jupiter.api.Test
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Container
+import java.awt.event.ActionEvent
+import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
+import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.KeyStroke
 import javax.swing.border.CompoundBorder
 
 /**
@@ -38,9 +42,102 @@ class ComposerRulesTest {
         )
     }
 
+    /**
+     * 上一条钉的是"视口高的时候要撑满"，这一条钉**反面**（2026-09-23 用户报的那条）。
+     *
+     * 输入框不做自动长高（高度由用户拖分隔条决定），所以文本超出可视区是常态。
+     * 那时候要是还"撑满"，滚动条就认定装得下、永远不出现 —— 后面的文本
+     * **既看不见也够不着**。
+     */
+    @Test
+    fun `文本多到装不下时就不再撑满 —— 那是滚动条出场的条件`() {
+        IdeLaf.withRealLaf {
+            val area = ComposerTextArea(COMPOSER_MIN_ROWS, 40)
+            val scroll = JBScrollPane(area)
+            scroll.setSize(400, 60)
+            scroll.doLayout()
+
+            assertTrue(area.scrollableTracksViewportHeight, "空的时候该撑满（上一条的规矩）")
+
+            area.text = (1..40).joinToString("\n") { "第 $it 行" }
+            scroll.doLayout()
+
+            assertFalse(
+                area.scrollableTracksViewportHeight,
+                "装不下还撑满 = 滚动条永远不会出现 = 后面的文本看不见",
+            )
+        }
+    }
+
+    /** 上一条管"能不能滚"，这条管**滚动条真的出现在屏幕上**（用户看得见的那件事）。 */
+    @Test
+    fun `文本装不下时竖滚动条真的出现`() {
+        IdeLaf.withRealLaf {
+            val area = ComposerTextArea(COMPOSER_MIN_ROWS, 40)
+            val scroll = JBScrollPane(area)
+            scroll.setSize(400, 60)
+            scroll.doLayout()
+            assertFalse(scroll.verticalScrollBar.isVisible, "空的时候不该有滚动条")
+
+            area.text = (1..40).joinToString("\n") { "第 $it 行" }
+            scroll.doLayout()
+
+            assertTrue(
+                scroll.verticalScrollBar.isVisible,
+                "滚动条没出现 —— 后面的文本就没有任何办法够到",
+            )
+        }
+    }
+
     @Test
     fun `最小行数是一行 —— 它同时决定输入框能拖到多矮`() {
         assertEquals(1, COMPOSER_MIN_ROWS)
+    }
+
+    // ---- 换行（Shift+Enter）----
+
+    /**
+     * 2026-09-23 用户报的那条：**Shift+Enter 不换行**。
+     *
+     * 输入框的键表里从前**只有裸 Enter 绑了换行，Shift+Enter 是 `null`**
+     * （探针把表倒出来看过：`shift pressed ENTER -> null`）。普通 Swing 里它能换行
+     * 靠的是按键之后那个 KEY_TYPED 的 `'\n'` 兜底，而那条路在 IDE 里被掐掉，
+     * 于是两头落空。修法是 [ComposerTextArea.updateUI] 里挂一条**和裸 Enter 一模一样**
+     * 的绑定 —— 这条用例钉的就是那个"一模一样"：不是"有绑定就行"，而是
+     * **必须是裸 Enter 那个动作对象**，那样它走的路才是被验证过的那条。
+     */
+    @Test
+    fun `Shift+Enter 的绑定与裸 Enter 是同一个 —— 那才是换行`() {
+        val area = ComposerTextArea(COMPOSER_MIN_ROWS, 40)
+        val map = area.getInputMap(JComponent.WHEN_FOCUSED)
+
+        val plain = map.get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0))
+        assertTrue(plain != null, "裸 Enter 都不绑换行了？那整条路都得重看")
+
+        val shift = map.get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK))
+        assertEquals(
+            plain,
+            shift,
+            "Shift+Enter 没绑上（或绑到了别的动作）—— 它在这张表里本来就是 null，得自己挂",
+        )
+
+        // Ctrl+Enter 仍然不绑：它是"发送"，归 isSendKey 判，不该由输入框自己插换行
+        assertNull(map.get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK)))
+    }
+
+    /** 上一条管"绑对了没有"，这条管**绑到的那个动作真的会插一个换行**。 */
+    @Test
+    fun `Shift+Enter 绑到的动作真的插一个换行`() {
+        val area = ComposerTextArea(COMPOSER_MIN_ROWS, 40)
+        area.text = "ab"
+        area.caretPosition = 2
+
+        val name = area.getInputMap(JComponent.WHEN_FOCUSED)
+            .get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK))
+        val action = area.actionMap.get(name) ?: error("Shift+Enter 没绑到可调的动作：$name")
+
+        action.actionPerformed(ActionEvent(area, ActionEvent.ACTION_PERFORMED, null as String?))
+        assertEquals("ab\n", area.text)
     }
 
     // ---- 发送快捷键 ----

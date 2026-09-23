@@ -6,12 +6,17 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.GridBagLayout
 import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
@@ -88,9 +93,14 @@ internal const val SESSION_LIST_WIDTH = 420
  *
  * 高度原先同样没有上限：77 个会话 = 1702px，而弹层**不能滚** —— 下半截落在
  * 屏幕外，点都点不到（`popupAnchorY` 那条"上下都放不下就贴屏幕顶"的分支就是
- * 为这种情况写的）。10 行 ≈ 220px。
+ * 为这种情况写的）。
+ *
+ * 2026-09-22 卡片式改版后这个数从 10 改成 8：一行从 28px（文字行）变成 36px
+ * （[CARD_H] 32 + [CARD_GAP] 4），**一屏的像素高度不变** —— 8 × 36 = 288，
+ * 与改版前 10 × 28 = 280 是同一档。所以"卡片式会更占地方"这件事在这一屏里
+ * 只体现为"看见的条数少了"（10 → 8），浮层本身没有变高。
  */
-internal const val SESSION_LIST_MAX_ROWS = 10
+internal const val SESSION_LIST_MAX_ROWS = 8
 
 /** 没有标签时那个入口上写什么。淡色的加号，点一下就地打标签。 */
 internal const val TAG_EMPTY_MARK = "＋"
@@ -114,6 +124,32 @@ internal fun tagChipText(tag: String?): String =
 
 /** 删除按钮悬停时的颜色。与设计稿 §二 A 的 danger 同值。 */
 private val DELETE_DANGER = JBColor(0xC0392B, 0xDB5C5C)
+
+/**
+ * 一张卡的高度（不含它与下一张之间的缝）。
+ *
+ * 由内容最高的那一件（删除按钮 22）+ 上下内边距 3 + 3 推出来，是**量出来**的数
+ * 而不是挑的：行高 29 那版就是"按钮 22 + 上下 3"撑出来的（见 [SessionCard] 的注释）。
+ */
+private const val CARD_H = 32
+
+/**
+ * 卡与卡之间的缝。
+ *
+ * **留在卡片自己下边**（[SessionCard] 绘制时的那个 `top` 偏移），
+ * 而不是往列里插 `Box.createVerticalStrut` —— 插了的话 `root.components` 里就
+ * 一行卡一行缝，列表那几十条用例按序号取行的写法会一起错位。卡片自己吃下这条缝，
+ * 外面看起来仍然是"一个会话一个子件"。
+ */
+private const val CARD_GAP = 4
+
+/**
+ * 被占着的那张卡降多少透明度（见 [SessionCard.paint]）。
+ *
+ * 0.55 是"一眼看出它不归你"，同时里面的字还读得清 —— 压到 0.4 以下标题就糊了，
+ * 而"这是哪条会话"仍然是最要紧的信息。出图看 `session-list-probe-taken.png`。
+ */
+private const val DIM_ALPHA = 0.55f
 
 /**
  * 同一时刻只允许一行处于确认态。
@@ -147,8 +183,9 @@ private class ConfirmSlot {
  * 行尾的 [DELETE_TEXT] 点了原地变成问句（设计稿 §二 A、§三 A）。
  * [onDelete] 只在用户**确认之后**才被调用。
  *
- * 当前会话那个勾用的是 [MARK] —— 与权限模式列表共用同一个常量，
- * 各写一份迟早漂移。
+ * 每一行现在是一张 [SessionCard]（2026-09-22 卡片式改版，设计稿
+ * `session-list-v3.html` 方案 A）：当前会话由卡片画出来的强调条 + 加粗标题标出，
+ * 不再是行首那个 `✓`。
  */
 internal fun buildSessionList(
     sessions: List<SessionInfo>,
@@ -449,6 +486,132 @@ private class ListColumn : JPanel(), Scrollable {
     override fun getScrollableTracksViewportHeight(): Boolean = false
 }
 
+/**
+ * 会话行 = **一张单行卡**（2026-09-22 用户从三个方案里选的 A，见
+ * `docs/design/session-list-v3.html`）。
+ *
+ * ## 画什么
+ *
+ * 底与边**同一个圆角、同一个矩形**（[CARD_CORNER_ARC] / [cardFill] / [lineColor]，
+ * 与输入卡、状态卡、设置卡同一套）：底比页底亮/暗 5%，卡片靠**边 + 圆角**读出来。
+ * 底由这里的 `fillRoundRect` 画、边由 `RoundedLineBorder` 画 —— 两个数一旦分叉，
+ * 四个角上就露出"底比边圆"的毛刺（`StatusCardView` / `ComposerCard` 各踩过一次）。
+ *
+ * - **当前会话**：描边换强调色 + 左侧一条 3px 强调条（标题另由调用方加粗）。
+ *   改版前那个 `✓` 由这条 + 加粗顶掉 —— 一个 3px 的色块比一个字符更早被眼睛抓到，
+ *   也不用再占标题左边那 13px。
+ * - **悬停**（可点时）：底换成列表选中那一档的"弱"版本，描边提亮。
+ * - **被别的标签占着 / 忙时**（不可点）：两个都不画 —— 它本来就不该显得能点。
+ *
+ * ## 为什么钉高
+ *
+ * 浮层开出来之后**不能缩放**（`showTogglePopup` → `setResizable(false)`），
+ * 所以卡片一旦比预期高，多出来的那一截就是被裁掉、再也长不出来 ——
+ * 「清空全部」那行确认态当初就是这么缺了一块的（见 `clearAllRow` 里的注释）。
+ * 这里把首选/最小/最大三个高度一起钉住，内容矮一点高一点都由布局居中吸收。
+ *
+ * `internal` 是给用例量的（"哪一条是当前"只有卡片自己知道）。
+ */
+internal class SessionCard(
+    /** 当前会话：强调色描边 + 左侧强调条。 */
+    val current: Boolean,
+    /** 可点（不忙、也没被别的标签占着）：悬停才有反馈。 */
+    private val clickable: Boolean,
+    /**
+     * 被**别的标签**占着：整卡压暗。
+     *
+     * 光靠"时间那格写着已打开"和"点不动"不够 —— 点不动的东西会被当成 bug
+     * （spec §5.1 的老账），而压暗是"这一条现在不归你"最省事的一眼信号。
+     * 忙时（整列不可点）**不压暗**：那是临时的，而且整列都灰了就没法读。
+     */
+    private val dimmed: Boolean = false,
+) : JPanel(BorderLayout()) {
+
+    /** 指针在不在这一张上（由 [sessionRow] 的鼠标监听器维护）。 */
+    var hovered: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            repaint()
+        }
+
+    init {
+        isOpaque = false
+        // 上 3 下 3：内容最高的那件（删除按钮 22）撑出 28，剩下的由钉高居中吸收。
+        // 右边 6、左边 8：左边那 4px 是留给强调条的（它在 x=4..6）
+        border = JBUI.Borders.empty(3, 8, 3, 6)
+    }
+
+    /** 实际画出来的高度（下面的 [CARD_GAP] 那一条缝不画东西）。 */
+    private val paintedHeight: Int get() = JBUI.scale(CARD_H)
+
+    override fun getPreferredSize(): Dimension =
+        Dimension(super.getPreferredSize().width, JBUI.scale(CARD_H + CARD_GAP))
+
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
+    override fun getMinimumSize(): Dimension = Dimension(0, preferredSize.height)
+
+    /**
+     * 压暗**整张卡**（含里面的字），而不是只把卡底调灰一点。
+     *
+     * 卡底本来就只比页底亮 5%（[CARD_TINT]），在它上面再调灰**看不出来** ——
+     * 出图时试过，两张图几乎一样。整卡降透明度是唯一看得见的那种"退后一步"，
+     * 而且一处就够：子组件跟着父组件的绘制一起被降透明。
+     */
+    override fun paint(g: Graphics) {
+        if (!dimmed) {
+            super.paint(g)
+            return
+        }
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.composite = java.awt.AlphaComposite.getInstance(
+                java.awt.AlphaComposite.SRC_OVER,
+                DIM_ALPHA,
+            )
+            super.paint(g2)
+        } finally {
+            g2.dispose()
+        }
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val arc = JBUI.scale(CARD_CORNER_ARC)
+            val w = width - 1
+            val h = paintedHeight - 1
+            // 卡片缝的一半留在上边：这样"卡片的中线"与"内容的中线"落在同一条线上
+            // （内边距上下对称 = 内容居中于整个 36px 组件；卡片若贴着顶画，
+            // 它的中线就比内容高了 2px —— 2026-09-22 用户报的「文字没有上下居中」）
+            val top = JBUI.scale(CARD_GAP / 2)
+
+            g2.color = if (hovered && clickable) {
+                UIUtil.getListSelectionBackground(false)
+            } else {
+                cardFill()
+            }
+            g2.fillRoundRect(0, top, w, h, arc, arc)
+
+            g2.color = if (current) focusColor() else lineColor()
+            g2.stroke = BasicStroke(1f)
+            g2.drawRoundRect(0, top, w, h, arc, arc)
+
+            // 左侧那条 3px 强调条。画在描边里侧、与文字之间留一口气（内容从 x=8 起）
+            if (current) {
+                val bar = JBUI.scale(3)
+                val inset = JBUI.scale(6)
+                g2.color = focusColor()
+                g2.fillRoundRect(JBUI.scale(4), top + inset, bar, h - inset * 2, bar, bar)
+            }
+        } finally {
+            g2.dispose()
+        }
+    }
+}
+
 private fun sessionRow(
     session: SessionInfo,
     selected: Boolean,
@@ -466,25 +629,11 @@ private fun sessionRow(
     // （RunStripView 上踩过同一个坑）
     val base = UIUtil.getLabelFont()
 
-    val row = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        border = JBUI.Borders.empty(3, 6)
-    }
+    val row = SessionCard(current = selected, clickable = clickable, dimmed = taken)
 
     // 标题：summary 优先，退回 firstPrompt，都没有给占位 —— 与删除确认语
     // 共用同一个函数，否则确认语里说的名字会和这一行显示的不是同一个
     val title = sessionTitle(session)
-
-    // 未选中用空格而非 isVisible=false：不可见的组件仍然在组件树里，
-    // 既让"只该有一条被标记"测不了，也让可访问性工具读到幻影文字。
-    // 空格占位是 modeRow 已经在用的做法（ComposerMode.kt:115）
-    val mark = JLabel(if (selected) MARK else " ").apply { font = base }
-    val markSlot = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        // 固定宽度：勾出现或消失时标题不左右跳
-        preferredSize = JBUI.size(13, base.size)
-        add(mark, BorderLayout.WEST)
-    }
 
     val titleLabel = JLabel(title).apply {
         font = if (selected) base.deriveFont(Font.BOLD) else base
@@ -581,11 +730,27 @@ private fun sessionRow(
         add(tagChip, BorderLayout.CENTER)
     }
 
-    val tail = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+    /**
+     * 行尾那一串：标签 / 时间 / 删除。
+     *
+     * 外面这层 `GridBagLayout` **只干一件事：把这一行上下居中**。里层仍是
+     * `FlowLayout`（右对齐、间距 6，与从前一模一样）。为什么不直接用它：
+     * `FlowLayout` 把行里的组件**贴着顶**摆 —— 卡片比以前高（[CARD_H] 32，
+     * 内容是 22），空出来的那几像素全落到了下面，于是这一串比标题高出去 4px。
+     * 2026-09-22 用户报的「文字没有上下居中」就是它（标题居中、这一串没居中，
+     * 两边对不上更显眼）。`GridBagLayout` 只有一个孩子、权重为 0 时默认就把它
+     * 居中，不用手写"上下各留几像素"那种会在换字体时失效的数。
+     */
+    val tail = JPanel(GridBagLayout()).apply {
         isOpaque = false
-        add(tagSlot)
-        add(timeLabel)
-        add(deleteSlot)
+        add(
+            JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+                isOpaque = false
+                add(tagSlot)
+                add(timeLabel)
+                add(deleteSlot)
+            },
+        )
     }
 
     fun showNormal() {
@@ -594,7 +759,6 @@ private fun sessionRow(
         centerSlot.add(titleLabel, BorderLayout.CENTER)
         tagSlot.removeAll()
         tagSlot.add(tagChip, BorderLayout.CENTER)
-        row.add(markSlot, BorderLayout.WEST)
         row.add(centerSlot, BorderLayout.CENTER)
         row.add(tail, BorderLayout.EAST)
         // 忙时整列不可点，删除自然也不该露出入口 —— 用可见性而不是禁用，
@@ -750,12 +914,15 @@ private fun sessionRow(
             }
 
             override fun mouseEntered(e: MouseEvent) {
+                // 悬停的反馈有两处：卡片的底/描边（卡片自己画）与行尾那颗「删除」提亮
+                row.hovered = true
                 paintDelete(danger = false, strong = true)
             }
 
             override fun mouseExited(e: MouseEvent) {
                 // 离开**整行**是干净信号，直接收
                 if (e.component === row) {
+                    row.hovered = false
                     paintDelete(danger = false, strong = false)
                     return
                 }
@@ -765,12 +932,15 @@ private fun sessionRow(
                 SwingUtilities.invokeLater {
                     val p = row.mousePosition
                     val inside = p != null && p.x in 0 until row.width && p.y in 0 until row.height
-                    if (!inside) paintDelete(danger = false, strong = false)
+                    if (!inside) {
+                        row.hovered = false
+                        paintDelete(danger = false, strong = false)
+                    }
                 }
             }
         }
         row.addMouseListener(rowMouse)
-        listOf(markSlot, titleLabel, tail, timeLabel, deleteSlot).forEach {
+        listOf(centerSlot, titleLabel, tail, timeLabel, deleteSlot).forEach {
             it.addMouseListener(rowMouse)
         }
     }

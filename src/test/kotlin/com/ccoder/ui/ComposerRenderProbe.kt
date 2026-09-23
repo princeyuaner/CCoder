@@ -35,17 +35,52 @@ class ComposerRenderProbe {
         render("build/composer-probe-bypass.png", PermissionModeSetting.BYPASS_PERMISSIONS)
 
     /**
+     * 空输入框那一版。
+     *
+     * **占位（三个符号 + 发送说明）只有这张图里看得见** —— 上面两版都填着字，
+     * 而那行字是自绘的、数像素的用例只看得出"画了没画"。改了那行文案（或
+     * 换了发送约定）就跑一下，看一眼它有没有顶出输入框。
+     */
+    @Test
+    fun `把空输入框的用法提示画成图片`() =
+        render("build/composer-probe-empty.png", PermissionModeSetting.DEFAULT, empty = true)
+
+    /**
      * 真机 LAF（New UI 深色）底下画。
      *
      * 2026-09-17 补的：这个探针此前跑在测试 JVM 默认的 Metal 下，出的是**浅色**图 ——
      * 而用户那台 PyCharm 是深色。底色一变，"工具栏底带够不够、显不显得脏"这类判断
      * 就全都不作数了（[IdeLaf] 的注释里写着同一条教训）。
      */
-    private fun render(path: String, mode: PermissionModeSetting) {
-        IdeLaf.withRealLaf { renderUnder(path, mode) }
+    /**
+     * 文本多到装不下的时候（2026-09-23 用户："文本很多时不出滚动条，后面的看不见"）。
+     *
+     * 输入框**不做自动长高**（高度由用户拖分隔条决定），所以超出是常态 ——
+     * 上面那两张图里文字都只有一行，这条才是"超出之后长什么样"。
+     * 只看图能看出两件单测钉不住的事：滚动条**压没压到字**、右边那点宽度够不够。
+     */
+    @Test
+    fun `文本多到装不下时画出滚动条`() = render(
+        "build/composer-probe-overflow.png",
+        PermissionModeSetting.DEFAULT,
+        longText = true,
+    )
+
+    private fun render(
+        path: String,
+        mode: PermissionModeSetting,
+        empty: Boolean = false,
+        longText: Boolean = false,
+    ) {
+        IdeLaf.withRealLaf { renderUnder(path, mode, empty, longText) }
     }
 
-    private fun renderUnder(path: String, mode: PermissionModeSetting) {
+    private fun renderUnder(
+        path: String,
+        mode: PermissionModeSetting,
+        empty: Boolean,
+        longText: Boolean = false,
+    ) {
         SwingUtilities.invokeAndWait {
             val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
                 connection.setModel(connectionCardOf(ConnectionState.Connected))
@@ -67,7 +102,10 @@ class ComposerRenderProbe {
             val input = ComposerTextArea(COMPOSER_MIN_ROWS, 40).apply {
                 lineWrap = true
                 styleComposerInput(this)
-                text = "输入消息，Enter 发送"
+                when {
+                    longText -> text = (1..40).joinToString("\n") { "第 $it 行 —— 看看滚动条出不出来" }
+                    !empty -> text = "输入消息，Enter 发送"
+                }
             }
             val inputScroll = JBScrollPane(input).apply {
                 border = com.intellij.util.ui.JBUI.Borders.empty()

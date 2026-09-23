@@ -259,3 +259,19 @@ export npm_config_script_shell="C:/Program Files/Git/bin/bash.exe"
 
 用 bash 当 npm 的脚本壳之后，shim 换成 bash 脚本、`node` 在 bash 的 PATH 上，前端照常构建。
 你自己终端里如果没这个毛病，就不用管这一段。
+
+---
+
+# 后续（2026-09-22）：占位补上发送与换行
+
+用户："缺发送和换行的说明"。§2.5 当初明确**不**把发送键写进占位，理由是"一行塞不下" ——
+实测放得下：`Composer.kt` 的 `composerPlaceholder(shortcut)` 在三个符号后面接一句
+`Enter 发送 · Shift+Enter 换行`。
+
+- **跟着设置走**：Ctrl+Enter 约定下换成 `Ctrl+Enter 发送 · Enter 换行`（真值在 `isSendKey`，
+  写死一句在另一种模式下就是撒谎）。约定每次绘制现读设置 —— 设置页改完没有任何通知发到面板。
+- **不复用 `settings.sendShortcut.*.label`**：那句是为设置页一整栏写的，英文整句
+  （`Enter sends, Shift+Enter adds a newline`）接上去实测 ~470px，面板默认宽度下正好顶出去；
+  这里用同义的短句。改一处要连着另一处一起看。
+- 语言热切换：自绘控件本来要走树那一遍才重取，`ComposerTextArea` 因此实现 `Relocalizable`（repaint）。
+- 出图：`ComposerRenderProbe` 多了一版**空输入框**（此前两版都填着字，占位在任何一张图上都看不见）。

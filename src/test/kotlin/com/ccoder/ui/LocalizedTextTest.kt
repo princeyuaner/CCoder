@@ -119,12 +119,17 @@ class LocalizedTextTest {
 
     @Test
     fun `转写区降级页`() = 切成英文后不许剩中文("TranscriptFallback") {
-        TranscriptFallback(TranscriptFallback.Reason.StartFailed) {}
+        TranscriptFallback(TranscriptFallback.Reason.StartFailed, onRetry = {})
     }
 
     @Test
     fun `转写区降级页（未启用 JCEF 那种）`() = 切成英文后不许剩中文("TranscriptFallback/noJcef") {
-        TranscriptFallback(TranscriptFallback.Reason.NoJcef) {}
+        TranscriptFallback(TranscriptFallback.Reason.NoJcef, onRetry = {})
+    }
+
+    @Test
+    fun `转写区降级页（通道断了那种）`() = 切成英文后不许剩中文("TranscriptFallback/channelLost") {
+        TranscriptFallback(TranscriptFallback.Reason.ChannelLost, onRetry = {})
     }
 
     /**

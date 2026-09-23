@@ -19,10 +19,13 @@ import java.awt.RenderingHints
 import java.awt.geom.Area
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
+import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.JViewport
+import javax.swing.KeyStroke
 import javax.swing.text.JTextComponent
 import com.ccoder.text.CcoderText
 
@@ -46,10 +49,30 @@ internal const val COMPOSER_MIN_ROWS = 1
 /**
  * 空输入框里那行灰字（2026-09-15 用户要求："聊天输入框应该写上这些符号的用法"）。
  *
+ * 前半段是三个触发符号，末尾接一句**怎么发送 / 怎么换行**
+ * （2026-09-22 用户："缺发送和换行的说明"）—— 那句跟着设置里的发送约定走，
+ * 写死一句"Enter 发送"在 Ctrl+Enter 模式下就是撒谎（真值在 [isSendKey]）。
+ *
  * **文案与能力同步**：它写着 `# 符号`，就得先有 `#`；哪一件被砍掉，这行字要一起改
  * —— 否则界面就在替一个不存在的功能做广告。
  */
-internal val COMPOSER_PLACEHOLDER: String get() = CcoderText.text("composer.placeholder")
+internal fun composerPlaceholder(shortcut: SendShortcut): String =
+    CcoderText.text("composer.placeholder") + " · " + CcoderText.text(sendHintKey(shortcut))
+
+/**
+ * 发送说明的键：两种约定各一句。
+ *
+ * 措辞与 `settings.sendShortcut.*.label` 同义却更短，**刻意不复用那句**：
+ * label 是给设置页一整栏写的（英文整句 `Enter sends, Shift+Enter adds a newline`），
+ * 接在这行后面英文实测 ~470px —— 面板默认宽度（500）下正好顶出去。两处说的
+ * 是同一件事，改一处要连着另一处一起看一眼，别让两边说岔。
+ *
+ * `when` 而不是 map：枚举将来多一档时，这里是编译错误，而不是运行期一个空串。
+ */
+private fun sendHintKey(shortcut: SendShortcut): String = when (shortcut) {
+    SendShortcut.ENTER -> "composer.placeholder.send.enter"
+    SendShortcut.CTRL_ENTER -> "composer.placeholder.send.ctrlEnter"
+}
 
 /**
  * 该不该显示那行提示；不该显示时给 null。
@@ -60,8 +83,8 @@ internal val COMPOSER_PLACEHOLDER: String get() = CcoderText.text("composer.plac
  * **禁用态不显示**：今天面板并不真的禁用输入框（发不出去是拦在发送那一步的），
  * 所以这条规则眼下只是守门 —— 但哪天有人禁用了它，挂一行"你可以打 #"就是撒谎。
  */
-internal fun placeholderTextOf(area: JTextComponent): String? =
-    if (area.isEnabled && area.text.isEmpty()) COMPOSER_PLACEHOLDER else null
+internal fun placeholderTextOf(area: JTextComponent, shortcut: SendShortcut): String? =
+    if (area.isEnabled && area.text.isEmpty()) composerPlaceholder(shortcut) else null
 
 // ---- 输入框本体 ----
 
@@ -72,7 +95,18 @@ internal fun placeholderTextOf(area: JTextComponent): String? =
  * 返回 false），把它放进滚动面板后，拖高输入区只会多出一片空白 ——
  * 输入框本身纹丝不动，看起来像"拖了没用"。
  */
-internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), UiCompatibleDataProvider {
+internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), UiCompatibleDataProvider, Relocalizable {
+
+    /**
+     * 当前的发送约定 —— 占位末尾那句（[composerPlaceholder]）跟着它变。
+     *
+     * **每次绘制现取**，而不是存一个值：设置页改完没有任何通知会发到面板
+     * （[isSendKey] 那条路也是每次按键现读设置），存下来的话，用户改完设置
+     * 得等下一次无关的重绘才看得见新文案 —— 那正是"改了没生效"的样子。
+     *
+     * 由 [ClaudePanel] 接上（要读项目级设置）；纯 JVM 测试里没人接，按默认那份。
+     */
+    var sendShortcut: () -> SendShortcut = { SendShortcut.DEFAULT }
 
     /**
      * Ctrl+V 的接管口（见 [imagePasteProvider]）。
@@ -108,7 +142,65 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
 
     override fun getData(dataId: String): Any? = imagePasteData(dataId, pasteProvider)
 
-    override fun getScrollableTracksViewportHeight(): Boolean = true
+    /**
+     * 视口够高就撑满；**装不下就别撑** —— 那时要出滚动条。
+     *
+     * ## 为什么不是恒 `true`（2026-09-23 用户报"文本多了不出滚动条，后面的看不见"）
+     *
+     * 恒 `true` 的意思是"我的高度永远等于视口高度"——滚动条据此认定**永远装得下**，
+     * 于是它永远不出现，超出去的那些行既看不见也够不着。
+     * 而输入框**不做自动长高**（高度由用户拖分隔条决定，见 [COMPOSER_MIN_ROWS]），
+     * 所以"超出"是常态，滚动是唯一的出路。
+     *
+     * 恒 `false` 是另一个极端：拖高之后输入框纹丝不动、旁边多出一片空白，
+     * 看起来像"拖了没用"——这正是原来那版注释记的教训。
+     * **两头都要**：视口高过内容时撑满（拖高算数），内容高过视口时退出（滚动条出场）。
+     *
+     * 判据用 `preferredSize` 而不是构造时那几行的行高：对 `JTextArea` 来说，
+     * 它跟着**当前文本的行数**长（`PlainView.getPreferredSpan`），
+     * 那正是"装不装得下"的问法。
+     *
+     * 没有父级（纯 JVM 用例里）按"撑满"算：那时没有视口可言，怎么答都不影响布局。
+     */
+    override fun getScrollableTracksViewportHeight(): Boolean {
+        val viewport = parent as? JViewport ?: return true
+        return viewport.height >= preferredSize.height
+    }
+
+    /**
+     * LAF 一变输入表会被整张重装，所以绑定跟着 `updateUI` 装 —— 不放在 `init`：
+     * 表是 UI 装出来的，构造器那个时刻它可能还是空的。
+     */
+    override fun updateUI() {
+        super.updateUI()
+        installShiftEnterBreak()
+    }
+
+    /**
+     * 让 **Shift+Enter 也能换行**。
+     *
+     * ## 为什么得自己挂（2026-09-23 用户报"Shift+Enter 不换行"）
+     *
+     * 输入框的键表里**只有裸 Enter 绑了 `insert-break`，Shift+Enter 是 `null`** ——
+     * 这是把表倒出来看过的（`shift pressed ENTER -> null`，见 [ComposerRulesTest]）。
+     * 普通 Swing 里 Shift+Enter 能换行，靠的是按键之后那个 KEY_TYPED 的 `'\n'`
+     * 走 [javax.swing.text.DefaultEditorKit.DefaultKeyTypedAction] 兜底；
+     * 那条路在 IDE 里会被掐掉（按下事件被消费过就不发字符事件那类一次性判断），
+     * 于是 Shift+Enter 两头落空：**没绑定，兜底的字符又不来**。
+     *
+     * 修法不绕：把裸 Enter 的那个绑定**原样复制**一份到 Shift+Enter 上。
+     * 不写死 `"insert-break"` 是刻意的 —— 平台或 LAF 换了绑的是什么就跟什么，
+     * 我们只要求"和裸 Enter 一样"，那样它走的就是裸 Enter 那条**已被验证过**的路
+     * （包括"绑定消费掉按下事件、于是不会有第二个字符事件"这层，新行也只会有一个）。
+     */
+    private fun installShiftEnterBreak() {
+        val map = getInputMap(JComponent.WHEN_FOCUSED) ?: return
+        val plain = map.get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0)) ?: return
+        map.put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK),
+            plain,
+        )
+    }
 
     /**
      * 空着的时候，在**光标的落点**画一行灰字说明三个触发符号怎么用。
@@ -118,7 +210,7 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
      */
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
-        val placeholder = placeholderTextOf(this) ?: return
+        val placeholder = placeholderTextOf(this, sendShortcut()) ?: return
 
         val g2 = g.create()
         try {
@@ -128,6 +220,16 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
         } finally {
             g2.dispose()
         }
+    }
+
+    /**
+     * 语言一变重画一遍 —— 这行字是**画**出来的（不是控件的 text），走树那一遍
+     * 摸不到它，只能自己重取。
+     *
+     * 自绘控件实现 [Relocalizable] 是 `LocalizedText.kt` 定下的规矩（见那里的说明）。
+     */
+    override fun retranslate() {
+        repaint()
     }
 }
 
@@ -174,6 +276,26 @@ internal fun isSendKey(
  * 观感看 `ComposerRenderProbe` / `StatusCardsRenderProbe` 出的图。
  */
 internal const val CARD_CORNER_ARC = 16
+
+/**
+ * 卡片**底**比页底亮/暗多少。
+ *
+ * 取一个**两边主题都成立**的数：[mix] 算的是"底色 → 文本色"，深色主题下文本色是亮的
+ * （卡比页底亮一档）、浅色下是暗的（卡比页底暗一档），方向不用判明暗
+ * （同 [FOOTER_TINT] 那条道理）。
+ *
+ * 0.05 是"看得出这是一张卡"，同时**不靠色差堆**：卡片主要靠**边 + 圆角**读出来，
+ * 底色只差这一点点。改用例见 `SettingsCardTest` 里那条数像素的。
+ *
+ * 2026-09-22 从 `settings/SettingsCard.kt` 搬到这儿：会话列表的卡片
+ * （`SessionList`）也要用它，而 `ui` 是画法这一层的公共落点（[CARD_CORNER_ARC]
+ * 早就住在这儿了）—— 两份配方各写一份，迟早分叉。
+ */
+internal const val CARD_TINT = 0.05
+
+/** 卡片底。 */
+internal fun cardFill(): Color =
+    mix(UIUtil.getPanelBackground(), UIUtil.getLabelForeground(), CARD_TINT)
 
 /**
  * 输入区是一个**圆角卡片**（方案 A）。

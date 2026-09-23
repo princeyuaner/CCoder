@@ -145,12 +145,28 @@ internal fun nextHighlight(current: Int, delta: Int, size: Int): Int {
  *
  * **只在弹层真的开着时调用。** 关着的时候 Enter 该不该发送是 [isSendKey]
  * 的事，那个函数一行都不改（设计稿 §3.2）。
+ *
+ * ## 修饰键也算数（2026-09-23 用户报「Shift+Enter 不换行」）
+ *
+ * 从前这里**只看 keyCode**：`VK_ENTER` 一律给 [CompletionKey.Accept]。于是弹层开着时
+ * Shift+Enter 被当成"采纳候选"吃掉（[ClaudePanel] 那条分支是 `e.consume(); return`），
+ * 而 [isSendKey] 上写得明明白白 —— *"Shift+Enter 在两种约定下都留给换行"*。
+ * 那句话**根本没机会执行到**：键在更前面就被截了。
+ *
+ * 所以两个带 Shift 的组合各有归处：
+ * - **Shift+Enter 归文本**（[CompletionKey.Ignore]，落回输入框去换行）—— 这是那条
+ *   规矩欠的执行；
+ * - **Shift+Tab 给 [CompletionKey.Up]**：它在补全弹层里的通用含义就是"上一项"，
+ *   从前和 Tab 一样被当成采纳，那是误伤。
  */
-internal fun completionKey(keyCode: Int): CompletionKey = when (keyCode) {
-    KeyEvent.VK_UP -> CompletionKey.Up
-    KeyEvent.VK_DOWN -> CompletionKey.Down
-    KeyEvent.VK_ENTER, KeyEvent.VK_TAB -> CompletionKey.Accept
-    KeyEvent.VK_ESCAPE -> CompletionKey.Dismiss
+internal fun completionKey(keyCode: Int, shiftDown: Boolean = false): CompletionKey = when {
+    keyCode == KeyEvent.VK_UP -> CompletionKey.Up
+    keyCode == KeyEvent.VK_DOWN -> CompletionKey.Down
+    keyCode == KeyEvent.VK_ESCAPE -> CompletionKey.Dismiss
+    shiftDown && keyCode == KeyEvent.VK_TAB -> CompletionKey.Up
+    // 其余带 Shift 的一律不接管（Shift+Enter 就在这儿落回文本）
+    shiftDown -> CompletionKey.Ignore
+    keyCode == KeyEvent.VK_ENTER || keyCode == KeyEvent.VK_TAB -> CompletionKey.Accept
     else -> CompletionKey.Ignore
 }
 

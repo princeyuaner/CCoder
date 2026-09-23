@@ -14,17 +14,32 @@ import javax.swing.plaf.basic.BasicHTML
 import javax.swing.text.View
 
 /**
- * 转写区起不来时那张页：一段说明 +（"建不起来"那一种）一个「重试」。
+ * 转写区起不来 / 中途断掉时那张页：一段说明 +（值得重试的那几种）一个「重试」，
+ * 而在 JCEF 跑着 out-of-process 的那几种上，再给一颗真正了结它的键。
  *
  * ## 为什么要有「重试」
  *
  * JCEF 服务器断过线之后，平台建 message router 会一路 NPE（见 `ClaudeTranscriptView`
  * 顶上那段），而这个状态**可能自己好**：服务器重连之后 CefApp 那边会换一套 RPC 上下文，
  * 再建就建得出来了。没有这颗键，用户只剩"重启 IDE"一条路 —— 2026-09-23 用户就是
- * 连点五次「新建会话」、每次都被那个异常挡回去的。
+ * 连点五次「新建会话」，每次都被那个异常挡回去的。
  *
  * 「未启用 JCEF」那一种**不给**键：那是设置，重试一百次也一样，指路才是对的
  * （`transcript.fallback.noJcef` 那句里带着 Registry 键名）。
+ *
+ * ## 为什么还有一颗「关掉 out-of-process JCEF」（2026-09-23 补）
+ *
+ * 因为「重试」在那一族失败上其实是**拖时间**：通道坏掉的根是那个模式本身
+ * （JBR-9234，见 [JcefRemoteMode]），重试换回来的是几十秒到一分钟的可看时间，
+ * 然后照旧断。所以 [Reason.OutOfProcessBroken] 那张页上多一颗键，直说了结的办法。
+ *
+ * 它排在「重试」**前面**：先给能了结的，再给能拖的。
+ *
+ * ## 两个回调都点名传
+ *
+ * [onDisableOutOfProcess] 是最后一个参数，所以 `TranscriptFallback(reason) { … }` 会把
+ * 那个 lambda 绑到**它**身上（Kotlin 的尾随 lambda 只认最后一个）—— 想传重试就得写
+ * `onRetry = { … }`。名字点出来，免得又踩一次。
  *
  * ## 文字为什么是 HTML 片段
  *
@@ -36,15 +51,38 @@ import javax.swing.text.View
 internal class TranscriptFallback(
     reason: Reason,
     private val onRetry: () -> Unit,
+    private val onDisableOutOfProcess: (() -> Unit)? = null,
 ) : JPanel() {
 
-    /** 起不来的原因：决定用哪条文案、以及要不要给「重试」。 */
-    internal enum class Reason(val hintKey: String) {
+    /** 起不来的原因：决定用哪条文案、以及给哪几颗键。 */
+    internal enum class Reason(val hintKey: String, val retryable: Boolean) {
         /** IDE 没启用 JCEF（设置里关着）：重试没有意义。 */
-        NoJcef("transcript.fallback.noJcef"),
+        NoJcef("transcript.fallback.noJcef", retryable = false),
 
         /** 启用着，但这一把没建起来：多半是 RPC 通道断过，值得重试。 */
-        StartFailed("transcript.fallback.startFailed"),
+        StartFailed("transcript.fallback.startFailed", retryable = true),
+
+        /**
+         * 跑着跑着断了：`executeJavaScript` 被 `RpcExecutor` 静默丢掉，
+         * 输出区停在一帧上不动（见 `ClaudeTranscriptView` 心跳那一段）。
+         * 与 [StartFailed] 同一条出路 —— 通道可能已经自己好了。
+         */
+        ChannelLost("transcript.fallback.channelLost", retryable = true),
+
+        /**
+         * [StartFailed] / [ChannelLost] 的**真身**：这一趟 JCEF 跑在独立进程里
+         * （JBR-9234，见 [JcefRemoteMode]）。比前两者多说一句"根在哪"，
+         * 并且多给一颗能真的了结它的键 —— 关掉那个模式。
+         *
+         * **仍然留着重试**：重启 IDE 是要中断手头活儿的，有人只想先把这一轮跑完。
+         */
+        OutOfProcessBroken("transcript.fallback.outOfProcessBroken", retryable = true),
+
+        /** 已经关掉了：等完全重启。这一页上没有什么可点的。 */
+        OutOfProcessDisabled("transcript.fallback.outOfProcessDisabled", retryable = false),
+
+        /** 关不掉（Registry 写失败）：只剩手动改 vmoptions 那条路。 */
+        OutOfProcessFailed("transcript.fallback.outOfProcessFailed", retryable = false),
     }
 
     init {
@@ -56,7 +94,20 @@ internal class TranscriptFallback(
         // 会让"左对齐"看着像缩进了一截（仓库里几处 alignmentX 的教训都是它）
         add(HintLabel().localizedText(reason.hintKey).apply { alignmentX = Component.LEFT_ALIGNMENT })
 
-        if (reason == Reason.StartFailed) {
+        // 了结的那颗排在拖时间的那颗前面（理由见类注释）
+        if (reason == Reason.OutOfProcessBroken && onDisableOutOfProcess != null) {
+            add(Box.createVerticalStrut(JBUI.scale(12)))
+            add(
+                LinkButton("")
+                    .localizedText("transcript.fallback.disableOutOfProcess")
+                    .apply {
+                        alignmentX = Component.LEFT_ALIGNMENT
+                        addActionListener { onDisableOutOfProcess() }
+                    },
+            )
+        }
+
+        if (reason.retryable) {
             add(Box.createVerticalStrut(JBUI.scale(12)))
             add(
                 LinkButton("")
@@ -69,6 +120,23 @@ internal class TranscriptFallback(
         }
     }
 }
+
+/**
+ * 把 JCEF 那一族的失败**问到根上**：这一趟要是正跑在 out-of-process 模式上，
+ * 就把原因换成 [TranscriptFallback.Reason.OutOfProcessBroken] —— 那张页上多一条出路。
+ *
+ * 抽成纯函数是为了用例能喂：真机的判据 [JcefRemoteMode.isEnabled] 要 IDE 才读得到，
+ * 而"该不该多嘴"这件事本身跟 IDE 无关，值得单独钉住。
+ *
+ * `remoteEnabled` 为 `false` 时**原样放行** —— 没在跑那个模式就别把人往"重启 IDE"上引。
+ * `retryable` 是"这是 JCEF 那条路"的现成判据：三种 JCEF 失败为真，
+ * 而已经关掉 / 关不掉那两种为假，所以它们不会绕回 [TranscriptFallback.Reason.OutOfProcessBroken]。
+ */
+internal fun fallbackReasonFor(
+    reason: TranscriptFallback.Reason,
+    remoteEnabled: Boolean,
+): TranscriptFallback.Reason =
+    if (remoteEnabled && reason.retryable) TranscriptFallback.Reason.OutOfProcessBroken else reason
 
 /**
  * 降级页那段说明：值是 HTML 片段，整份文档的壳在这儿补（理由见类注释）。

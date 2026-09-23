@@ -230,6 +230,8 @@ class ClaudePanel(
         // 输入框得有输入框的样子，否则与转写区糊在一起（见 styleComposerInput）
         styleComposerInput(this)
         caret = DefaultCaret().apply { updatePolicy = DefaultCaret.ALWAYS_UPDATE }
+        // 占位末尾那句发送说明跟着设置走。现读而不是存下来 —— 同 isSendKey 那条路
+        sendShortcut = { ClaudeSettings.getInstance(project).sendShortcut }
     }
     /**
      * ↑/↓ 翻已发送的历史（行为照 shell：没发出去的那半句会被存成草稿，↓ 走到底
@@ -702,6 +704,27 @@ class ClaudePanel(
             }
         })
 
+        // 诊断：Shift+Enter 到底有没有**到**这个组件（2026-09-23 用户报"不换行"）。
+        // 与上面那条 Ctrl+V 同一个用意：这一行能把"平台键位/输入法把它吃了"
+        // （日志里压根没有这行）与"到了我们手上但处理错了"（有这行）分开 ——
+        // 少了它，两种情况的界面表现一模一样。
+        //
+        // 这一笔**只记"到了"**，不记文本长度。曾经记过一笔"处理完：文本 N → M"，
+        // 那是错的：`invokeLater` 跑在 KEY_PRESSED 之后、KEY_TYPED 之前，
+        // 而 Shift+Enter 的换行走的是后者（见 `ComposerTextArea.installShiftEnterBreak`），
+        // 于是那笔永远显示"没变"，看着像"确实什么都没做"——**那是量早了**。
+        //
+        // 顺带把弹层状态带上：补全那条分支（`completionKey`）从前是不看修饰键的。
+        input.addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                if (e.keyCode == KeyEvent.VK_ENTER && e.isShiftDown) {
+                    LOG.info(
+                        "Shift+Enter 到了输入框：补全开着=${completion.isOpen} 候选数=${completionItems.size}",
+                    )
+                }
+            }
+        })
+
         input.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 // 补全开着时，上下键与 Enter/Tab/Esc 归补全。
@@ -714,7 +737,7 @@ class ClaudePanel(
                 // 而回车在这个输入框里是有分量的键（发送/排队）。Esc 例外：任何时候都该能关掉
                 if (completion.isOpen) {
                     val haveRows = completionItems.isNotEmpty()
-                    when (completionKey(e.keyCode)) {
+                    when (completionKey(e.keyCode, e.isShiftDown)) {
                         CompletionKey.Up -> if (haveRows) { e.consume(); moveCompletion(-1); return }
                         CompletionKey.Down -> if (haveRows) { e.consume(); moveCompletion(1); return }
                         CompletionKey.Accept -> if (haveRows) { e.consume(); acceptCompletion(); return }
@@ -3229,7 +3252,12 @@ class ClaudePanel(
             is RenderItem.ToolUse ->
                 TranscriptOp.Append(
                     TranscriptItem.ToolUse(
-                        nextMessageId(), now(), item.id, item.name, item.input, item.parent,
+                        nextMessageId(), now(), item.id, item.name,
+                        // 兜底再截一次：历史回放那条路不经过 renderToolResults /
+                        // renderAssistant，Write 整文件仍可能从这儿过（见
+                        // truncateForTranscript 的说明 —— 大报文会掐断 IDEA 的
+                        // remote JCEF 通道）
+                        shrinkToolInput(item.input), item.parent,
                     )
                 )
 
@@ -3238,7 +3266,8 @@ class ClaudePanel(
             is RenderItem.ToolResult ->
                 TranscriptOp.Append(
                     TranscriptItem.ToolResult(
-                        nextMessageId(), now(), item.toolUseId, item.text, item.isError,
+                        nextMessageId(), now(), item.toolUseId,
+                        truncateForTranscript(item.text), item.isError,
                     )
                 )
 

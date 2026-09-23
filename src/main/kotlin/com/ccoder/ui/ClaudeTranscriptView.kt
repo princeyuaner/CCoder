@@ -20,14 +20,16 @@ import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
+import org.cef.handler.CefLoadHandler
 import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.network.CefRequest
 import java.awt.BorderLayout
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 
 /**
- * 转写区。JCEF 可用时渲染 React 界面，不可用时显示明确的提示。
+ * 转写区。JCEF 可用时渲染 React 界面，不可用 / 中途断掉时显示明确的提示。
  *
  * 降级不重建原生渲染：那会让代码里长期并存两套渲染实现，维护面翻倍
  * （设计文档 §11 记录了这个取舍）。JCEF 不可用时给提示而非空白面板。
@@ -41,21 +43,32 @@ import javax.swing.JPanel
  * 用户连点五次「新建会话」报了五次，每次都是**整个新会话没建起来**（比"转写区降级"
  * 严重得多）。现在整段起机都收在 [startOrDegrade] 里，失败就换成降级页 + 一个「重试」。
  *
- * ## 同一条通道的**第二副面孔：已经开着的那一格会悄悄卡死**（2026-09-23 查清）
+ * ## 同一条通道的**第二副面孔：已经开着的那一格会悄悄卡死**
  *
  * 通道断掉之后，每一次 `executeJavaScript`（也就是我们每帧转写的推送）走的是
  * `RpcExecutor.exec`：`if (myTransport == null) return;` —— **平台自己丢掉，不抛错**。
  * 于是输出区停在那一帧、**日志里一个字都没有**（断线本身平台只用 `CefLog.Error`
  * 写进一个被关掉的通道：`JCEF logging: LOGSEVERITY_DISABLE`，落盘是个空文件）。
  * 用户那次"一开始好好的、过一会儿输出区卡死、再输入也不显示"就是这么来的。
+ * IDEA 2026.2 捆的 remote JCEF（CEF 144）比 PyCharm 2026.1 的（CEF 137）更容易走到
+ * 这一步 —— 2026-09-23 在 IDEA 的 idea.log 里数到 35 次 `robj is null`，PyCharm 0 次。
  *
- * **没做自动检测**（2026-09-23 用户决定先不做）。真要做，起点在这儿：桥是双向的，
- * `window.ccoder.send({op:'pong'})` 这条回信现成 —— 跟 [installReadyWatchdog] 探页面
- * 状态那条 `pageState` 一模一样（不用动前端）。发送那一刻发一次、几秒内没回信，
- * 就把这一格换成 [TranscriptFallback]（「重试」接的就是 [startOrDegrade]）。
- * 两个已知约束：定期查要养一个心跳定时器；「重试」之后那一格是**空**的
- * （转写历史在 Kotlin 侧没留全量），过去的对话得靠「历史会话」重新打开，
- * 或者顺手把"读存档重放"一起做了。
+ * **自动检测已做**（2026-09-23）：[BridgeHeartbeat] 定期叫页面回一声 `pong`，
+ * 连着两拍没回信就判死，换成 [TranscriptFallback]（`ChannelLost`，带「重试」）。
+ * 回信走的就是现成的桥（`window.ccoder.send({op:'pong'})`，与 [installReadyWatchdog]
+ * 探页面状态那条 `pageState` 同一条路），**前端一个字都不用改**。
+ * 两个已知约束：养一个心跳定时器；「重试」之后那一格是**空**的
+ * （转写历史在 Kotlin 侧没留全量），过去的对话得靠会话列表重新打开。
+ *
+ * ## 关掉 out-of-process 之后，**加载事件也变了**（2026-09-23 同一晚的第二件事）
+ *
+ * 按 [JcefBrokenAdvice] 的提示关掉 out-of-process、重启之后，输出区**整个空掉**：
+ * React 挂上了（探针里 `pushBatch` 是 function），可 `send`/`locale`/`prefs`
+ * 全是 undefined —— 桥没注进去（[injectBridge] 那段记了完整现象）。
+ * 也就是说**两个模式给的加载事件不一样**，只认 `onLoadEnd` 的写法只在其中一个下能用。
+ *
+ * 修法：脚本拼一次，两个加载事件都接，再养一条硬注节拍（[startBridgePump]）兜底 ——
+ * 前端本来就是 50ms 一轮在等桥，桥一落地它就回 ready，所以这边不必知道文档何时就绪。
  */
 class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
@@ -63,11 +76,23 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
     private var jsQuery: JBCefJSQuery? = null
     private var pump: TranscriptPump? = null
 
+    /** 拼好的注入脚本（见 [buildBridgeScript]）：加载事件与硬注节拍共用同一份。 */
+    private var bridgeScript: String? = null
+
+    /** 桥的硬注节拍：加载事件不来时靠它（见 [startBridgePump]）。 */
+    private var bridgePump: javax.swing.Timer? = null
+
     /** React 挂载完成前收到的操作要暂存，否则会丢。 */
     private val beforeReady = mutableListOf<TranscriptOp>()
 
     @Volatile
     private var ready = false
+
+    /** 心跳记账。CEF 线程回 pong、EDT 发 ping，所以它自己要管好并发。 */
+    private val heartbeat = BridgeHeartbeat()
+
+    /** 心跳定时器：teardown 时停掉，wire 时（前端 ready 后）再开。 */
+    private var heartbeatTimer: javax.swing.Timer? = null
 
     init {
         startOrDegrade()
@@ -98,6 +123,12 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             return
         }
 
+        // 起来了 —— 但这条路在 JCEF 144 + out-of-process 上是**随时会静默断掉**的。
+        // 建不起来那种有降级页接手（那颗键就在页上），**"看着好好的"这种才是最需要
+        // 提前说一声的**：说在它卡死之前，而不是等用户打着字的时候整块不动（见类的注释）。
+        // 一台机器只说一次，闸门在 JcefBrokenAdvice 里。
+        JcefBrokenAdvice.adviseOnce(project)
+
         revalidate()
         repaint()
     }
@@ -120,9 +151,14 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
 
         add(b.component, BorderLayout.CENTER)
 
-        injectBridge(b, cef.query)
+        // 脚本先拼好（在 EDT 上），再接线：加载事件与硬注节拍都要用它
+        bridgeScript = buildBridgeScript(cef.query)
+
+        injectBridge(b)
         installNavigationGuard(b)
         loadUi(b)
+        // 排在 loadUi 之后：加载事件要是压根不来，从这一刻起就按拍子硬注
+        startBridgePump()
         installReadyWatchdog()
 
         // 主题切换时重新注入 CSS 变量（spec §4.1）。
@@ -133,20 +169,64 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
         )
     }
 
-    /** 摆降级页。「重试」再走一遍 [startOrDegrade] —— 平台那边可能已经自己好了。 */
+    /**
+     * 摆降级页。
+     *
+     * 「重试」再走一遍 [startOrDegrade] —— 平台那边可能已经自己好了。
+     * JCEF 那一族的失败还会先问一句根在哪：跑在 out-of-process 模式上的话，
+     * 页上会多一颗「关掉它」的键（JBR-9234，见 [JcefRemoteMode]）。
+     *
+     * **先 `removeAll`**：这一页可能要换掉上一页（关掉模式那一下），而我们只往
+     * `BorderLayout.CENTER` 摆一个 —— 旧的那个不撤走就留成容器里的影子，
+     * 布局不管它、画的时候却还在。建浏览器那条路本来就在外面 `removeAll` 过了，
+     * 所以这里再收一遍是幂等的，收到的是心跳判死时留下的那个死浏览器。
+     */
     private fun showFallback(reason: TranscriptFallback.Reason) {
-        add(TranscriptFallback(reason) { startOrDegrade() }, BorderLayout.CENTER)
+        removeAll()
+        add(
+            TranscriptFallback(
+                fallbackReasonFor(reason, JcefRemoteMode.isEnabled()),
+                onRetry = { startOrDegrade() },
+                onDisableOutOfProcess = { disableOutOfProcess() },
+            ),
+            BorderLayout.CENTER,
+        )
         revalidate()
         repaint()
     }
 
     /**
-     * 收掉已经建起来的那套（重试 / 接线失败 / 释放都走这里）。
+     * 用户点了「关掉 out-of-process JCEF」：写 Registry，然后**把人指去重启**。
+     *
+     * 写失败不能装作没发生 —— 那就得指到手动那一条（`Help → Edit Custom VM Options`），
+     * 所以两种结果摆的是两张不同的页（见 [TranscriptFallback.Reason] 那两种）。
+     *
+     * 两张新页上都不再给「关掉它」的键，也不再给「重试」：**在完全重启之前，
+     * 这条路上每一次重建都会撞同一堵墙**（这正是 ccgui 那边叫它 terminal state 的东西）。
+     */
+    private fun disableOutOfProcess() {
+        if (JcefRemoteMode.disable()) {
+            LOG.info("CCoder 转写视图：已关闭 out-of-process JCEF，待 IDE 完全重启后生效")
+            showFallback(TranscriptFallback.Reason.OutOfProcessDisabled)
+        } else {
+            LOG.warn("CCoder 转写视图：out-of-process JCEF 没关掉（Registry 写失败或读不回），给手动改 vmoptions 的提示")
+            showFallback(TranscriptFallback.Reason.OutOfProcessFailed)
+        }
+    }
+
+    /**
+     * 收掉已经建起来的那套（重试 / 接线失败 / 释放 / 心跳判死都走这里）。
      *
      * `ready` 一并归零：它说的是"当前这个页面回话了"，换了页面就得回到没回话那一态，
      * 否则重试之后收到的转写会直推给一个还不存在的桥。
      */
     private fun teardown() {
+        heartbeatTimer?.stop()
+        heartbeatTimer = null
+        heartbeat.reset()
+        bridgePump?.stop()
+        bridgePump = null
+        bridgeScript = null
         pump?.dispose()
         pump = null
         jsQuery?.let { Disposer.dispose(it) }
@@ -157,20 +237,57 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
     }
 
     /**
-     * 注入桥。
+     * 启动心跳：前端 ready 之后才开（没回话能力的时候查也没用，还会误判）。
      *
-     * 必须在**每次页面加载完成之后**注入 —— 页面加载会重置 window 上的属性，
-     * 在加载前注入等于白做。所以挂在 onLoadEnd 上而不是直接执行一次。
+     * 必须在 EDT 上调（Swing Timer）；[handleFromJs] 的 ready 分支在 CEF 线程上，
+     * 所以那边走 [javax.swing.SwingUtilities.invokeLater] 过来。
      */
-    private fun injectBridge(b: JBCefBrowser, query: JBCefJSQuery) {
-        // 注入时那份偏好快照 —— 与下面那行 `window.ccoder.locale` 同一用意：页面在
-        // React 的挂载 effect 之前（首帧）就能读到它，`prefs.ts` 的惰性读也才有东西可读。
-        // 之后的新值由 ready 握手补推（见 [setPreferences]）。
-        // 服务取不到就按默认档 —— 桥建不起来比偏好读不准严重得多（同 [setPreferences]）。
+    private fun startHeartbeat() {
+        heartbeat.reset()
+        heartbeatTimer?.stop()
+        heartbeatTimer = javax.swing.Timer(HEARTBEAT_MS.toInt()) {
+            onHeartbeatTick()
+        }.apply { isRepeats = true; start() }
+    }
+
+    /**
+     * 一拍：先问"上一拍的回信到了没"，再发这一拍的 ping。
+     *
+     * **连着两拍没回信才判死**（[BridgeHeartbeat.MISS_LIMIT]）：一拍的抖动（GC、
+     * 页面正在重载的那一瞬）不该把整格换掉 —— 误判的代价是把还看得见的对话收走。
+     */
+    private fun onHeartbeatTick() {
+        if (!ready || browser == null) return
+        val b = browser ?: return
+
+        // 让页面回一声 pong。走的就是现成的桥（JS → Java 的 query），前端不用改。
+        // 通道断着的时候 executeJavaScript 会被 RpcExecutor 静默丢掉 —— 这正是
+        // 我们要的：没有回信 → 计一拍 miss。
+        b.cefBrowser.executeJavaScript(PING_SCRIPT, b.cefBrowser.url, 0)
+
+        if (heartbeat.onPing()) {
+            LOG.warn("CCoder 转写视图：连着 ${BridgeHeartbeat.MISS_LIMIT} 拍没收到 pong，判定 JCEF 通道已断，转写区降级")
+            teardown()
+            showFallback(TranscriptFallback.Reason.ChannelLost)
+        }
+    }
+
+    /**
+     * 拼好要注入的那段桥。
+     *
+     * **只拼一次**（在 EDT 上，[wire] 里），两个加载事件与 [startBridgePump] 共用同一份：
+     * 它读界面偏好（[UiPreferences]），早点取一次比在 CEF 线程上按拍子反复取稳。
+     *
+     * 那份偏好快照 —— 与下面那行 `window.ccoder.locale` 同一用意：页面在 React 的挂载
+     * effect 之前（首帧）就能读到它，`prefs.ts` 的惰性读也才有东西可读。之后的新值由
+     * ready 握手补推（见 [setPreferences]）。服务取不到就按默认档 —— 桥建不起来比
+     * 偏好读不准严重得多（同 [setPreferences]）。
+     */
+    private fun buildBridgeScript(query: JBCefJSQuery): String {
         val prefsJson = PrefsInjector.encode(
             UiPreferences.getInstanceOrNull()?.collapseThinking ?: false,
         )
-        val script = """
+        return """
             window.ccoder = window.ccoder || {};
             window.ccoder.send = function(m) { ${query.inject("m")} };
             window.ccoder.locale = '${ThemeInjector.escapeForJsString(CcoderText.tag())}';
@@ -193,7 +310,39 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
               window.ccoderPrefsSink && window.ccoderPrefsSink(prefs);
             };
         """.trimIndent()
+    }
 
+    /**
+     * 把桥注进**当前**页面。幂等：重复注只是把同样的属性再赋一遍。
+     *
+     * 三条路都走它：两个加载事件 + [startBridgePump] 那条硬注节拍。
+     */
+    private fun injectNow() {
+        val b = browser ?: return
+        val script = bridgeScript ?: return
+        // 先单独打一拍（见 [BRIDGE_BEAT_SCRIPT]）：桥那段要是整段解析失败，
+        // 光看 `send` 是 undefined 分不清"没注进去"还是"注进去了但脚本本身坏了"。
+        b.cefBrowser.executeJavaScript(BRIDGE_BEAT_SCRIPT, b.cefBrowser.url, 0)
+        b.cefBrowser.executeJavaScript(script, b.cefBrowser.url, 0)
+    }
+
+    /**
+     * 接上加载事件 —— 桥要**在每次页面加载之后**注入（加载会重置 window 上的属性，
+     * 加载前注入等于白做）。
+     *
+     * ## 为什么不止 onLoadEnd（2026-09-23 用户报"关了 out-of-process 之后输出区全空"）
+     *
+     * 退回进程内之后，`页面加载完成` 那行日志**再没出现过**：React 明明挂上了
+     * （`pageState` 探针里 `pushBatch` 是 function），可 `send`/`locale`/`prefs`
+     * 全是 undefined —— 正是"注入没跑"的样子。也就是说同样的 `loadURL`/`loadHTML`，
+     * **两个模式给的加载事件不一样**，只认 onLoadEnd 就等于只在其中一个模式下能用。
+     * （机制没往下挖：进程内的 `loadHTML` 走的是把内容填进当前文档那条路，
+     * 未必产生一次"导航完成"。这里只记观察到的事实。）
+     *
+     * 所以两条事件都接：报错的那条（[onLoadError]）来的正是"onLoadEnd 不会来"的场合。
+     * 两条都不来时还有 [startBridgePump] 兜底。
+     */
+    private fun injectBridge(b: JBCefBrowser) {
         b.getJBCefClient().cefClient.addLoadHandler(
             object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(
@@ -204,11 +353,51 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                     // 只在主框架注入，iframe 不重复注入
                     if (frame?.isMain == true) {
                         LOG.info("CCoder 转写视图：页面加载完成（HTTP $httpStatusCode），注入桥")
-                        b.cefBrowser.executeJavaScript(script, b.cefBrowser.url, 0)
+                        injectNow()
+                    }
+                }
+
+                override fun onLoadError(
+                    browser: CefBrowser?,
+                    frame: CefFrame?,
+                    errorCode: CefLoadHandler.ErrorCode?,
+                    errorText: String?,
+                    failedUrl: String?,
+                ) {
+                    if (frame?.isMain == true) {
+                        LOG.warn("CCoder 转写视图：页面加载报错（$errorCode $errorText），照样试一次注入")
+                        injectNow()
                     }
                 }
             },
         )
+    }
+
+    /**
+     * 桥的"硬注"节拍：**加载事件不来时，靠它把桥塞进去**。
+     *
+     * 前端那边（`App.tsx` 的 `READY_POLL_MS`）本来就是 50ms 一轮在等
+     * `window.ccoder.send`，桥一落地它立刻回 ready —— 所以这边只要够密、够久就行，
+     * 不必知道文档到底什么时候就绪。注进去之后（`ready`）立刻停手。
+     */
+    private fun startBridgePump() {
+        bridgePump?.stop()
+        var ticks = 0
+        bridgePump = javax.swing.Timer(BRIDGE_PUMP_MS.toInt()) {
+            if (ready || browser == null || bridgeScript == null) {
+                bridgePump?.stop()
+                return@Timer
+            }
+            if (++ticks > BRIDGE_PUMP_LIMIT) {
+                LOG.warn(
+                    "CCoder 转写视图：桥硬注了 $BRIDGE_PUMP_LIMIT 拍（约 " +
+                        "${BRIDGE_PUMP_MS * BRIDGE_PUMP_LIMIT / 1000} 秒）仍没等到前端 ready，停手",
+                )
+                bridgePump?.stop()
+                return@Timer
+            }
+            injectNow()
+        }.apply { isRepeats = true; start() }
     }
 
     /**
@@ -388,6 +577,10 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                     ccoder: typeof window.ccoder,
                     pushBatch: typeof (window.ccoder && window.ccoder.pushBatch),
                     send: typeof (window.ccoder && window.ccoder.send),
+                    // 注入那一侧到底有没有打到这个页面（见 BRIDGE_BEAT_SCRIPT）：
+                    // 有 beats 而没 send = 注进去了但脚本本身失败；连 beats 都没有 = 没注进去
+                    beats: typeof window.ccoderBeats,
+                    beatsValue: window.ccoderBeats,
                     locale: typeof (window.ccoder && window.ccoder.locale),
                     setLocale: typeof window.ccoderSetLocale,
                     prefs: typeof (window.ccoder && window.ccoderPrefs),
@@ -422,7 +615,14 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                 beforeReady.forEach { pump?.enqueue(it) }
                 beforeReady.clear()
                 pump?.flushNow()
+                // 心跳从"页面回话了"这一刻起查。Swing Timer 只能在 EDT 上建，
+                // 而这里跑在 CEF 回调线程上
+                SwingUtilities.invokeLater { startHeartbeat() }
             }
+
+            // 心跳回信：通道还活着的唯一凭据（见 [onHeartbeatTick] / [BridgeHeartbeat]）。
+            // 什么都不用记日志 —— 记了就是每 5 秒一条噪音
+            "pong" -> heartbeat.onPong()
 
             // 看门狗探针的回报：前端没就绪时，这是唯一能看到的页面内部状态
             "pageState" -> LOG.warn("CCoder 转写视图：页面状态 $message")
@@ -456,11 +656,97 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
 
         /** 前端 ready 的等待上限，超时就把页面状态写进日志。 */
         private const val READY_TIMEOUT_MS = 8000
+
+        /** 心跳间隔：一拍问一次"还在吗"。 */
+        private const val HEARTBEAT_MS = 5000L
+
+        /**
+         * 桥的硬注节拍（见 [startBridgePump]）。
+         *
+         * 600ms × [BRIDGE_PUMP_LIMIT] 拍 ≈ 12 秒，**盖过 [READY_TIMEOUT_MS]**（8 秒）：
+         * 看门狗问页面状态的时候，硬注那条路得还在跑，否则诊断信息会缺一半。
+         */
+        private const val BRIDGE_PUMP_MS = 600L
+        private const val BRIDGE_PUMP_LIMIT = 20
+
+        /**
+         * 注入时先单独打的那一拍。**它必须短到不可能出错** —— 它的全部用处就是在
+         * 桥那段整段失败时，证明"executeJavaScript 确实打到了这个页面"。
+         * 上一轮（2026-09-23）日志里 `send` 是 undefined，可那次分不清是
+         * onLoadEnd 没来、还是脚本解析失败 —— 有了这一拍，下一次直接看得见。
+         */
+        private const val BRIDGE_BEAT_SCRIPT = "window.ccoderBeats = (window.ccoderBeats || 0) + 1;"
+
+        /**
+         * 让页面回一声 pong 的脚本。
+         *
+         * 与 [installReadyWatchdog] 那条 `pageState` 同一条桥（JS → Java 的 query），
+         * 所以前端**一个字都不用改** —— `window.ccoder.send` 本来就在。
+         * `&&` 链是必须的：页面正在重载的那一瞬 `window.ccoder` 可能还没挂上，
+         * 直接调会抛，而我们只要"没回信"这个结果，不要异常。
+         */
+        private val PING_SCRIPT =
+            "window.ccoder && window.ccoder.send && window.ccoder.send(JSON.stringify({op:'pong'}));"
     }
 }
 
 /** JCEF 那一套零件：浏览器 + 桥。建它们的那条路会抛，见 [startTranscriptCef]。 */
 internal class TranscriptCef(val browser: JBCefBrowser, val query: JBCefJSQuery)
+
+/**
+ * 心跳记账：叫了页面、它有没有在下一拍之前回信。
+ *
+ * 纯状态、不碰 Swing / JCEF，于是"多久算死"能在纯 JVM 里钉住（`BridgeHeartbeatTest`）。
+ * 判死规则是**连着 [MISS_LIMIT] 拍没回信**，不是"一拍没回就死"：
+ * 一拍的抖动（GC、页面重载那一瞬）不该把整格换掉。
+ *
+ * 并发形状：`onPing` 在 EDT（Swing Timer），`onPong` 在 CEF 回调线程 —— 自己同步。
+ */
+internal class BridgeHeartbeat(private val missLimit: Int = MISS_LIMIT) {
+
+    /** 发了 ping、还没等到 pong。 */
+    private var awaiting = false
+
+    /** 连着几拍没回信。收到 pong 就归零。 */
+    private var misses = 0
+
+    /**
+     * 发出一拍 ping。返回 **true = 判死**（连着 [missLimit] 拍没回信）。
+     *
+     * 记账放在"发这一拍之前"：上一拍没等到就先加一，再把这一拍记成"在等"。
+     * 于是第一拍永远不算 miss（刚发出去当然还没回信）。
+     */
+    @Synchronized
+    fun onPing(): Boolean {
+        if (awaiting) misses++
+        awaiting = true
+        return misses >= missLimit
+    }
+
+    /** 回信到了：这一轮活着，计数归零。 */
+    @Synchronized
+    fun onPong() {
+        awaiting = false
+        misses = 0
+    }
+
+    /** 换页面 / 判死收场：从头数。 */
+    @Synchronized
+    fun reset() {
+        awaiting = false
+        misses = 0
+    }
+
+    companion object {
+        /**
+         * 连着几拍没回信才判死。
+         *
+         * 2 = 一拍的抖动放得过去，两拍（约 [HEARTBEAT_MS]×2 = 10 秒）足够确认不是抖动。
+         * 1 会误伤页面重载那一瞬；3 让"卡死"多挂 5 秒才被发现，不值。
+         */
+        const val MISS_LIMIT = 2
+    }
+}
 
 /**
  * 建零件 + 接线，**失败返回 null、绝不往外抛**。

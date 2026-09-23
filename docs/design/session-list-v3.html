@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 历史会话 · 卡片式 · 设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量。
+   与 session-list-v2.html / session-manage.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  /* 卡片底 = 面板底往前景色混 5%（CARD_TINT=0.05）。
+     深色主题下卡比底亮一档 —— 这条是算出来的，不是挑的 */
+  --card-fill:#343639;
+  /* 悬停底 = UIUtil.getListSelectionBackground(false) 那一档 */
+  --card-hover:#2f3237;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --card-fill:#f1f2f4;
+  --card-hover:#eaecef;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1420px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 70ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.lede code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+  transition: background .15s, color .15s;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.picked-note { margin: 22px 0 0; font-size: 13px; color: var(--page-dim); border-left: 3px solid var(--ok); padding: 10px 0 10px 14px; background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.picked-note b { color: var(--page-fg); }
+.picked-note code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; color: var(--text); }
+
+.brief {
+  margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+  background: var(--page-card);
+}
+.brief h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 10px; color: var(--page-dim); font-size: 13.5px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief b { color: var(--page-fg); }
+.brief code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief ol, .brief ul { margin: 6px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 4px; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--page-line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform: uppercase; color: var(--page-dim); font-weight: 500; }
+td b { color: var(--page-fg); }
+td code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.bad { color: var(--danger); font-weight: 600; }
+.good { color: var(--ok); font-weight: 600; }
+
+.grid { display:grid; grid-template-columns: 1fr; gap: 30px; margin-top: 34px; }
+.card-page { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 24px 24px 22px; }
+.row { display:flex; gap:30px; align-items:flex-start; flex-wrap:wrap; }
+.side { flex:1 1 470px; min-width:340px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.card-page h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13.5px; margin: 0 0 16px; }
+.thesis b { color: var(--page-fg); }
+.thesis code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; }
+.side h4 { margin: 18px 0 6px; font-size: 12px; font-family: var(--mono); letter-spacing:.1em; text-transform:uppercase; color: var(--page-dim); font-weight:500; }
+.side ul { margin: 0; padding-left: 18px; color: var(--page-dim); font-size: 13px; }
+.side ul li { margin-bottom: 3px; }
+.side ul b { color: var(--page-fg); }
+
+/* ============================================================
+   模拟工具窗口 + 浮层本体。420px 是真实宽度 ——
+   好看没用，得在这一栏里活。
+   ============================================================ */
+.tw {
+  position: relative; width: 420px; max-width: 100%; background: var(--panel);
+  border:1px solid var(--border); border-radius: 8px; overflow: hidden;
+  display:flex; flex-direction:column;
+}
+.tw-bar {
+  display:flex; align-items:center; gap:7px; padding: 6px 10px;
+  background: var(--surface); border-bottom:1px solid var(--border);
+  font-size: 11.5px; color: var(--dim);
+}
+.tw-bar .ic { width:11px; height:11px; border-radius:2px; background: var(--border); }
+.tw-bar .sp { margin-left:auto; }
+.tr { padding: 10px 12px; background: var(--editor); min-height: 54px; color: var(--dim); font-size: 11.5px; }
+
+.pop {
+  background: var(--surface);
+  border:1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0,0,0,.45);
+  overflow:hidden; width: 420px; max-width:100%;
+}
+[data-theme="light"] .pop { box-shadow: 0 8px 26px rgba(0,0,0,.16); }
+.plist { padding: 4px; }
+
+/* 顶部那一行：左边「历史会话」，右边「清空全部」 */
+.phead {
+  display:flex; align-items:center; padding: 4px 8px 6px;
+  font-size: 12px; color: var(--dim);
+  border-bottom: 1px solid var(--border-soft); margin-bottom: 4px;
+}
+.phead .clr { margin-left:auto; font-size: 12px; cursor:pointer; }
+.phead .clr:hover { color: var(--danger); }
+
+/* ------------------------------------------------------------
+   卡片的三个方案。几何都写死成真机上的 px：
+   A 卡高 32 / 间距 4；B 卡高 54 / 间距 5；C 卡高 32 + 组头 20。
+   ------------------------------------------------------------ */
+.scard {
+  border:1px solid var(--border); border-radius: 8px;
+  background: var(--card-fill);
+  margin-bottom: 4px; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.scard:hover { background: var(--card-hover); border-color: var(--accent); }
+.scard.cur { border-color: var(--accent); }
+.scard.cur .t { font-weight: 600; }
+.scard.taken .t { color: var(--dim); }
+.scard.taken:hover { border-color: var(--border); background: var(--card-fill); cursor: default; }
+
+/* 左侧强调条：3px 宽，只有当前那条亮着 */
+.lane { display:flex; align-items:stretch; }
+.bar { flex:0 0 3px; margin: 6px 0 6px 4px; border-radius: 2px; }
+.scard.cur .bar { background: var(--accent); }
+.scard.b .bar { margin: 8px 0 8px 5px; }
+
+/* 单行卡（A / C）：卡高 32 */
+.scard.a .body, .scard.c .body {
+  flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:6px;
+  padding: 5px 8px 5px 6px; height: 32px;
+}
+.scard .t {
+  flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color: var(--text); font-size: 12.5px;
+}
+.scard .s { flex:0 0 auto; font-family: var(--mono); font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.scard .del { flex:0 0 auto; font-size: 12px; color: var(--dim); padding: 0 2px; border-radius: 3px; }
+.scard:hover .del { color: var(--text); }
+.scard .del.hot { color: var(--danger); background: var(--code); border:1px solid var(--danger); padding: 1px 5px; }
+.scard .chip {
+  flex:0 0 auto; font-size: 10.5px; color: var(--dim); background: var(--code);
+  border-radius: 4px; padding: 0 4px;
+}
+.scard .chip.ghost { background: transparent; }
+
+/* 双行卡（B）：卡高 54 —— 标题一行，元信息一行 */
+.scard.b .body { flex:1 1 auto; min-width:0; padding: 6px 8px 6px 6px; }
+.scard.b .l1 { display:flex; align-items:baseline; gap:8px; }
+.scard.b .l2 { display:flex; align-items:center; gap:6px; margin-top: 2px; height: 22px; }
+.scard.b .l2 .sp { flex:1 1 auto; }
+.scard.b .state { font-size: 10.5px; color: var(--dim); }
+.scard.b.cur { background: var(--accent-soft); border-color: var(--accent); }
+.scard.b.cur:hover { background: var(--accent-soft); }
+[data-theme="dark"] .scard.b.cur .t { color: #ffffff; }
+
+/* C 的组头 */
+.group {
+  display:flex; align-items:center; gap:8px;
+  padding: 6px 6px 4px; font-size: 10.5px; color: var(--dim);
+  font-family: var(--mono); letter-spacing:.08em;
+}
+.group:first-child { padding-top: 2px; }
+.group .line { flex:1 1 auto; height:1px; background: var(--border-soft); }
+
+/* 删除确认态：卡片就地换内容 */
+.scard .confirm { display:flex; align-items:center; gap:6px; padding: 5px 8px; height: 32px; }
+.scard .confirm .q { flex:1 1 auto; font-size: 12px; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.btn { font-size: 11.5px; padding: 1px 9px; border-radius: 4px; border:1px solid var(--border); background: var(--surface); color: var(--text); cursor:pointer; }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+
+.badge { display:inline-block; font-family: var(--mono); font-size: 10px; letter-spacing:.06em; color: var(--page-dim); border:1px solid var(--page-line); border-radius: 4px; padding: 0 5px; margin-left:6px; vertical-align: middle; }
+
+.facts { display:flex; gap: 12px; flex-wrap:wrap; margin-top: 14px; }
+.fact { flex:1 1 190px; border:1px solid var(--page-line); border-radius: 10px; padding: 10px 12px; background: var(--page-card); }
+.fact .k { font-family: var(--mono); font-size: 10.5px; color: var(--page-dim); text-transform:uppercase; letter-spacing:.08em; }
+.fact .v { font-family: var(--mono); font-size: 19px; color: var(--page-fg); font-variant-numeric: tabular-nums; }
+.fact .n { font-size: 11.5px; color: var(--page-dim); }
+
+.open-q { margin-top: 34px; padding: 20px 24px; border:1px solid var(--page-line); border-radius: 12px; background: var(--page-card); }
+.open-q h3 { margin: 0 0 10px; font-size: 14px; }
+.open-q ol { margin: 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.open-q li { margin-bottom: 8px; }
+.open-q b { color: var(--page-fg); }
+.open-q code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 4px; border-radius: 3px; }
+
+.section-title { font-family: var(--serif); font-size: 26px; font-weight: 600; margin: 46px 0 0; }
+.section-note { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 88ch; }
+.section-note b { color: var(--page-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 历史会话 · 2026-09-22</p>
+      <h1>历史会话：从列表到卡片</h1>
+      <p class="lede">
+        你原话是「这个历史会话页面不好看，<b>改为卡片式的</b>」。卡片式说白了是拿<b>高度</b>换可读性：
+        每条会话从"表格里的一行"变成"一张有身体的小卡"。这一页把高度预算摆在台面上，
+        再给三种花法 —— 差别在<b>一张卡放几行、一屏还看得见几条</b>，不在配色好不好看。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="btn-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
+      <button id="btn-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </div>
+
+  <p class="picked-note">
+    <b>已选定（2026-09-22）：方案 A · 单行卡。</b>
+    落地的是：卡高 <b>32</b> + 缝 <b>4</b>（= 一张 36px 高）、圆角 arc 16（半径 8，与输入卡 / 状态卡 /
+    设置卡同一个数）、底取 <code>cardFill()</code>、悬停取列表选中那一档的"弱"版本；当前会话 =
+    强调色描边 + 左侧 3px 强调条 + 标题加粗（<b>改版前那个 <code>✓</code> 由强调条顶掉</b>，
+    顺带省下标题左边那 13px 的占位）。被别的标签占着的那条<b>整卡压暗到 55%</b> —— 只把卡底调灰
+    是看不出来的，出图试过。浮层高度上限没动：一屏 <b>8 张</b>（8 × 36 = 288，与改版前
+    10 × 28 = 280 同一档），所以"看见的条数"从 10 变 8，浮层本身没有变高。B / C 两条没有上。
+    实现见 <code>ui/SessionList.kt</code> 的 <code>SessionCard</code>。
+    <b>内容上下居中那两处</b>（2026-09-22 用户报的「文字没有上下居中」）：卡片的缝<b>一半留在上边</b>
+    （卡片若贴着顶画，它的中线比内容的中线高 2px）；行尾那一串（＋/时间/删除）外面<b>套一层
+    <code>GridBagLayout</code></b> 居中 —— <code>FlowLayout</code> 是把行贴着顶摆的，卡片一高，它就高出去 4px。
+    图见
+    <code>SessionListRenderProbe</code> 出的那几张（这次它改用真机 LAF 出图了）。
+  </p>
+
+  <!-- ===================== 现状实测 ===================== -->
+  <div class="brief">
+    <h3>现状：不是"丑"，是每一行都只有一行字</h3>
+    <p>
+      下面这些数是刚才用 <code>SessionListRenderProbe</code> 在本机量出来的（真实字体、真实内边距），
+      不是估的 —— 三个方案的"一屏几条"都由它们推出来。
+    </p>
+    <div class="facts">
+      <div class="fact">
+        <div class="k">行高</div>
+        <div class="v">29 px</div>
+        <div class="n">上下内边距 3 + 删除按钮 22</div>
+      </div>
+      <div class="fact">
+        <div class="k">浮层上限</div>
+        <div class="v">420 × 288</div>
+        <div class="n">宽 = 工具窗口宽；10 行封顶后滚</div>
+      </div>
+      <div class="fact">
+        <div class="k">一屏几条</div>
+        <div class="v">10 条</div>
+        <div class="n">77 条会话时内容高 2193px</div>
+      </div>
+      <div class="fact">
+        <div class="k">卡片语法</div>
+        <div class="v">半径 8</div>
+        <div class="n">arc 16 + 底比面板亮/暗 5%</div>
+      </div>
+    </div>
+    <p style="margin-top:14px">
+      高度是<b>硬的</b>：浮层开出来之后不能缩放（<code>setResizable(false)</code>），所以"卡片多高"和
+      "一屏几条"是一次算清的 —— 下面每个方案都按<b>同一个 288px 预算</b>标了能看见几条。
+      这是这一页真正的取舍，别的都是细节。
+    </p>
+  </div>
+
+  <!-- ===================== 三案共用的语法 ===================== -->
+  <h2 class="section-title">三案共用的卡片语法</h2>
+  <p class="section-note">
+    这一层不投票：它是这个仓库已经有的卡片语言（输入卡 <code>ComposerCard</code>、状态卡
+    <code>StatusCardView</code>、设置卡 <code>SettingsCard</code> 三处同一个模子），
+    照用即可，不另创几何。
+  </p>
+  <div class="grid">
+    <div class="card-page">
+      <div class="row">
+        <div class="side">
+          <span class="tag">共用 · 几何</span>
+          <h2 style="font-size:19px;margin-top:6px">卡 = 圆角 8 + 描边 + 一点点底</h2>
+          <ul>
+            <li><b>圆角 arc 16（半径 8）</b>：与输入卡、状态卡、设置卡同一个常量 <code>CARD_CORNER_ARC</code>。</li>
+            <li><b>底比页面亮/暗 5%</b>（<code>CARD_TINT=0.05</code>）：深色主题下卡比底亮一档、浅色下暗一档，方向不用判明暗。卡片靠<b>边 + 圆角</b>读出来，不靠色差堆。</li>
+            <li><b>描边</b>取 <code>Component.borderColor</code>，与转写区那些分界线同一支灰。</li>
+            <li><b>悬停</b>：底换成列表选中那一档的"弱"版本（<code>getListSelectionBackground(false)</code>），描边提到强调色。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="pop" style="width:420px">
+            <div class="plist">
+              <div class="scard a">
+                <div class="lane"><div class="bar"></div>
+                  <div class="body"><span class="chip ghost">＋</span><span class="t">还没被选中的一条：底是卡片底</span><span class="s">1 小时前</span><span class="del">删除</span></div>
+                </div>
+              </div>
+              <div class="scard a" style="background:var(--card-hover);border-color:var(--accent)">
+                <div class="lane"><div class="bar"></div>
+                  <div class="body"><span class="chip ghost">＋</span><span class="t">指针停在这一条上：底亮一档、边变强调色</span><span class="s">3 小时前</span><span class="del">删除</span></div>
+                </div>
+              </div>
+              <div class="scard a cur" style="margin-bottom:0">
+                <div class="lane"><div class="bar"></div>
+                  <div class="body"><span class="chip ghost">＋</span><span class="t">当前会话：左边 3px 强调条 + 标题加粗</span><span class="s">刚刚</span><span class="del">删除</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== A ===================== -->
+  <h2 class="section-title">方案 A · 单行卡（省地儿）</h2>
+  <p class="section-note">一张卡里放原来那一行的全部内容，只是给它一个身体。</p>
+  <div class="grid">
+    <div class="card-page">
+      <div class="row">
+        <div class="side">
+          <span class="tag">方案 A</span>
+          <h2>一行内容，卡高 32</h2>
+          <p class="thesis">
+            卡里仍是 <b>勾/强调条 + 标题 + 时间 + 删除</b> 一条线，只是外面套了卡：圆角、底、4px 缝。
+            标题是唯一可伸缩的元素，长标题照旧打省略号。
+          </p>
+          <h4>好处</h4>
+          <ul>
+            <li><b>密度只掉三成</b>：一屏 <b>7 张</b>（现状 10 行，同一 288px 预算）。</li>
+            <li><b>改动最小</b>：行里那几个部件一个不动，改的是壳 —— 现有那 40 多条列表用例基本照旧。</li>
+            <li>扫视节奏没变：还是一行一条，位置固定，找"第几个"靠数数就行。</li>
+          </ul>
+          <h4>代价</h4>
+          <ul>
+            <li>"卡片感"最弱 —— 如果嫌它只是"行加了个框"，那就该看 B。</li>
+            <li>标题与时间仍然在同一行抢宽度：标题 ≈300px（B 是 ≈340px）。</li>
+          </ul>
+          <h4>落地要点</h4>
+          <ul>
+            <li>卡高<b>不是新数</b>：删除按钮 22 + 上下各 5 = 32；缝 4。<br>
+                <span class="num">可用高 288 − 8（列表内边距）− 26（表头） = 254 → 254 ÷ 36 ≈ 7 张</span></li>
+            <li>现成的件：<code>RoundedLineBorder</code> + <code>cardFill()</code>（两者 arc 必须同源，否则四角露出月牙）。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="tw">
+            <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+            <div class="tr">转写区（被浮层压着的部分）</div>
+            <div class="pop" style="box-shadow:none;border:0;border-top:1px solid var(--border)">
+              <div class="plist">
+                <div class="phead">历史会话<span class="clr">清空全部</span></div>
+                <div class="scard a cur">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">缺发送和换行的说明</span><span class="s">已打开</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="scard a">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">你好</span><span class="s">1 小时前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="scard a">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">输出区的工具调用显示感觉有问题，现在只有一行字</span><span class="s">3 小时前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="scard a">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">模型配多了后 后面的看不到了</span><span class="s">6 小时前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="scard a">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="chip">#重构</span><span class="t">重构 extractor 的指纹计算，顺便把跨块的 CR 边界也处理掉</span><span class="s">5 天前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="scard a" style="margin-bottom:0">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">模型配多了之后，后面的看不到了</span><span class="s">7 小时前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="section-note" style="margin-top:10px">
+            图上这六张正好是<b>同一预算下的一屏</b> —— 再多就该滚了。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== B ===================== -->
+  <h2 class="section-title">方案 B · 双行卡（信息分层）</h2>
+  <p class="section-note">标题独享一行，标签、状态与操作搬到第二行 —— 信息各就各位，代价是密度。</p>
+  <div class="grid">
+    <div class="card-page">
+      <div class="row">
+        <div class="side">
+          <span class="tag">方案 B</span>
+          <h2>两行：标题一行，元信息一行（卡高 54）</h2>
+          <p class="thesis">
+            第一行只有<b>标题 + 时间</b>，标题于是拿到整行（≈340px）；
+            第二行是 <b>#标签 · 状态 · 删除</b>，操作区不再是挤在行尾的那一小撮。
+          </p>
+          <h4>好处</h4>
+          <ul>
+            <li>最好看、最像"卡片"：留白、层次、hover 面积都到位。</li>
+            <li><b>标题宽了一点</b>：≈300px → ≈340px（在浏览器里按同一套几何量的）。多出来的不多 ——
+                差别主要不在字数，而在<b>层次与留白</b>。</li>
+            <li>标签有了正经位置，不再是一个 10px 的小片贴在行尾。</li>
+          </ul>
+          <h4>代价</h4>
+          <ul>
+            <li><b>一屏只剩 4 张</b>（254 ÷ (54+5) ≈ 4.3）。77 条那种量级要多滚一倍。</li>
+            <li>想恢复 6 张就得把浮层上限从 288 抬到 <b>≈ 360</b> —— 它压住的转写区更多，要你点头。</li>
+          </ul>
+          <h4>变体 B′（不推荐，但列出来）</h4>
+          <ul>
+            <li>第二行平时收成一枚「···」、悬停才展开 —— 省高度，但<b>你们在删除按钮上踩过这个坑三次</b>：
+                悬停才出现的东西会被当成不存在。要选它得先接受这条学费。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="tw">
+            <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+            <div class="tr">转写区（被浮层压着的部分）</div>
+            <div class="pop" style="box-shadow:none;border:0;border-top:1px solid var(--border)">
+              <div class="plist">
+                <div class="phead">历史会话<span class="clr">清空全部</span></div>
+                <div class="scard b cur">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body">
+                      <div class="l1"><span class="t">缺发送和换行的说明</span><span class="s">已打开</span></div>
+                      <div class="l2"><span class="chip ghost">＋</span><span class="state">使用中</span><span class="sp"></span><span class="del">删除</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="scard b">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body">
+                      <div class="l1"><span class="t">输出区的工具调用显示感觉有问题，现在只有一行字</span><span class="s">3 小时前</span></div>
+                      <div class="l2"><span class="chip ghost">＋</span><span class="sp"></span><span class="del">删除</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="scard b">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body">
+                      <div class="l1"><span class="t">重构 extractor 的指纹计算，顺便把跨块的 CR 边界也处理掉</span><span class="s">5 天前</span></div>
+                      <div class="l2"><span class="chip">#重构</span><span class="sp"></span><span class="del">删除</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="scard b" style="margin-bottom:0">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body">
+                      <div class="l1"><span class="t">模型配多了之后，后面的看不到了</span><span class="s">7 小时前</span></div>
+                      <div class="l2"><span class="chip ghost">＋</span><span class="sp"></span><span class="del">删除</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="section-note" style="margin-top:10px">
+            同一预算下这就是<b>一屏</b>：4 张。第三张那条长标题在这里刚好放下 —— 再长一个字，两案都得打省略号。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== C ===================== -->
+  <h2 class="section-title">方案 C · 分组卡（今天 / 昨天 / 更早）</h2>
+  <p class="section-note">A 的密度 + 一层时间分组 —— 改的不是卡片长相，是"先看哪儿"。</p>
+  <div class="grid">
+    <div class="card-page">
+      <div class="row">
+        <div class="side">
+          <span class="tag">方案 C</span>
+          <h2>卡还是单行卡，按时间分组</h2>
+          <p class="thesis">
+            组头像一行小字：<b>今天 · 2</b> / <b>昨天 · 1</b> / <b>更早 · 3</b>。
+            列表本来就是按时间排的，分组把"排序"变成"看得见的结构"。
+          </p>
+          <h4>好处</h4>
+          <ul>
+            <li>一眼知道"刚才那几条在哪儿"，翻旧会话时不用看时间戳核对。</li>
+            <li>与 A 不冲突：也可以只做 A、以后再加分组。</li>
+          </ul>
+          <h4>代价</h4>
+          <ul>
+            <li>组头 20px × 组数：一屏从 7 张掉到 <b>5 张</b>。</li>
+            <li>多一层结构要维护（分组的边界怎么算：24 小时 / 自然天？跨零点怎么算？）。</li>
+            <li>会话少时（只有今天几条）组头反而是负担 —— 也许"只有一组时就不画组头"。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="tw">
+            <div class="tw-bar"><span class="ic"></span>CCoder<span class="sp">— □ ✕</span></div>
+            <div class="tr">转写区（被浮层压着的部分）</div>
+            <div class="pop" style="box-shadow:none;border:0;border-top:1px solid var(--border)">
+              <div class="plist">
+                <div class="phead">历史会话<span class="clr">清空全部</span></div>
+                <div class="group">今天 · 2<span class="line"></span></div>
+                <div class="scard c cur">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">缺发送和换行的说明</span><span class="s">已打开</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="scard c">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">输出区的工具调用显示感觉有问题，现在只有一行字</span><span class="s">3 小时前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="group">昨天 · 1<span class="line"></span></div>
+                <div class="scard c">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="t">模型配多了后 后面的看不到了</span><span class="s">昨天</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+                <div class="group">更早 · 3<span class="line"></span></div>
+                <div class="scard c" style="margin-bottom:0">
+                  <div class="lane"><div class="bar"></div>
+                    <div class="body"><span class="chip">#重构</span><span class="t">重构 extractor 的指纹计算，顺便把跨块的 CR 边界也处理掉</span><span class="s">5 天前</span><span class="del">删除</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 状态怎么画 ===================== -->
+  <h2 class="section-title">那些"特殊状态"在卡片里怎么画</h2>
+  <p class="section-note">
+    下面这张图用的是 <b>B</b> 的卡（信息最多，最能看出各状态会不会打架）；
+    A / C 同一套语义，只是挤在一行里。
+  </p>
+  <div class="grid">
+    <div class="card-page">
+      <div class="row">
+        <div class="side">
+          <span class="tag">状态 · 四档</span>
+          <h2 style="font-size:19px;margin-top:6px">当前 / 已打开 / 有标签 / 删除确认</h2>
+          <ul>
+            <li><b>当前会话</b>：左侧 3px 强调条 + 描边强调色 + 标题加粗。<b>不用整条填色</b> —— 填色在 420px 里太重，会把别的卡压得看不见。</li>
+            <li><b>被别的标签占着（已打开）</b>：整卡压暗、标题转次要色、<b>时间那格换成「已打开」</b>（位置不变）。照搬现状的语义：点不动，但说得清为什么。</li>
+            <li><b>有标签</b>：<code>#标签</code> chip；没有标签时留一个淡色「＋」—— 它是"给这条打标签"唯一的入口，不许藏。</li>
+            <li><b>删除确认</b>：卡片<b>就地</b>把内容换成问句 + <code>[取消] [删除]</code>，卡高不变（浮层不会跟着长）、默认焦点在「取消」上。</li>
+          </ul>
+          <h4>照旧不动的那几条</h4>
+          <ul>
+            <li>双击标题改名、点标签改标签、点卡切换会话。</li>
+            <li>忙时（权限待确认）整列不可点，删除入口不露。</li>
+            <li>「删除」永远是文字，不是 ✕（这是你们 2026-09-15 定的）。</li>
+          </ul>
+        </div>
+        <div>
+          <div class="pop" style="width:420px">
+            <div class="plist">
+              <div class="scard b cur">
+                <div class="lane"><div class="bar"></div>
+                  <div class="body">
+                    <div class="l1"><span class="t">当前会话</span><span class="s">刚刚</span></div>
+                    <div class="l2"><span class="chip ghost">＋</span><span class="state">使用中</span><span class="sp"></span><span class="del">删除</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="scard b taken" style="opacity:.72">
+                <div class="lane"><div class="bar"></div>
+                  <div class="body">
+                    <div class="l1"><span class="t">正被别的标签跑着的那条</span><span class="s">已打开</span></div>
+                    <div class="l2"><span class="chip ghost">＋</span><span class="state">别的标签在用</span><span class="sp"></span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="scard b">
+                <div class="lane"><div class="bar"></div>
+                  <div class="body">
+                    <div class="l1"><span class="t">已经改过名、打过标签的一条</span><span class="s">5 天前</span></div>
+                    <div class="l2"><span class="chip">#重构</span><span class="sp"></span><span class="del hot">删除</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="scard b" style="margin-bottom:0">
+                <div class="body">
+                  <div class="confirm">
+                    <span class="q">删除「模型配多了后 后面的看不到了」？</span>
+                    <span class="btn">取消</span>
+                    <span class="btn danger">删除</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="section-note" style="margin-top:10px">
+            第三条右边那颗「删除」画的是<b>指针停在它上面</b>那一档（变红 + 长出按钮框）——
+            三档强调（安静 → 悬停整行提亮 → 停在按钮上变红）从现状原样搬过来。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 取舍 ===================== -->
+  <h2 class="section-title">取舍</h2>
+  <table>
+    <thead><tr><th>比什么</th><th>A · 单行卡</th><th>B · 双行卡</th><th>C · 分组卡</th></tr></thead>
+    <tbody>
+      <tr><td>卡高 / 间距</td><td>32 / 4</td><td><b>54 / 5</b></td><td>32 / 4 + 组头 20</td></tr>
+      <tr><td>一屏几条（同 288px）</td><td class="good">7</td><td class="bad">4</td><td>5</td></tr>
+      <tr><td>标题可用宽度</td><td>≈300px（截断）</td><td class="good">≈340px（截断）</td><td>≈300px（截断）</td></tr>
+      <tr><td>标签 / 状态的位置</td><td>仍挤在行尾</td><td class="good">第二行，各就各位</td><td>仍挤在行尾</td></tr>
+      <tr><td>找"刚才那条"</td><td>数行</td><td>数行</td><td class="good">看组头，一眼定位</td></tr>
+      <tr><td>改动量</td><td class="good">小（换壳）</td><td>中（行结构重排）</td><td>中（多一层分组）</td></tr>
+      <tr><td>要动浮层高度上限</td><td>不用</td><td><b>要（288 → ~360 才有 6 条）</b></td><td>不用</td></tr>
+      <tr><td>现有用例影响</td><td class="good">小</td><td>中（行内结构断言要改）</td><td>中</td></tr>
+    </tbody>
+  </table>
+
+  <div class="open-q">
+    <h3>看完请回我四件事</h3>
+    <ol>
+      <li>选哪案？我倾向 <b>A</b> —— 你要的"卡片感"它给到了，而一屏还能看见 7 条；<br>
+          但如果这一页主要图<b>好看</b>、并且你平时会话不多（图上这种 9 条上下），那 <b>B</b> 更像你想要的卡片。</li>
+      <li>浮层高度上限要不要放宽（现在是 <b>288px</b>）？B 想要 6 条就得抬到 ≈360。</li>
+      <li>卡片之间的缝：<b>4px</b>（图上的样子）还是 6px（更松、更"卡片"，但再少一条）？</li>
+      <li>C 的分组要不要单独排一轮？（也可以先上 A，以后想加再加。）</li>
+    </ol>
+  </div>
+
+</div>
+
+<script>
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('btn-dark').setAttribute('aria-pressed', String(t === 'dark'));
+  document.getElementById('btn-light').setAttribute('aria-pressed', String(t === 'light'));
+}
+// 跟随系统偏好起手
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) setTheme('light');
+</script>
+</body>
+</html>

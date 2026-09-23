@@ -2,6 +2,7 @@ package com.ccoder.settings
 
 import com.ccoder.sidecar.McpServerStatus
 import com.ccoder.text.CcoderText
+import com.ccoder.ui.cardFill
 import com.google.gson.JsonObject
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.DocumentAdapter

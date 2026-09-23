@@ -352,3 +352,26 @@ SMALL_FAST / SUBAGENT 六个名字 —— 与 CCG 的 `MODEL_ROUTING_ENV_VARS` �
 - **从 `envOverrides` 自动迁移** —— 不做静默搬迁。用户在 `envOverrides` 里手写过
   `ANTHROPIC_BASE_URL` 的话，靠 §6 的冲突警告提示，由用户自己决定
 - **不碰 `SidecarMessage.Exit` 那段死代码** —— 与本设计无关
+
+---
+
+# 后续（2026-09-22）：密钥可以被复制
+
+用户："设置界面的密钥需要可以被复制"。§7 当初只定了"默认打码 + 👁 切明文 + 失焦恢复打码"，
+没给复制的出口 —— 而 `JPasswordField` 的 `copy()` 是平台刻意做空的（选中也拿不走）。
+
+做法（`ModelProfilesPage.secretField`）：密钥框右边加一颗复制键（`AllIcons.Actions.Copy`，
+与那只眼睛并排）。
+
+- **复制的是整条，不是选区**：打码时选区在屏幕上看不见，"复制我选的那几个字"没有意义。
+- **打码时也照复制**：要求先点眼睛看明文才能复制的话，那一步反倒把明文留在了屏幕上
+  —— 那正是这个字段唯一要防的事。密码管理器也是这么做的。
+- **点完换成对勾、指针离开还原**：复制是这里唯一"成功了也看不出来"的动作。
+  不用计时器 —— 省一个要在组件销毁时收尾的长命 Timer（平台测试框架会判它没销毁，
+  第一版就是这么红的），行为也好测。
+- 剪贴板那颗副作用**从页面构造器注入**（默认 `copyToClipboard`），同 `DepsUi.copy` 那条先例：
+  纯单测 JVM 里没有 `ApplicationManager`，真那条一调就 NPE。
+
+> 顺带记一笔：**平台图标在测试 JVM 里画不出来**（`AllIcons.*` 解析成
+> `DummyIconImpl`，有尺寸、零墨迹）—— 所以这颗键和那只眼睛在 `build/probe/` 的图上
+> 都是空白。位置与间距只能量 bounds 验，长相只能真机看。详见 `IdeLaf.withRealLaf` 的注释。

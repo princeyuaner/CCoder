@@ -203,6 +203,21 @@ class SessionListRenderProbe {
         dangerRow: Int = -1,
         clearConfirm: Boolean = false,
     ) {
+        // 卡片式之后这一列有了"卡片底"与描边，颜色成了要看的重点之一 ——
+        // 必须在真机 LAF（New UI 深色）下画，理由见 IdeLaf 的注释
+        IdeLaf.withRealLaf { drawUnder(path, sessions, block, current, hoverRow, taken, dangerRow, clearConfirm) }
+    }
+
+    private fun drawUnder(
+        path: String,
+        sessions: List<SessionInfo>,
+        block: SwitchBlock,
+        current: String?,
+        hoverRow: Int,
+        taken: Set<String>,
+        dangerRow: Int,
+        clearConfirm: Boolean,
+    ) {
         SwingUtilities.invokeAndWait {
             val list = buildSessionList(
                 sessions,

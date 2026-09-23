@@ -278,13 +278,19 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
       }
 
       case 'finalizeDelta': {
-        // 以最终文本为准——它可能包含增量之外的修正
+        // 以最终文本为准——它可能包含增量之外的修正。
+        //
+        // **空文本 = 「把 live 缓冲落成条目」**（2026-09-23）：超大正文由 Kotlin
+        // 侧拆成一串 appendDelta + 这么一条收尾（见 TranscriptOpCodec.splitForWire），
+        // 免得一次几 MB 的 executeJavaScript 掐断 IDEA 的 remote JCEF 通道。
+        // 正常路径 text 非空，行为与从前一字不差。
+        const text = op.text !== '' ? op.text : (live[op.target] ?? '')
         const next = mutateItems()
         next.push({
           kind: 'assistant',
           id: `final-${next.length}-${finalizeCounter++}`,
           ts: Date.now(),
-          text: op.text,
+          text,
         })
         delete mutateLive()[op.target]
         break

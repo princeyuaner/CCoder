@@ -63,7 +63,19 @@ internal object IdeLaf {
         }
     }
 
-    /** 真机那一套（New UI 深色）。 */
+    /**
+     * 真机那一套（New UI 深色）。
+     *
+     * ## 但平台图标在图上永远是空白（2026-09-22 实测）
+     *
+     * `AllIcons.Actions.Copy` / `AllIcons.General.InspectionsEye` 这类真机上是 SVG，
+     * 在这个 JVM 里解析成 `com.intellij.ui.DummyIconImpl`：**有尺寸（16x16）、
+     * 一个像素都不画**。所以"加了个平台图标，出图看一眼"这条路走不通 ——
+     * 图上那块空白既不是布局错了、也不是图标没挂上，是这个环境画不出来。
+     *
+     * 想验的是**位置与间距**：量 `bounds` 算得出来。图标本身长什么样只能真机看。
+     * 手绘的（`RoundSendButton` 那种纯 Java2D）不在此列，图上照常出。
+     */
     fun <T> withRealLaf(block: () -> T): T = withLaf(DARK, block)
 
     /** 给 `@BeforeAll` / `@AfterAll` 用的长命版本：整个测试类都待在真机 LAF 下。 */

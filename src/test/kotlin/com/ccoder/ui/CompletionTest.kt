@@ -161,6 +161,30 @@ class CompletionTest {
         assertEquals(CompletionKey.Dismiss, completionKey(KeyEvent.VK_ESCAPE))
     }
 
+    /**
+     * 2026-09-23 用户报的那条：**弹层开着时 Shift+Enter 不换行**。
+     *
+     * 病根是这里从前只看 keyCode —— Shift+Enter 被当成"采纳候选"吃掉了
+     * （`ClaudePanel` 那条分支 `e.consume(); return`），而 `isSendKey` 上写着
+     * "Shift+Enter 在两种约定下都留给换行"，那句根本没机会跑。
+     *
+     * 判据是 [CompletionKey.Ignore]：不接管 = 落回输入框 = 换行。
+     */
+    @Test
+    fun `Shift+Enter 弹层开着也不接管 —— 它归换行`() {
+        assertEquals(
+            CompletionKey.Ignore,
+            completionKey(KeyEvent.VK_ENTER, shiftDown = true),
+            "被接管了就等于'按了不换行'",
+        )
+    }
+
+    /** Shift+Tab 在弹层里的通用含义是"上一项"，从前和 Tab 一样被当成采纳，那是误伤。 */
+    @Test
+    fun `Shift+Tab 是上一项，不是采纳`() {
+        assertEquals(CompletionKey.Up, completionKey(KeyEvent.VK_TAB, shiftDown = true))
+    }
+
     @Test
     fun `其余按键一律不接管`() {
         assertEquals(CompletionKey.Ignore, completionKey(KeyEvent.VK_A))

@@ -107,6 +107,55 @@ sealed interface RenderItem {
 internal const val NO_CONTENT_PLACEHOLDER = "(no content)"
 
 /**
+ * 转写区里**工具参数 / 工具结果**的显示上限（字符）。
+ *
+ * 为什么必须截：Write 的 `content` 是整个文件、Read 的结果是整个文件 ——
+ * 原样送进 JCEF 就是一次几 MB 的 `executeJavaScript`。IDEA 2026.2 的 remote JCEF
+ * （CEF 144）吃不下这种报文：通道会**悄悄断掉**，输出区停在一帧上，再大一点就
+ * 心跳判死（2026-09-23 用户报「输出多一些内容就很容易卡死」，日志里 13:33:51
+ * 那条 `连着 2 拍没收到 pong` 就是这么来的）。
+ *
+ * 8000 字够看命令 / 路径 / diff 开头；全文在会话文件里，不进聊天区。
+ * 正文（assistant / thinking）**不走这里** —— 那是用户要看的话，由
+ * [com.ccoder.ui.TranscriptOpCodec.splitForWire] 切片推送，不丢字。
+ */
+internal const val TOOL_TEXT_LIMIT = 8_000
+
+/** 截断标记。带原长，用户知道后面还有（也方便日志里认出来）。 */
+internal fun truncateForTranscript(text: String, limit: Int = TOOL_TEXT_LIMIT): String {
+    if (text.length <= limit) return text
+    return text.take(limit) + "\n…[${text.length} chars total, truncated for display]"
+}
+
+/**
+ * 工具参数（那串 JSON）：超限时**只截大字段**，整条 JSON 仍要能 parse。
+ *
+ * 直接砍串会让 `tools.ts` 的 `JSON.parse` 失败，卡片上的命令 / 路径 / diff 全没了 ——
+ * 那正是卡片存在的意义。所以先 parse，把超长的字符串字段（Write 的 `content`、
+ * Edit 的 `new_string` 这些）各自截短，再原样序列化回去。parse 失败才退回整串截断：
+ * 少一张卡的细节，好过把几 MB 塞进 CEF。
+ */
+internal fun shrinkToolInput(input: String): String {
+    if (input.length <= TOOL_TEXT_LIMIT) return input
+    val obj = runCatching {
+        com.google.gson.JsonParser.parseString(input).takeIf { it.isJsonObject }?.asJsonObject
+    }.getOrNull() ?: return truncateForTranscript(input)
+
+    val fieldLimit = 2_000
+    for (key in obj.keySet().toList()) {
+        val v = obj.get(key)
+        if (v != null && v.isJsonPrimitive && v.asJsonPrimitive.isString) {
+            val s = v.asString
+            if (s.length > fieldLimit) {
+                obj.addProperty(key, s.take(fieldLimit) + "\n…[${s.length} chars, truncated]")
+            }
+        }
+    }
+    val out = obj.toString()
+    return if (out.length <= TOOL_TEXT_LIMIT * 2) out else truncateForTranscript(out)
+}
+
+/**
  * 命令回合里该被丢掉的气泡。
  *
  * **只有命令回合才丢。** 模型自己回一句空话是另一回事，那是它的话；
@@ -315,7 +364,7 @@ object MessageRenderer {
 
             out += RenderItem.ToolResult(
                 toolUseId = toolUseId,
-                text = toolResultText(b.get("content")),
+                text = truncateForTranscript(toolResultText(b.get("content"))),
                 isError = b.bool("is_error") ?: false,
             )
         }
@@ -376,7 +425,7 @@ object MessageRenderer {
 
                 "tool_use" -> out += RenderItem.ToolUse(
                     name = b.str("name") ?: "unknown",
-                    input = b.get("input")?.toString() ?: "",
+                    input = shrinkToolInput(b.get("input")?.toString() ?: ""),
                     // 缺 id 不丢弃这一项：调用本身该显示出来，只是结果挂不回来
                     id = b.str("id") ?: "",
                     parent = parent,

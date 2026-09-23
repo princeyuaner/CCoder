@@ -686,4 +686,41 @@ class MessageRendererTest {
         assertFalse(isEmptyCommandOutput(RenderItem.SystemNote("")))
         assertFalse(isEmptyCommandOutput(RenderItem.UserText("")))
     }
+
+    // ---- 大体积截断（2026-09-23：大报文会掐断 IDEA 的 remote JCEF 通道）----
+
+    @Test
+    fun `工具结果超过上限就截断并留下原长`() {
+        val big = "x".repeat(TOOL_TEXT_LIMIT + 100)
+        val cut = truncateForTranscript(big)
+        assertTrue(cut.length < big.length, "截断后该比原文短")
+        assertTrue(cut.startsWith("x".repeat(100)), "开头要留得住")
+        assertTrue(cut.contains("${big.length} chars"), "要能看出原来有多长")
+    }
+
+    @Test
+    fun `工具结果没超限就原样`() {
+        assertEquals("short", truncateForTranscript("short"))
+    }
+
+    @Test
+    fun `Write 的 content 被截短但 JSON 仍能 parse —— 卡片上的路径还读得出来`() {
+        val content = "line\n".repeat(2000) // ≫ 字段上限
+        val input = """{"file_path":"/a/b/c.txt","content":${com.google.gson.Gson().toJson(content)}}"""
+        val shrunk = shrinkToolInput(input)
+
+        assertTrue(shrunk.length < input.length, "体积该降下来")
+        val parsed = JsonParser.parseString(shrunk).asJsonObject
+        assertEquals("/a/b/c.txt", parsed.get("file_path").asString, "路径字段一个字都不能动")
+        assertTrue(
+            parsed.get("content").asString.length < content.length,
+            "content 该被截短",
+        )
+    }
+
+    @Test
+    fun `参数没超限就原样透传`() {
+        val input = """{"file_path":"/a.txt"}"""
+        assertEquals(input, shrinkToolInput(input))
+    }
 }

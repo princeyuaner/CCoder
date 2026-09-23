@@ -1,6 +1,7 @@
 package com.ccoder.settings
 
 import com.ccoder.text.CcoderText
+import com.ccoder.ui.cardFill
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane

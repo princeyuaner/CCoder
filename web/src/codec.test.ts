@@ -234,6 +234,19 @@ describe('applyOps', () => {
     expect(state.items[0]).toMatchObject({ kind: 'assistant', text: '你好呀' })
   })
 
+  it('finalizeDelta 空文本 = 把 live 缓冲落成条目（大正文分片推送的收尾）', () => {
+    // Kotlin 侧超大正文拆成一串 appendDelta + 这么一条收尾
+    // （TranscriptOpCodec.splitForWire）。空字符串是协议约定，不是"没内容"。
+    const state = applyOps(emptyState(), [
+      { op: 'appendDelta', target: 'assistant', text: '第一片' },
+      { op: 'appendDelta', target: 'assistant', text: '第二片' },
+      { op: 'finalizeDelta', target: 'assistant', text: '' },
+    ])
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0]).toMatchObject({ kind: 'assistant', text: '第一片第二片' })
+    expect(state.live.assistant).toBeUndefined()
+  })
+
   it('finalizeDelta 在无进行中气泡时也产生一条消息', () => {
     // 有些回合不产生 stream_event（例如极短的响应），
     // 此时 finalizeDelta 是唯一的文本来源，不能丢

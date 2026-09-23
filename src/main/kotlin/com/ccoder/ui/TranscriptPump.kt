@@ -55,10 +55,15 @@ class TranscriptPump(
             // op，末尾就不再是同类增量，合并自动断开。这挡住的是真正会出错的两处
             // —— ClearDelta / FinalizeDelta 会清空 live 缓冲，跨过它们把两侧文本
             // 拼一起就是无中生有（见 TranscriptPumpTest 的三条边界用例）。
+            //
+            // **合并也有体积上限**：狂流式时 16ms 一拍能攒出很大的一条，而大报文
+            // 会掐断 IDEA 的 remote JCEF 通道（见 TranscriptOpCodec.splitForWire）。
+            // 到顶就断开，让下一条从头攒。
             val last = buffer.lastOrNull()
             if (op is TranscriptOp.AppendDelta &&
                 last is TranscriptOp.AppendDelta &&
-                last.target == op.target
+                last.target == op.target &&
+                last.text.length + op.text.length <= TranscriptOpCodec.CHUNK_CHARS
             ) {
                 buffer[buffer.size - 1] = last.copy(text = last.text + op.text)
                 return
@@ -93,7 +98,10 @@ class TranscriptPump(
         // （不抛错），所以"卡死 + 日志干净"是可能的，别据此认为通道没事
         // —— 见 `ClaudeTranscriptView` 顶上"第二副面孔"那段。
         try {
-            exec(TranscriptOpCodec.encodeBatch(batch))
+            // 按体积切片：单次 executeJavaScript 过大会掐断 remote JCEF 通道
+            for (piece in TranscriptOpCodec.splitForWire(batch)) {
+                exec(TranscriptOpCodec.encodeBatch(piece))
+            }
         } catch (e: Exception) {
             LOG.warn("CCoder 转写视图：推送 ${batch.size} 条操作失败", e)
         }

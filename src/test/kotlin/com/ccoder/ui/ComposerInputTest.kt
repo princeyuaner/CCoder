@@ -1,8 +1,10 @@
 package com.ccoder.ui
 
+import com.ccoder.settings.SendShortcut
 import com.intellij.ui.components.JBTextArea
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -106,14 +108,32 @@ class ComposerInputTest {
 
     @Test
     fun `空着的时候给文案，有字或禁用就不给`() {
-        assertEquals(COMPOSER_PLACEHOLDER, placeholderTextOf(composerLaidOut()))
-        assertNull(placeholderTextOf(composerLaidOut(text = "看一下 ")))
-        assertNull(placeholderTextOf(composerLaidOut(enabled = false)), "发不出去时挂一行「你可以打 #」是撒谎")
+        val enter = SendShortcut.ENTER
+        assertEquals(composerPlaceholder(enter), placeholderTextOf(composerLaidOut(), enter))
+        assertNull(placeholderTextOf(composerLaidOut(text = "看一下 "), enter))
+        assertNull(
+            placeholderTextOf(composerLaidOut(enabled = false), enter),
+            "发不出去时挂一行「你可以打 #」是撒谎",
+        )
     }
 
     @Test
-    fun `文案里写着三个触发符号 —— 与能力同步，砍掉哪个都要改它`() {
-        assertEquals("@ 文件 · # 符号 · / 命令", COMPOSER_PLACEHOLDER)
+    fun `文案里写着三个触发符号与发送说明 —— 与能力同步，砍掉哪个都要改它`() {
+        assertEquals(
+            "@ 文件 · # 符号 · / 命令 · Enter 发送 · Shift+Enter 换行",
+            composerPlaceholder(SendShortcut.ENTER),
+        )
+    }
+
+    @Test
+    fun `发送说明跟着设置里的约定走 —— 两种模式不许说同一句话`() {
+        // 写死一句 "Enter 发送"，在 Ctrl+Enter 模式下就是撒谎（真值见 isSendKey）
+        val enter = composerPlaceholder(SendShortcut.ENTER)
+        val ctrl = composerPlaceholder(SendShortcut.CTRL_ENTER)
+
+        assertTrue(enter.endsWith("Enter 发送 · Shift+Enter 换行"), enter)
+        assertTrue(ctrl.endsWith("Ctrl+Enter 发送 · Enter 换行"), ctrl)
+        assertNotEquals(enter, ctrl, "两种约定的占位必须不一样，否则必有一句是错的")
     }
 
     @Test
@@ -121,6 +141,17 @@ class ComposerInputTest {
         // 纯属性测不出"没画"：那正是用户看到的形式（什么提示都没有）。所以数像素
         assertEquals(0, inkCount(composerLaidOut(enabled = false)), "禁用时一个字都不该画")
         assertTrue(inkCount(composerLaidOut()) > 0, "空着时该看得见那行提示")
+    }
+
+    @Test
+    fun `每次绘制现读发送约定 —— 存下来的话改完设置会一直显示旧文案`() {
+        val area = composerLaidOut()
+        var asked = 0
+        onEdt { area.sendShortcut = { asked++; SendShortcut.ENTER } }
+
+        inkCount(area)
+
+        assertTrue(asked > 0, "画的时候没问过发送约定 —— 那句说明会停在打开时的样子")
     }
 
     /** 一个排好版的 ComposerTextArea —— 提示画在它上面。 */

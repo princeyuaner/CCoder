@@ -11,7 +11,9 @@ import com.intellij.ui.components.JBPasswordField
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
@@ -28,6 +30,7 @@ import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.SwingUtilities
+import javax.swing.ToolTipManager
 import javax.swing.text.JTextComponent
 
 /** 内存版密钥库 —— 探针不碰 PasswordSafe（纯单测环境里它没有实现）。 */
@@ -702,19 +705,32 @@ class SettingsDialogSaveTest {
         return dialog to service
     }
 
-    private fun listRowFor(dialog: SettingsDialog, name: String): Component {
-        var c: Component? = findLabel(dialog.contentPanel, name) ?: error("列表里没有「$name」")
+    private fun listRowFor(dialog: SettingsDialog, name: String): Component =
+        listRowIn(dialog.contentPanel, name)
+
+    /** 列表里那一行（监听器挂在整行上，所以从名字往上找到带监听器的那一层）。 */
+    private fun listRowIn(root: Container, name: String): Component {
+        var c: Component? = findLabel(root, name) ?: error("列表里没有「$name」")
         while (c != null && c.mouseListeners.isEmpty()) c = c.parent
         return c ?: error("「$name」那一行上没有监听器")
     }
 
     /** 字段下面那个文本框。API Key 那格外面套了一层（装眼睛），所以往里再找一层。 */
-    private fun fieldOf(dialog: SettingsDialog, label: String): JTextComponent {
-        val input = inputOf(dialog.contentPanel, label)
+    private fun fieldOf(dialog: SettingsDialog, label: String): JTextComponent =
+        fieldOfIn(dialog.contentPanel, label)
+
+    private fun fieldOfIn(root: Container, label: String): JTextComponent {
+        val input = inputOf(root, label)
         return input as? JTextComponent
             ?: findFirst(input, { it is JTextComponent }) as? JTextComponent
             ?: error("「$label」下面没有输入控件")
     }
+
+    /** 密钥那一格里的「复制密钥」那颗。 */
+    private fun copyLabelIn(root: Container): Component =
+        findFirst(root) {
+            it is JLabel && it.toolTipText == CcoderText.text("settings.models.secretCopyTip")
+        } ?: error("找不到复制密钥那一颗")
 
     /**
      * 「模型 ID」那一栏里所有输入框，从上到下。
@@ -1038,6 +1054,51 @@ class SettingsDialogSaveTest {
             }
         }
         assertEquals(masked, secret.echoChar, "真失焦就该恢复打码 —— 明文不该留在屏幕上")
+    }
+
+    /**
+     * 复制键（2026-09-22 用户："设置界面的密钥需要可以被复制"）。
+     *
+     * 三件事都在这一条里：**打码时也照复制**（密码管理器那条惯例 —— 要求先点眼睛
+     * 看明文才让复制的话，那一步反倒把明文留在了屏幕上）；复制的是**整条**而不是
+     * 选区（打码时选区在屏幕上看不见）；复制不该顺手把打码状态改掉。
+     *
+     * 走**页面本身**而不是对话框：剪贴板那颗副作用只能从页面构造器注入 ——
+     * 生产那条是 `copyToClipboard`，纯单测 JVM 里没有 ApplicationManager，一调就 NPE。
+     */
+    @Test
+    fun `点复制键把整条密钥交出去，打码状态不动`() {
+        val copied = mutableListOf<String>()
+        lateinit var root: JComponent
+        lateinit var secret: JBPasswordField
+        lateinit var label: JLabel
+        SwingUtilities.invokeAndWait {
+            val service = ModelProfiles(MemoryStore(mapOf("p1" to "sk-secret"))).apply { upsert(p1) }
+            val page = ModelProfilesPage(settingsWith(), service, copy = { copied += it })
+            root = page.component()
+            layoutAll(root)
+            clickOn(listRowIn(root, p1.displayName()))
+            secret = fieldOfIn(root, "API Key") as JBPasswordField
+            label = copyLabelIn(root) as JLabel
+        }
+        val masked = secret.echoChar
+        val idle = label.icon
+
+        SwingUtilities.invokeAndWait { clickOn(label) }
+
+        assertEquals(listOf("sk-secret"), copied, "点一下就该把整条密钥交出去")
+        assertEquals(masked, secret.echoChar, "复制不该顺手把明文亮出来")
+        // 复制是这一格里唯一「成功了也看不出来」的动作，所以点完得换个样子；
+        // 换回来的时机是指针离开（那一刻正是"我按完了、去看别处了"）
+        assertNotSame(idle, label.icon, "点完该给一个复制走了的信号")
+        SwingUtilities.invokeAndWait {
+            val exit = MouseEvent(label, MouseEvent.MOUSE_EXITED, 0L, 0, -1, -1, 0, false)
+            // 只喊页面自己那个监听器：**Swing 的 ToolTipManager 也挂在上面**，
+            // 它收到退出事件会起一个 500ms 的计时器 —— 测试框架那条
+            // `checkJavaSwingTimersAreDisposed` 判红的就是它，不是我们的代码
+            label.mouseListeners.filterNot { it is ToolTipManager }.forEach { it.mouseExited(exit) }
+        }
+        assertSame(idle, label.icon, "指针一走就该还原成待命的样子")
     }
 
     /**

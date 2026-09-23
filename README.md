@@ -45,7 +45,8 @@ so what you do here is the same work `claude` sees from a terminal.
 - Ctrl+V pastes a screenshot straight into the input box — up to 4 per message. Click a
   thumbnail to open it full size.
 - Type while Claude is working and your message is queued, sent when the turn ends.
-- The empty input box spells out the three triggers: `@ files · # symbols · / commands`.
+- The empty input box spells out the usage: `@ files · # symbols · / commands`, plus which
+  key sends and which adds a newline (it follows the "Send shortcut" setting).
 
 ### Changes you can see — and stop
 
