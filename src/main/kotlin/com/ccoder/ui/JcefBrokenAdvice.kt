@@ -8,7 +8,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.ide.util.PropertiesComponent
-import com.intellij.ui.jcef.JBCefApp
+import org.cef.CefApp
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -31,9 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 会在好好的 IDE 上乱报 —— 那种人一旦被白指一次，以后就不看我们的提示了。
  *
  * 所以判据是**模式开着 且 主版本正好是 [AFFECTED_MAJOR]**，两样都要。
- * 版本串由 [nativeVersion] 取（`JBCefApp.getNativeBundleVersionString()` ——
- * 平台里唯一 public 的那个；`getVersionDetails` / `isRemoteEnabled` 都是包私有，
- * 我们够不着）。取不到就**什么都不说**：不知道的事不猜。
+ * 版本串由 [nativeVersion] 取（走 `org.cef` 的公开 API —— 为什么不用 `JBCefApp` 那个，
+ * 那条路自己的注释里记着）。取不到就**什么都不说**：不知道的事不猜。
  *
  * ## 烦不着人
  *
@@ -77,9 +76,27 @@ internal object JcefBrokenAdvice {
         show(project)
     }
 
-    /** 本机 JCEF 的版本串。**取不到给 null**（还没起来、平台换了 API），调用方按"不知道"办。 */
+    /**
+     * 本机 JCEF 的版本串。**取不到给 null**（还没起来、平台换了 API），调用方按"不知道"办。
+     *
+     * ## 为什么走 `org.cef` 而不是 `JBCefApp`（2026-09-23，0.2.26 被审核拦下之后）
+     *
+     * 第一版用的是 `JBCefApp.getNativeBundleVersionString()`。字节码里它是
+     * `public static`，但带 `@ApiStatus.Internal` —— 市场的 Plugin Verifier 照拦：
+     *
+     * > Internal method usage (1) · JBCefApp.getNativeBundleVersionString()
+     *
+     * 而审核指南里那条是**拦路**不是提示（同 0.2.13 的 `DataContext` 那次，
+     * 见发布设计稿 §七）："most likely we will never approve such new usages in a
+     * plugin and the version will not be published"。
+     *
+     * `org.cef` 是 JCEF 自己的公开 API（本仓库的 `CefBrowser` / `CefLoadHandler` 一直
+     * 在用，验证器一条都没报），`CefApp.getVersion()` 给的 `CefVersion` 就是我们要的那个号。
+     * 代价是它**要求 CEF 已经起来** —— 调用点在 [adviseOnce]（转写区起来之后），
+     * 本来就只有那个时候；真取不到也不要紧，`null` 走"不知道就不说"那条路。
+     */
     private fun nativeVersion(): String? =
-        runCatching { JBCefApp.getNativeBundleVersionString() }.getOrNull()
+        runCatching { CefApp.getInstance().version?.cefVersion }.getOrNull()
 
     private fun isDismissed(): Boolean =
         runCatching { PropertiesComponent.getInstance().getBoolean(DISMISSED_KEY, false) }
