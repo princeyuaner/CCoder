@@ -7,7 +7,9 @@ import java.util.zip.ZipFile
 
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.0"
+    // 2.3.0 是被 SDK 逼上来的：PyCharm 2026.1 的模块 metadata 是 2.3.0，
+    // 2.1.0 读不了（整包报 "Module was compiled with an incompatible version of Kotlin"）
+    id("org.jetbrains.kotlin.jvm") version "2.3.0"
     id("org.jetbrains.intellij.platform") version "2.18.0"
 }
 
@@ -23,7 +25,11 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        pycharm("2025.3.1.1")
+        // 编译目标抬到 2026.1：2026.1 起才有 JBCefApp.getNativeBundleVersionString()
+        // （判断"这台机器的 JCEF 是不是那条坏的构建线"，见 JcefBrokenAdvice）。
+        // 跟着 pluginSinceBuild 一起抬 —— 编译到新版却声明支持旧版，老版本用户
+        // 装上会撞 NoSuchMethodError，那是静默的坑。
+        pycharm("2026.1")
     }
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")

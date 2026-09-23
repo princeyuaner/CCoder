@@ -24,21 +24,44 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.network.CefRequest
 import java.awt.BorderLayout
-import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.SwingConstants
 
 /**
  * 转写区。JCEF 可用时渲染 React 界面，不可用时显示明确的提示。
  *
  * 降级不重建原生渲染：那会让代码里长期并存两套渲染实现，维护面翻倍
  * （设计文档 §11 记录了这个取舍）。JCEF 不可用时给提示而非空白面板。
+ *
+ * ## 「起不来」有两种，2026-09-23 起两种都兜得住
+ *
+ * 一种是**没启用**（[JBCefApp.isSupported] 为假）：那是设置，提示里直接指路。
+ * 另一种是**启用着、但这一把建不起来** —— 平台的 `RemoteMessageRouterImpl.create`
+ * 对着 `RpcContext.execObj` 取回来的 `RObject` 直接读 `.isNull`，而通道断着的时候
+ * `execObj` 返回的就是 null → NPE。以前这个异常从**构造器**里一路掀到 EDT：
+ * 用户连点五次「新建会话」报了五次，每次都是**整个新会话没建起来**（比"转写区降级"
+ * 严重得多）。现在整段起机都收在 [startOrDegrade] 里，失败就换成降级页 + 一个「重试」。
+ *
+ * ## 同一条通道的**第二副面孔：已经开着的那一格会悄悄卡死**（2026-09-23 查清）
+ *
+ * 通道断掉之后，每一次 `executeJavaScript`（也就是我们每帧转写的推送）走的是
+ * `RpcExecutor.exec`：`if (myTransport == null) return;` —— **平台自己丢掉，不抛错**。
+ * 于是输出区停在那一帧、**日志里一个字都没有**（断线本身平台只用 `CefLog.Error`
+ * 写进一个被关掉的通道：`JCEF logging: LOGSEVERITY_DISABLE`，落盘是个空文件）。
+ * 用户那次"一开始好好的、过一会儿输出区卡死、再输入也不显示"就是这么来的。
+ *
+ * **没做自动检测**（2026-09-23 用户决定先不做）。真要做，起点在这儿：桥是双向的，
+ * `window.ccoder.send({op:'pong'})` 这条回信现成 —— 跟 [installReadyWatchdog] 探页面
+ * 状态那条 `pageState` 一模一样（不用动前端）。发送那一刻发一次、几秒内没回信，
+ * 就把这一格换成 [TranscriptFallback]（「重试」接的就是 [startOrDegrade]）。
+ * 两个已知约束：定期查要养一个心跳定时器；「重试」之后那一格是**空**的
+ * （转写历史在 Kotlin 侧没留全量），过去的对话得靠「历史会话」重新打开，
+ * 或者顺手把"读存档重放"一起做了。
  */
 class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
-    private val browser: JBCefBrowser?
-    private val jsQuery: JBCefJSQuery?
-    private val pump: TranscriptPump?
+    private var browser: JBCefBrowser? = null
+    private var jsQuery: JBCefJSQuery? = null
+    private var pump: TranscriptPump? = null
 
     /** React 挂载完成前收到的操作要暂存，否则会丢。 */
     private val beforeReady = mutableListOf<TranscriptOp>()
@@ -47,50 +70,90 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
     private var ready = false
 
     init {
-        if (!JBCefApp.isSupported()) {
-            browser = null
-            jsQuery = null
-            pump = null
-            LOG.warn("CCoder 转写视图：当前 IDE 未启用 JCEF，转写区降级为提示文本")
-            add(fallbackComponent(), BorderLayout.CENTER)
-        } else {
-            val b = JBCefBrowser()
-            browser = b
-            pump = TranscriptPump(exec = { json -> pushToJs(json) })
-
-            val query = JBCefJSQuery.create(b as JBCefBrowserBase)
-            jsQuery = query
-            query.addHandler { message: String ->
-                handleFromJs(message)
-                null
-            }
-
-            add(b.component, BorderLayout.CENTER)
-
-            injectBridge(b, query)
-            installNavigationGuard(b)
-            loadUi(b)
-            installReadyWatchdog()
-
-            // 主题切换时重新注入 CSS 变量（spec §4.1）。
-            // connect(this) 让它随本组件一起释放。
-            project.messageBus.connect(this).subscribe(
-                LafManagerListener.TOPIC,
-                LafManagerListener { setTheme() },
-            )
-        }
+        startOrDegrade()
     }
 
-    private fun fallbackComponent(): JPanel = JPanel(BorderLayout()).apply {
-        add(
-            JLabel(
-                "<html><body style='padding:16px'>" +
-                    CcoderText.text("transcript.fallback.noJcef") +
-                    "</body></html>",
-                SwingConstants.LEFT,
-            ),
-            BorderLayout.CENTER,
+    /**
+     * 起一次：JCEF 起得来就接上线，起不来就换成降级页。
+     *
+     * **整段都不许往外抛**（见类的注释）。建零件那一半在 [startTranscriptCef] 里兜着；
+     * 接线那一半（加 load handler、载页面）走的是**同一条 RPC 通道**，所以这里再兜一层，
+     * 失败的样子与建不起来一样：收干净 + 降级页。
+     */
+    private fun startOrDegrade() {
+        // 上一次留下的先收干净：重试会再走一遍这里
+        teardown()
+        removeAll()
+
+        if (!JBCefApp.isSupported()) {
+            LOG.warn("CCoder 转写视图：当前 IDE 未启用 JCEF，转写区降级为提示文本")
+            showFallback(TranscriptFallback.Reason.NoJcef)
+            return
+        }
+
+        if (startTranscriptCef(wire = ::wire) == null) {
+            // 半成品（浏览器建出来了、线没接完这种）别留着：CEF 那边会多一个没人放的页
+            teardown()
+            showFallback(TranscriptFallback.Reason.StartFailed)
+            return
+        }
+
+        revalidate()
+        repaint()
+    }
+
+    /**
+     * 给建好的零件接线：桥、导航闸、页面、看门狗、主题订阅。
+     *
+     * **字段先落再动手**：中途抛了，[teardown] 才收得到已经建出来的东西。
+     */
+    private fun wire(cef: TranscriptCef) {
+        val b = cef.browser
+        browser = b
+        jsQuery = cef.query
+        pump = TranscriptPump(exec = { json -> pushToJs(json) })
+
+        cef.query.addHandler { message: String ->
+            handleFromJs(message)
+            null
+        }
+
+        add(b.component, BorderLayout.CENTER)
+
+        injectBridge(b, cef.query)
+        installNavigationGuard(b)
+        loadUi(b)
+        installReadyWatchdog()
+
+        // 主题切换时重新注入 CSS 变量（spec §4.1）。
+        // connect(this) 让它随本组件一起释放。
+        project.messageBus.connect(this).subscribe(
+            LafManagerListener.TOPIC,
+            LafManagerListener { setTheme() },
         )
+    }
+
+    /** 摆降级页。「重试」再走一遍 [startOrDegrade] —— 平台那边可能已经自己好了。 */
+    private fun showFallback(reason: TranscriptFallback.Reason) {
+        add(TranscriptFallback(reason) { startOrDegrade() }, BorderLayout.CENTER)
+        revalidate()
+        repaint()
+    }
+
+    /**
+     * 收掉已经建起来的那套（重试 / 接线失败 / 释放都走这里）。
+     *
+     * `ready` 一并归零：它说的是"当前这个页面回话了"，换了页面就得回到没回话那一态，
+     * 否则重试之后收到的转写会直推给一个还不存在的桥。
+     */
+    private fun teardown() {
+        pump?.dispose()
+        pump = null
+        jsQuery?.let { Disposer.dispose(it) }
+        jsQuery = null
+        browser?.let { Disposer.dispose(it) }
+        browser = null
+        ready = false
     }
 
     /**
@@ -381,9 +444,7 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
     }
 
     override fun dispose() {
-        pump?.dispose()
-        jsQuery?.let { Disposer.dispose(it) }
-        browser?.let { Disposer.dispose(it) }
+        teardown()
         beforeReady.clear()
     }
 
@@ -395,7 +456,51 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
 
         /** 前端 ready 的等待上限，超时就把页面状态写进日志。 */
         private const val READY_TIMEOUT_MS = 8000
-
-        private val LOG = Logger.getInstance(ClaudeTranscriptView::class.java)
     }
 }
+
+/** JCEF 那一套零件：浏览器 + 桥。建它们的那条路会抛，见 [startTranscriptCef]。 */
+internal class TranscriptCef(val browser: JBCefBrowser, val query: JBCefJSQuery)
+
+/**
+ * 建零件 + 接线，**失败返回 null、绝不往外抛**。
+ *
+ * 为什么必须兜住：`JBCefJSQuery.create` 一路走到平台的 `RemoteMessageRouterImpl.create`，
+ * 那里对着 RPC 通道（`RpcContext.execObj`）取回来的 `RObject` **直接读 `.isNull`** ——
+ * 通道断着（JCEF 服务器断过线）时 `execObj` 返回的就是 null，于是 NPE。那条通道健不健康
+ * **平台没有 API 可问**，也不该由转写区去猜：能做的只有"抛了别掀到 EDT"（见类的注释）。
+ *
+ * [create] 是给用例的注入点（同 [TranscriptPump] 的 `exec`）：测试环境里 JCEF 本来就起不来，
+ * 不注入就只跑得到"真抛出"那一半 —— 而这条要钉的恰恰是"抛了也得兜住"。
+ */
+internal fun startTranscriptCef(
+    create: () -> TranscriptCef = ::newTranscriptCef,
+    wire: (TranscriptCef) -> Unit,
+): TranscriptCef? = try {
+    create().also(wire)
+} catch (t: Throwable) {
+    LOG.warn("CCoder 转写视图：JCEF 起不来（${t.javaClass.simpleName}），转写区降级", t)
+    null
+}
+
+/**
+ * 真去建那一刻。
+ *
+ * "浏览器建出来了、桥没装上"这一截**自己收尾**：不 dispose 的话，CEF 那边会留下一个
+ * 没人用也没人放的页 —— [startTranscriptCef] 的 catch 只看得到异常，看不到这个浏览器。
+ */
+private fun newTranscriptCef(): TranscriptCef {
+    val browser = JBCefBrowser()
+    val query = try {
+        JBCefJSQuery.create(browser as JBCefBrowserBase)
+    } catch (t: Throwable) {
+        // 收尾别把原来那条错盖掉：dispose 走的也是同一条（可能正断着的）通道
+        runCatching { Disposer.dispose(browser) }
+            .onFailure { LOG.warn("CCoder 转写视图：没建成的那个浏览器没放掉", it) }
+        throw t
+    }
+    return TranscriptCef(browser, query)
+}
+
+/** 文件级：类里那几处与上面两个自由函数共用同一个类别名（日志里的 `#com.ccoder.ui.ClaudeTranscriptView`）。 */
+private val LOG = Logger.getInstance(ClaudeTranscriptView::class.java)

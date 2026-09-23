@@ -51,18 +51,19 @@ class LocalizedTextScanTest {
         "SymbolLookup.kt",
         "MessageRenderer.kt",
         "ClaudeTranscriptView.kt",
+        "TranscriptFallback.kt",
     )
 
     /**
      * 允许的例外，一条一句理由。
      *
      * 例外要**少**：每多一条，就多一角可能留着旧语言的地方。
+     *
+     * 目前**一条都没有**。这里曾放过 `ClaudeTranscriptView.kt` 的降级页（"只在缺
+     * JCEF 时出现、只建一次"），2026-09-23 降级页搬到 [TranscriptFallback] 时顺手
+     * 做成了带键的：它其实会跟着会话一直摆着，那理由本来就站不住。
      */
-    private val allowed = mapOf(
-        "ClaudeTranscriptView.kt" to
-            "JCEF / 资源缺失时的降级页：只在那种环境下出现、只建一次，而且它占了整块" +
-            "视图（那时也没有别的界面可看）。真要修得给降级页也做重译，收益不值。",
-    )
+    private val allowed = emptyMap<String, String>()
 
     /**
      * 「正在填控件」的样子：赋值给文字 / tooltip，或者就在控件构造函数的实参里。

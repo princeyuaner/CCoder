@@ -87,6 +87,11 @@ class TranscriptPump(
         //
         // 这里曾经是 runCatching{} 静默吞掉：推送失败的表现是"界面不更新"，
         // 与"本来就没有消息"在屏幕上完全一样，排查时无从下手。
+        //
+        // **注意这条日志盖不住最要紧的那种断法**：CEF 通道真的断了的时候，
+        // `executeJavaScript` 走到的 `RpcExecutor.exec` 是自己 `return` 掉的
+        // （不抛错），所以"卡死 + 日志干净"是可能的，别据此认为通道没事
+        // —— 见 `ClaudeTranscriptView` 顶上"第二副面孔"那段。
         try {
             exec(TranscriptOpCodec.encodeBatch(batch))
         } catch (e: Exception) {

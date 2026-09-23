@@ -33,9 +33,11 @@ import javax.swing.SwingUtilities
  *
  * 覆盖不到的两处，各自有理由：转写区是 JCEF 页面（语言由
  * `ClaudeTranscriptView.setLocale` 推，web 侧自己有"换语言不重载页面"的用例）；
- * 转写视图的降级页只在 JCEF/资源缺失时出现。面板本体（`ClaudePanel`）在纯 JVM 里
- * 建不出来（要平台服务与 JCEF），它的那些字走的是"刷新家族"（见
- * `ClaudePanel.retranslate`），在真机上由 `-PtestLang=en` 那遍探针看着。
+ * 面板本体（`ClaudePanel`）在纯 JVM 里建不出来（要平台服务与 JCEF），它的那些字走的是
+ * "刷新家族"（见 `ClaudePanel.retranslate`），在真机上由 `-PtestLang=en` 那遍探针看着。
+ *
+ * 降级页（`TranscriptFallback`）2026-09-23 起进名单 —— 它以前不在，是因为
+ * "只在缺 JCEF 时出现、只建一次"；它其实会跟着会话一直摆着，那理由本来就站不住。
  */
 class LocalizedTextTest {
 
@@ -113,6 +115,16 @@ class LocalizedTextTest {
             // 理由收的是**算法**（见 AttachmentStrip.reject）：切成英文后它要重算
             reject { CcoderText.text("chat.image.tooLarge") }
         }
+    }
+
+    @Test
+    fun `转写区降级页`() = 切成英文后不许剩中文("TranscriptFallback") {
+        TranscriptFallback(TranscriptFallback.Reason.StartFailed) {}
+    }
+
+    @Test
+    fun `转写区降级页（未启用 JCEF 那种）`() = 切成英文后不许剩中文("TranscriptFallback/noJcef") {
+        TranscriptFallback(TranscriptFallback.Reason.NoJcef) {}
     }
 
     /**
