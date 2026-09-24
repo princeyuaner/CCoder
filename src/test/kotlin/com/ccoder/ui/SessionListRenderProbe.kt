@@ -67,6 +67,27 @@ class SessionListRenderProbe {
     @Test
     fun `把会话列表画成图片`() = render("build/session-list-probe.png", SwitchBlock.None)
 
+    /**
+     * **当前会话自己也在占用表里**那一版（2026-09-24 补，问的是"当前这条能不能改名"）。
+     *
+     * 面板自己的 `reserve` 也进 `takenIds()`（那一支取的是**全部**登记），所以真机上
+     * 当前那一行**同时**是"选中"和"已打开"—— 上面几张图都没画过这个组合：
+     * 它们要么没传 `taken`，要么 `taken` 里放的是别人。
+     *
+     * 要看的是：当前这条**留着改名、没留删除** —— 两个入口在暗着的卡片上还认不认得出来。
+     */
+    @Test
+    fun `把当前会话同时被自己占着的那一版画成图片`() {
+        val sessions = listOf(
+            SessionInfo("s1", "还可以做什么功能", "这是什么项目", now - 30_000),
+            SessionInfo("s2", "PyCharm插件调用Claude Code", null, now - 3_600_000),
+        )
+        draw(
+            "build/session-list-probe-current-taken.png", sessions, SwitchBlock.None,
+            current = "s1", taken = setOf("s1"),
+        )
+    }
+
     @Test
     fun `把忙时的会话列表画成图片`() =
         render("build/session-list-probe-blocked.png", SwitchBlock.PermissionPending)
@@ -136,6 +157,8 @@ class SessionListRenderProbe {
         taken: Set<String> = emptySet(),
         /** 指针停在**删除按钮本身**上（三档强调里的 danger 档），见 [draw]。 */
         dangerRow: Int = -1,
+        /** 指针停在**改名按钮本身**上（同一档，但不变红），见 [draw]。 */
+        renameRow: Int = -1,
         /** 点一下顶部的「清空全部」，停在确认态，见 [draw]。 */
         clearConfirm: Boolean = false,
     ) {
@@ -161,7 +184,7 @@ class SessionListRenderProbe {
         draw(
             path, sessions, block,
             current = "s2", hoverRow = hoverRow, taken = taken,
-            dangerRow = dangerRow, clearConfirm = clearConfirm,
+            dangerRow = dangerRow, renameRow = renameRow, clearConfirm = clearConfirm,
         )
     }
 
@@ -175,6 +198,16 @@ class SessionListRenderProbe {
     @Test
     fun `把指针停在删除按钮上的那一行画成图片`() =
         render("build/session-list-probe-delete-hover.png", SwitchBlock.None, dangerRow = 1)
+
+    /**
+     * **指针停在改名按钮上**那一版（2026-09-24，加了这颗按钮）。
+     *
+     * 要看的是它**跟删除不一样的那一点**：有框、但不变红。红色在这套界面里是
+     * "这一下不可逆"，改名不是 —— 两张图摆在一起，一眼能看出这个区别还在不在。
+     */
+    @Test
+    fun `把指针停在改名按钮上的那一行画成图片`() =
+        render("build/session-list-probe-rename-hover.png", SwitchBlock.None, renameRow = 1)
 
     /**
      * **顶部「清空全部」的确认态**（2026-09-17）。
@@ -201,11 +234,14 @@ class SessionListRenderProbe {
         hoverRow: Int = -1,
         taken: Set<String> = emptySet(),
         dangerRow: Int = -1,
+        renameRow: Int = -1,
         clearConfirm: Boolean = false,
     ) {
         // 卡片式之后这一列有了"卡片底"与描边，颜色成了要看的重点之一 ——
         // 必须在真机 LAF（New UI 深色）下画，理由见 IdeLaf 的注释
-        IdeLaf.withRealLaf { drawUnder(path, sessions, block, current, hoverRow, taken, dangerRow, clearConfirm) }
+        IdeLaf.withRealLaf {
+            drawUnder(path, sessions, block, current, hoverRow, taken, dangerRow, renameRow, clearConfirm)
+        }
     }
 
     private fun drawUnder(
@@ -216,6 +252,7 @@ class SessionListRenderProbe {
         hoverRow: Int,
         taken: Set<String>,
         dangerRow: Int,
+        renameRow: Int,
         clearConfirm: Boolean,
     ) {
         SwingUtilities.invokeAndWait {
@@ -254,6 +291,14 @@ class SessionListRenderProbe {
                         "文字宽=${button.getFontMetrics(button.font).stringWidth(DELETE_TEXT)} " +
                         "字高=${button.getFontMetrics(button.font).height}",
                 )
+            }
+
+            // 改名按钮那一档：同 dangerRow，只是那颗按钮不变红（2026-09-24）
+            if (renameRow >= 0) {
+                val row = list.components.filterIsInstance<java.awt.Component>()[renameRow]
+                val button = (row as? java.awt.Container)?.let { findRenameButton(it) }
+                    ?: error("第 $renameRow 行里没有「$RENAME_TEXT」按钮 —— 探针的假设不成立了")
+                button.dispatchEvent(enterEvent(button))
             }
 
             // 420px 是工具窗口的真实宽度
@@ -319,4 +364,6 @@ class SessionListRenderProbe {
     }
 
     private fun findDeleteButton(c: java.awt.Container) = findButton(c) { it.text == DELETE_TEXT }
+
+    private fun findRenameButton(c: java.awt.Container) = findButton(c) { it.text == RENAME_TEXT }
 }

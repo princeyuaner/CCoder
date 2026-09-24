@@ -521,4 +521,41 @@ class SessionSwitchStateTest {
         assertTrue(many.contains("2 条"), "实际：$many")
         assertTrue(many.contains("磁盘只读"), "实际：$many")
     }
+
+    // ---- 改名与打标签的对话框（2026-09-24 从就地编辑改过来）----
+
+    private fun session(
+        customTitle: String? = null,
+        firstPrompt: String? = null,
+        summary: String? = null,
+        tag: String? = null,
+    ) = SessionInfo("s1", summary, firstPrompt, 1_000L, customTitle = customTitle, tag = tag)
+
+    @Test
+    fun `改名对话框预填自定义名字的原样，不是列表上那个截断版`() {
+        val long = "重构 extractor 的指纹计算，顺便把跨块的 CR 边界也处理掉，还有别的很多很多字"
+
+        assertEquals(long, renamePrefill(session(customTitle = long)))
+        // 没有自定义名字时才放列表上显示的那个（用户看到的就是它）
+        assertEquals("这是什么项目", renamePrefill(session(firstPrompt = "这是什么项目")))
+        assertEquals("（无标题）", renamePrefill(session()), "空会话预填占位，不是空白框")
+    }
+
+    @Test
+    fun `改名：取消与没改都不发，空串要发`() {
+        assertNull(renameFromDialog("旧名字", null), "取消（对话框回 null）不该发")
+        assertNull(renameFromDialog("旧名字", "旧名字"), "一个字都没改不该发")
+        assertNull(renameFromDialog("旧名字", "  旧名字  "), "只多打了空格也不算改")
+        assertEquals("新名字", renameFromDialog("旧名字", "新名字"))
+        assertEquals("", renameFromDialog("旧名字", ""), "清空是有效的 —— 那是恢复自动标题")
+    }
+
+    @Test
+    fun `标签：取消与没改都不发，清空要发`() {
+        assertNull(tagFromDialog("wip", null), "取消不该发")
+        assertNull(tagFromDialog("wip", "wip"), "没改不该发")
+        assertNull(tagFromDialog(null, ""), "本来就没标签，交白卷不该发")
+        assertEquals("bug", tagFromDialog("wip", " bug "))
+        assertEquals("", tagFromDialog("wip", ""), "清空是有效的 —— 那是把标签去掉")
+    }
 }

@@ -18,12 +18,12 @@ import javax.imageio.ImageIO
 import javax.swing.TransferHandler
 
 /**
- * 粘贴/拖拽进图这条线。
+ * 粘贴这条线：图进附件带（老功能）、文件变 `@` 引用（2026-09-24 加的，见 `FilePaste.kt`）。
  *
- * 拖那半边**测不到 `isDrop`**（`TransferSupport.setDrop` 是包内可见，只有 AWT 自己在
- * 拖拽时才会设）—— 所以两条分支写成了纯函数 [attachImagesWanted]，这里直接喂标志位。
- * 剩下的传输路径用构造出来的 `TransferSupport` 走（`TransferHandler.TransferSupport`
- * 的公开构造器就是给测试用的）。
+ * **拖那半边在这里测不到**：`TransferSupport.setDrop` 是包内可见，只有 AWT 自己在
+ * 拖拽时才会设 —— 所以凡是构造出来的 `TransferSupport` 都是**粘贴**，两条路的分支
+ * 判据（[attachImagesWanted] / [pasteFilesWanted]）都抽成了纯函数，直接喂标志位。
+ * 剩下的传输路径用构造出来的 `TransferSupport` 走（它的公开构造器就是给测试用的）。
  */
 class ImagePasteTest {
 
@@ -85,7 +85,7 @@ class ImagePasteTest {
         val recorder = RecordingHandler()
         val area = JBTextArea().apply { transferHandler = recorder }
         val got = mutableListOf<IncomingImage>()
-        installImagePaste(area) { got += it }
+        installComposerPaste(area, onImages = { got += it }, onMentions = {})
 
         val support = TransferHandler.TransferSupport(
             area,
@@ -102,7 +102,7 @@ class ImagePasteTest {
         val recorder = RecordingHandler()
         val area = JBTextArea().apply { transferHandler = recorder }
         var called = 0
-        installImagePaste(area) { called++ }
+        installComposerPaste(area, onImages = { called++ }, onMentions = {})
 
         val support = TransferHandler.TransferSupport(
             area,
@@ -121,13 +121,13 @@ class ImagePasteTest {
         val recorder = RecordingHandler()
         val area = JBTextArea().apply { transferHandler = recorder }
         val got = mutableListOf<IncomingImage>()
-        installImagePaste(area) { got += it }
+        installComposerPaste(area, onImages = { got += it }, onMentions = {})
 
         val file = File.createTempFile("ccoder-paste", ".png").apply {
             ImageIO.write(png(), "png", this)
             deleteOnExit()
         }
-        // 只有文件味道、没有文字味道 —— 正是"从资源管理器拖进来"的样子
+        // 只有文件味道、没有文字味道 —— 正是"从资源管理器复制一个图片文件"的样子
         val support = TransferHandler.TransferSupport(
             area,
             FakeTransferable(mapOf(DataFlavor.javaFileListFlavor to listOf(file))),
@@ -140,11 +140,16 @@ class ImagePasteTest {
     }
 
     @Test
-    fun `拖进来一个 md 文件：不接，走回默认（插路径）`() {
+    fun `粘贴一个 md 文件：变成 @ 引用，不走默认处理器`() {
+        // 2026-09-24：粘贴文件从"插一段路径文本"改成 `@` 引用（同附件按钮）。
+        // **拖拽**那条线没动 —— 但这里造出来的 TransferSupport 永远是粘贴
+        // （`isDrop` 是包内可见，只有 AWT 自己能设），拖拽那条规则钉在
+        // [pasteFilesWanted] 的纯函数用例里。
         val recorder = RecordingHandler()
         val area = JBTextArea().apply { transferHandler = recorder }
-        var called = 0
-        installImagePaste(area) { called++ }
+        var images = 0
+        var mentions: List<String> = emptyList()
+        installComposerPaste(area, onImages = { images++ }, onMentions = { mentions = it })
 
         val file = File.createTempFile("ccoder-paste", ".md").apply { deleteOnExit() }
         val support = TransferHandler.TransferSupport(
@@ -153,16 +158,18 @@ class ImagePasteTest {
         )
         area.transferHandler.importData(support)
 
-        assertEquals(0, called)
-        assertEquals(1, recorder.imports)
+        assertEquals(0, images, "md 不是图")
+        assertEquals(listOf(file.absolutePath), mentions, "非图文件该变成引用")
+        assertEquals(0, recorder.imports, "我们接下了，就不该再走默认处理器（那会多插一段路径）")
     }
 
     @Test
-    fun `挂着 png 名但解不开的文件：跳过，不把整次拖拽弄失败`() {
+    fun `挂着 png 名但解不开的文件：退回 @ 引用，不把整次粘贴弄失败`() {
         val recorder = RecordingHandler()
         val area = JBTextArea().apply { transferHandler = recorder }
         val got = mutableListOf<IncomingImage>()
-        installImagePaste(area) { got += it }
+        var mentions: List<String> = emptyList()
+        installComposerPaste(area, onImages = { got += it }, onMentions = { mentions = it })
 
         val broken = File.createTempFile("ccoder-paste", ".png").apply {
             writeText("这不是一张图")
@@ -174,8 +181,9 @@ class ImagePasteTest {
         )
         area.transferHandler.importData(support)
 
-        assertEquals(0, got.size)
-        assertEquals(1, recorder.imports, "解不开就当它不是图，让默认行为去处理")
+        assertEquals(0, got.size, "读不出来的不该进附件带")
+        assertEquals(listOf(broken.absolutePath), mentions, "解不开也得让用户能引用它")
+        assertEquals(0, recorder.imports, "接下之后不该再走默认处理器")
     }
 
     @Test
@@ -187,7 +195,7 @@ class ImagePasteTest {
         // 所以这条盯的是**平台/LAF 的接线**，不是我们的逻辑。
         IdeLaf.withRealLaf {
             val area = JBTextArea()
-            installImagePaste(area) {}
+            installComposerPaste(area, onImages = {}, onMentions = {})
 
             val paste = area.actionMap.get("paste")
             assertNotNull(paste, "actionMap 里没有 paste —— Ctrl+V 这条路断了")
@@ -206,26 +214,27 @@ class ImagePasteTest {
     // ---- 平台的粘贴（IDE 里 Ctrl+V 真正走的那条）----
 
     @Test
-    fun `只在剪贴板里只有图时回答平台的 PASTE —— 文字粘贴一个字不变`() {
+    fun `只在该接管时才回答平台的 PASTE —— 文字粘贴一个字不变`() {
         // IDE 里 Ctrl+V 走的是平台的 `$Paste` action，它从数据上下文里取
-        // PasteProvider。**只有"有图、没文字"时才回答**：其余一律返回 null，
+        // PasteProvider。**只有"该我们接"时才回答**（[takeover] 真机上是
+        // clipboardPasteTakeover：剪贴板里有文件、或只有图）：其余一律返回 null，
         // 平台自己那个 provider 接着处理 —— 不这么做的话，文字粘贴就得我们
         // 自己重写一遍（选区替换、撤销栈），那是另一个量级的坑。
         val key = PlatformDataKeys.PASTE_PROVIDER.name
-        val hasImage = imagePasteProvider({}, clipboardHasImageOnly = { true })
-        val noImage = imagePasteProvider({}, clipboardHasImageOnly = { false })
+        val take = composerPasteProvider(onImages = {}, onMentions = {}, takeover = { true })
+        val pass = composerPasteProvider(onImages = {}, onMentions = {}, takeover = { false })
 
-        assertSame(hasImage, imagePasteData(key, hasImage))
-        assertNull(imagePasteData(key, noImage), "没有图还抢 Ctrl+V 会挡住文字粘贴")
-        assertNull(imagePasteData("别的 key", hasImage), "只回答 PASTE 这一个 key")
-        assertNull(imagePasteData(key, null), "没挂 provider 的组件不该被当成有")
+        assertSame(take, composerPasteData(key, take))
+        assertNull(composerPasteData(key, pass), "不该接的时候还抢 Ctrl+V 会挡住文字粘贴")
+        assertNull(composerPasteData("别的 key", take), "只回答 PASTE 这一个 key")
+        assertNull(composerPasteData(key, null), "没挂 provider 的组件不该被当成有")
     }
 
     @Test
     fun `输入框在有图时把 PASTE 交给我们的 provider`() {
         // 组件级：平台构建数据上下文时会问焦点组件，输入框要实现 DataProvider
         val area = ComposerTextArea(1, 20)
-        val provider = imagePasteProvider({}, clipboardHasImageOnly = { true })
+        val provider = composerPasteProvider(onImages = {}, onMentions = {}, takeover = { true })
 
         assertNull(area.getData(PlatformDataKeys.PASTE_PROVIDER.name), "没挂之前不回答")
 
@@ -240,7 +249,7 @@ class ImagePasteTest {
         val area = JBTextArea().apply { transferHandler = null }
         var called = 0
 
-        installImagePaste(area) { called++ }
+        installComposerPaste(area, onImages = { called++ }, onMentions = {})
 
         assertEquals(null, area.transferHandler, "宁可不支持贴图，也不能让 Ctrl+V 代码失效")
         assertEquals(0, called)

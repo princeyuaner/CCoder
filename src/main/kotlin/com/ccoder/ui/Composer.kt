@@ -109,7 +109,7 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
     var sendShortcut: () -> SendShortcut = { SendShortcut.DEFAULT }
 
     /**
-     * Ctrl+V 的接管口（见 [imagePasteProvider]）。
+     * Ctrl+V 的接管口（见 [composerPasteProvider]）。
      *
      * **为什么需要它**：IDE 里 Ctrl+V 走的是平台的 `$Paste` action，而那个 action
      * 是从**数据上下文**里取 [PasteProvider] 再调的 —— Swing 的 `TransferHandler`
@@ -119,28 +119,29 @@ internal class ComposerTextArea(rows: Int, cols: Int) : JBTextArea(rows, cols), 
      * 会从后台线程随便问（所以要求线程安全），于是 2026-09-15 那一版实现完
      * **一次都没被问到** —— 平台自己的 `EditorTextField` 实现的就是前者。
      *
-     * 只在"剪贴板里只有图"时回答（见 [imagePasteData]），其余交回平台。
+     * 只在"剪贴板里有文件、或只有图"时回答（见 [clipboardPasteTakeover]），
+     * 其余交回平台。
      */
     var pasteProvider: PasteProvider? = null
 
     /**
-     * "从剪贴板收一张图"的回调 —— 给 [PasteImageAction] 用（Ctrl+V 那条自己占住的
-     * 路）。由 [installImagePaste] 接上。
+     * "收下剪贴板里的这次粘贴"的回调 —— 给 [ComposerPasteAction] 用（Ctrl+V 那条
+     * 自己占住的路）：图进附件带、文件变 `@` 引用。由 [installComposerPaste] 接上。
      */
-    var imagePasteAttach: (() -> Unit)? = null
+    var pasteAttach: (() -> Unit)? = null
 
     override fun uiDataSnapshot(sink: DataSink) {
-        // 无条件放：这个 key 只是"焦点在能收图的输入框上"的标记，可不可用由
-        // PasteImageAction.update 决定（它还要看剪贴板）
-        imagePasteAttach?.let { sink[IMAGE_PASTE_ATTACH] = it }
-        val provider = imagePasteData(PlatformDataKeys.PASTE_PROVIDER.name, pasteProvider)
+        // 无条件放：这个 key 只是"焦点在能收东西的输入框上"的标记，可不可用由
+        // ComposerPasteAction.update 决定（它还要看剪贴板）
+        pasteAttach?.let { sink[COMPOSER_PASTE_ATTACH] = it }
+        val provider = composerPasteData(PlatformDataKeys.PASTE_PROVIDER.name, pasteProvider)
         if (provider != null) {
-            LOG.info("贴图：把 PASTE_PROVIDER 交给平台（剪贴板里只有图）")
+            LOG.info("粘贴：把 PASTE_PROVIDER 交给平台（有文件或只有图）")
             sink[PlatformDataKeys.PASTE_PROVIDER] = provider
         }
     }
 
-    override fun getData(dataId: String): Any? = imagePasteData(dataId, pasteProvider)
+    override fun getData(dataId: String): Any? = composerPasteData(dataId, pasteProvider)
 
     /**
      * 视口够高就撑满；**装不下就别撑** —— 那时要出滚动条。

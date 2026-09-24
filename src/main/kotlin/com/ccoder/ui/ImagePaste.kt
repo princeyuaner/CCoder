@@ -38,6 +38,10 @@ internal data class IncomingImage(
  * - **拖（drop）时图优先**：从项目树/资源管理器拖一张 `.png` 进来，想要的就是那张图，
  *   而不是它的路径被当文本插进来。非图片文件仍然走老路（插路径）。
  *
+ * **"有文件"那一半不归这条管**（2026-09-24）：粘贴一批文件走的是 [pasteFilesWanted]
+ * → [routeIncomingFiles]，那里的判据是"有文件就接下"（复制文件时本来就会带一份
+ * 路径文本，按"文字优先"判等于永不触发）。拖拽那条线没动，仍是老路。
+ *
  * 抽成纯函数是为了可测：拖与粘的分支在真机上很难手动覆盖（要真的去拖），
  * 而"文字优先"这条规则一旦写反，用户每次粘代码都会多出一张图。
  */
@@ -50,34 +54,38 @@ internal fun attachImagesWanted(flavors: Collection<DataFlavor>, isDrop: Boolean
 }
 
 /**
- * 给输入框装上"图能粘进来"。
+ * 给输入框装上"粘贴能收东西"：**图**（截图）进附件带，**文件**（复制来的）
+ * 走附件按钮那套分流（2026-09-24 加了后者，见 `FilePaste.kt`）。
  *
  * **必须留着原来的处理器**：`JTextComponent` 只有一个 `transferHandler`，换掉之后
  * 文字粘贴（Ctrl+V 一段代码）就得我们自己实现一遍 —— 而它比看上去麻烦得多
- * （选区替换、撤销栈、输入法）。所以这里包一层：图归我们，其余原样转交。
+ * （选区替换、撤销栈、输入法）。所以这里包一层：图与文件归我们，其余原样转交。
  *
  * 拿不到原处理器就**不装**：装上去等于把文字粘贴弄丢，那比不支持贴图严重。
  */
-internal fun installImagePaste(
+internal fun installComposerPaste(
     area: JTextComponent,
     onImages: (List<IncomingImage>) -> Unit,
+    onMentions: (List<String>) -> Unit,
+    /** 纯文本路径那条要用（见 [filePathsInText]）：认不出路径就交回默认粘贴。 */
+    resolve: FileResolver = { null },
 ) {
     val fallback = area.transferHandler
     if (fallback == null) {
-        LOG.warn("输入框没有默认的 TransferHandler —— 贴图不接（保住文字粘贴更要紧）")
+        LOG.warn("输入框没有默认的 TransferHandler —— 粘贴不接（保住文字粘贴更要紧）")
         return
     }
-    area.transferHandler = ImagePasteHandler(fallback, onImages)
-    // 还有第二条路：**平台的粘贴**（见 imagePasteProvider）。IDE 里 Ctrl+V 根本不
+    area.transferHandler = ImagePasteHandler(fallback, onImages, onMentions)
+    // 还有第二条路：**平台的粘贴**（见 composerPasteProvider）。IDE 里 Ctrl+V 根本不
     // 走 Swing 的 TransferHandler —— keymap 把 `$Paste` 交给平台的 paste action，
     // 而按平台自己的实现，它是从数据上下文里取 PasteProvider 再调。两条都接上，
     // 谁先到都能用（TransferHandler 那条还兼着拖拽）
     (area as? ComposerTextArea)?.let {
-        it.pasteProvider = imagePasteProvider(onImages)
-        // 自己那条 Ctrl+V（见 PasteImageAction）：平台那条在焦点上有一堆前提
-        it.imagePasteAttach = { onImages(readImagesFromPlatformClipboard()) }
+        it.pasteProvider = composerPasteProvider(onImages, onMentions, resolve)
+        // 自己那条 Ctrl+V（见 ComposerPasteAction）：平台那条在焦点上有一堆前提
+        it.pasteAttach = { pasteFromClipboard(onImages, onMentions, resolve) }
     }
-    LOG.info("贴图已接线：默认处理器是 ${fallback.javaClass.name}，平台 PasteProvider 也挂上了")
+    LOG.info("粘贴已接线：默认处理器是 ${fallback.javaClass.name}，平台 PasteProvider 也挂上了")
 }
 
 /**
@@ -96,14 +104,17 @@ internal fun installImagePaste(
 private class ImagePasteHandler(
     private val fallback: TransferHandler,
     private val onImages: (List<IncomingImage>) -> Unit,
+    private val onMentions: (List<String>) -> Unit,
 ) : TransferHandler() {
 
     override fun canImport(support: TransferSupport): Boolean {
         val flavors = imageSource(support)?.transferDataFlavors?.toList() ?: emptyList()
-        val want = attachImagesWanted(flavors, support.isDrop)
+        // 文件那条与图那条是**两条**判定，不能合成一个"要不要"：粘贴一批文件时
+        // 可能也带位图，而那时该走文件那条（分流更全，见 FilePaste.kt）
+        val want = pasteFilesWanted(flavors, support.isDrop) || attachImagesWanted(flavors, support.isDrop)
         // 拖拽时这个方法会被调很多次，只记"要接"和"粘贴"这两种有信息量的
         if (want || !support.isDrop) {
-            LOG.info("贴图判定：isDrop=${support.isDrop} → ${if (want) "接图" else "交回默认"}（$flavors）")
+            LOG.info("粘贴判定：isDrop=${support.isDrop} → ${if (want) "接下" else "交回默认"}（$flavors）")
         }
         return want || fallback.canImport(support)
     }
@@ -111,6 +122,16 @@ private class ImagePasteHandler(
     override fun importData(support: TransferSupport): Boolean {
         val source = imageSource(support)
         val flavors = source?.transferDataFlavors?.toList() ?: emptyList()
+        // 粘贴 + 有一批文件：走附件按钮那套分流（图进附件带，其余变 @ 引用）
+        if (pasteFilesWanted(flavors, support.isDrop)) {
+            val paths = source?.let(::filePathsFrom) ?: emptyList()
+            if (paths.isNotEmpty()) {
+                LOG.info("粘贴：读到 ${paths.size} 个文件")
+                routeIncomingFiles(paths, onImages, onMentions)
+                return true
+            }
+            LOG.warn("粘贴：判定该接文件却一个都没读到 —— 交回默认处理器")
+        }
         if (attachImagesWanted(flavors, support.isDrop)) {
             val images = source?.let { readFromTransferable(it) } ?: emptyList()
             LOG.info("贴图读取：拿到 ${images.size} 张（isDrop=${support.isDrop}）")
@@ -173,7 +194,7 @@ private fun platformClipboard(): Transferable? {
  * 一个 6 行的 `EmptyDataContext` 同时触发了这两条红字，足以让市场审核不通过 ——
  * 平台本来就提供了空上下文，没有任何理由自己造一个。
  */
-internal fun imagePasteData(dataId: String, provider: PasteProvider?): PasteProvider? =
+internal fun composerPasteData(dataId: String, provider: PasteProvider?): PasteProvider? =
     if (provider != null && PlatformDataKeys.PASTE_PROVIDER.`is`(dataId) &&
         provider.isPastePossible(DataContext.EMPTY_CONTEXT)
     ) {
@@ -185,21 +206,25 @@ internal fun imagePasteData(dataId: String, provider: PasteProvider?): PasteProv
 /**
  * 真正干活的 provider。挂在输入框上（它实现 [DataProvider]）。
  *
- * [clipboardHasImageOnly] 抽成参数只为可测：真机上这个是拿 [CopyPasteManager] 问的，
+ * 收什么由 [takeover] 说了算（默认 [clipboardPasteTakeover]：有文件、或只有图），
+ * 收下之后怎么分流由 [pasteFromClipboard] 说了算 —— 两条都在 `FilePaste.kt` 里。
+ *
+ * [takeover] 抽成参数只为可测：真机上这个是拿 [CopyPasteManager] 问的，
  * 而单测里没有 Application。
  */
-internal fun imagePasteProvider(
-    attach: (List<IncomingImage>) -> Unit,
-    clipboardHasImageOnly: () -> Boolean = ::clipboardImageOnly,
+internal fun composerPasteProvider(
+    onImages: (List<IncomingImage>) -> Unit,
+    onMentions: (List<String>) -> Unit,
+    resolve: FileResolver = { null },
+    takeover: () -> Boolean = { clipboardPasteTakeover(resolve) },
 ): PasteProvider = object : PasteProvider {
-    override fun isPastePossible(dataContext: DataContext): Boolean = clipboardHasImageOnly()
+    override fun isPastePossible(dataContext: DataContext): Boolean = takeover()
 
-    override fun isPasteEnabled(dataContext: DataContext): Boolean = clipboardHasImageOnly()
+    override fun isPasteEnabled(dataContext: DataContext): Boolean = takeover()
 
     override fun performPaste(dataContext: DataContext) {
-        val images = readImagesFromPlatformClipboard()
-        LOG.info("贴图：平台的粘贴链上接手了 ${images.size} 张")
-        if (images.isNotEmpty()) attach(images)
+        LOG.info("粘贴：平台的粘贴链上接手了这次粘贴")
+        pasteFromClipboard(onImages, onMentions, resolve)
     }
 }
 

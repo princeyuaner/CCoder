@@ -521,6 +521,23 @@ class ClaudePanel(
      */
     private var runningListShown = false
 
+    /**
+     * 交给浮层的那只盒子（[runningDetailPanel] 的产物）——
+     * **就地换内容只认它**，不认 `runDetailPopup.content`。
+     *
+     * 2026-09-24 用户报的那屏"一大片空白，中间孤零零一句『还有 N 个在跑』"
+     * 是这么来的。症状指得很清楚：**只有最后加进去的那个子件画得出来，而且被
+     * 拉满整块底** —— 那是 `BorderLayout` 的典型表现（没有约束地 `add`，几个子件
+     * 全落在 CENTER、只留最后一个，剩下的空间由它吃掉）。也就是说那一次搬子件
+     * **搬进了一个 `BorderLayout` 的容器**，而不是我们那只 `BoxLayout` 的盒子：
+     * `JBPopup.content` 未必就是交出去的那一个（平台有可能自己套一层 ——
+     * 手上那份发行包里没能把 `PopupImpl` 拆开验证，先按症状这么记）。
+     *
+     * 不管那一层到底是什么，规矩就一条：**只改自己那只盒子**。搬的是子件、不是
+     * 盒子，布局与内边距便都还是我们自己的。
+     */
+    private var runningPopupBox: JPanel? = null
+
     /** 哪张卡的详情浮层。连接卡没有详情，所以不在其中。 */
     private enum class DetailCard { Context, Todos, Running }
 
@@ -684,8 +701,15 @@ class ClaudePanel(
         input.addCaretListener { refreshCompletion() }
 
         // 贴图：剪贴板里的截图、拖进来的图片文件，都收进附件带。
-        // 文字粘贴走的还是原来那个处理器（见 installImagePaste 的说明）
-        installImagePaste(input) { incoming -> incoming.forEach(::addAttachment) }
+        // 文字粘贴走的还是原来那个处理器（见 installComposerPaste 的说明）：
+        // 图（截图）进附件带，文件（复制来的）走附件按钮那套分流 → `@` 引用。
+        // resolveFile 是给"剪贴板上是一段路径文本"那条用的（IDE 里复制文件就是那样）
+        installComposerPaste(
+            input,
+            onImages = { incoming -> incoming.forEach(::addAttachment) },
+            onMentions = ::addFileMentions,
+            resolve = { text -> projectFileResolver(project)(text) },
+        )
 
         // 诊断：Ctrl+V 到底有没有到输入框。平台那条链（$Paste → PasteProvider）
         // 只在焦点合适时才轮到我们，这一行能把"焦点不在这儿"和"平台没调我们"分开
@@ -1311,6 +1335,9 @@ class ClaudePanel(
         runDetailPopup = null
         openDetail = null
         runningListShown = false
+        // 那只盒子跟着窗口一起没了 —— 留着的话，下一次刷新会去改一个已经不在
+        // 浮层里的组件（改了也看不见，白忙）
+        runningPopupBox = null
         // **also 把"正在等子代理清单"那面旗清掉**（2026-09-24 补）。它是"这一趟还
         // 算不算数"的凭据：不清的话，一条迟到的应答会以为自己仍被需要，于是把你
         // 刚点开的**另一张**卡的浮层顶掉（点了「任务列表」，跳出来的却是「子代理」）。
@@ -1363,12 +1390,14 @@ class ClaudePanel(
     private fun showRunningDetail(agents: List<SubagentInfo>) {
         runningAgents = agents
         shownRunning = runStatus.running
+        val box = runningDetailPanel()
+        runningPopupBox = box
         // 旗子**必须在 showDetailPopup 之后立**：它内部先 cancel 旧浮层，
         // 那一刻的 onClosed 会走 closeDetail 把旗清掉。
         //
         // 而"立不立"取决于浮层**真显示出来了没有** —— 没显示还立着，下一次刷新
         // 就会把那个从没露过面的窗口显示出来（2026-09-24 用户报的"自己跳出来"）。
-        runningListShown = showDetailPopup(statusCards.running, runningDetailPanel())
+        runningListShown = showDetailPopup(statusCards.running, box)
     }
 
     /**
@@ -1376,7 +1405,7 @@ class ClaudePanel(
      * 参数只写在一个地方，免得哪天漏改一处（"展开"那个回调尤其容易漏，
      * 它捕获的是 [runningAgents] 而不是参数）。
      */
-    private fun runningDetailPanel(): JComponent = buildRunningDetail(
+    private fun runningDetailPanel(): JPanel = buildRunningDetail(
         runStatus.running,
         runningAgents,
         ::stopRunningTask,
@@ -1404,25 +1433,37 @@ class ClaudePanel(
     private fun refreshRunningPopup() {
         // 除了那面旗，还核一眼**它真在屏幕上**：旗有可能漏网（浮层被某种不触发
         // onClosed 的方式收掉时不会清），而"以为开着"的代价就是下一次刷新把这个
-        // 其实没人看得见的窗口显示出来 —— 就是用户说的"自己跳出来"
-        if (!runningListShown || runDetailPopup?.isVisible != true) return
+        // 其实没人看得见的窗口显示出来 —— 就是用户说的"自己跳出来"。
+        //
+        // 判"在屏幕上"用的是**盒子自己的 `isShowing`**（Swing 的事实：它在不在一个
+        // 真显示着的窗口里），不用 `JBPopup.isVisible()` —— 2026-09-24 用户第二次
+        // 报"自己跳出来"之后换的：浮层被平台收走却没触发 onClosed 时，那个 API
+        // 说还开着，于是这一趟刷新就把窗口**重新显示**出来。
+        val box = runningPopupBox ?: return
+        if (!runningListShown || !box.isShowing) return
         if (runStatus.running == shownRunning) return
-        if (runStatus.running.rendersSameShapeAs(shownRunning) && swapRunningDetailContent()) return
-        // 形状真变了（多了/少了一个任务、或者某条冒出了进行时）→ 高度也变了，
-        // 那就老老实实重建一次，让它重新量尺寸与位置
+        if (runStatus.running.rendersSameShapeAs(shownRunning)) {
+            swapInto(box)
+            return
+        }
+        // 形状真变了（多了/少了一个任务）→ 高度也变了，老老实实重建一次，
+        // 让它重新量尺寸与位置
         showRunningDetail(runningAgents)
     }
 
-    /** 就地换掉浮层里的内容（不拆窗）。拿不到那个容器就给 false，让调用方走重建。 */
-    private fun swapRunningDetailContent(): Boolean {
-        val box = runDetailPopup?.content as? JPanel ?: return false
+    /**
+     * 就地换掉那只盒子里的内容（不拆窗）。
+     *
+     * **只改自己那只盒子**（见 [runningPopupBox] 上那段）。搬的是**子件**、不是
+     * 盒子本身：两边都是 [runningDetailPanel] 产的同一个形状（同一套布局与内边距），
+     * 所以搬过去之后一切照旧；而换掉盒子就得重建窗口，那就会闪。
+     */
+    private fun swapInto(box: JPanel) {
         shownRunning = runStatus.running
-        val fresh = runningDetailPanel()
         box.removeAll()
-        fresh.components.forEach { box.add(it) }
+        runningDetailPanel().components.forEach { box.add(it) }
         box.revalidate()
         box.repaint()
-        return true
     }
 
     /**
@@ -1462,6 +1503,8 @@ class ClaudePanel(
                 showDetailPopup(statusCards.running, buildSubagentDetail(agent, msg.items))
                 // 换页之后画的不是清单了 —— 清单再变也不许把它顶掉
                 runningListShown = false
+                // 同一个理由：那只盒子已经不是浮层的内容了，别再往它里面搬东西
+                runningPopupBox = null
             }
         }
     }
@@ -1865,8 +1908,8 @@ class ClaudePanel(
             // 别的标签正在跑的那些行不可点，并标一句「已打开」（见 OpenSessions）
             takenIds = OpenSessions.getInstance(project).takenIds(),
             onDelete = { s -> requestDeleteSession(s) },
-            onRename = { s, title -> requestRenameSession(s.sessionId, title) },
-            onTag = { s, tag -> requestTagSession(s.sessionId, tag) },
+            onRename = { s -> promptRenameSession(s) },
+            onTag = { s -> promptTagSession(s) },
             // 顶部右上角那颗「清空全部」（2026-09-17）。确认在列表里做完了，
             // 到这里就是"用户已经确认过"
             onClearAll = { requestClearAllSessions() },
@@ -1933,6 +1976,44 @@ class ClaudePanel(
      * 这里没有删除那种"不可逆"的分量（改错了再改一次就行），但规矩不变 ——
      * 先改行再等回执的话，写入失败时列表显示的是一个并不存在的新名字。
      */
+    /**
+     * 点「改名」：**先弹输入框，回来再发**。
+     *
+     * 输入框为什么在对话框里而不是就地：会话列表那个弹层**不可聚焦**
+     * （`showTogglePopup` 建的，`setFocusable(false)` —— 那是为"点击驱动的浮层
+     * 不抢输入框的焦点"设的），里面塞输入框敲不进字。2026-09-24 用户报的
+     * 「点击了改名后无法输入」就是它。
+     *
+     * 取消、以及"一个字都没改"都不发请求 —— 判在 [renameFromDialog] 里（有单测）。
+     */
+    private fun promptRenameSession(session: SessionInfo) {
+        val prefill = renamePrefill(session)
+        val typed = Messages.showInputDialog(
+            project,
+            CcoderText.text("session.rename.dialogMessage"),
+            CcoderText.text("session.rename.dialogTitle"),
+            null,
+            prefill,
+            null,
+        )
+        val title = renameFromDialog(prefill, typed) ?: return
+        requestRenameSession(session.sessionId, title)
+    }
+
+    /** 点标签 chip：同上，输入在对话框里（空串 = 清掉标签）。 */
+    private fun promptTagSession(session: SessionInfo) {
+        val typed = Messages.showInputDialog(
+            project,
+            CcoderText.text("session.tag.dialogMessage"),
+            CcoderText.text("session.tag.dialogTitle"),
+            null,
+            session.tag.orEmpty(),
+            null,
+        )
+        val tag = tagFromDialog(session.tag, typed) ?: return
+        requestTagSession(session.sessionId, tag)
+    }
+
     private fun requestRenameSession(sessionId: String, title: String) {
         val c = client ?: return reportSessionEditFailure(CcoderText.text("chat.action.rename"), CcoderText.text("chat.reason.channelClosed"))
         val id = nextId()
@@ -4075,24 +4156,19 @@ class ClaudePanel(
         )
         if (picked.isEmpty()) return
 
-        val chosen = splitChosenFiles(picked.map { it.path })
-        LOG.info(
-            "附件按钮：选了 ${picked.size} 个文件 —— 图 ${chosen.pictures.size} 张、" +
-                "@ 引用 ${chosen.mentions.size} 个",
+        // 分流只有一份（[routeIncomingFiles]）：附件按钮与"粘贴文件"两处共用 ——
+        // 各写一遍的话，"什么算图"迟早分成两套判据（粘进来的认、选进来的不认）
+        routeIncomingFiles(
+            picked.map { it.path },
+            onImages = { images -> images.forEach(::addAttachment) },
+            onMentions = ::addFileMentions,
         )
-        if (chosen.mentions.isNotEmpty()) {
-            addToComposer(
-                chosen.mentions.joinToString(" ") { fileMention(mentionPathOf(project, it)) },
-            )
-        }
-        for (path in chosen.pictures) {
-            val image = imageFromFile(File(path))
-            if (image != null) {
-                addAttachment(image)
-            } else {
-                addToComposer(fileMention(mentionPathOf(project, path)))
-            }
-        }
+    }
+
+    /** 一批绝对路径 → 输入框里的 `@` 引用（附件按钮与"粘贴文件"共用这一处）。 */
+    private fun addFileMentions(paths: List<String>) {
+        if (paths.isEmpty()) return
+        addToComposer(paths.joinToString(" ") { fileMention(mentionPathOf(project, it)) })
     }
 
     /**

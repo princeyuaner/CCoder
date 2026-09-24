@@ -17,10 +17,6 @@ import java.awt.Graphics2D
 import java.awt.GridBagLayout
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.awt.event.FocusAdapter
-import java.awt.event.FocusEvent
-import java.awt.event.KeyAdapter
-import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
@@ -29,7 +25,6 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.JTextField
 import javax.swing.ScrollPaneConstants
 import javax.swing.Scrollable
 import javax.swing.SwingUtilities
@@ -46,6 +41,19 @@ import javax.swing.SwingUtilities
  * 实现与测试共用这一个常量，免得两边各写一份然后漂移。
  */
 internal val DELETE_TEXT: String get() = CcoderText.text("session.list.delete")
+
+/**
+ * 行尾改名按钮上写什么（2026-09-24）。
+ *
+ * 与 [DELETE_TEXT] 同一套写法：文字、常驻、指针停上去才长出按钮框。
+ *
+ * **为什么不继续用"双击标题"那条路**：双击在真机上到不了。`rowMouse`
+ * （单击 = 切换会话）也挂在标题上（见 `sessionRow` 末尾那段），双击的**第一下**
+ * 就触发了 `onPick` —— 弹层跟着关掉，第二下永远落不到标题上。
+ * 而单测是往标题直接派发一个 `clickCount = 2` 的事件，绕过了这一层，所以一直绿着
+ * （仓库里"单测全绿、东西还是坏的"又一例）。用户的原话是要一个按钮。
+ */
+internal val RENAME_TEXT: String get() = CcoderText.text("session.list.rename")
 
 /**
  * 顶部那行右上角的入口上写什么（2026-09-17）。
@@ -197,8 +205,13 @@ internal fun buildSessionList(
      */
     maxWidth: Int = JBUI.scale(SESSION_LIST_WIDTH),
     /**
-     * 已被**别的标签**占着的会话（见 [OpenSessions]）。这些行不可点，并在时间那一格
-     * 写一句「已打开」—— 两条标签开同一条会话会两边同时写同一个 jsonl。
+     * 已被**某个标签**占着的会话（见 [OpenSessions]）—— **含本面板自己正跑着的那一条**
+     * （它在 `init` 时就登记了，取的是全部登记，见 `2026-09-17-session-clear-all-design.md`
+     * §3.3）。这些行不可切换，并在时间那一格写一句「已打开」：两条标签开同一条会话会
+     * 两边同时写同一个 jsonl；而自己那条点下去等于把会话重启一遍。
+     *
+     * 不可切换**不等于**什么都干不了：改名对它们（至少对当前那条）开着，见
+     * [sessionRow] 里的 `editAllowed`。
      *
      * 位置在 [onPick] 之前是**硬要求**：Kotlin 的尾随 lambda 绑最后一个参数，
      * 见下面那段注释。
@@ -209,8 +222,19 @@ internal fun buildSessionList(
     // 会**静默地**从"选中回调"变成别的什么 —— 点了会话什么都不发生，而且不报错。
     // 删除是破坏性动作，要求具名传入也更合适。
     onDelete: (SessionInfo) -> Unit = {},
-    onRename: (SessionInfo, String) -> Unit = { _, _ -> },
-    onTag: (SessionInfo, String?) -> Unit = { _, _ -> },
+    /**
+     * 点了行尾那颗「改名」。
+     *
+     * **填名字的输入框在 `ClaudePanel` 那层弹**（2026-09-24 改的）：对话框要 Project，
+     * 而这个文件没有、也刻意不拿。这一层只回答"用户点了哪一行的哪颗按钮"。
+     *
+     * 为什么不是就地编辑：这个弹层**不可聚焦**（`showTogglePopup` 建的时候
+     * `setFocusable(false)`），里面塞输入框根本拿不到焦点 —— 敲的字全进了主输入框。
+     * 那套设置对别的三个浮层（状态卡 / 模型 / 思考档）是对的，它们是只读选择器。
+     */
+    onRename: (SessionInfo) -> Unit = {},
+    /** 点了标签 chip。同上：输入在 `ClaudePanel` 那层弹。 */
+    onTag: (SessionInfo) -> Unit = {},
     /**
      * 顶部右上角那颗「清空全部」被确认之后才调用（2026-09-17）。
      *
@@ -249,8 +273,9 @@ internal fun buildSessionList(
             sessionRow(
                 session = s,
                 selected = s.sessionId == currentSessionId,
-                // 被别的标签占着的那条也不可点（点击会切过去 = 两边写同一条）
-                clickable = block == SwitchBlock.None && s.sessionId !in takenIds,
+                // 整列能不能动。"这一行可不可切换"由它 + taken 在 sessionRow 里推出来
+                // （被占的那条不可切换：点过去就是两边写同一条 jsonl）
+                idle = block == SwitchBlock.None,
                 taken = s.sessionId in takenIds,
                 nowMs = now,
                 onPick = onPick,
@@ -311,20 +336,23 @@ private fun textAction(text: String, tooltip: String, font: Font): JButton = JBu
 }
 
 /**
- * 三档强调。破坏性动作（删除一行 / 清空全部）共用这一个写法：
+ * 三档强调。行里那些"文字按钮"（删除 / 改名 / 清空全部）共用这一个写法：
  * 光标越靠近它，信号越强。
  *
- * @param danger 指针就在按钮上：变红 + 长出按钮框
+ * @param hot 指针就在按钮上：长出按钮框
  * @param strong 指针在这一行上：提亮到正常前景色
+ * @param danger 破坏性动作（删除一行 / 清空全部）：这一档用红色。
+ *   改名这类**可逆**动作只长框不变红 —— 红色在这套界面里是"这一下不可逆"的信号
+ *   （2026-09-24 加改名按钮时把它从 `paintDanger` 推广成这一个）
  */
-private fun paintDanger(button: JButton, danger: Boolean, strong: Boolean) {
+private fun paintAction(button: JButton, hot: Boolean, strong: Boolean, danger: Boolean = false) {
     button.foreground = when {
-        danger -> DELETE_DANGER
-        strong -> UIUtil.getLabelForeground()
+        danger && hot -> DELETE_DANGER
+        hot || strong -> UIUtil.getLabelForeground()
         else -> UIUtil.getInactiveTextColor()
     }
-    button.isContentAreaFilled = danger
-    button.isBorderPainted = danger
+    button.isContentAreaFilled = hot
+    button.isBorderPainted = hot
     button.repaint()
 }
 
@@ -387,8 +415,8 @@ private fun clearAllRow(
     }
     action.addMouseListener(
         object : MouseAdapter() {
-            override fun mouseEntered(e: MouseEvent) = paintDanger(action, danger = true, strong = true)
-            override fun mouseExited(e: MouseEvent) = paintDanger(action, danger = false, strong = false)
+            override fun mouseEntered(e: MouseEvent) = paintAction(action, hot = true, strong = true, danger = true)
+            override fun mouseExited(e: MouseEvent) = paintAction(action, hot = false, strong = false)
         }
     )
 
@@ -397,7 +425,7 @@ private fun clearAllRow(
         action.isVisible = block == SwitchBlock.None
         // 强调也一并归零：按钮被隐藏时不会再收到 mouseExited，停在它上面的
         // 那一档红色会一直留着（下次显示出来就是红的）
-        paintDanger(action, danger = false, strong = false)
+        paintAction(action, hot = false, strong = false)
         row.add(title, BorderLayout.CENTER)
         row.add(actionSlot, BorderLayout.EAST)
         row.revalidate()
@@ -615,12 +643,16 @@ internal class SessionCard(
 private fun sessionRow(
     session: SessionInfo,
     selected: Boolean,
-    clickable: Boolean,
+    /**
+     * 整列能不能动（[SwitchBlock.None]）。忙时任何入口都不露 —— 这是**列级**的规矩，
+     * 所以它比"这一行可不可切换"更靠上一层。
+     */
+    idle: Boolean,
     nowMs: Long,
     onPick: (SessionInfo) -> Unit,
     onDelete: (SessionInfo) -> Unit,
-    onRename: (SessionInfo, String) -> Unit,
-    onTag: (SessionInfo, String?) -> Unit,
+    onRename: (SessionInfo) -> Unit,
+    onTag: (SessionInfo) -> Unit,
     confirmSlot: ConfirmSlot,
     /** 已被别的标签占着。不可点，并在时间那一格写一句「已打开」。 */
     taken: Boolean = false,
@@ -628,6 +660,19 @@ private fun sessionRow(
     // 显式取字体：未挂到层级上时 getFont() 可能是 null，deriveFont 会 NPE
     // （RunStripView 上踩过同一个坑）
     val base = UIUtil.getLabelFont()
+
+    /** 可**切换过去**：整列能动、而且这条没被占着（自己跑着的那条也算占着）。 */
+    val clickable = idle && !taken
+
+    /**
+     * 行内的"改元数据"入口露不露（改名按钮 / 标签 chip）。
+     *
+     * **当前会话也能改**（2026-09-24，用户选的）：挡住删除的那条理由 ——
+     * "那条 jsonl 正被活着的 CLI 进程写着" —— 只对得上删除（见
+     * `2026-09-17-session-clear-all-design.md` §3.3）；改名与打标签写的是标题 /
+     * 标签，不碰转写。所以当前这一行虽然不可切换、不可删，这两个入口开着。
+     */
+    val editAllowed = idle && (clickable || selected)
 
     val row = SessionCard(current = selected, clickable = clickable, dimmed = taken)
 
@@ -645,17 +690,6 @@ private fun sessionRow(
         }
     }
 
-    /**
-     * 标题所在的槽。
-     *
-     * 单独包一层是为了就地改名 —— 那时要把标题换成输入框，提交完还要能换回来。
-     * 直接往 `row` 的 CENTER 里拿进拿出会把 `tail` 挤得跳一下。
-     */
-    val centerSlot = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        add(titleLabel, BorderLayout.CENTER)
-    }
-
     // 被占的那一行，时间那一格改说「已打开」：状态比"多久以前"更该被看见，
     // 而这一行本来就点不动了（时间对它没有意义）
     val timeLabel = JLabel(if (taken) TAKEN_TEXT else relativeTime(nowMs, session.lastModified)).apply {
@@ -666,9 +700,10 @@ private fun sessionRow(
     /**
      * 标签。有标签显示 `#标签`，没有显示一个淡色的「＋」。
      *
-     * **没有标签时也必须留个东西**：改名是"在看得见的东西上加动作"（双击标题），
-     * 而"给一个还没有标签的会话打标签"没有可点的对象 —— 藏进悬停或右键都会让
-     * 它变得找不着。删除按钮当初从"悬停才浮出来"改成常驻，就是同一个理由。
+     * **没有标签时也必须留个东西**：这一列里每个动作都有一个看得见的落点
+     * （改名、删除都是文字按钮），只有"给一个还没有标签的会话打标签"原本
+     * 没有可点的对象 —— 藏进悬停或右键都会让它变得找不着。
+     * 删除按钮当初从"悬停才浮出来"改成常驻，就是同一个理由。
      */
     val tagChip = JLabel(tagChipText(session.tag)).apply {
         font = base.deriveFont(base.size2D - 1f)
@@ -679,6 +714,15 @@ private fun sessionRow(
         }
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         toolTipText = if (session.tag.isNullOrBlank()) CcoderText.text("session.list.tagTip") else CcoderText.text("session.list.tagEditTip")
+        // 点一下弹对话框（2026-09-24：原来是就地编辑，而弹层不可聚焦，敲不进字）
+        addMouseListener(
+            object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    // 当前会话也允许 —— 改名与打标签都是元数据写入（见 [editAllowed]）
+                    if (editAllowed) onTag(session)
+                }
+            }
+        )
     }
 
     // 按钮藏在固定宽度的槽里：直接拿进拿出布局会让时间标签左右跳一下。
@@ -696,7 +740,8 @@ private fun sessionRow(
     // 停在按钮上时变红并长出一个真的按钮框（危险信号 + 可点 affordance）。
     val deleteButton = textAction(DELETE_TEXT, CcoderText.text("session.list.deleteTip"), base)
 
-    fun paintDelete(danger: Boolean, strong: Boolean) = paintDanger(deleteButton, danger, strong)
+    fun paintDelete(danger: Boolean, strong: Boolean) =
+        paintAction(deleteButton, hot = danger, strong = strong, danger = danger)
 
     deleteButton.addMouseListener(
         object : MouseAdapter() {
@@ -724,14 +769,34 @@ private fun sessionRow(
         add(deleteButton, BorderLayout.WEST)
     }
 
-    /** 标签所在的槽。同上，编辑时要能换成输入框。 */
-    val tagSlot = JPanel(BorderLayout()).apply {
+    /**
+     * 改名按钮（2026-09-24，用户要的：原来是"双击标题"，而那个入口在真机上到不了，
+     * 见 [RENAME_TEXT]）。
+     *
+     * 与删除同一套文字按钮，只有两点不同：
+     *  - **不变红**：改名可逆，红色留给"这一下不可逆"的动作（[paintAction] 的 danger）
+     *  - 排在上面那颗标签之后、删除之前 —— 两个动作挨着，别再往中间塞别的东西
+     */
+    val renameButton = textAction(RENAME_TEXT, CcoderText.text("session.list.renameTip"), base)
+
+    fun paintRename(hot: Boolean, strong: Boolean) = paintAction(renameButton, hot = hot, strong = strong)
+
+    renameButton.addMouseListener(
+        object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) = paintRename(hot = true, strong = true)
+            override fun mouseExited(e: MouseEvent) = paintRename(hot = false, strong = true)
+        }
+    )
+
+    /** 同上：槽照抄按钮自己的首选尺寸，压扁了那个框会横穿字形（deleteSlot 那条的老账）。 */
+    val renameSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
-        add(tagChip, BorderLayout.CENTER)
+        preferredSize = renameButton.preferredSize
+        add(renameButton, BorderLayout.WEST)
     }
 
     /**
-     * 行尾那一串：标签 / 时间 / 删除。
+     * 行尾那一串：标签 / 时间 / 改名 / 删除。
      *
      * 外面这层 `GridBagLayout` **只干一件事：把这一行上下居中**。里层仍是
      * `FlowLayout`（右对齐、间距 6，与从前一模一样）。为什么不直接用它：
@@ -746,116 +811,34 @@ private fun sessionRow(
         add(
             JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
                 isOpaque = false
-                add(tagSlot)
+                add(tagChip)
                 add(timeLabel)
+                add(renameSlot)
                 add(deleteSlot)
             },
         )
     }
 
+    /**
+     * 回到"常态"那一版布局。
+     *
+     * 编辑不再从这里进进出出（改成对话框了，见 [buildSessionList] 的 `onRename`），
+     * 但删除确认 / 清空确认还是要靠它把行恢复原样。
+     */
     fun showNormal() {
         row.removeAll()
-        centerSlot.removeAll()
-        centerSlot.add(titleLabel, BorderLayout.CENTER)
-        tagSlot.removeAll()
-        tagSlot.add(tagChip, BorderLayout.CENTER)
-        row.add(centerSlot, BorderLayout.CENTER)
+        row.add(titleLabel, BorderLayout.CENTER)
         row.add(tail, BorderLayout.EAST)
         // 忙时整列不可点，删除自然也不该露出入口 —— 用可见性而不是禁用，
         // 禁用会留下一个"看得见点不动"的东西
         deleteButton.isVisible = clickable
         paintDelete(danger = false, strong = false)
+        // 忙时整列不该有任何入口；空闲时**当前会话那一行**也留着改名（见 [editAllowed]）
+        renameButton.isVisible = editAllowed
+        paintRename(hot = false, strong = false)
         row.revalidate()
         row.repaint()
     }
-
-    /**
-     * 就地编辑。
-     *
-     * 回车提交、Esc 取消、**失焦也提交** —— 失焦取消的话，用户打完字去点别处，
-     * 那行字就无声地没了。而且这是可逆的编辑（改错了再改一次），不需要删除
-     * 那种"不可逆"的仪式。
-     *
-     * [done] 那道闸是必须的：提交时会把输入框从组件树上摘下来，而摘下来这一下
-     * **自己会触发一次 focusLost** —— 不挡的话每次提交都要发两遍请求。
-     */
-    fun editorFor(initial: String, commit: (String) -> Unit): JTextField {
-        var done = false
-        fun finish(value: String?) {
-            if (done) return
-            done = true
-            showNormal()
-            if (value != null) commit(value)
-        }
-
-        return JTextField(initial).apply {
-            font = base
-            border = JBUI.Borders.empty(0, 2)
-            addActionListener { finish(text) }
-            addKeyListener(
-                object : KeyAdapter() {
-                    override fun keyPressed(e: KeyEvent) {
-                        if (e.keyCode == KeyEvent.VK_ESCAPE) finish(null)
-                    }
-                }
-            )
-            addFocusListener(
-                object : FocusAdapter() {
-                    override fun focusLost(e: FocusEvent) {
-                        // 只认真正的失焦：点一下别处再点回来中间会闪一次临时失焦
-                        if (!e.isTemporary) finish(text)
-                    }
-                }
-            )
-        }
-    }
-
-    /** 双击标题 → 就地改名。 */
-    fun enterRename() {
-        if (!clickable) return
-        // 收回别的行的特殊态：同一时刻只允许一行不是"常态"
-        confirmSlot.swap { showNormal() }
-        centerSlot.removeAll()
-        centerSlot.add(
-            editorFor(title) { value ->
-                // 没改就不发请求。空串**要发** —— 那是"恢复自动标题"
-                if (value != title) onRename(session, value)
-            },
-            BorderLayout.CENTER,
-        )
-        centerSlot.revalidate()
-        centerSlot.repaint()
-        centerSlot.components.firstOrNull()?.requestFocusInWindow()
-    }
-
-    /** 点标签 → 就地编辑标签。空串 = 清掉。 */
-    fun enterTagEdit() {
-        if (!clickable) return
-        confirmSlot.swap { showNormal() }
-        tagSlot.removeAll()
-        tagSlot.add(
-            editorFor(session.tag.orEmpty()) { value -> onTag(session, value) },
-            BorderLayout.CENTER,
-        )
-        tagSlot.revalidate()
-        tagSlot.repaint()
-        tagSlot.components.firstOrNull()?.requestFocusInWindow()
-    }
-
-    // 监听器在函数定义之后再挂 —— Kotlin 的局部函数不支持前向引用。
-    // 双击标题才进改名：单击已经归"切换会话"了，占用它等于把切换弄钝
-    titleLabel.addMouseListener(
-        object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) enterRename()
-            }
-        }
-    )
-    tagChip.addMouseListener(
-        object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) = enterTagEdit()
-        }
-    )
 
     fun enterConfirm() {
         confirmSlot.swap { showNormal() }
@@ -891,6 +874,9 @@ private fun sessionRow(
     }
 
     deleteButton.addActionListener { enterConfirm() }
+    // 与删除那颗不同：改名不在这里换形态，只把"用户点了这一行"报出去
+    // （弹输入框的是 ClaudePanel，见 [buildSessionList] 的 `onRename`）
+    renameButton.addActionListener { if (editAllowed) onRename(session) }
     showNormal()
 
     if (clickable) {
@@ -914,9 +900,11 @@ private fun sessionRow(
             }
 
             override fun mouseEntered(e: MouseEvent) {
-                // 悬停的反馈有两处：卡片的底/描边（卡片自己画）与行尾那颗「删除」提亮
+                // 悬停的反馈有两处：卡片的底/描边（卡片自己画）与
+                // 行尾那两颗文字按钮（改名 / 删除）提亮
                 row.hovered = true
                 paintDelete(danger = false, strong = true)
+                paintRename(hot = false, strong = true)
             }
 
             override fun mouseExited(e: MouseEvent) {
@@ -924,6 +912,7 @@ private fun sessionRow(
                 if (e.component === row) {
                     row.hovered = false
                     paintDelete(danger = false, strong = false)
+                    paintRename(hot = false, strong = false)
                     return
                 }
                 // 从一个**子组件**移出则往往是移到了同一行的另一个子组件上
@@ -935,12 +924,13 @@ private fun sessionRow(
                     if (!inside) {
                         row.hovered = false
                         paintDelete(danger = false, strong = false)
+                        paintRename(hot = false, strong = false)
                     }
                 }
             }
         }
         row.addMouseListener(rowMouse)
-        listOf(centerSlot, titleLabel, tail, timeLabel, deleteSlot).forEach {
+        listOf(titleLabel, tail, timeLabel, deleteSlot).forEach {
             it.addMouseListener(rowMouse)
         }
     }

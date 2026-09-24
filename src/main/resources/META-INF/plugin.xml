@@ -247,7 +247,7 @@
             isLogByDefault="false"/>
         <!-- 同一条快捷键上平台也有一个（$Paste）：焦点在我们的输入框时，把这个排前面。
              **必须在 extensions 里** —— 写在顶层会被静默忽略（这一条差点没赶上）。 -->
-        <actionPromoter implementation="com.ccoder.ui.ImagePastePromoter"/>
+        <actionPromoter implementation="com.ccoder.ui.ComposerPastePromoter"/>
 
         <!-- 界面语言必须**在界面出现之前**读起来：最早取文案的两处（编辑器/项目树右键菜单的
              update()、状态栏 getDisplayName()）都早于工具窗口，而平台服务是懒实例化的。
@@ -307,14 +307,14 @@
             <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
         </action>
 
-        <!-- Ctrl+V 贴图。**只在"焦点在输入框、剪贴板里只有图"时可见**（见
-             PasteImageAction 的说明）—— 其余时候它不是候选，Ctrl+V 归平台原来那套，
-             文字粘贴一个字不变。 -->
+        <!-- Ctrl+V：贴图（截图进附件带）与"粘贴文件变 @ 引用"共用。**只在"焦点在
+             输入框、剪贴板里有文件或只有图"时可见**（见 ComposerPasteAction 的说明）
+             —— 其余时候它不是候选，Ctrl+V 归平台原来那套，文字粘贴一个字不变。 -->
         <action
-            id="com.ccoder.PasteImage"
-            class="com.ccoder.ui.PasteImageAction"
-            text="%action.pasteImage.text"
-            description="%action.pasteImage.desc">
+            id="com.ccoder.ComposerPaste"
+            class="com.ccoder.ui.ComposerPasteAction"
+            text="%action.paste.text"
+            description="%action.paste.desc">
             <keyboard-shortcut keymap="$default" first-keystroke="control V"/>
         </action>
     </actions>

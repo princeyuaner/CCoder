@@ -282,6 +282,10 @@ class SessionListTest {
     private fun deleteButtonOf(list: JComponent, index: Int) =
         buttonsIn(list).filter { it.text == DELETE_TEXT }[index]
 
+    /** 一行的改名按钮。同上。 */
+    private fun renameButtonOf(list: JComponent, index: Int) =
+        buttonsIn(list).filter { it.text == RENAME_TEXT }[index]
+
     private fun hover(component: Component, entered: Boolean) {
         component.dispatchEvent(
             MouseEvent(
@@ -609,17 +613,100 @@ class SessionListTest {
     }
 
     @Test
-    fun `双击标题就地改名，双击处换成输入框`() {
-        val list = buildSessionList(sessions, currentSessionId = null, block = SwitchBlock.None)
-        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
+    fun `改名按钮常驻可见，悬停时提亮`() {
+        // 同删除那颗：常驻、安静的次要色，指针到这一行上才提亮。
+        // 一个藏起来的入口等于没有入口 —— 删除那颗走了三轮才定下这个写法
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        val row = sessionRows(list)[0]
+        val x = renameButtonOf(list, 0)
 
-        doubleClick(title)
+        assertEquals(RENAME_TEXT, x.text, "按钮上是字，不是一个符号")
+        assertTrue(x.isVisible, "没悬停时也该看得见")
 
-        assertTrue(
-            jTextFieldsIn(list).isNotEmpty(),
-            "双击之后应该有一个输入框接住输入",
+        val calm = x.foreground
+        hover(row, entered = true)
+        assertNotEquals(calm, x.foreground, "悬停后该提亮")
+
+        hover(row, entered = false)
+        assertEquals(calm, x.foreground, "移开后该回到安静的次要色")
+    }
+
+    @Test
+    fun `停在改名按钮上只长框、不变红`() {
+        // 红色在这套界面里是"这一下不可逆"（删除 / 清空）。
+        // 改名可逆，借这个信号会让用户以为点下去就回不来了
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        val delete = deleteButtonOf(list, 0)
+        val rename = renameButtonOf(list, 0)
+
+        hover(delete, entered = true)
+        val dangerColor = delete.foreground
+
+        hover(rename, entered = true)
+
+        assertTrue(rename.isBorderPainted, "停在按钮上该长出那个框，否则看不出它是个动作")
+        assertNotEquals(dangerColor, rename.foreground, "改名不该借删除那个红色信号")
+    }
+
+    @Test
+    fun `改名按钮的槽也照抄首选尺寸`() {
+        // 同删除那颗（2026-09-17 用户报的「轮廓太矮」）：槽把按钮压扁的话，
+        // 悬停长出来的那个框会横穿字形
+        val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+        val button = renameButtonOf(list, 0)
+        val slot = button.parent as JComponent
+
+        assertEquals(button.preferredSize, slot.preferredSize, "槽与按钮的首选尺寸必须一模一样")
+    }
+
+    @Test
+    fun `点「改名」把这一行报出去，输入框不在这层`() {
+        // 2026-09-24 两连改：入口先是"双击标题"→按钮（双击那条路在真机上到不了，
+        // 第一下就被 onPick 吃掉）；输入方式又从"就地编辑"→对话框 —— 这个弹层
+        // **不可聚焦**，就地塞输入框敲不进字（用户报的「点击了改名后无法输入」）。
+        // 所以这一层只负责回答"用户点了哪一行"，输入在 ClaudePanel 那层弹。
+        var asked: SessionInfo? = null
+        val list = buildSessionList(
+            sessions, currentSessionId = null, block = SwitchBlock.None,
+            onRename = { asked = it },
         )
-        assertEquals("这是什么项目", jTextFieldsIn(list).first().text, "预填原来的名字")
+
+        renameButtonOf(list, 0).doClick()
+
+        assertEquals("s1", asked?.sessionId)
+        assertTrue(jTextFieldsIn(list).isEmpty(), "这一层不该再冒出输入框 —— 它拿不到焦点，敲不进字")
+    }
+
+    @Test
+    fun `点标签 chip 把这一行报出去`() {
+        var asked: SessionInfo? = null
+        val list = buildSessionList(
+            sessions, currentSessionId = null, block = SwitchBlock.None,
+            onTag = { asked = it },
+        )
+
+        val chip = textsAndComponents(list).first { it.text == "＋" }
+        click(chip)
+
+        assertEquals("s1", asked?.sessionId)
+        assertTrue(jTextFieldsIn(list).isEmpty(), "标签也一样：输入在对话框里")
+    }
+
+    @Test
+    fun `点「改名」不触发切换会话`() {
+        // 同"点删除"那条：整行可点、按钮在行内，事件冒泡上去就会先切走
+        var picked: String? = null
+        var asked: SessionInfo? = null
+        val list = buildSessionList(
+            sessions, currentSessionId = null, block = SwitchBlock.None,
+            onRename = { asked = it },
+            onPick = { picked = it.sessionId },
+        )
+
+        renameButtonOf(list, 0).doClick()
+
+        assertNull(picked, "点改名竟然触发了切换会话")
+        assertEquals("s1", asked?.sessionId, "该报的是改名，结果报出去的是别的")
     }
 
     @Test
@@ -635,55 +722,59 @@ class SessionListTest {
     }
 
     @Test
-    fun `忙时双击标题也不进改名`() {
+    fun `忙时不露改名入口`() {
         // 整列都不可点时，改名入口也不该露出来 —— 与删除按钮同一条
         val list = buildSessionList(
             sessions, currentSessionId = null, block = SwitchBlock.PermissionPending,
         )
-        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
 
-        doubleClick(title)
-
-        assertTrue(jTextFieldsIn(list).isEmpty())
+        assertTrue(
+            buttonsIn(list).none { it.text == RENAME_TEXT && it.isVisible },
+            "忙时不该有看得见、点得动的改名入口",
+        )
     }
 
     @Test
-    fun `回车提交改名，把新名字报出去`() {
-        var renamed: Pair<String, String>? = null
+    fun `当前会话那一行也露出改名入口 —— 切换与删除仍然不给`() {
+        // 真机上当前这条**同时**在占用表里（面板自己 reserve 的，见 OpenSessions），
+        // 于是它不可切换、时间那格写着「已打开」；改名与打标签是单独开的
+        // （2026-09-24 用户选的：都是元数据写入，不碰转写）
+        var picked: String? = null
+        var asked: SessionInfo? = null
         val list = buildSessionList(
-            sessions, currentSessionId = null, block = SwitchBlock.None,
-            onRename = { s, t -> renamed = s.sessionId to t },
+            twoSessions, currentSessionId = "s1", block = SwitchBlock.None,
+            takenIds = setOf("s1"),
+            onPick = { picked = it.sessionId },
+            onRename = { asked = it },
         )
-        val title = textsAndComponents(list).first { it.text == "这是什么项目" }
-        doubleClick(title)
 
-        val field = jTextFieldsIn(list).first().apply { text = "新名字" }
-        field.postActionEvent()
+        assertTrue(renameButtonOf(list, 0).isVisible, "当前会话改名该开着")
+        assertFalse(deleteButtonOf(list, 0).isVisible, "当前会话仍然不该有删除入口 —— 那条 jsonl 正被写着")
 
-        assertEquals("s1" to "新名字", renamed)
+        renameButtonOf(list, 0).doClick()
+
+        assertNull(picked, "点改名不该触发切换")
+        assertEquals("s1", asked?.sessionId, "当前会话也该报得出去")
     }
 
     @Test
-    fun `名字没改就不发请求`() {
-        var renamed: Pair<String, String>? = null
+    fun `忙时当前会话也不露改名入口，点了标签也没反应`() {
+        // 列级的规矩压过行级的例外：忙时整列没有任何入口，一行也不例外
+        var asked: SessionInfo? = null
         val list = buildSessionList(
-            sessions, currentSessionId = null, block = SwitchBlock.None,
-            onRename = { s, t -> renamed = s.sessionId to t },
+            twoSessions, currentSessionId = "s1", block = SwitchBlock.TurnRunning,
+            takenIds = setOf("s1"),
+            onTag = { asked = it },
         )
-        doubleClick(textsAndComponents(list).first { it.text == "这是什么项目" })
 
-        jTextFieldsIn(list).first().postActionEvent()   // 原样回车
-
-        assertNull(renamed, "没动过的东西不该发一趟请求")
-    }
-
-    private fun doubleClick(component: Component) {
-        component.dispatchEvent(
-            MouseEvent(
-                component, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
-                0, 5, 5, 2, false, MouseEvent.BUTTON1,
-            )
+        assertTrue(
+            buttonsIn(list).none { it.text == RENAME_TEXT && it.isVisible },
+            "忙时当前会话也不该露改名入口",
         )
+
+        click(textsAndComponents(list).first { it.text == "＋" })
+
+        assertNull(asked, "忙时标签 chip 也不该有反应")
     }
 
     // ---- 宽高上限（设计稿 session-list-v2.html 方案 A，2026-09-15）----

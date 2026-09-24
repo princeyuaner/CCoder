@@ -117,6 +117,40 @@ internal fun sessionLabelTitle(session: SessionInfo): String? =
         ?: session.summary?.takeIf { it.isNotBlank() }?.let(::titleSnippet)
 
 /**
+ * 改名对话框里先放什么（2026-09-24：入口从就地编辑改成对话框）。
+ *
+ * 有自定义名字就放**原样的那一个**，不是列表上那个 —— [sessionLabelTitle] 会
+ * 把长名字截断（[titleSnippet]），拿截断版去编辑，保存下来就把名字改短了。
+ * 没有自定义名字时才放列表上显示的那个（用户看到的是它，改的也该是它）。
+ */
+internal fun renamePrefill(session: SessionInfo): String =
+    session.customTitle?.takeIf { it.isNotBlank() } ?: sessionTitle(session)
+
+/**
+ * 改名对话框回来的值。**null = 什么都不发**（取消，或者一个字都没改）。
+ *
+ * 空串是**要发**的 —— 那是"恢复自动标题"（协议那头空名字被当成"没有"，见
+ * `Protocol.encodeRenameSession`）。
+ *
+ * "没改"要单独判，不能只判"是不是空"：这条会话可能压根没有自定义名字（显示的是
+ * 自动摘要），原样提交会把那句摘要**钉成**一个自定义名字 —— 与用户什么都没做是
+ * 两回事，而且名字从此不再跟着第一句话走。
+ */
+internal fun renameFromDialog(prefill: String, typed: String?): String? {
+    val value = typed?.trim() ?: return null
+    return value.takeIf { it != prefill }
+}
+
+/**
+ * 标签对话框回来的值。**null = 什么都不发**（取消，或没改）；**空串 = 清掉标签**
+ * （协议那一头会把它发成显式 JSON null，见 `Protocol.encodeTagSession`）。
+ */
+internal fun tagFromDialog(current: String?, typed: String?): String? {
+    val value = typed?.trim() ?: return null
+    return value.takeIf { it != current.orEmpty() }
+}
+
+/**
  * 刚发出去的那条消息要不要认成会话标题。null = 不认。
  *
  * 用户原话（2026-09-15）：「会话的标题应该用聊天的第一个字」。在此之前
