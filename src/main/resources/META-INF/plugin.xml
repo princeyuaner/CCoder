@@ -171,43 +171,20 @@
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.28</h3>
+    <h3>0.2.29</h3>
     <ul>
-      <li><b>See the edit before you approve it</b> &mdash; file edits (Edit / Write /
-          MultiEdit) now draw a real diff right in the approval card, rendered by the same
-          rules the transcript uses &mdash; including MultiEdit, which never had one
-          before. A preview over 200 lines falls back to plain text (nothing is hidden,
-          it just gets no colours).</li>
-      <li><b>Sessions can be renamed</b> &mdash; every row in the session list has a Rename
-          button, and clearing the field restores the automatic title. The session you are
-          chatting in can be renamed too.</li>
-      <li><b>A copied file pastes as a reference</b> &mdash; pressing Ctrl+V in the input
-          box turns a file you copied (in your file manager, or a path copied inside the
-          IDE) into an @ reference &mdash; the same thing the attach button produces.
-          Images still land in the attachment strip, and ordinary text pastes exactly as
-          it did before.</li>
-      <li><b>The subagent panel lists only what is running</b> &mdash; one row per running
-          subagent (its type and task, with the stop button on the right). Finished ones
-          are no longer listed; reopen that session to review their transcripts.</li>
-      <li><b>Fixed: long command descriptions were cut in half</b> &mdash; once you typed
-          and the matching part was highlighted, a row could wrap onto a second line and
-          get clipped by the popup.</li>
+      <li>TODO: this version's changes, written as the delta against 0.2.28 (see the
+          publish spec, section 8). Do not copy the previous version's list &mdash; it is in
+          git (tag v0.2.28 &rarr; c5b4eff). <b>Check whether 0.2.28 has been approved
+          first</b>: it is still in review, and if it never gets listed, its five entries
+          have to be carried into this list.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>批准之前先看见改动</b> —— 文件类的审批（Edit / Write / MultiEdit）现在直接在
-          审批卡里画出真正的 diff，规则与转写区逐字一致 —— 包括从前连 diff 都没有的
-          MultiEdit。超过 200 行的预览退回纯文本（一个字都不少，只是没有配色）。</li>
-      <li><b>会话可以改名</b> —— 会话列表每一行都有「改名」按钮，清空就恢复自动标题；
-          正在聊的那一条也能改。</li>
-      <li><b>复制的文件粘进来就是引用</b> —— 在输入框里按 Ctrl+V，复制来的文件（资源管理器里
-          复制的，或 IDE 里复制的路径）直接变成 @ 引用 —— 与左下角那颗附件按钮产出的是同一样
-          东西。图片照旧进附件带，普通文本一个字不变。</li>
-      <li><b>子代理浮层只列在跑的</b> —— 每个在跑的子代理一行（类型 + 任务名，右端可终止）。
-          已结束的不再列出 —— 要回看它们的转写请重开那条会话。</li>
-      <li><b>修好：命令的长描述被裁掉半句</b> —— 打了字、命中加粗之后，那一行会折行，
-          第二行被弹层裁掉。</li>
+      <li>待写：本版相对 0.2.28 的增量（见发布设计稿 §八）。别照抄上一版的清单 —— 它在
+          git 里（tag v0.2.28 &rarr; c5b4eff）。<b>先查 0.2.28 过审没有</b>：它还在审核中，
+          万一没过审，那五条要并进来。</li>
     </ul>
     ]]></change-notes>
 
