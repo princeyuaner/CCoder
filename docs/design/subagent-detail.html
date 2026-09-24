@@ -245,11 +245,35 @@ footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--page-l
       子代理清单（<code>SubagentInfo</code>）这个入参留着，但只剩"给每张卡对上号"一个用途。
     </p>
     <p style="margin-top:12px">
-      出图看效果：<code>build/probe/running-detail-cards.png</code>（卡 + 记录）、
+      出图看效果：<code>build/probe/running-detail-cards.png</code>（三张卡）、
       <code>-cards-over.png</code>（超上限）、<code>-cards-hover.png</code>（悬停）。
       过程中从图上逮住两个自己写的排版错，都是 BoxLayout 交叉轴那条老规矩：
       同一条 BoxLayout 里<b>所有子件必须共用同一个 <code>alignmentX</code></b>，
       混进一个 0.5 就会把窄的那些（详情行、统计行、"还有 N 个"）摆到中间去。
+    </p>
+    <p style="margin-top:12px">
+      <b>同一天再晚一点，第三次改版：</b>用户说"也不用显示当前运行的工具，只需要显示标题即可" ——
+      卡上只剩<b>一行</b>：活点 + 类型与任务名，右端那颗终止钮。进行时那行
+      （<code>task_progress</code> 报的"现在在干嘛"，常是 <code>Reading xxx.kt</code>）与统计那行
+      （<code>47.5k tok · 19s</code>，底下一条分隔线）都去掉。
+      塌成一行之后一张卡约 30px（塌之前 62px），于是上限从 4 提到 <b>8</b>：
+      8 张 + "还有 2 个在跑" = 344px，<b>仍比旧版 4 张（359px）矮</b>（探针每次跑都会打印这个数）。
+      <b>代价</b>：<code>RunningTask</code> 的 <code>detail</code> / <code>tokens</code> /
+      <code>durationMs</code> 从此没有任何地方显示（<code>RunStatusTracker</code> 照样解析、
+      用例照样钉着解析结果），<code>formatDuration</code> 成了死代码，随这次一起删了。
+    </p>
+    <p style="margin-top:12px">
+      <b>同一版里修掉的那个 bug：</b>用户报"还是会自动跳转这个页面"，附的图上是一大片空白、
+      中间孤零零一句「还有 2 个在跑」。其实是两件事叠在一起：
+      <br>① <b>就地换内容搬错了地方</b>：子件被搬进了 <code>runDetailPopup.content</code>，
+      而那个未必是我们交出去的那只 <code>BoxLayout</code> 盒子。搬进一个 <code>BorderLayout</code>
+      的容器里，几个子件全落在 CENTER、<b>只有最后加进去的（正好是那句"还有 N 个在跑"）画得出来</b>，
+      其余几张卡人间蒸发；窗口高度还是按"四张卡"量的，于是它被拉满整块底、文字落在正中 ——
+      就是那张图。现在只往<b>自己留的那只盒子</b>（<code>runningPopupBox</code>）里搬。
+      <br>② <b>"它还开着吗"问错了对象</b>：从前问的是 <code>JBPopup.isVisible()</code>；
+      浮层被平台收走、却没触发 <code>onClosed</code> 时那个 API 说还开着，于是刷新路径
+      把窗口<b>重新显示</b>出来（"自己跳出来"）。现在问盒子自己的 <code>isShowing</code>
+      —— 那是 Swing 的事实，说了不算数就不刷新。
     </p>
   </section>
 

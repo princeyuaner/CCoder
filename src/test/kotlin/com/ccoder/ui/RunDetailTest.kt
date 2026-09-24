@@ -79,57 +79,38 @@ class RunDetailTest {
     }
 
     @Test
-    fun `运行中的任务带上 token 与时长`() {
-        val running = tracker(
-            started("t1", "查找 sidecar 启动路径"),
-            """{"type":"system","subtype":"task_progress","task_id":"t1",
-                "usage":{"total_tokens":12400,"duration_ms":8000}}""",
-        ).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}, onOpen = {  }))
-
-        assertTrue(labels.any { it == "12.4k tok · 8s" }, "实际：$labels")
-    }
-
-    @Test
-    fun `跑着的时候两行：任务名一行，进行时一行（B2）`() {
-        // task_progress 的 description 是"当前这一步"，每步都来、不要钱
-        // （实测见 docs/superpowers/specs/2026-09-18-subagent-nesting-design.md 事实 6）
+    fun `一张卡只有标题这一行（2026-09-24 第三次改版）`() {
+        // 用户原话："也不用显示当前运行的工具，只需要显示标题即可" ——
+        // 进行时（当前在跑的工具/这一步）与统计（token · 时长）都不画了。
+        // 标题 = 类型 + 任务名，两样都有时中间**两个空格**（`joinToString("  ")`）。
+        //
+        // 喂的是"什么都报齐了"的一拍：哪天有人把其中一行加回来，这条就会红 ——
+        // 它钉的就是"只画一行"这件事本身
         val running = tracker(
             started("t1", "找一下 token 刷新的调用点"),
             """{"type":"system","subtype":"task_progress","task_id":"t1",
-                "description":"Reading TokenStore.kt",
+                "description":"Reading TokenStore.kt","summary":"正在核对刷新路径",
                 "usage":{"total_tokens":12400,"duration_ms":80000}}""",
         ).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}, onOpen = {  }))
 
-        // 第一行是任务名（**不**再被进行时顶掉），统计还在它右边
-        assertTrue(labels.any { it.contains("找一下 token 刷新的调用点") }, "任务名丢了：$labels")
-        // 第二行是进行时
-        assertTrue(labels.any { it == "Reading TokenStore.kt" }, "进行时没画出来：$labels")
-        assertTrue(labels.any { it == "12.4k tok · 1m20s" }, "统计丢了：$labels")
+        assertEquals(
+            listOf("explore  找一下 token 刷新的调用点"),
+            labelsIn(buildRunningDetail(running, emptyList(), {}, onOpen = {  })),
+        )
     }
 
     @Test
-    fun `没有进行时的时候就是一行 —— 与从前一字不差`() {
-        val running = tracker(started("t1", "查找 sidecar 启动路径")).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}, onOpen = {  }))
+    fun `任务名与类型都没有时拿 id 顶（不至于画一张空卡）`() {
+        // local_bash 那类后台命令没有 subagent_type，label 也可能缺 ——
+        // 一张什么都不写的卡等于没卡
+        val box = buildRunningDetail(
+            listOf(RunningTask("call_12345678", null, null, null, 0, 0)),
+            emptyList(),
+            {},
+            {},
+        )
 
-        assertTrue(labels.any { it.contains("查找 sidecar 启动路径") }, "实际：$labels")
-        // 没有那句话就**不画**第二行（空行会让浮层里每条都多占一格）
-        assertEquals(1, labels.count { it.contains("查找 sidecar 启动路径") }, "实际：$labels")
-    }
-
-    @Test
-    fun `summary 比 description 优先（有那句人话就用它）`() {
-        val running = tracker(
-            started("t1", "找一下 token 刷新的调用点"),
-            """{"type":"system","subtype":"task_progress","task_id":"t1",
-                "description":"Reading TokenStore.kt","summary":"正在核对刷新路径"}""",
-        ).running
-        val labels = labelsIn(buildRunningDetail(running, emptyList(), {}, onOpen = {  }))
-
-        assertTrue(labels.any { it == "正在核对刷新路径" }, "实际：$labels")
-        assertTrue(labels.none { it == "Reading TokenStore.kt" }, "两条都画了：$labels")
+        assertEquals(listOf("call_123"), labelsIn(box), "实际：${labelsIn(box)}")
     }
 
     @Test
@@ -157,24 +138,6 @@ class RunDetailTest {
         assertTrue("任务列表" in todoLabels)
         assertTrue("运行中" !in todoLabels, "清单浮层里不该出现运行段：$todoLabels")
         assertTrue("任务列表" !in runningLabels, "运行浮层里不该出现清单段：$runningLabels")
-    }
-
-    // ---- 时长 ----
-
-    @Test
-    fun `时长按量级给不同精度`() {
-        assertEquals("0s", formatDuration(400))
-        assertEquals("8s", formatDuration(8_000))
-        assertEquals("59s", formatDuration(59_999))
-        assertEquals("1m35s", formatDuration(95_000))
-        assertEquals("1h02m", formatDuration(3_720_000))
-    }
-
-    @Test
-    fun `时长用 ROOT locale，不随系统语言变成逗号`() {
-        // 某些语言下 %.2f 之类会输出逗号，这里虽全是整数格式，
-        // 但整条链路统一 locale 才不会被将来的改动咬到
-        assertEquals("1m05s", formatDuration(65_000))
     }
 
     // ---- 只列在跑的（2026-09-24 用户："查看已结束的不要了"）----
@@ -406,30 +369,16 @@ class RunDetailTest {
 
     /**
      * **这条钉的就是闪的根因**：`task_progress` 每走一步只改 token / 时长 / 进行时，
-     * 这几样都不改变布局 —— 该走"就地换内容"，不该把窗口拆了重建。
+     * 这三样现在**根本不画**（见上面那条"只有标题这一行"），所以形状必然没变 ——
+     * 该走"就地换内容"，不该把窗口拆了重建。
      */
     @Test
-    fun `只有 token、时长与进行时的字在变 —— 形状没变`() {
+    fun `token、时长与进行时在变 —— 形状没变`() {
         val before = listOf(task(detail = "Reading A.kt", tokens = 12_400, durationMs = 8_000))
         val after = listOf(task(detail = "Reading B.kt", tokens = 47_500, durationMs = 19_000))
 
         assertTrue(after.rendersSameShapeAs(before), "这几样一变就拆窗重建，屏幕上就是闪")
-    }
-
-    @Test
-    fun `进行时从无到有算形状变了 —— 那会多出一行`() {
-        assertTrue(
-            !listOf(task(detail = "Reading A.kt")).rendersSameShapeAs(listOf(task(detail = null))),
-            "有无进行时会改高度，重建才是对的",
-        )
-    }
-
-    @Test
-    fun `统计从无到有算形状变了 —— 那会多出一条分隔线`() {
-        assertTrue(
-            !listOf(task(tokens = 1)).rendersSameShapeAs(listOf(task(tokens = 0))),
-            "统计那一行是有无的问题，不是数值的问题",
-        )
+        assertTrue(before.rendersSameShapeAs(after), "反过来也得一样（判等要对称）")
     }
 
     @Test
@@ -437,7 +386,8 @@ class RunDetailTest {
         val one = listOf(task(id = "t1"))
         assertTrue(!(one + task(id = "t2")).rendersSameShapeAs(one), "多了一条")
         assertTrue(!emptyList<RunningTask>().rendersSameShapeAs(one), "少了一条")
-        assertTrue(!listOf(task(label = "另一件事")).rendersSameShapeAs(one), "换了一条")
+        assertTrue(!listOf(task(label = "另一件事")).rendersSameShapeAs(one), "换了任务名")
+        assertTrue(!listOf(task(kind = "Plan")).rendersSameShapeAs(one), "换了类型（标题上那个词）")
         assertTrue(!listOf(task(id = "t2")).rendersSameShapeAs(one), "换了 id（对不上子代理了）")
     }
 

@@ -22,13 +22,11 @@ import java.awt.RenderingHints
 import java.awt.BasicStroke
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.util.Locale
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.BorderFactory
 import javax.swing.border.AbstractBorder
 
 // ---- 圆角描边 ----
@@ -127,8 +125,15 @@ internal fun hint(text: String): JComponent = JBLabel(text).apply {
  * 多的不是细节，是**重复**。于是：**在跑的各自一张卡**（[agentCard]，卡 = 在跑，
  * 一眼分得清），记录收在一条线（"看已结束的 N 个 ›"）后面；两个小标题一并删掉。
  *
- * **第二次（当前）**：用户说"查看已结束的不要了，只要显示当前在跑的子代理" ——
+ * **第二次**：用户说"查看已结束的不要了，只要显示当前在跑的子代理" ——
  * 那条线与它后面那列记录**整段去掉**，这一屏现在只剩在跑的子代理。
+ *
+ * **第三次（当前）**：用户说"也不用显示当前运行的工具，只需要显示标题即可" ——
+ * 卡上只剩**一行**（活点 + 类型与任务名 + 右端终止钮），进行时那行与统计那行都去掉。
+ * 三层结构（列 / 分隔线 / 统计）一起塌回 [agentCard] 里那一行。
+ *
+ * 代价说清楚：`RunningTask` 的 `detail` / `tokens` / `durationMs` **从此没有任何
+ * 地方显示**（`RunStatusTracker` 照样解析、用例照样钉着解析结果，只是没人画了）。
  *
  * ## [subagents] 这个参数现在只用来"对上号"
  *
@@ -150,7 +155,7 @@ internal fun buildRunningDetail(
     subagents: List<SubagentInfo>,
     onStop: (String) -> Unit,
     onOpen: (SubagentInfo) -> Unit,
-): JComponent {
+): JPanel {
     val box = detailBox()
     if (running.isEmpty()) {
         // 卡上写着"空闲"时本不该弹得出来，但真弹出来了就得说实话
@@ -182,8 +187,7 @@ private fun dimNote(text: String): JComponent = JBLabel(text).apply {
 }
 
 /**
- * 这两份清单画出来**长得一样**吗 —— 只有不影响布局的那些数（token、时长、进行时的字）
- * 有差别时给 true。
+ * 这两份清单画出来**长得一样**吗 —— 只有不影响布局的东西有差别时给 true。
  *
  * ## 为什么要问这个（2026-09-24 用户报"闪来闪去"）
  *
@@ -192,41 +196,39 @@ private fun dimNote(text: String): JComponent = JBLabel(text).apply {
  * 而"变了"那条路是把浮层 **cancel 掉再新建一个**：四个子代理一起跑的时候，
  * 这个窗口每秒被拆掉重建好几次，屏幕上就是"闪来闪去"。
  *
- * 现在分两档：形状没变就**就地换内容**（窗口不动，所以不闪），形状真变了
- * （多了/少了一个任务、或者某条从"没有进行时"变成"有"）才重建 —— 那时高度确实变了，
- * 重新量一次尺寸与位置是对的。
+ * 现在分两档：形状没变就**就地换内容**（窗口不动，所以不闪），形状真变了才重建
+ * —— 那时高度确实变了，重新量一次尺寸与位置是对的。
  *
- * 判据只认**会改高度的东西**：
- *  - `id` / `kind` / `label`：换了就是另一张卡；
- *  - 进行时**有没有**（不是内容）：有一条就多一行，高度不一样；
- *  - 统计**有没有**（不是具体数）：`47.5k tok · 19s` 与 `1m02s` 一样宽，但
- *    "还没有统计"到"有统计"会多出那条分隔线与一行。
+ * ## 判据只认**会改高度的东西**
+ *
+ * 卡上现在只有一行字，而那一行是 `kind + label`（见 [agentCard]），所以判据就剩
+ * 这三样。`id` 不影响高度，但它决定这张卡点不点得开（要拿它去对子代理），
+ * 换了就重建一次，省得点击绑在旧的目标上。
+ *
+ * **2026-09-24 第三次改版顺手把判据瘦了一圈**：从前还要判"进行时有没有""统计有没有"
+ * （各会多出一行），现在那两行都不画了 —— 于是 `task_progress` 报什么都**不可能**
+ * 再触发重建，只有"多了/少了一个任务/换了任务"会。
  */
 internal fun List<RunningTask>.rendersSameShapeAs(other: List<RunningTask>): Boolean =
     size == other.size && zip(other).all { (a, b) ->
-        a.id == b.id &&
-            a.kind == b.kind &&
-            a.label == b.label &&
-            (a.detail?.isNotBlank() == true) == (b.detail?.isNotBlank() == true) &&
-            hasMeta(a) == hasMeta(b)
+        a.id == b.id && a.kind == b.kind && a.label == b.label
     }
-
-private fun hasMeta(task: RunningTask): Boolean = task.tokens > 0 || task.durationMs > 0
 
 // ---- 在跑的子代理那张卡（2026-09-24）----
 
 /**
  * 最多画几张卡，超了的用"还有 N 个在跑"交代。
  *
- * 4 这个数是**量出来的**（`RunningDetailRenderProbe` 每次跑都会打印）：
- * 2026-09-24 那台机器上 3 张卡 + 那条线 = 267px，4 张卡 + "还有 N 个在跑" = 359px。
- * 浮层是**向上**弹的（挂在面板底部那张卡上，见 `showAboveOrBelow`），
- * 而工具窗口首选高才 600 —— 再往上长就顶出屏幕，那里点不着也看不见。
+ * 8 这个数是**量出来的**（`RunningDetailRenderProbe` 每次跑都会打印）：
+ * 2026-09-24 卡塌成一行之后，4 张卡 + "还有 1 个在跑" = 188px，一张卡约 30px
+ * （塌之前一张 62px，那时 4 张就 359px，所以上限曾是 4）。浮层是**向上**弹的
+ * （挂在面板底部那张卡上，见 `showAboveOrBelow`），而工具窗口首选高才 600 ——
+ * 8 张 + "还有 2 个在跑" = 344px，**仍比旧版 4 张（359px）矮**。
  *
- * 超了不画那几条**不是瞒着**：状态卡上的数才是权威的那个数（`子代理 6`），
+ * 超了不画那几条**不是瞒着**：状态卡上的数才是权威的那个数（`子代理 12`），
  * 这里少画几张就明说一句"还有 N 个在跑"。
  */
-internal const val MAX_AGENT_CARDS = 4
+internal const val MAX_AGENT_CARDS = 8
 
 /** 卡与卡之间的缝。卡自己不留缝（不像 `SessionCard` 那样把缝画进组件里）——
  *  这里是 `BoxLayout`，用一根 strut 更直白。 */
@@ -237,20 +239,22 @@ private const val AGENT_CARD_GAP = 6
 private const val AGENT_CARD_ARC = 8
 
 /**
- * 一个在跑的子代理 = 一张卡。
+ * 一个在跑的子代理 = 一张卡。**一行**：活点 + 类型与任务名，右端一颗终止钮。
  *
- * 三段：**谁**（活点 + 类型与任务名，右上角终止）/ **现在在干嘛**（有才画）/
- * **用了多少**（一条分隔线下面那行统计）。布局照 `docs/design/subagent-detail.html`
- * 的方案甲，一处按真机改了：那条分隔线只有统计非空时才画（刚起的任务还没有
- * token 与耗时，一条空分隔线比少一行难看）。
+ * ## 这一天改了三次，三次都记在这儿（2026-09-24）
  *
- * ## "两行"那个结构是 2026-09-18 定的（B2，用户从选型台上挑的），没动它
+ * **第三次（当前）**：用户说"也不用显示当前运行的工具，只需要显示标题即可" ——
+ * 进行时那行（`task_progress` 报的"现在在干嘛"，常是 `Reading xxx.kt` 这种）
+ * 与统计那行（`47.5k tok · 19s`，带一条分隔线）都去掉。三层结构（竖向的列 /
+ * 分隔线 / 统计）一起塌回这一行。
  *
- * 第一行 = 任务名（`task_started.description`，一直有），第二行 = **现在在干嘛**，
- * 没有就不画这行。从前只有一行、用的是 `detail ?: label` —— 有进行时就**顶掉**
- * 任务名，而 `detail` 只从 `task_progress.summary` 来、要 CLI 开
- * `agentProgressSummaries` 才生成（每 ~30s 一句），所以绝大多数时候那一行就是
- * 任务名本身，等于白顶。这次只是把同一个结构装进卡里。
+ * **第二次**（同一天的上一版）：从"运行时一行 + 全部子代理一段"收成"卡 = 在跑、
+ * 记录收在一条线后面"（布局照 `docs/design/subagent-detail.html` 的方案甲）。
+ *
+ * **第一次**（再往上）：那个"两行"是 2026-09-18 定的（B2，用户从选型台上挑的）——
+ * 第一行任务名、第二行进行时。当时要它是因为再早的版本用 `detail ?: label`
+ * 让进行时**顶掉**任务名，而 `detail` 要 CLI 开 `agentProgressSummaries`
+ * 才生成（每 ~30s 一句），绝大多数时候等于白顶。
  *
  * 可点性只看 [agent]：对得上才能看转写（[SubagentInfo.toolUseId] 那条）。
  * 不可点时**连悬停监听都不挂** —— 一是没有反馈可给，二是用例拿"树里第一个挂
@@ -268,10 +272,6 @@ private fun agentCard(
     val name = listOfNotNull(task.kind, task.label)
         .joinToString("  ")
         .ifBlank { task.id.take(8) }
-    val meta = buildList {
-        if (task.tokens > 0) add("${formatTokenCount(task.tokens)} tok")
-        if (task.durationMs > 0) add(formatDuration(task.durationMs))
-    }.joinToString(" · ")
 
     val nameLabel = JBLabel(name)
     if (agent != null) {
@@ -285,61 +285,28 @@ private fun agentCard(
         card.toolTipText = CcoderText.text("transcript.detail.viewTranscript")
     }
 
-    val head = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        // **这一句不能少**：detailBox/这一列都是 BoxLayout，交叉轴上所有子件共用
-        // 一个对齐基准 —— 混着一个 0.5（面板的默认值）就会把窄的那些（详情行、
-        // 统计行）按最宽子件的中心摆，表现为"文字莫名其妙缩进了一截"。
-        // 2026-09-24 就是这么栽的：探针把每件的 x 倒出来才看见（详情行 x=125）。
-        alignmentX = Component.LEFT_ALIGNMENT
-        add(
-            JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
-                isOpaque = false
-                add(LiveDot())
-                add(Box.createHorizontalStrut(JBUI.scale(6)))
-                add(nameLabel)
-            },
-            BorderLayout.WEST,
-        )
-        add(TaskStopButton(task.id, onStop), BorderLayout.EAST)
-    }
-
-    val column = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        isOpaque = false
-        add(head)
-        task.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+    card.add(
+        JPanel(BorderLayout()).apply {
+            isOpaque = false
+            // **这一句不能少**：detailBox 是 BoxLayout，交叉轴上所有子件共用一个
+            // 对齐基准 —— 混着一个 0.5（面板的默认值）就会把窄的那些按最宽子件的
+            // 中心摆，表现为"文字莫名其妙缩进了一截"。
+            // 2026-09-24 就是这么栽的：探针把每件的 x 倒出来才看见（当时那行 x=125）。
+            alignmentX = Component.LEFT_ALIGNMENT
             add(
-                JBLabel(detail).apply {
-                    foreground = UIUtil.getInactiveTextColor()
-                    font = font.deriveFont(font.size2D - 1f)
-                    alignmentX = Component.LEFT_ALIGNMENT
-                },
-            )
-        }
-        if (meta.isNotEmpty()) {
-            add(
-                JPanel(BorderLayout()).apply {
+                JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
                     isOpaque = false
-                    alignmentX = Component.LEFT_ALIGNMENT
-                    // 分隔线铺满卡片内宽（正好是"卡片的下半格面"，同 ComposerCard 那条底带的思路）
-                    border = BorderFactory.createCompoundBorder(
-                        BorderFactory.createMatteBorder(1, 0, 0, 0, lineColor()),
-                        JBUI.Borders.emptyTop(5),
-                    )
-                    add(
-                        JBLabel(meta).apply {
-                            foreground = UIUtil.getInactiveTextColor()
-                            font = font.deriveFont(font.size2D - 1f)
-                        },
-                        BorderLayout.WEST,
-                    )
+                    add(LiveDot())
+                    add(Box.createHorizontalStrut(JBUI.scale(6)))
+                    add(nameLabel)
                 },
+                BorderLayout.WEST,
             )
-        }
-    }
-    card.add(column, BorderLayout.CENTER)
+            add(TaskStopButton(task.id, onStop), BorderLayout.EAST)
+        },
+        BorderLayout.CENTER,
+    )
     return card
 }
 
@@ -642,15 +609,3 @@ internal class TaskStopButton(
     }
 }
 
-/** 8000 → "8s"；95000 → "1m35s"。超过一小时只给小时 —— 那时分钟已无意义。 */
-internal fun formatDuration(ms: Long): String {
-    val totalSeconds = ms / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return when {
-        hours > 0 -> String.format(Locale.ROOT, "%dh%02dm", hours, minutes)
-        minutes > 0 -> String.format(Locale.ROOT, "%dm%02ds", minutes, seconds)
-        else -> "${seconds}s"
-    }
-}

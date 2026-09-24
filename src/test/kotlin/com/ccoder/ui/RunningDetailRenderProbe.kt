@@ -17,9 +17,12 @@ import javax.swing.SwingUtilities
 /**
  * 渲染探针：「运行中」浮层画成 PNG，好让人眼看一眼。
  *
- * 2026-09-18 加，为两颗东西出图：B2 的两行（任务名 + 进行时）与行右端那颗
+ * 2026-09-18 加，为两颗东西出图：那张卡的两行（任务名 + 进行时）与行右端那颗
  * 「终止」方块。单测钉得住"点了会报 task id"，钉不住"方块挤不挤、提亮
  * 看不看得出来" —— 而后者正是这颗钮的全部。
+ *
+ * 2026-09-24 卡塌成**一行**（用户："也不用显示当前运行的工具，只需要显示标题即可"），
+ * 这一批图跟着重出。
  *
  * 产物在 `build/probe/running-detail*.png`。改了这层的观感就跑一下看一眼。
  *
@@ -67,7 +70,8 @@ class RunningDetailRenderProbe {
         SwingUtilities.invokeAndWait {
             val content = buildRunningDetail(
                 listOf(
-                    // 两行的那条（B2）：第一行任务名、第二行进行时、右边统计 + 终止
+                    // **故意把 detail / tokens / durationMs 喂满**（真实事件流里它们
+                    // 就是这样）—— 图上多出任何一行都是 bug
                     RunningTask(
                         id = "call_9",
                         kind = "Explore",
@@ -76,7 +80,7 @@ class RunningDetailRenderProbe {
                         tokens = 12_400,
                         durationMs = 80_000,
                     ),
-                    // 单行的那条：后台命令，没有进行时，也不可点开转写 ——
+                    // 后台命令：没有类型（local_bash 那类）、不可点开转写 ——
                     // 终止钮一样要在
                     RunningTask(
                         id = "t2",
@@ -99,11 +103,12 @@ class RunningDetailRenderProbe {
     // ---- 2026-09-24：卡 + 一条线（方案甲）----
 
     /**
-     * **这一格是改版的主图**：三张在跑的卡 + 一条「看已结束的 2 个 ›」。
+     * **这一格是改版的主图**：三张在跑的卡，各一行。
      *
-     * 要看的是"卡 = 在跑、线 = 记录"这件事一眼能不能读出来，以及卡与卡之间那道缝
-     * 够不够（6px，见 AGENT_CARD_GAP）；卡片底色只比浮层底亮 5%（[cardFill]），
-     * 线够不够看得见只有看图才知道。
+     * 要看的是三件事：卡与卡之间那道缝够不够（6px，见 AGENT_CARD_GAP）；
+     * 卡底只比浮层底亮 5%（`cardFill`），够不够看出"这是一张卡"；
+     * 以及塌成一行之后这一屏到底还有多高 —— 上限那个数（MAX_AGENT_CARDS）
+     * 就是照这张图量的。
      */
     @Test
     fun `把卡与记录画成图片`() = renderCards("build/probe/running-detail-cards.png")
@@ -119,7 +124,8 @@ class RunningDetailRenderProbe {
      * 以及**这张图有多高** —— 高度那个数就是上限的依据（浮层向上弹，高了会顶出屏幕）。
      */
     @Test
-    fun `把超过上限的样子画成图片`() = renderCards("build/probe/running-detail-cards-over.png", extra = 2)
+    fun `把超过上限的样子画成图片`() =
+        renderCards("build/probe/running-detail-cards-over.png", extra = MAX_AGENT_CARDS - 1)
 
     private fun renderCards(path: String, extra: Int = 0, hoverCard: Boolean = false) = IdeLaf.withRealLaf {
         SwingUtilities.invokeAndWait {
