@@ -90,7 +90,7 @@ internal fun buildTodoDetail(todos: TaskList): JComponent {
     return box
 }
 
-/** 一行"标题 —— 值"（清单段在用）。与 [recordRow] 同一套观感，但只读、不可点。 */
+/** 一行"标题 —— 值"（清单段在用）。与 [agentCard] 的抬头同一套观感，但只读、不可点。 */
 private fun detailRow(label: String, value: String): JComponent = JPanel(BorderLayout()).apply {
     isOpaque = false
     // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
@@ -119,35 +119,30 @@ internal fun hint(text: String): JComponent = JBLabel(text).apply {
  * 空着时给一句实话而不是一个空框 —— 卡上写着"空闲"时本不该弹得出来，
  * 但真弹出来了就得说清楚。
  *
- * ## 2026-09-24 改版：从"两段摊开"改成"卡 + 一条线"（用户从选型台上挑了方案甲）
+ * ## 这一天改了两次，两次都记在这儿（2026-09-24）
  *
- * 从前的排法是两段摊开：上面「运行中」每条两行 + 右侧统计 + 一颗终止方块，
- * 紧接着「全部子代理」把**同一批人再列一遍**。用户的原话是"信息太多了"，
- * 而拆开看，多的不是细节，是**重复** —— 第二段那几条正在跑的和上面一字不差。
- * 而第二段还**天生只有名字**：`SubagentInfo` 就四个字段（id / 类型 / 描述 /
- * 对上号的 id），没有 token、没有耗时、没有状态 —— 那不是没排好，是数据里就没有。
- * 它又**不能删**：点一条回看它的转写是目前唯一的回看入口。
+ * **第一次**：从"两段摊开"改成"卡 + 一条线"（用户从选型台上挑了方案甲）。
+ * 从前的排法是上面「运行中」每条两行 + 右侧统计 + 一颗终止方块，紧接着
+ * 「全部子代理」把**同一批人再列一遍**。用户的原话是"信息太多了"，而拆开看，
+ * 多的不是细节，是**重复**。于是：**在跑的各自一张卡**（[agentCard]，卡 = 在跑，
+ * 一眼分得清），记录收在一条线（"看已结束的 N 个 ›"）后面；两个小标题一并删掉。
  *
- * 现在分成两种形态：
+ * **第二次（当前）**：用户说"查看已结束的不要了，只要显示当前在跑的子代理" ——
+ * 那条线与它后面那列记录**整段去掉**，这一屏现在只剩在跑的子代理。
  *
- * - **在跑的各自一张卡**（[agentCard]）：卡 = 在跑，一眼分得清，不用读小标题；
- *   统计回到它自己那张卡里，不再飘到 300px 之外。
- * - **记录收在一条线后面**（"看已结束的 N 个 ›"），展开之后是压暗的单行。
- *   这一档空闲时本来就有（2026-09-20 加的），现在"有在跑"时也用同一套 ——
- *   重复就是这么消掉的。
+ * ## [subagents] 这个参数现在只用来"对上号"
  *
- * 于是两段小标题都没了（`transcript.detail.running` / `allSubagents` 两个键一并删）。
+ * 它不再被列出来。剩下的唯一用途：拿 [SubagentInfo.toolUseId] 去 [RunningTask.id]
+ * 里找，对上了这张卡才点得开（没有 agentId 就取不到转写）。**没有别的判据** ——
+ * `SubagentInfo` 没有状态字段。
  *
- * ## 怎么区分"在跑"与"记录"
- *
- * `SubagentInfo` 没有状态字段，只能用 [SubagentInfo.toolUseId] 去 [RunningTask.id]
- * 里找：对得上就是在跑（它已经是上面某张卡了），对不上就是记录。**没有别的判据**，
- * 所以对不上号的那种永远是记录 —— 这一条同时决定了卡片可不可点。
+ * **代价说清楚**：已结束的子代理从此**回看不了转写了** —— 那一段从前是唯一的入口
+ * （在跑的卡还能点开）。要回看只能去会话列表重开那条会话。
  *
  * @param onStop 点每张卡右端那颗方块 → 终止这个任务（给的是任务的 id，即事件里那个
  *   `task_id`）。放在 [onOpen] **前面**：尾随 lambda 只绑最后一个参数
  *   （StatusCardsRow 的注释里记过这个坑），新参数一律加在它们前面。
- * @param onOpen 点某条 → 看它的转写。对不上号的（元信息没读到、或本来就不是
+ * @param onOpen 点某张卡 → 看它的转写。对不上号的（元信息没读到、或本来就不是
  *   子代理而是后台命令）不可点 —— 没有 agentId 就取不到转写
  */
 internal fun buildRunningDetail(
@@ -155,60 +150,27 @@ internal fun buildRunningDetail(
     subagents: List<SubagentInfo>,
     onStop: (String) -> Unit,
     onOpen: (SubagentInfo) -> Unit,
-    /**
-     * "看已结束的 N 个"那一行**是否已经展开**（2026-09-20 加，2026-09-24 起
-     * 有在跑时也用它）。
-     *
-     * 用户看着一张写着「空闲」的卡问"子代理都没了点开为什么还有内容" —— 那是**记录**，
-     * 不是"还在跑"：这条浮层的下半段列的是本会话跑过的子代理（点一条能回看它的转写）。
-     * 问题不在有内容，在于"空闲 + 18 条"读起来自相矛盾。
-     * 展开状态住在调用方（`ClaudePanel`）：这里每画一次都是一次性构建。
-     */
-    historyExpanded: Boolean = false,
-    onToggleHistory: () -> Unit = {},
 ): JComponent {
     val box = detailBox()
-    if (running.isEmpty() && subagents.isEmpty()) {
-        box.add(dimNote(CcoderText.text("transcript.detail.noTasks")))
+    if (running.isEmpty()) {
+        // 卡上写着"空闲"时本不该弹得出来，但真弹出来了就得说实话
+        box.add(dimNote(CcoderText.text("transcript.detail.noRunningSubagents")))
         return box
     }
 
-    val runningIds = running.mapTo(mutableSetOf()) { it.id }
-
-    if (running.isNotEmpty()) {
-        running.take(MAX_AGENT_CARDS).forEach { task ->
-            // 任务 → 子代理：靠 tool_use id 对上。对不上就不可点，但终止钮照旧
-            box.add(agentCard(task, subagents.firstOrNull { it.toolUseId == task.id }, onStop, onOpen))
-            box.add(Box.createVerticalStrut(JBUI.scale(AGENT_CARD_GAP)))
-        }
-        val hidden = running.size - MAX_AGENT_CARDS
-        if (hidden > 0) {
-            // 卡不画了，但**数目不能瞒**：卡面上写着 6，这里只画 4 张，
-            // 不说一句就成了"看漏了"（状态卡上的数才是权威的那个数）
-            box.add(dimNote(CcoderText.text("transcript.detail.moreRunning", hidden)))
-        }
+    running.take(MAX_AGENT_CARDS).forEachIndexed { index, task ->
+        // 缝加在前一张下面（不是在每张后面），免得最后一张底下多出一截空
+        if (index > 0) box.add(Box.createVerticalStrut(JBUI.scale(AGENT_CARD_GAP)))
+        // 任务 → 子代理：靠 tool_use id 对上。对上了这张卡才点得开；对不上也不影响
+        // 终止钮（停的是任务，不是"子代理"这个身份）
+        box.add(agentCard(task, subagents.firstOrNull { it.toolUseId == task.id }, onStop, onOpen))
     }
-
-    // 记录 = 子代理里对不上任何在跑任务的那些。对得上的已经在上面某张卡里了
-    val records = subagents.filter { it.toolUseId == null || it.toolUseId !in runningIds }
-    if (records.isEmpty()) return box
-
-    if (running.isEmpty()) {
-        box.add(dimNote(CcoderText.text("transcript.detail.noRunningSubagents")))
+    val hidden = running.size - MAX_AGENT_CARDS
+    if (hidden > 0) {
+        // 卡不画了，但**数目不能瞒**：卡面上写着 6，这里只画 4 张，
+        // 不说一句就成了"看漏了"（状态卡上的数才是权威的那个数）
+        box.add(dimNote(CcoderText.text("transcript.detail.moreRunning", hidden)))
     }
-    // 这一行**展开之后也留着**：从前只在收着时画，于是展开就再也收不回去
-    // （只能关掉浮层重开）—— 一个只能进不能出的开关不是开关
-    box.add(
-        disclosureRow(
-            if (historyExpanded) {
-                CcoderText.text("transcript.detail.hideFinished")
-            } else {
-                CcoderText.text("transcript.detail.showFinished", records.size)
-            },
-            onToggleHistory,
-        ),
-    )
-    if (historyExpanded) records.forEach { box.add(recordRow(it, onOpen)) }
     return box
 }
 
@@ -250,68 +212,6 @@ internal fun List<RunningTask>.rendersSameShapeAs(other: List<RunningTask>): Boo
     }
 
 private fun hasMeta(task: RunningTask): Boolean = task.tokens > 0 || task.durationMs > 0
-
-/**
- * 「看已结束的 N 个 ›」那一行：可点，颜色按"这是条能点的文字"来取。
- *
- * 监听器**同时挂在行与文字上**：Swing 的事件不冒泡，只挂行的话，点在字上没反应
- * —— 而那正是人会点的地方（[recordRow] 也有过同一个坑，一并修了）。
- */
-private fun disclosureRow(text: String, onClick: () -> Unit): JComponent {
-    val label = JBLabel("$text ›").apply {
-        foreground = accentTextFor(focusColor(), UIUtil.getListBackground())
-    }
-    return JPanel(BorderLayout()).apply {
-        isOpaque = false
-    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
-    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
-    alignmentX = Component.LEFT_ALIGNMENT
-        border = JBUI.Borders.empty(2, 0)
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        add(label, BorderLayout.WEST)
-        val watcher = object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) = onClick()
-        }
-        addMouseListener(watcher)
-        label.addMouseListener(watcher)
-    }
-}
-
-/**
- * 一条**记录**（子代理里对不上在跑任务的那些，也就是已经结束的）。压暗的单行。
- *
- * 有描述就用描述（那是人写的任务名），没有退回类型，再没有给 id。
- * 行首那个 `✓` 与上面那些卡上的活点是一对：**点 = 在跑，勾 = 记录**。
- *
- * 压暗是因为这里列的是过去的事 —— 上面那些卡才是"现在"，它们不该抢一样的注意力
- * （同 `SessionCard` 对被别的标签占着的会话的处理）。
- */
-private fun recordRow(agent: SubagentInfo, onOpen: (SubagentInfo) -> Unit): JComponent {
-    val row = JPanel(BorderLayout()).apply {
-        isOpaque = false
-    // detailBox 是 BoxLayout（Y）：交叉轴上**所有**子件都得是 LEFT。混着 0.5 时，
-    // 窄的那个会被对齐到最宽子件的中心 —— 表现为裸标签各居中一次、看着像放歪了
-    alignmentX = Component.LEFT_ALIGNMENT
-        border = JBUI.Borders.empty(3, 0)
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = CcoderText.text("transcript.detail.viewTranscript")
-    }
-
-    val text = listOfNotNull(agent.agentType, agent.description).joinToString("  ")
-    val name = JBLabel("✓  ${text.ifBlank { agent.agentId.take(8) }}").apply {
-        foreground = UIUtil.getInactiveTextColor()
-    }
-    row.add(name, BorderLayout.WEST)
-
-    // 监听器行与文字各挂一份：Swing 的事件不冒泡，只挂行的话**点在名字上没反应**
-    // —— 而那正是人会点的那块（2026-09-20 与「看已结束的 N 个」那一行一起修的）
-    val watcher = object : MouseAdapter() {
-        override fun mouseClicked(e: MouseEvent) = onOpen(agent)
-    }
-    row.addMouseListener(watcher)
-    name.addMouseListener(watcher)
-    return row
-}
 
 // ---- 在跑的子代理那张卡（2026-09-24）----
 

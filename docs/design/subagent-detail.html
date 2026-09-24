@@ -237,6 +237,14 @@ footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--page-l
       </tr>
     </table>
     <p style="margin-top:12px">
+      <b>同一天晚些时候用户又改了一次主意：</b>"查看已结束的不要了，只要显示当前在跑的子代理" ——
+      于是「看已结束的 N 个 ›」那条线**连同它后面那列记录整段删掉**，这一屏现在只剩在跑的子代理。
+      空闲时只剩一句「当前没有在跑的子代理」（出图 <code>running-detail-idle.png</code> 确认过不空）。
+      <b>代价</b>：已结束的子代理从此**回看不了转写** —— 那一段从前是唯一的入口
+      （在跑的卡还能点开）。要回看只能去会话列表重开那条会话。
+      子代理清单（<code>SubagentInfo</code>）这个入参留着，但只剩"给每张卡对上号"一个用途。
+    </p>
+    <p style="margin-top:12px">
       出图看效果：<code>build/probe/running-detail-cards.png</code>（卡 + 记录）、
       <code>-cards-over.png</code>（超上限）、<code>-cards-hover.png</code>（悬停）。
       过程中从图上逮住两个自己写的排版错，都是 BoxLayout 交叉轴那条老规矩：

@@ -38,21 +38,16 @@ class RunningDetailRenderProbe {
         render("build/probe/running-detail-hover.png", hoverStop = true)
 
     /**
-     * **空闲那一版**（2026-09-20）。
+     * **空闲那一版**。
      *
-     * 用户看着"空闲"的卡问"子代理都没了点开为什么还有内容" —— 收着的版本先只答一句
-     * 「当前没有在跑的子代理」加一行「看已结束的 N 个 ›」。这一版要看的是：
-     * 那句话与那一行挨着好不好看、"›"会不会像坏了。
+     * 空闲时那一屏只有一句实话：「当前没有在跑的子代理」。
+     * 从前它下面还跟着一行「看已结束的 N 个 ›」，2026-09-24 用户说
+     * "查看已结束的不要了"，整段删掉了 —— 这一格现在看的是"只剩一句话"会不会太空。
      */
     @Test
     fun `把空闲时的浮层画成图片`() = renderIdle("build/probe/running-detail-idle.png")
 
-    /** 展开之后（记录摊开、每一行可点看转写）。 */
-    @Test
-    fun `把展开记录的浮层画成图片`() =
-        renderIdle("build/probe/running-detail-idle-open.png", expanded = true)
-
-    private fun renderIdle(path: String, expanded: Boolean = false) = IdeLaf.withRealLaf {
+    private fun renderIdle(path: String) = IdeLaf.withRealLaf {
         SwingUtilities.invokeAndWait {
             val content = buildRunningDetail(
                 emptyList(),
@@ -63,7 +58,6 @@ class RunningDetailRenderProbe {
                 ),
                 {},
                 onOpen = {  },
-                historyExpanded = expanded,
             )
             paint(content, path, hoverStop = false)
         }
