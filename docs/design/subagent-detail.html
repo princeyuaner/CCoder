@@ -174,7 +174,7 @@ footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--page-l
 
   <header class="masthead">
     <div>
-      <p class="eyebrow">CCoder · 设计稿 · 2026-09-24</p>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-24 · 已选方案甲</p>
       <h1>子代理浮层：把重复的那一段拿掉</h1>
       <p class="lede">
         点「子代理」卡弹出来的那个浮层。你说<b>信息太多</b> —— 拆开看，多的不是细节，
@@ -204,6 +204,44 @@ footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--page-l
       于是要解的就两件事：<b>①同一批人只说一遍</b>；<b>②第二段收成一条能点开的线</b>，
       而不是两段摊开。空闲时其实已经这么做了（<code>historyExpanded</code> 那条
       "看已结束的 N 个 ›"）—— 只差在"有在跑"的时候没这么做。
+    </p>
+  </section>
+
+  <section class="note" style="margin-top:30px">
+    <h3>选型结果：方案甲（2026-09-24）</h3>
+    <p>实现时按真机改了四处，都是效果图上看不出来、做的时候才撞上的：</p>
+    <table>
+      <tr><th>改了什么</th><th>为什么</th></tr>
+      <tr>
+        <td><b>右下那排"快照条"不做了</b></td>
+        <td>数据里只有计数、画不出真进度，画满会被读成进度条 —— 那是编出来的进度。卡上那个活点就够了。</td>
+      </tr>
+      <tr>
+        <td><b>描边用常态色，不用强调色</b></td>
+        <td>这一版里<b>每张卡都是在跑的</b>，每张都强调等于没强调。"在跑"由"这是一张卡"这个形态本身说。</td>
+      </tr>
+      <tr>
+        <td><b>卡片上限 4 张，超了说一句</b></td>
+        <td>量出来的：3 张卡 + 那条线 267px、4 张 + "还有 N 个在跑" 359px，而工具窗口首选高才 600、
+            浮层还是向上弹的。超了不画那几条<b>明说</b>（状态卡上的数才是权威）。</td>
+      </tr>
+      <tr>
+        <td><b>记录 = 对不上在跑任务的那些</b></td>
+        <td><code>SubagentInfo</code> 没有状态字段，只能拿 <code>toolUseId</code> 去 <code>RunningTask.id</code> 里找。
+            对得上就是在跑（已经在上面某张卡里了），对不上就是记录 —— 重复就是这么消掉的。</td>
+      </tr>
+      <tr>
+        <td><b>那条线展开之后也留着</b></td>
+        <td>顺带修一个旧毛病：从前只在收着时画，展开就再也收不回去（只能关掉浮层重开）。
+            一个只能进不能出的开关不是开关，所以展开时它写成「收起」。</td>
+      </tr>
+    </table>
+    <p style="margin-top:12px">
+      出图看效果：<code>build/probe/running-detail-cards.png</code>（卡 + 记录）、
+      <code>-cards-over.png</code>（超上限）、<code>-cards-hover.png</code>（悬停）。
+      过程中从图上逮住两个自己写的排版错，都是 BoxLayout 交叉轴那条老规矩：
+      同一条 BoxLayout 里<b>所有子件必须共用同一个 <code>alignmentX</code></b>，
+      混进一个 0.5 就会把窄的那些（详情行、统计行、"还有 N 个"）摆到中间去。
     </p>
   </section>
 

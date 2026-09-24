@@ -102,8 +102,73 @@ class RunningDetailRenderProbe {
         }
     }
 
-    /** 摆版 + 画图。两个入口（运行中那一版、空闲那一版）共用。 */
-    private fun paint(content: Component, path: String, hoverStop: Boolean) {
+    // ---- 2026-09-24：卡 + 一条线（方案甲）----
+
+    /**
+     * **这一格是改版的主图**：三张在跑的卡 + 一条「看已结束的 2 个 ›」。
+     *
+     * 要看的是"卡 = 在跑、线 = 记录"这件事一眼能不能读出来，以及卡与卡之间那道缝
+     * 够不够（6px，见 AGENT_CARD_GAP）；卡片底色只比浮层底亮 5%（[cardFill]），
+     * 线够不够看得见只有看图才知道。
+     */
+    @Test
+    fun `把卡与记录画成图片`() = renderCards("build/probe/running-detail-cards.png")
+
+    /** 指针压在第一张卡上：整块换底色（同会话列表那张卡的悬停）。 */
+    @Test
+    fun `把悬停在卡上的样子画成图片`() = renderCards("build/probe/running-detail-cards-hover.png", hoverCard = true)
+
+    /**
+     * 超过上限的那一版：`MAX_AGENT_CARDS + 2` 条在跑 → 4 张卡 + 「还有 2 个在跑」。
+     *
+     * 要看的是那一行放的位置对不对（它贴在最后一张卡下面），
+     * 以及**这张图有多高** —— 高度那个数就是上限的依据（浮层向上弹，高了会顶出屏幕）。
+     */
+    @Test
+    fun `把超过上限的样子画成图片`() = renderCards("build/probe/running-detail-cards-over.png", extra = 2)
+
+    private fun renderCards(path: String, extra: Int = 0, hoverCard: Boolean = false) = IdeLaf.withRealLaf {
+        SwingUtilities.invokeAndWait {
+            val tasks = listOf(
+                RunningTask("call_1", "Explore", "Survey unbuilt design mockups", "Running Extract text from flagged design HTMLs", 47_500, 19_000),
+                RunningTask("call_2", "Explore", "Survey CLI surface vs plugin", "Reading RunStatusTracker.kt", 54_500, 15_000),
+                RunningTask("call_3", "Explore", "Survey frontend render gaps", "Reading FailureHint.kt", 64_900, 13_000),
+            ) + (1..extra).map {
+                RunningTask("x$it", "general-purpose", "Extra agent $it", "Working…", 10_000, 5_000)
+            }
+            val content = buildRunningDetail(
+                tasks,
+                listOf(
+                    SubagentInfo("a1", "Explore", "Survey unbuilt design mockups", "call_1"),
+                    SubagentInfo("a2", "Explore", "Find EDT freeze risks", "call_9"),
+                ),
+                {},
+                onOpen = {  },
+            )
+
+            // 量一遍高度：上限那个数就是这么定的。**画之前**量，量的是内容
+            println("[运行中探针] ${tasks.size} 条在跑 → 首选高 ${content.preferredSize.height}px")
+
+            paint(content, path, hoverStop = false, hoverCard = hoverCard)
+        }
+    }
+
+    /** 直接驱动监听器：离屏组件收不到真实的鼠标进出事件（同 [StatusCardsRenderProbe]）。 */
+    private fun hoverCardOnly(component: Component) {
+        val e = MouseEvent(component, MouseEvent.MOUSE_ENTERED, System.currentTimeMillis(), 0, 5, 5, 0, false)
+        component.mouseListeners.forEach { it.mouseEntered(e) }
+    }
+
+    private fun findCard(root: Component): AgentCard? {
+        if (root is AgentCard) return root
+        if (root is Container) {
+            for (c in root.components) findCard(c)?.let { return it }
+        }
+        return null
+    }
+
+    /** 摆版 + 画图。三个入口（运行中、空闲、卡那一版）共用。 */
+    private fun paint(content: Component, path: String, hoverStop: Boolean, hoverCard: Boolean = false) {
         val outer = JPanel(BorderLayout()).apply {
             isOpaque = true
             // 照实画在浮层的底色上：那是个弹出列表，不是面板灰。
@@ -122,6 +187,7 @@ class RunningDetailRenderProbe {
         layoutAll(outer)
 
         if (hoverStop) hover(findStop(outer) ?: error("图里没有终止钮"))
+        if (hoverCard) hoverCardOnly(findCard(outer) ?: error("图里没有卡"))
 
         val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
         val g = img.createGraphics()

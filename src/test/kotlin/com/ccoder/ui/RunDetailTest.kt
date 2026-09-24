@@ -66,12 +66,16 @@ class RunDetailTest {
     // ---- 运行段 ----
 
     @Test
-    fun `运行段带上计数`() {
+    fun `运行段不再有小标题 —— 卡本身就是"在跑"`() {
+        // 2026-09-24 改版（用户从选型台上挑了方案甲）：从前这里一条「运行中 N」的
+        // 小标题，下面还有一段「全部子代理」把同一批人再列一遍。现在在跑的各自一张卡，
+        // 卡就是"在跑"的标题；数目那个数归状态卡（`子代理 3`），不在这儿重复
         val running = tracker(started("t1", "查找 sidecar 启动路径"), started("t2", "核对 SDK 类型")).running
         val labels = labelsIn(buildRunningDetail(running, emptyList(), {}, onOpen = {  }))
 
-        assertTrue("运行中" in labels, "要有段标题")
-        assertTrue("2" in labels, "要带计数：$labels")
+        assertTrue(labels.none { it == "运行中" }, "小标题该没了：$labels")
+        assertTrue(labels.any { it.contains("查找 sidecar 启动路径") }, "实际：$labels")
+        assertTrue(labels.any { it.contains("核对 SDK 类型") }, "实际：$labels")
     }
 
     @Test
@@ -147,7 +151,6 @@ class RunDetailTest {
 
         assertTrue("任务列表" in todoLabels)
         assertTrue("运行中" !in todoLabels, "清单浮层里不该出现运行段：$todoLabels")
-        assertTrue("运行中" in runningLabels)
         assertTrue("任务列表" !in runningLabels, "运行浮层里不该出现清单段：$runningLabels")
     }
 
@@ -234,59 +237,10 @@ class RunDetailTest {
         assertEquals(1, opened.size, "那一行点不动")
     }
 
-    /** 展开之后就是原来那两段的样子（小标题 + 条数 + 每条一行）。 */
+    /** 展开之后是一列压暗的记录行；**那条线还在**（从前展开就再也收不回去）。 */
     @Test
-    fun `展开之后照旧列出记录`() {
-        val picked = mutableListOf<String>()
+    fun `展开之后列出记录，那条线还在 —— 能收回去`() {
         val box = buildRunningDetail(
-            emptyList(),
-            listOf(
-                SubagentInfo("a1", "Explore", "找调用点", "call_1"),
-                SubagentInfo("a2", "Plan", "设计一下", "call_2"),
-            ),
-            {},
-            onOpen = { picked += it.agentId },
-            historyExpanded = true,
-        )
-
-        assertEquals(
-            listOf(SUBAGENTS_SECTION, "2"),
-            labelsIn(box).take(2),
-            "展开之后小标题与条数要照旧：${labelsIn(box)}",
-        )
-
-        clickFirstClickable(box)
-        assertEquals(listOf("a1"), picked, "展开之后点第一条该打开它的转写")
-    }
-
-    /** 有在跑的时候不受这条管：那种场合本来就要两段摊开（那一段里混着正在跑的）。 */
-    @Test
-    fun `有在跑时两段照旧摊开`() {
-        val box = buildRunningDetail(
-            listOf(RunningTask("call_x", "local_bash", "跑测试", null, 0, 0)),
-            listOf(SubagentInfo("a1", "Explore", "找调用点", "call_1")),
-            {},
-            onOpen = {  },
-        )
-
-        val texts = labelsIn(box)
-        assertEquals(RUNNING_SECTION, texts.firstOrNull(), "实际：$texts")
-        assertTrue(texts.contains(SUBAGENTS_SECTION), "有在跑时把记录收起来了：$texts")
-        assertTrue(texts.any { it.contains("找调用点") }, "实际：$texts")
-    }
-
-    @Test
-    fun `两段的小标题各自写清「运行中」与「全部子代理」`() {
-        // 2026-09-17 用户问过「这个会话的子代理」是什么意思 —— 浮层本来就是
-        // "这个会话"的，那四个字不区分任何东西（要区分的是上面那段"此刻在跑"）。
-        // 也不能写"跑过的"：转写是边跑边写的，还在跑的子代理同样在这一段里
-        val running = buildRunningDetail(
-            listOf(RunningTask("call_x", "local_bash", "跑测试", null, 0, 0)),
-            emptyList(),
-            {},
-            onOpen = {  },
-        )
-        val subagents = buildRunningDetail(
             emptyList(),
             listOf(
                 SubagentInfo("a1", "Explore", "找调用点", "call_1"),
@@ -297,12 +251,83 @@ class RunDetailTest {
             historyExpanded = true,
         )
 
-        assertEquals(RUNNING_SECTION, labelsIn(running).firstOrNull(), "实际：${labelsIn(running)}")
-        assertEquals(
-            listOf(SUBAGENTS_SECTION, "2"),
-            labelsIn(subagents).take(2),
-            "标题后面要跟条数：${labelsIn(subagents)}",
+        val labels = labelsIn(box)
+        assertTrue(
+            // 末尾还跟着一个 `›`（disclosureRow 加的），所以用 startsWith
+            labels.any { it.startsWith(CcoderText.text("transcript.detail.hideFinished")) },
+            "展开之后没有收回的路（从前只能关掉浮层重开）：$labels",
         )
+        assertTrue(labels.any { it.contains("找调用点") }, "记录没列出来：$labels")
+        assertTrue(
+            labels.count { it.startsWith("✓") } == 2,
+            "记录行该有个 ✓（与卡上那个活点是一对：点 = 在跑，勾 = 记录）：$labels",
+        )
+    }
+
+    // ---- 2026-09-24：卡 + 一条线（方案甲）----
+
+    /** 这条钉的就是改版的**全部理由**：同一批人从前被列了两遍。 */
+    @Test
+    fun `正在跑的那条不在记录里重复出现`() {
+        val box = buildRunningDetail(
+            listOf(RunningTask("call_1", "explore", "找调用点", null, 0, 0)),
+            listOf(
+                SubagentInfo("a1", "Explore", "找调用点", "call_1"),   // 正在跑
+                SubagentInfo("a2", "Plan", "设计一下", "call_2"),      // 已结束
+            ),
+            {},
+            onOpen = {  },
+            historyExpanded = true,
+        )
+        val labels = labelsIn(box)
+
+        assertEquals(1, labels.count { it.contains("找调用点") }, "正在跑的被列了两遍：$labels")
+        assertTrue(labels.any { it.contains("设计一下") }, "已结束的没列出来：$labels")
+        assertEquals(1, labels.count { it.startsWith("✓") }, "记录里混进了在跑的那条：$labels")
+    }
+
+    @Test
+    fun `那条线上的数目只数已结束的`() {
+        val box = buildRunningDetail(
+            listOf(RunningTask("call_1", "explore", "找调用点", null, 0, 0)),
+            listOf(
+                SubagentInfo("a1", "Explore", "找调用点", "call_1"),
+                SubagentInfo("a2", "Plan", "设计一下", "call_2"),
+            ),
+            {},
+            onOpen = {  },
+        )
+
+        assertTrue(
+            labelsIn(box).any { it.startsWith(CcoderText.text("transcript.detail.showFinished", 1)) },
+            "该写「看已结束的 1 个」（一共 2 条，其中一条还在跑）：${labelsIn(box)}",
+        )
+    }
+
+    @Test
+    fun `在跑的超过上限时只画几张，剩下的说出来`() {
+        val running = (1..MAX_AGENT_CARDS + 2).map {
+            RunningTask("t$it", "explore", "任务 $it", null, 0, 0)
+        }
+        val box = buildRunningDetail(running, emptyList(), {}, onOpen = {  })
+
+        assertEquals(
+            MAX_AGENT_CARDS,
+            countCards(box),
+            "张数该封顶 —— 浮层是向上弹的，再高就顶出屏幕（见 MAX_AGENT_CARDS）",
+        )
+        assertTrue(
+            labelsIn(box).any { it == CcoderText.text("transcript.detail.moreRunning", 2) },
+            "多出来的两条没交代：${labelsIn(box)}",
+        )
+    }
+
+    @Test
+    fun `一张卡就是一个在跑的子代理`() {
+        val running = tracker(started("t1", "找调用点"), started("t2", "核对类型")).running
+        val box = buildRunningDetail(running, emptyList(), {}, onOpen = {  })
+
+        assertEquals(running.size, countCards(box), "有几个在跑就该有几张卡")
     }
 
     @Test
@@ -316,7 +341,9 @@ class RunDetailTest {
             historyExpanded = true,
         )
 
-        clickFirstClickable(box)
+        // **按文字找那一条**，不能用"第一个可点的"：展开之后第一条可点的是
+        // 「收起」（2026-09-24 起两种状态都画那条线）
+        clickLabelContaining(box, "找调用点")
 
         assertEquals(listOf("a1"), picked)
     }
@@ -439,6 +466,37 @@ class RunDetailTest {
     fun `messageText 读不出文字时给 null`() {
         assertNull(messageText(ev("""{"message":{"content":[]}}""")))
         assertNull(messageText(ev("""{"type":"system"}""")))
+    }
+
+    /** 树里有几张卡（在跑的子代理）。 */
+    private fun countCards(root: Component): Int {
+        var n = 0
+        fun walk(c: Component) {
+            if (c is AgentCard) n++
+            if (c is Container) c.components.forEach(::walk)
+        }
+        walk(root)
+        return n
+    }
+
+    /** 点写着某段文字的那个可点标签（展开之后"第一个可点的"可能是「收起」那一行）。 */
+    private fun clickLabelContaining(root: Component, text: String) {
+        val label = findLabel(root, text) ?: throw AssertionError("找不到写着「$text」的可点标签")
+        label.dispatchEvent(
+            MouseEvent(
+                label, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
+                0, 3, 3, 1, false, MouseEvent.BUTTON1,
+            )
+        )
+    }
+
+    private fun findLabel(root: Component, text: String): JLabel? {
+        // 可点标签自己挂了监听器（Swing 的事件不冒泡，文字那块得单独挂）
+        if (root is JLabel && root.text.contains(text) && root.mouseListeners.isNotEmpty()) return root
+        if (root is Container) {
+            for (c in root.components) findLabel(c, text)?.let { return it }
+        }
+        return null
     }
 
     /** 点树里第一个挂了监听器的组件 —— 行是 JPanel，不是按钮。 */
