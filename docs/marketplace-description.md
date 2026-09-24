@@ -48,7 +48,7 @@ CCoder runs the Claude Code CLI (`claude`) you already have installed — it is 
 
 **Requirements**
 
-- PyCharm 2025.3 or newer.
+- PyCharm 2026.1 or newer.
 - Claude Code CLI (`claude`) — **not bundled**; CCoder drives the copy you installed.
 - Node.js.
 - An Anthropic account, subscription or API key — whatever the CLI itself uses.
@@ -97,7 +97,7 @@ CCoder 驱动的是你自己已经装好的 Claude Code CLI（`claude`）—— 
 
 **需要什么**
 
-- PyCharm 2025.3 或更新版本。
+- PyCharm 2026.1 或更新版本。
 - Claude Code CLI（`claude`）—— **不随插件分发**，驱动的是你已经装好的那份。
 - Node.js。
 - CLI 本身要的东西：Anthropic 账号 / 订阅 / API key。

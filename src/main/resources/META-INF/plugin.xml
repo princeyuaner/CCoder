@@ -74,7 +74,7 @@
 
     <p><b>Requirements</b></p>
     <ul>
-      <li>PyCharm 2025.3 or newer.</li>
+      <li>PyCharm 2026.1 or newer.</li>
       <li>Claude Code CLI (<code>claude</code>) &mdash; <b>not bundled</b>; CCoder drives
           the copy you installed.</li>
       <li>Node.js.</li>
@@ -142,7 +142,7 @@
 
     <p><b>需要什么</b></p>
     <ul>
-      <li>PyCharm 2025.3 或更新版本。</li>
+      <li>PyCharm 2026.1 或更新版本。</li>
       <li>Claude Code CLI（<code>claude</code>）&mdash;&mdash; <b>不随插件分发</b>，
           驱动的是你已经装好的那份。</li>
       <li>Node.js。</li>
