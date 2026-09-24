@@ -2,13 +2,17 @@ package com.ccoder.ui
 
 import com.ccoder.sidecar.SidecarMessage
 import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Container
 import javax.swing.JButton
+import javax.swing.JEditorPane
 
 /**
  * 权限卡片。
@@ -89,6 +93,81 @@ class PermissionCardTest {
     fun `displayName 缺失或空白时回落「允许」`() {
         assertEquals("允许", PermissionOptions.allowLabel(perm(displayName = null)))
         assertEquals("允许", PermissionOptions.allowLabel(perm(displayName = "   ")))
+    }
+
+    // ---- 改动预览（2026-09-24）----
+
+    private fun editPerm(old: String, new: String) = SidecarMessage.Permission(
+        requestId = "r2",
+        toolName = "Edit",
+        // 用 JsonObject 直接搭，不走 JSON 文本：内容里有换行、引号、反引号，
+        // 手写转义迟早错一个（这条教训是本仓库探针里记着的）
+        input = JsonObject().apply {
+            addProperty("file_path", "a.txt")
+            addProperty("old_string", old)
+            addProperty("new_string", new)
+        },
+        title = null, displayName = null, description = null,
+        blockedPath = null, decisionReason = null,
+        defaultToNo = false, suppressAlwaysAllowRule = false, suggestions = null,
+    )
+
+    /**
+     * 这条护的是"**看得见**"这件事，而不是"画了 diff"：diff 不能换行（一换就看不出
+     * 对齐了，见 `diffHtml`），所以长行的出路只有横滚条 ——
+     * 横滚条不出，那一行的结尾就永远够不着，正是这一版要修的那种毛病。
+     */
+    @Test
+    fun `长行的结尾够得着 —— 横滚条必须出得来`() = IdeLaf.withRealLaf {
+        val long = "x".repeat(400)
+        val card = PermissionCard(editPerm(long, "$long y"), queuedCount = 0) {}
+        card.setSize(PERMISSION_CARD_WIDTH, JBUI.scale(300))
+        layoutAll(card)
+
+        val scroll = requireNotNull(findScroll(card)) { "卡片里该有一个滚动区" }
+        assertTrue(
+            scroll.horizontalScrollBar.isVisible,
+            "diff 不换行，横滚条不出就等于结尾看不见：" +
+                "视口 ${scroll.viewport.extentSize.width} / 内容 ${scroll.viewport.viewSize.width}",
+        )
+    }
+
+    @Test
+    fun `改一个词的 Edit 走 HTML 面板，而不是那段 JSON`() {
+        // 从前：两个字段以转义 JSON 铺出来，用户得自己在里面找"到底改了哪一句"。
+        // 而这一屏是批准的依据 —— 看不到内容的审批不是审批
+        val card = PermissionCard(editPerm("foo", "bar"), queuedCount = 0) {}
+
+        val html = requireNotNull(editorsIn(card).firstOrNull()) { "改动预览该走 HTML 面板" }.text
+        assertTrue(html.contains("foo"), "删的那一行要在：$html")
+        assertTrue(html.contains("bar"), "加的那一行要在：$html")
+        assertTrue(html.contains("bgcolor="), "要有底色带：$html")
+        assertTrue(!html.contains("old_string"), "不该再是入参 JSON：$html")
+    }
+
+    private fun editorsIn(root: Container): List<JEditorPane> {
+        val out = mutableListOf<JEditorPane>()
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JEditorPane) out += child
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return out
+    }
+
+    private fun findScroll(root: Container): JBScrollPane? {
+        for (child in root.components) {
+            if (child is JBScrollPane) return child
+            if (child is Container) findScroll(child)?.let { return it }
+        }
+        return null
+    }
+
+    private fun layoutAll(c: Container) {
+        c.doLayout()
+        for (child in c.components) if (child is Container) layoutAll(child)
     }
 
     @Test

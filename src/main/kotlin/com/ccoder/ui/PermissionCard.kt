@@ -102,12 +102,21 @@ class PermissionCard(
 
         // 入参按"能读"的样子铺开：长正文（比如 ExitPlanMode 那份计划）走文本，
         // 短入参走缩进 JSON —— 见 permissionBody 里那段"看不到内容的审批不是审批"
-        val body = permissionBody(permission.input)
-        // 计划走 HTML（它是 Markdown，纯文本组件只会把 `#`、`**` 原样铺出来 ——
-        // 那不是排版朴素，是在显示源码）。其余入参仍是纯文本：那些是命令与 JSON，
-        // 按 Markdown 渲染只会平白吃掉字符
-        val inputArea: JComponent = if (body.markdown) {
-            JEditorPane("text/html", planHtml(body.text, accentHex(), dimHex())).apply {
+        val body = permissionBody(permission.toolName, permission.input)
+        // 三条路，按"这份内容最该被怎么读"分：
+        //  - 改动预览（Edit/Write/MultiEdit）：一张带底色的删/加表，HTML
+        //  - 计划：Markdown → HTML（纯文本组件只会把 `#`、`**` 原样铺出来 ——
+        //    那不是排版朴素，是在显示源码）
+        //  - 其余：纯文本。那些是命令与 JSON，按 Markdown 渲染只会平白吃掉字符
+        //
+        // 后两条都会走 JEditorPane，所以"富文本"这件事在一处收口（下面 sizing 那几处
+        // 也按它分支）：新增一种富文本时不必再去追第二个布尔
+        val rich = body.diff != null || body.markdown
+        val inputArea: JComponent = if (rich) {
+            val html = body.diff?.let {
+                diffHtml(it, diffAddBg(), diffDelBg(), diffAddFg(), diffDelFg(), dimHex())
+            } ?: planHtml(body.text, accentHex(), dimHex())
+            JEditorPane("text/html", html).apply {
                 isEditable = false
                 isOpaque = false // 透出卡片背景，与旁边那些标签一个底色
                 putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
@@ -166,18 +175,21 @@ class PermissionCard(
                 // 长正文（计划那种）给得高一些：80px 只够四行，而那是要读的东西。
                 // 仍然封顶 —— 卡片再高也不该把按钮顶出屏幕。
                 //
-                // 例外是计划那一档：**不封顶**。框现在可以拉伸（方案 B），拖大时这块
-                // 要跟着长；封着的话用户拖半天只有空白在长。其它字段照旧封住，
-                // 免得一条长命令把窗口直接顶到屏幕外。
+                // 例外是富文本那两档（计划、改动预览）：**不封顶**。框现在可以拉伸
+                // （方案 B），拖大时这块要跟着长；封着的话用户拖半天只有空白在长。
+                // 其它字段照旧封住，免得一条长命令把窗口直接顶到屏幕外。
+                //
+                // 改动预览跟着计划一起不封顶，理由一样也更强：那一屏是**批准的依据**
+                // （要看得出改了哪一句才谈得上批准），给它 320px 等于逼人滚着读。
                 maximumSize = Dimension(
                     Int.MAX_VALUE,
-                    if (body.markdown) Int.MAX_VALUE else JBUI.scale(body.maxHeight),
+                    if (rich) Int.MAX_VALUE else JBUI.scale(body.maxHeight),
                 )
-                if (body.markdown) {
+                if (rich) {
                     // HTML 面板不认 rows：高度**按屏幕算**（方案 B）——
                     // 45% 屏高，夹在 260~520 之间（见 planAreaHeight）。
                     //
-                    // 但那是**上限**不是定额：短计划按内容给，否则一个六行的小计划
+                    // 但那是**上限**不是定额：短的按内容给，否则一个六行的计划
                     // 底下留一片空白（离屏渲染第一版就是这样，图里一眼看见）。
                     // 量不准（量出 0）才退回屏幕份额 —— 超出的照样在框里滚。
                     val cap = JBUI.scale(planAreaHeight(JBUI.unscale(screenHeightPx())))
@@ -287,6 +299,33 @@ private fun accentHex(): String = hexOf(
 private fun dimHex(): String = hexOf(blend(UIUtil.getLabelForeground(), UIUtil.getPanelBackground(), 0.85))
 
 private fun hexOf(color: java.awt.Color): String = "#%06x".format(color.rgb and 0xFFFFFF)
+
+/**
+ * 改动预览的四色（加/删各自的底色与文字色）。
+ *
+ * ## 与转写区**同一套配方**
+ *
+ * 那边由 `ThemeInjector` 把这四个值算出来喂给 CSS 变量（`--diff-add-bg` 一族）。
+ * 这里算的是同一个式子：底色 = 面板底向锚色混 16%（`mix(base, fg, ratio)` 与
+ * `blend(fg, bg, keep)` 是同一个式子，只是变量名反着叫），文字色从**正常前景**
+ * 出发混 60%。不写死绿/红：硬编码的那种在浅色主题下要么看不见、要么刺眼。
+ *
+ * 为什么不直接读那四个变量：它们在 `ThemeColors` 里，读一次要 `EditorColorsManager`
+ * 与 EDT，而这里只要四个颜色。**配方**才是要对齐的东西 —— 换主题两边各自跟着变。
+ *
+ * 底色从**面板背景**出发（卡片 `isOpaque = false`，透出的就是它），转写区从气泡底
+ * 出发 —— 底不一样，混出来的值本来就不该一样。
+ *
+ * 这两对颜色**只在这张卡里用**：权限卡是短命的一张卡（每次询问重建），
+ * 所以"HTML 里的颜色建好即定死、换主题不重画"这个代价收下，同 [accentHex]。
+ */
+private fun diffAddBg(): String = hexOf(blend(DIFF_ADD_ANCHOR, UIUtil.getPanelBackground(), 0.16))
+
+private fun diffDelBg(): String = hexOf(blend(DIFF_DEL_ANCHOR, UIUtil.getPanelBackground(), 0.16))
+
+private fun diffAddFg(): String = hexOf(blend(DIFF_ADD_ANCHOR, UIUtil.getLabelForeground(), 0.60))
+
+private fun diffDelFg(): String = hexOf(blend(DIFF_DEL_ANCHOR, UIUtil.getLabelForeground(), 0.60))
 
 /**
  * 屏幕高（真实像素），给 [planAreaHeight] 用。

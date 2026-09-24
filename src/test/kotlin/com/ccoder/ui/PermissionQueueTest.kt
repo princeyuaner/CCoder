@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.sidecar.SidecarMessage
+import com.ccoder.text.CcoderText
 import com.google.gson.JsonArray
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -214,8 +215,12 @@ class PermissionOptionsTest {
 
     // ---- 入参正文：看不到内容的审批不是审批 ----
 
-    private fun bodyOf(json: String) =
-        permissionBody(JsonParser.parseString(json).asJsonObject)
+    /**
+     * 工具名默认给个**不参与改动预览**的（这条路上只有 `Edit` / `Write` / `MultiEdit`
+     * 有特殊待遇）。下面那些长字段用例查的是"最长字符串字段"那条路，与工具无关。
+     */
+    private fun bodyOf(json: String, tool: String = "Bash") =
+        permissionBody(tool, JsonParser.parseString(json).asJsonObject)
 
     @Test
     fun `计划按文本铺开，不是一行转义 JSON`() {
@@ -274,5 +279,94 @@ class PermissionOptionsTest {
         val body = bodyOf("""{"plan":"${"字".repeat(300)}"}""")
 
         assertNull(body.footer, "没有别的字段就不该有那一段：${body.footer}")
+    }
+
+    // ---- 改动预览（2026-09-24：审批框里的那一次也该看得见改了什么）----
+
+    /**
+     * 这条正是加改动预览的**全部理由**：改一个词时 `old_string` 与 `new_string`
+     * 都不到 200 字、也没有换行，按旧规则是"没有正文型字段"→ 整份缩进 JSON。
+     * 而那是最常见的一次编辑 —— 用户得自己在转义字符里做差集。
+     */
+    @Test
+    fun `改一个词也算正文 —— 改动预览排在长字段那条路前面`() {
+        val body = bodyOf("""{"file_path":"a.txt","old_string":"foo","new_string":"bar"}""", "Edit")
+
+        assertEquals(
+            CcoderText.text("permission.diffCaption", 1, 1),
+            body.caption,
+            "标题该说清这是改动预览、以及改了多少",
+        )
+        assertEquals(
+            listOf(DiffKind.Del to "foo", DiffKind.Add to "bar"),
+            body.diff?.map { it.kind to it.text },
+        )
+    }
+
+    /** 同一段文本在框里出现两次（一次配色、一次转义 JSON）才是最让人怀疑"批错了"的。 */
+    @Test
+    fun `被 diff 吃掉的字段不进「其余参数」`() {
+        val edit = bodyOf(
+            """{"file_path":"src/a.txt","old_string":"foo","new_string":"bar","replace_all":true}""",
+            "Edit",
+        )
+        assertTrue(edit.footer?.contains("src/a.txt") == true, "路径得留着：${edit.footer}")
+        assertTrue(edit.footer?.contains("replace_all") == true, "没被吃掉的参数也得留着：${edit.footer}")
+        assertFalse(edit.footer?.contains("old_string") == true, "它已经在上面画过了：${edit.footer}")
+        assertFalse(edit.footer?.contains("new_string") == true, "同上：${edit.footer}")
+
+        val multi = bodyOf(
+            """{"file_path":"c.txt","edits":[{"old_string":"one","new_string":"1"}]}""",
+            "MultiEdit",
+        )
+        assertFalse(multi.footer?.contains("edits") == true, "整个 edits 都被吃掉了：${multi.footer}")
+    }
+
+    @Test
+    fun `Write 整份都是新增，标题报得出多少行`() {
+        val body = bodyOf("""{"file_path":"b.txt","content":"a\nb\nc"}""", "Write")
+
+        assertEquals(CcoderText.text("permission.diffCaption", 3, 0), body.caption)
+        assertEquals(3, body.diff?.size)
+        assertTrue(body.diff?.all { it.kind == DiffKind.Add } == true, "Write 不该有删除行")
+    }
+
+    @Test
+    fun `MultiEdit 每处编辑按顺序铺开`() {
+        val body = bodyOf(
+            """{"file_path":"c.txt","edits":[{"old_string":"one","new_string":"1"},{"old_string":"two","new_string":"2"}]}""",
+            "MultiEdit",
+        )
+
+        assertEquals(
+            listOf(
+                DiffKind.Del to "one", DiffKind.Add to "1",
+                DiffKind.Del to "two", DiffKind.Add to "2",
+            ),
+            body.diff?.map { it.kind to it.text },
+        )
+    }
+
+    /**
+     * 太大就退回纯文本 —— **不是不显示**。这条盯的是"一个字符都不许少"：
+     * 那一屏是审批的依据，宁可没有配色。
+     */
+    @Test
+    fun `改动太大时退回纯文本，但一个字都不少`() {
+        val big = (1..250).joinToString("\n") { "line $it" }
+        val body = bodyOf("""{"file_path":"big.txt","old_string":"$big","new_string":"done"}""", "Edit")
+
+        assertNull(body.diff, "250 行超过了上限，该退回纯文本（不然那一屏是一张 251 行的表格）")
+        assertTrue(body.text.contains("line 1\n"), "退回的那份必须还是全部内容：${body.text.take(60)}")
+        assertTrue(body.text.contains("line 250"), "最后一行也得在：${body.text.takeLast(60)}")
+    }
+
+    @Test
+    fun `认不出的工具照旧走 JSON`() {
+        // Bash 的 command 不是"删了什么加了什么"，硬套 diff 只会画出假东西
+        val body = bodyOf("""{"command":"set -e\ncd /tmp\necho hi","description":"跑一段"}""")
+
+        assertNull(body.diff, "只有编辑类工具有改动预览")
+        assertTrue(body.text.startsWith("set -e\ncd /tmp"), body.text)
     }
 }

@@ -1,0 +1,19 @@
+[
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"one\ntwo","new_string":"three"},"expect":[{"kind":"del","text":"one"},{"kind":"del","text":"two"},{"kind":"add","text":"three"}]},
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"foo","new_string":"bar"},"expect":[{"kind":"del","text":"foo"},{"kind":"add","text":"bar"}]},
+  {"name":"Edit","input":{"file_path":"a.py","old_string":"    x = 1","new_string":"        x = 2"},"expect":[{"kind":"del","text":"    x = 1"},{"kind":"add","text":"        x = 2"}]},
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"same\nlines","new_string":"same\nlines"},"expect":[{"kind":"del","text":"same"},{"kind":"del","text":"lines"},{"kind":"add","text":"same"},{"kind":"add","text":"lines"}]},
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"a\r\nb","new_string":"a\r\nc"},"expect":[{"kind":"del","text":"a"},{"kind":"del","text":"b"},{"kind":"add","text":"a"},{"kind":"add","text":"c"}]},
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"","new_string":"x"},"expect":null},
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"a"},"expect":null},
+  {"name":"Write","input":{"file_path":"b.txt","content":"alpha\nbeta"},"expect":[{"kind":"add","text":"alpha"},{"kind":"add","text":"beta"}]},
+  {"name":"Write","input":{"file_path":"b.txt","content":"alpha\n"},"expect":[{"kind":"add","text":"alpha"}]},
+  {"name":"Write","input":{"file_path":"b.txt","content":""},"expect":null},
+  {"name":"MultiEdit","input":{"file_path":"c.txt","edits":[{"old_string":"one","new_string":"1"},{"old_string":"two\nthree","new_string":"23"}]},"expect":[{"kind":"del","text":"one"},{"kind":"add","text":"1"},{"kind":"del","text":"two"},{"kind":"del","text":"three"},{"kind":"add","text":"23"}]},
+  {"name":"MultiEdit","input":{"file_path":"c.txt","edits":[]},"expect":null},
+  {"name":"MultiEdit","input":{"file_path":"c.txt","edits":"nope"},"expect":null},
+  {"name":"MultiEdit","input":{"file_path":"c.txt","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c"}]},"expect":null},
+  {"name":"Bash","input":{"command":"ls -la"},"expect":null},
+  {"name":"NotebookEdit","input":{"notebook_path":"n.ipynb","new_source":"x = 1"},"expect":null},
+  {"name":"Edit","input":{"file_path":"a.txt","old_string":"a","new_string":"b","replace_all":true},"expect":[{"kind":"del","text":"a"},{"kind":"add","text":"b"}]}
+]

@@ -156,10 +156,10 @@ object PlatformTheme {
             // diff 的两套颜色同理由主题色混出来，不写死绿/红：
             // 硬编码的那种在浅色主题下要么看不见、要么刺眼。底色从**面板**
             // 出发（只要一点点偏色），文字从**文本色**出发（要能读）
-            diffAddBg = mix(bg, Color(0x4C, 0xAF, 0x50), 0.16),
-            diffDelBg = mix(bg, Color(0xE0, 0x54, 0x54), 0.16),
-            diffAddFg = mix(text, Color(0x4C, 0xAF, 0x50), 0.60),
-            diffDelFg = mix(text, Color(0xE0, 0x54, 0x54), 0.60),
+            diffAddBg = mix(bg, DIFF_ADD_ANCHOR, 0.16),
+            diffDelBg = mix(bg, DIFF_DEL_ANCHOR, 0.16),
+            diffAddFg = mix(text, DIFF_ADD_ANCHOR, 0.60),
+            diffDelFg = mix(text, DIFF_DEL_ANCHOR, 0.60),
             thinkingFg = thinkingFgFor(text, bg),
             fontUi = UIUtil.getLabelFont(),
             fontMono = EditorColorsManager.getInstance().globalScheme

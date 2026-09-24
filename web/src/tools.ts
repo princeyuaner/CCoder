@@ -74,11 +74,16 @@ export function baseName(path: string): string {
   return i < 0 ? trimmed : trimmed.slice(i + 1)
 }
 
-/** 按行切，并丢掉末尾那一个空行 —— 文件内容几乎总以换行结尾。 */
+/**
+ * 按行切，并丢掉末尾那一个空行 —— 文件内容几乎总以换行结尾。
+ *
+ * 行尾的 `\r` 去掉（2026-09-24，与 Kotlin 侧同时加的）：Windows 的文件是 CRLF，
+ * 而 `.tool__line` 是 `white-space: pre` —— 留着它，行里就多出一截空白。
+ */
 function lines(text: string): string[] {
   const out = text.split('\n')
   if (out.length > 1 && out[out.length - 1] === '') out.pop()
-  return out
+  return out.map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
 }
 
 /**
@@ -173,6 +178,12 @@ export function toolFile(name: string, input: string): ToolFileRef | null {
  *
  * **从 input 算，不看工具结果**：Edit 的结果只有一句
  * "has been updated successfully"，里面没有内容。
+ *
+ * 认 `Edit` / `Write` / `MultiEdit`。**这一份有一个 Kotlin 双胞胎**：
+ * `src/main/kotlin/com/ccoder/ui/ToolDiff.kt` —— 权限审批框（"before it lands"
+ * 那一次）画的也是它，而那一屏是 Swing，够不到这里。两边的规则必须逐字一致
+ * （同一次改动，批准前和批准后长得不一样，用户会以为批错了），
+ * 所以有一份两端共读的用例表：`shared/tool-diff.json`，任一侧改规则都会让另一侧变红。
  */
 export function toolDiff(name: string, input: string): DiffLine[] | null {
   const args = parseArgs(input)
@@ -182,10 +193,7 @@ export function toolDiff(name: string, input: string): DiffLine[] | null {
     const before = str(args.old_string)
     const after = str(args.new_string)
     if (before === null || after === null) return null
-    return [
-      ...lines(before).map((text): DiffLine => ({ kind: 'del', text })),
-      ...lines(after).map((text): DiffLine => ({ kind: 'add', text })),
-    ]
+    return pair(before, after)
   }
 
   if (name === 'Write') {
@@ -194,7 +202,35 @@ export function toolDiff(name: string, input: string): DiffLine[] | null {
     return lines(content).map((text): DiffLine => ({ kind: 'add', text }))
   }
 
+  // MultiEdit：一串编辑按顺序铺平成一条删/加列表（2026-09-24 补）。
+  // 它一直躺在 FILE_TOOLS 与徽标表里（卡片认得它的文件名和铅笔图标），
+  // 就是从来没有 diff，也没有 +N −N
+  if (name === 'MultiEdit') {
+    const edits = args.edits
+    if (!Array.isArray(edits)) return null
+    const out: DiffLine[] = []
+    for (const edit of edits) {
+      if (!edit || typeof edit !== 'object') return null
+      const one = edit as Record<string, unknown>
+      const before = str(one.old_string)
+      const after = str(one.new_string)
+      if (before === null || after === null) return null
+      out.push(...pair(before, after))
+    }
+    // 一条都没有 = 没有可看的东西。null 与空数组是两件事，调用方分得清
+    // （`[]` 在 JS 里是 truthy，不拦的话卡片上会多出一个空的 diff 块）
+    return out.length > 0 ? out : null
+  }
+
   return null
+}
+
+/** 旧的全删、新的全加 —— 与 Kotlin 侧 `remap()` 同一个规则。 */
+function pair(before: string, after: string): DiffLine[] {
+  return [
+    ...lines(before).map((text): DiffLine => ({ kind: 'del', text })),
+    ...lines(after).map((text): DiffLine => ({ kind: 'add', text })),
+  ]
 }
 
 /**

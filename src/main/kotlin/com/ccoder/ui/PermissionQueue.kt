@@ -212,6 +212,19 @@ internal data class PermissionBody(
      * 混在被渲染的段落里 —— 一段 JSON 看着像计划正文，比排版难看严重。
      */
     val footer: String? = null,
+    /**
+     * **改动预览**（`Edit` / `Write` / `MultiEdit` 才有）：卡片优先画它，
+     * 不再画 [text] 那段 JSON。
+     *
+     * 2026-09-24 加的。市场的第一句卖点是 *see every file edit as a diff before it
+     * lands*，而"before it lands"那一次恰恰给的是 `{"old_string":…,"new_string":…}`
+     * —— 事后（转写区）画得挺好，事前没有。规则见 [toolDiff]。
+     *
+     * 它是**渲染提示，不是替代品**：[text] 在任何一档里都仍然成立（diff 太大时
+     * 退回它上场，一个字符都不少）。所以这里没有"非空时 text 无意义"那种状态 ——
+     * [permissionBody] 给的每一份都自洽。
+     */
+    val diff: List<DiffLine>? = null,
 )
 
 /** 超过这个长度就算"正文"，不再塞进 JSON 里当一行字符串。 */
@@ -234,26 +247,76 @@ private const val LONG_FIELD_MIN_CHARS = 200
  * （`plan` 这类字段本来就是给人读的段落）；其余字段按缩进 JSON 附在后面，
  * 一样都不藏 —— 审批框里截断信息比排版难看严重得多。没有这样的字段
  * （比如 Bash 那种 `command` + `description` 的短入参）就整份缩进 JSON。
+ *
+ * ## 改动预览优先（2026-09-24 加）
+ *
+ * **先看这个工具是不是编辑类的**（[toolDiff]）：是就把删/加算出来放进 [PermissionBody.diff]，
+ * 卡片画它、不画 JSON —— `Edit` 的 `old_string` / `new_string` 是**要被删掉**与
+ * **要被写进去**的两段文本，摆在缩进 JSON 里只能靠人脑做差集。
+ *
+ * 这一步刻意排在 [longTextField] **前面**：一次改一个词的 `Edit`，两个字段都不到
+ * 200 字、也没有换行，按旧规则是"没有正文型字段"→ 整份 JSON。而那正是最常见的编辑。
+ *
+ * 那一档的 footer 也换一份：把被 diff 吃掉的字段（`old_string` 那类）从「其余参数」里
+ * 去掉，否则同一段文本在框里出现两次（一次配色、一次转义 JSON）。
  */
-internal fun permissionBody(input: JsonObject): PermissionBody {
+internal fun permissionBody(toolName: String, input: JsonObject): PermissionBody {
     val field = longTextField(input)
-    if (field == null) {
-        return PermissionBody(INPUT_CAPTION, prettyJson(input), GENERIC_ROWS, GENERIC_MAX_HEIGHT)
+    val plain = if (field == null) {
+        PermissionBody(INPUT_CAPTION, prettyJson(input), GENERIC_ROWS, GENERIC_MAX_HEIGHT)
+    } else {
+        val rest = JsonObject().apply {
+            input.entrySet().filter { it.key != field.key }.forEach { add(it.key, it.value) }
+        }
+        PermissionBody(
+            // 计划是这一档里唯一有专名的：它同时回答了"这是在批准什么"
+            caption = if (field.key == PLAN_FIELD) PLAN_CAPTION else INPUT_CAPTION,
+            text = field.value.asString,
+            rows = LONG_ROWS,
+            maxHeight = LONG_MAX_HEIGHT,
+            markdown = field.key == PLAN_FIELD,
+            footer = footerOf(rest),
+        )
     }
 
+    val diff = toolDiff(toolName, input) ?: return plain
+    // 太大就退回纯文本。**不是不显示** —— plain 里那份一个字符都不少，只是没配色
+    if (diff.size > DIFF_MAX_LINES || diff.sumOf { it.text.length } > DIFF_MAX_CHARS) return plain
+
+    // 名字带 Count：这里同时在用 JsonObject.add(…)（下面那个 apply 块里），
+    // 一个叫 add 的 Int 局部量会把那次调用遮得连编译器都要想一下
+    val addCount = diff.count { it.kind == DiffKind.Add }
     val rest = JsonObject().apply {
-        input.entrySet().filter { it.key != field.key }.forEach { add(it.key, it.value) }
+        input.entrySet()
+            .filter { it.key !in diffConsumedFields(toolName) }
+            .forEach { add(it.key, it.value) }
     }
-    return PermissionBody(
-        // 计划是这一档里唯一有专名的：它同时回答了"这是在批准什么"
-        caption = if (field.key == PLAN_FIELD) PLAN_CAPTION else INPUT_CAPTION,
-        text = field.value.asString,
-        rows = LONG_ROWS,
-        maxHeight = LONG_MAX_HEIGHT,
-        markdown = field.key == PLAN_FIELD,
-        footer = if (rest.size() > 0) CcoderText.text("permission.paramsRest") + "\n" + prettyJson(rest) else null,
+    return plain.copy(
+        caption = CcoderText.text("permission.diffCaption", addCount, diff.size - addCount),
+        diff = diff,
+        footer = footerOf(rest),
     )
 }
+
+/**
+ * 那一屏是一张 N 行的 HTML 表格，而 `JEditorPane` 的表格排版在 EDT 上按单元格现算：
+ * 一个 `Write` 覆盖大文件能带来几千行 = 几千个单元格，卡的不是观感，是整个界面。
+ *
+ * 超了就退回纯文本那份（[prettyJson] + 可滚动文本区），一个字符都不少，只是没配色
+ * —— 同顶上那条"审批框里截断信息比排版难看严重得多"：**宁可不好看，不可以卡住，
+ * 也不可以少字**。
+ *
+ * 200 行这个数是**量出来的**，不是拍的（`PermissionDialogRenderProbe` 里那条曲线，
+ * 2026-09-24 这台机器上构造+布局一次：10 行 21ms / 30 行 44ms / 60 行 55ms /
+ * 120 行 98ms / 200 行 125ms）。125ms 是这一档的上限，而它只发生在"改动本来就大到
+ * 要滚着读"的时候 —— 换个更小的数会让更多改动退回没配色那一档，那才是把功能做丢了。
+ */
+private const val DIFF_MAX_LINES = 200
+private const val DIFF_MAX_CHARS = 40_000
+
+/** 「其余参数」那一段；没有别的字段时不给（免得留一个空标题）。 */
+private fun footerOf(rest: JsonObject): String? =
+    if (rest.size() > 0) CcoderText.text("permission.paramsRest") + "\n" + prettyJson(rest) else null
 
 /** 长正文按文本铺开时用的那几个数。 */
 private val INPUT_CAPTION: String get() = CcoderText.text("permission.inputCaption")

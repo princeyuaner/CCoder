@@ -3,6 +3,7 @@ package com.ccoder.ui
 import com.ccoder.sidecar.SidecarMessage
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Test
@@ -95,6 +96,145 @@ class PermissionDialogRenderProbe {
         suggestions = null,
     )
 
+    /**
+     * 改动预览那一档（2026-09-24）。
+     *
+     * 照一份**真改动**抄：改的是这个仓库里真有过的一处（`permissionBody` 多收一个
+     * 工具名），有缩进、有中文注释、有 `+N −N`。看的是三件事：底色带读不读得出删和加、
+     * 缩进有没有被 HTML 压掉、行尾有没有多出脏东西。
+     */
+    private fun editPermission() = SidecarMessage.Permission(
+        requestId = "r4",
+        toolName = "Edit",
+        input = JsonObject().apply {
+            addProperty("file_path", "src/main/kotlin/com/ccoder/ui/PermissionQueue.kt")
+            addProperty(
+                "old_string",
+                """
+                internal fun permissionBody(input: JsonObject): PermissionBody {
+                    val field = longTextField(input)
+                    if (field == null) {
+                        // 没有正文型字段就整份缩进 JSON
+                        return PermissionBody(INPUT_CAPTION, prettyJson(input), GENERIC_ROWS, GENERIC_MAX_HEIGHT)
+                    }
+                """.trimIndent(),
+            )
+            addProperty(
+                "new_string",
+                """
+                internal fun permissionBody(toolName: String, input: JsonObject): PermissionBody {
+                    val field = longTextField(input)
+                    if (field == null) {
+                        // 没有正文型字段就整份缩进 JSON
+                        return PermissionBody(INPUT_CAPTION, prettyJson(input), GENERIC_ROWS, GENERIC_MAX_HEIGHT)
+                    }
+                    // 编辑类工具：先把改动算出来（见 ToolDiff.kt）
+                    return diffOrPlain(toolName, input, plain)
+                """.trimIndent(),
+            )
+            addProperty("replace_all", false)
+        },
+        title = "Edit",
+        displayName = "Edit",
+        description = null,
+        blockedPath = null,
+        decisionReason = null,
+        defaultToNo = false,
+        suppressAlwaysAllowRule = false,
+        suggestions = null,
+    )
+
+    /** 新建文件那一档：整份都是新增，没有一行删除。 */
+    private fun writePermission() = SidecarMessage.Permission(
+        requestId = "r5",
+        toolName = "Write",
+        input = JsonObject().apply {
+            addProperty("file_path", "src/main/kotlin/com/ccoder/ui/ToolDiff.kt")
+            addProperty(
+                "content",
+                """
+                package com.ccoder.ui
+
+                /** 改动预览：把编辑类工具的入参算成"删了哪些行、加了哪些行"。 */
+                internal fun toolDiff(toolName: String, input: JsonObject): List<DiffLine>? =
+                    when (toolName) {
+                        "Edit" -> editDiff(input)
+                        else -> null
+                    }
+                """.trimIndent(),
+            )
+        },
+        title = "Write",
+        displayName = "Write",
+        description = null,
+        blockedPath = null,
+        decisionReason = null,
+        defaultToNo = false,
+        suppressAlwaysAllowRule = false,
+        suggestions = null,
+    )
+
+    /** 一处文件里改两处（MultiEdit）：一条平铺的删/加列表，不标"第几处"。 */
+    private fun multiEditPermission() = SidecarMessage.Permission(
+        requestId = "r7",
+        toolName = "MultiEdit",
+        input = JsonObject().apply {
+            addProperty("file_path", "src/main/kotlin/com/ccoder/ui/ToolDiff.kt")
+            add(
+                "edits",
+                com.google.gson.JsonArray().apply {
+                    add(JsonObject().apply {
+                        addProperty("old_string", "private const val DIFF_MAX_LINES = 200")
+                        addProperty("new_string", "private const val DIFF_MAX_LINES = 120")
+                    })
+                    add(JsonObject().apply {
+                        addProperty(
+                            "old_string",
+                            "    val field = longTextField(input)\n    if (field == null) return plain",
+                        )
+                        addProperty(
+                            "new_string",
+                            "    val field = longTextField(input)\n    if (field == null) return plain\n    // 编辑类工具先算改动",
+                        )
+                    })
+                },
+            )
+        },
+        title = "MultiEdit",
+        displayName = "MultiEdit",
+        description = null,
+        blockedPath = null,
+        decisionReason = null,
+        defaultToNo = false,
+        suppressAlwaysAllowRule = false,
+        suggestions = null,
+    )
+
+    /**
+     * 贴近上限的那一档（180 行，上限 200）。
+     *
+     * **这一格是来量耗时的**：那一屏是 N 行的 HTML 表格，而 `JEditorPane` 的表格
+     * 排版在 EDT 上按单元格现算。`DIFF_MAX_LINES` / `DIFF_MAX_CHARS` 那两个数不是
+     * 拍的，就是拿这一格量出来的 —— 见下面那条 println。
+     */
+    private fun bigEditPermission(lines: Int) = SidecarMessage.Permission(
+        requestId = "r6",
+        toolName = "Edit",
+        input = JsonObject().apply {
+            addProperty("file_path", "big.txt")
+            addProperty("old_string", (1..lines).joinToString("\n") { "    old line $it" })
+            addProperty("new_string", (1..lines).joinToString("\n") { "    new line $it" })
+        },
+        title = "Edit",
+        displayName = "Edit",
+        description = null,
+        blockedPath = null,
+        decisionReason = null,
+        defaultToNo = false,
+        suppressAlwaysAllowRule = false,
+        suggestions = null,
+    )
+
     private fun planPermission() = SidecarMessage.Permission(
         requestId = "r2",
         toolName = "ExitPlanMode",
@@ -155,6 +295,17 @@ class PermissionDialogRenderProbe {
         // 转写区那边却早就会渲染表格 —— 同一份计划两处长得很不一样
         caption("⑤ 计划里的表格：竖线变真表格，不再铺在脸上")
         column.add(PermissionCard(tablePlanPermission(), queuedCount = 0) {})
+        column.add(Box.createVerticalStrut(14))
+
+        // ⑥⑦ 2026-09-24 加的：市场的第一句卖点是"批准前看到 diff"，而这一格
+        // 从前给的是一坨 `{"old_string":…}`。看的是底色带读不读得出删与加、
+        // 缩进有没有被 HTML 压掉
+        caption("⑥ 改动预览（Edit）：删/加各带底色，缩进原样")
+        column.add(PermissionCard(editPermission(), queuedCount = 0) {})
+        column.add(Box.createVerticalStrut(14))
+
+        caption("⑦ 新建文件（Write）：整份都是新增，没有一行删除")
+        column.add(PermissionCard(writePermission(), queuedCount = 0) {})
         column.add(Box.createVerticalGlue())
 
         // 画布跟着卡片宽度走（2026-09-16 方案 B：卡片 420 → 640）。
@@ -165,6 +316,20 @@ class PermissionDialogRenderProbe {
 
         val h = column.preferredSize.height
         println("[权限卡片探针] 首选尺寸 ${column.preferredSize}")
+
+        // 量一下"贴近上限"那一档在 EDT 上排一次要多久。**故意不画进图里** ——
+        // 180 行画出来是一张几千像素高的图，看不动。
+        //
+        // 那两个上限（DIFF_MAX_LINES / DIFF_MAX_CHARS）就是这么定的：超过它宁可
+        // 退回纯文本，也不让审批框排版把界面卡住。改那两个数之前先看这几个数。
+        for (perSide in listOf(5, 15, 30, 60, 100)) {
+            val t0 = System.nanoTime()
+            val heavy = PermissionCard(bigEditPermission(perSide), queuedCount = 0) {}
+            heavy.setSize(PERMISSION_CARD_WIDTH, 10)
+            layoutAll(heavy)
+            val ms = (System.nanoTime() - t0) / 1_000_000
+            println("[权限卡片探针] diff ${perSide * 2} 行（上限 200 行 / 40000 字）构造+布局 ${ms}ms")
+        }
 
         // 高度留一点余量：preferred 量的是内容，画的时候卡片描边还占几个像素，
         // 正好贴边时最后一行会被切掉一条
@@ -180,5 +345,86 @@ class PermissionDialogRenderProbe {
         for (child in c.components) {
             if (child is java.awt.Container) layoutAll(child)
         }
+    }
+
+    /**
+     * 改动预览那一档单独出一张图（`build/permission-diff-probe.png`）。
+     *
+     * 全景图里卡片太多，⑥⑦ 缩在中间看不清；这张把 Edit / Write / MultiEdit 三档
+     * 并排放着，好一眼看出：底色带读不读得出删和加、缩进有没有被 HTML 压掉、
+     * 空行有没有塌掉。同 `ComposerRenderProbe` 一个探针出多张图的做法。
+     */
+    @Test
+    fun `把改动预览单独画成图片`() = SwingUtilities.invokeAndWait {
+        val column = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = true
+            background = UIUtil.getPanelBackground()
+            border = JBUI.Borders.empty(10)
+        }
+
+        fun caption(text: String) = column.add(
+            JLabel(text).apply {
+                foreground = UIUtil.getInactiveTextColor()
+                alignmentX = java.awt.Component.LEFT_ALIGNMENT
+                border = JBUI.Borders.emptyBottom(4)
+            }
+        )
+
+        caption("① Edit：删的行在上、加的行在下，缩进原样")
+        column.add(PermissionCard(editPermission(), queuedCount = 0) {})
+        column.add(Box.createVerticalStrut(14))
+
+        caption("② Write（新建文件）：整份都是新增")
+        column.add(PermissionCard(writePermission(), queuedCount = 0) {})
+        column.add(Box.createVerticalStrut(14))
+
+        caption("③ MultiEdit：两处编辑按顺序平铺")
+        column.add(PermissionCard(multiEditPermission(), queuedCount = 0) {})
+        column.add(Box.createVerticalGlue())
+
+        val w = PERMISSION_CARD_WIDTH + JBUI.scale(20)
+        column.setSize(w, column.preferredSize.height)
+        layoutAll(column)
+        val h = column.preferredSize.height
+
+        val img = BufferedImage(w, h + JBUI.scale(10), BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        column.paint(g)
+        g.dispose()
+        ImageIO.write(img, "png", File("build/permission-diff-probe.png"))
+        println("[权限卡片探针] 改动预览那张图 ${w}x${h}")
+
+        // 长行**不许看不见结尾**。diff 不能换行（一换就看不出对齐了），所以出路是
+        // 横滚条 —— 网页那边 `.tool__line` 是 `overflow-x: auto`，同一个意思。
+        // 这一格就是量它出没出的：真机上"看得见开头、够不着结尾"是最难自查的那种坏
+        val long = "x".repeat(400)
+        val wide = PermissionCard(
+            editPermission().copy(
+                input = JsonObject().apply {
+                    addProperty("file_path", "wide.txt")
+                    addProperty("old_string", long)
+                    addProperty("new_string", "$long y")
+                },
+            ),
+            queuedCount = 0,
+        ) {}
+        wide.setSize(PERMISSION_CARD_WIDTH, JBUI.scale(300))
+        layoutAll(wide)
+        val scroll = findScroll(wide)
+        println(
+            "[权限卡片探针] 400 字的超长行：横滚条可见=${scroll?.horizontalScrollBar?.isVisible}" +
+                " 视口宽=${scroll?.viewport?.extentSize?.width}" +
+                " 内容宽=${scroll?.viewport?.viewSize?.width}",
+        )
+    }
+
+    /** 卡片里那个滚动区（树里第一个 `JBScrollPane`）。 */
+    private fun findScroll(c: java.awt.Container): JBScrollPane? {
+        for (child in c.components) {
+            if (child is JBScrollPane) return child
+            if (child is java.awt.Container) findScroll(child)?.let { return it }
+        }
+        return null
     }
 }

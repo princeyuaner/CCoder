@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { setLang } from './i18n'
 import {
   toolCommand,
@@ -9,6 +12,9 @@ import {
   toolTitle,
   toolBadgeOf,
 } from './tools'
+
+// ESM 里没有 __dirname —— 用 import.meta.url 推导（同 codec.test.ts）
+const HERE = dirname(fileURLToPath(import.meta.url))
 
 /**
  * 语言钉在中文：这个文件里断言的多是**数据**（命令、路径、JSON），
@@ -186,6 +192,77 @@ describe('toolDiff', () => {
   it('参数坏掉时给 null 而不是抛', () => {
     expect(toolDiff('Edit', '{{{')).toBeNull()
   })
+
+  it('MultiEdit 的多处编辑按顺序铺成一条删/加列表', () => {
+    // 它一直躺在 FILE_TOOLS 与徽标表里（卡片认得文件名和铅笔图标），
+    // 就是从来没有 diff，也没有 +N −N（2026-09-24 补）
+    const input = JSON.stringify({
+      file_path: 'c.txt',
+      edits: [
+        { old_string: 'one', new_string: '1' },
+        { old_string: 'two', new_string: '2' },
+      ],
+    })
+    expect(toolDiff('MultiEdit', input)).toEqual([
+      { kind: 'del', text: 'one' },
+      { kind: 'add', text: '1' },
+      { kind: 'del', text: 'two' },
+      { kind: 'add', text: '2' },
+    ])
+  })
+
+  it('edits 是空数组时给 null —— 空数组在 JS 里是 truthy', () => {
+    // 不拦的话卡片上会多出一个空的 diff 块（真机上就是一条空边框）
+    expect(toolDiff('MultiEdit', JSON.stringify({ edits: [] }))).toBeNull()
+  })
+
+  it('MultiEdit 里有一处缺字段，整条给 null', () => {
+    const input = JSON.stringify({
+      edits: [{ old_string: 'a', new_string: 'b' }, { old_string: 'c' }],
+    })
+    expect(toolDiff('MultiEdit', input)).toBeNull()
+  })
+
+  it('Windows 换行留下的 \\r 不留到行尾', () => {
+    // `.tool__line` 是 white-space: pre —— 一个 \r 就是一次换行，行里会多出一截空白
+    const input = JSON.stringify({ old_string: 'a\r\nb', new_string: 'a\r\nc' })
+    expect(toolDiff('Edit', input)).toEqual([
+      { kind: 'del', text: 'a' },
+      { kind: 'del', text: 'b' },
+      { kind: 'add', text: 'a' },
+      { kind: 'add', text: 'c' },
+    ])
+  })
+})
+
+/**
+ * 规则在这个仓库里说了**两遍**：这一份，与 Kotlin 的 `ToolDiff.kt`。
+ *
+ * 权限审批框（"before it lands"那一次）画的是 Kotlin 那份，而转写区画的是这一份 ——
+ * 同一次改动，批准前和批准后长得不一样，用户会以为批错了。所以规则不由注释保证，
+ * 由这份两端共读的表保证：任一侧改了规则，另一侧的测试就红。
+ */
+describe('契约 fixture', () => {
+  const FIXTURE = resolve(HERE, '../../shared/tool-diff.json')
+
+  it('与 Kotlin 侧读取的是同一份文件', () => {
+    // 路径指向仓库根的 shared/ 而不是 web/ 内部 —— 这正是"共享"的意义（同 codec.test.ts）
+    expect(FIXTURE).toContain('shared')
+    expect(() => readFileSync(FIXTURE, 'utf8')).not.toThrow()
+  })
+
+  it('表里每一条都与这里算出来的一致', () => {
+    const cases = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Array<{
+      name: string
+      input: unknown
+      expect: unknown
+    }>
+    expect(cases.length).toBeGreaterThanOrEqual(15)
+    for (const one of cases) {
+      const input = JSON.stringify(one.input)
+      expect(toolDiff(one.name, input), input).toEqual(one.expect)
+    }
+  })
 })
 
 describe('toolParams', () => {
@@ -254,6 +331,16 @@ describe('toolDelta', () => {
 
   it('Write 只有新增', () => {
     expect(toolDelta('Write', JSON.stringify({ content: 'a\nb' }))).toEqual({ add: 2, del: 0 })
+  })
+
+  it('MultiEdit 把每一处编辑的行数加起来', () => {
+    const input = JSON.stringify({
+      edits: [
+        { old_string: 'a', new_string: 'b\nc' },
+        { old_string: 'd\ne', new_string: 'f' },
+      ],
+    })
+    expect(toolDelta('MultiEdit', input)).toEqual({ add: 3, del: 3 })
   })
 
   it('其他工具没有这个概念', () => {
