@@ -53,18 +53,77 @@ internal fun completionRowText(item: CompletionItem): String =
  * **按像素量，不数字符**：2026-09-15 的探针图上连着栽了两次 —— 按字符数估的预算，
  * 53 个字符的行画得下、50 个的那行反而被裁；比例字体下字符数与宽度不成比例。
  *
- * 让位的次序有讲究：
- *  1. **先让路径**（从左边砍，留下文件名那一头）。容器默认从**尾部**裁，裁掉的
- *     正是文件名 —— 而"是哪个文件"是这一列存在的全部理由；
- *  2. 路径让到"…"都放不下，才动名字（从右边砍）。
+ * 让位的次序有讲究，按行型分两条：
  *
- * 只有**符号行**走这条（`symbol != null`）：它的行文本是两段。其它行的 display
- * 就是内容本身，维持原样 —— 免得顺手改掉命令 / 文件 / 预设那三组的既有观感。
+ * - **符号行**（`名字 · 路径`，`symbol != null`）：先让路径（从左边砍，留下文件名
+ *   那一头）。容器默认从**尾部**裁，裁掉的正是文件名 —— 而"是哪个文件"是这一列
+ *   存在的全部理由；路径让到"…"都放不下，才动名字（从右边砍）。
+ * - **描述行**（`名字 · 描述`，命令与预设）：**先砍描述的尾巴**，名字一个字不动
+ *   （见 [shrunkDescRowText]）。
+ * - **路径行**（`display` 就是内容本身，没有描述）：维持原样，让容器去裁 ——
+ *   免得顺手改掉文件那组的既有观感。
+ *
+ * 描述行这条是 2026-09-24 补的，起因是用户截图。它不是"顺手美化"：命中加粗会把
+ * 整行变成 HTML（[highlightedRowText]），而 Swing 的 HTML 排版**在空格处折行**
+ * —— `名字  ·  描述` 两处都是空格，于是一行折成两行，而行高与弹层高度都是按
+ * 一行算的，第二行被生生裁掉（截图里 `… (code-review) Code` 后面那半句整个不见）。
+ * 纯文本行没这个毛病（JLabel 不折行，只是裁尾巴），所以这个 bug 只在"打了字、
+ * 有命中"时才现形 —— 而真实使用中几乎总是有命中。
+ *
+ * 截到放得下，等于行文本再也不会去碰折行那件事：折行只在"放不下"时才发生。
  */
 internal fun rowTextFor(item: CompletionItem, metrics: FontMetrics, maxWidth: Int): String {
-    val path = item.description
-    if (item.symbol == null || path == null) return completionRowText(item)
+    val desc = item.description
+    if (item.symbol != null && desc != null) return symbolRowText(item, desc, metrics, maxWidth)
 
+    val text = completionRowText(item)
+    if (desc == null || metrics.stringWidth(text) <= maxWidth) return text
+    return shrunkDescRowText(item.display, desc, metrics, maxWidth)
+}
+
+/** 放不下时那个省略号。与 `oneLine` 用的是同一个字符。 */
+private const val ELLIPSIS = "…"
+
+/**
+ * 描述行放不下时的收口：**先砍描述的尾巴**，名字一个字都不动。
+ *
+ * 砍到只剩 `名字  ·  …` 还放不下（名字本身太长），才轮到名字（[shrunkNameText]）——
+ * 名字截一半还认得出是哪个命令，描述没了只是少一句说明。
+ */
+private fun shrunkDescRowText(
+    display: String,
+    desc: String,
+    metrics: FontMetrics,
+    maxWidth: Int,
+): String {
+    val head = "$display$ROW_SEPARATOR"
+    // 连"名字 + 省略号"都放不下：描述全不要也没用，只能动名字
+    if (metrics.stringWidth(head + ELLIPSIS) > maxWidth) return shrunkNameText(display, metrics, maxWidth)
+
+    // 描述自己可能已带一个省略号（`oneLine` 那 110 字的帽），别接成 "……"
+    val body = desc.removeSuffix(ELLIPSIS)
+    var kept = body.length
+    while (kept > 0 && metrics.stringWidth(head + body.take(kept).trimEnd() + ELLIPSIS) > maxWidth) kept--
+    return head + body.take(kept).trimEnd() + ELLIPSIS
+}
+
+/** 名字也放不下时，从右边收口（同符号行那条的后半段）。 */
+private fun shrunkNameText(display: String, metrics: FontMetrics, maxWidth: Int): String {
+    if (metrics.stringWidth(ELLIPSIS) > maxWidth) return ELLIPSIS
+    for (kept in display.length - 1 downTo 1) {
+        val name = display.take(kept).trimEnd() + ELLIPSIS
+        if (metrics.stringWidth(name) <= maxWidth) return name
+    }
+    return ELLIPSIS
+}
+
+/** 符号行（`名字 · 路径`）的让位：先砍路径、留下文件名那一头。 */
+private fun symbolRowText(
+    item: CompletionItem,
+    path: String,
+    metrics: FontMetrics,
+    maxWidth: Int,
+): String {
     val head = "${item.display}$ROW_SEPARATOR"
     if (metrics.stringWidth(head + path) <= maxWidth) return head + path
 

@@ -54,6 +54,39 @@ class CompletionRenderProbe {
     )
 
     /**
+     * **带命中**的命令行 —— 2026-09-24 用户截图报的那个毛病。
+     *
+     * 上面那张命令图里的行**都没有 hits**，于是走纯文本；而真实使用中几乎总有命中
+     * （打的字就是前缀命中），行文本一进 HTML 排版就换一套规则：**在空格处折行**。
+     * 命令行是 `名字  ·  描述`，两处都是空格 —— 折成两行，而弹层高度是按一行算的。
+     *
+     * 数据照用户那张截图取：`/code` 打在 `code-review:code-review` 上，描述里
+     * `(code-review) Code review a pull request` 在 "Code" 后面折断。
+     */
+    @Test
+    fun `带命中的命令行（长描述会不会折行）画成图片`() = render(
+        "build/completion-probe-command-hits.png",
+        listOf(
+            CompletionItem(
+                "code-review:code-review", "code-review:code-review",
+                "(code-review) Code review a pull request",
+                hits = listOf(0, 1, 2, 3), group = GROUP_PLUGIN,
+            ),
+            CompletionItem(
+                "brainstorming", "superpowers:brainstorming",
+                "You MUST use this before any creative work - creating features, building components, " +
+                    "adding functionality, or modifying behavior.",
+                hits = listOf(0, 1, 2, 3, 4, 5, 6), group = GROUP_PLUGIN,
+            ),
+            CompletionItem(
+                "写测试", "写测试", "给这段代码补单测：覆盖边界与失败路径",
+                hits = listOf(0), group = GROUP_OTHER,
+            ),
+            CompletionItem("compact", "compact", "参数 <optional custom summarization instructions>", group = GROUP_OTHER),
+        ),
+    )
+
+    /**
      * 预设组**混着命令组**画一张。
      *
      * 光看预设组看不出问题 —— 要看的正是**两组交界处**：

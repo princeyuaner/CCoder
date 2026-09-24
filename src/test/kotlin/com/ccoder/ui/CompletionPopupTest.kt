@@ -112,6 +112,74 @@ class CompletionPopupTest {
         assertEquals(completionRowText(item), rowTextFor(item, metrics(), maxWidth = 20))
     }
 
+    // ---- 描述行的收口（命令 / 预设，2026-09-24）----
+
+    /** 弹层真实可用宽度。与 `row()` 的调用点同一个算法 —— 那边减的是行内边距 20。 */
+    private fun popupTextWidth(): Int = com.intellij.util.ui.JBUI.scale(COMPLETION_WIDTH - 20)
+
+    @Test
+    fun `描述行放得下就一个字不动 —— 不许无端加省略号`() {
+        val row = CompletionItem("compact", "compact", "压缩上下文")
+
+        assertEquals(completionRowText(row), rowTextFor(row, metrics(), maxWidth = 1000))
+    }
+
+    @Test
+    fun `描述行放不下时砍的是描述 —— 名字一个字都不动`() {
+        val row = CompletionItem(
+            "code-review:code-review", "code-review:code-review",
+            "(code-review) Code review a pull request",
+        )
+
+        val text = rowTextFor(row, metrics(), maxWidth = 200)
+
+        assertTrue(text.startsWith("code-review:code-review$ROW_SEPARATOR"), "名字必须完整：$text")
+        assertTrue(text.endsWith("…"), "收口要有个省略号：$text")
+        assertTrue(metrics().stringWidth(text) <= 200, "收完还得放得下：$text")
+    }
+
+    /**
+     * 守门断言：这条正是 2026-09-24 用户截图报的毛病。
+     *
+     * **放不下 ⇒ Swing 折行 ⇒ 第二行被裁**（命中加粗把整行变成 HTML，而 HTML 在
+     * 空格处折行）。所以"放得下"不是审美要求，是这个 bug 的判据本身。
+     */
+    @Test
+    fun `描述行在弹层真实宽度下必须放得下 —— 放不下 Swing 就会折行，第二行被裁`() {
+        val row = CompletionItem(
+            "code-review:code-review", "code-review:code-review",
+            "(code-review) Code review a pull request",
+            hits = listOf(0, 1, 2, 3), group = GROUP_PLUGIN,
+        )
+
+        val text = rowTextFor(row, metrics(), maxWidth = popupTextWidth())
+
+        assertTrue(
+            metrics().stringWidth(text) <= popupTextWidth(),
+            "这一行折行的话，第二行会被弹层裁掉（截图里那半句就是这么没的）：$text",
+        )
+    }
+
+    @Test
+    fun `名字自己也放不下时，砍的是名字`() {
+        val row = CompletionItem("a-very-long-command-name-here", "x", "描述")
+
+        val text = rowTextFor(row, metrics(), maxWidth = 60)
+
+        assertTrue(metrics().stringWidth(text) <= 60, "还是得放得下：$text")
+        assertFalse(text.contains(ROW_SEPARATOR.trim()), "名字都保不住时，描述不该占位置：$text")
+    }
+
+    @Test
+    fun `描述自带的省略号不会被接成两个`() {
+        val row = CompletionItem("x", "x", "字".repeat(110) + "…")
+
+        val text = rowTextFor(row, metrics(), maxWidth = 200)
+
+        assertTrue(text.endsWith("…"), "该收口：$text")
+        assertFalse(text.endsWith("……"), "叠成两个省略号读起来像卡了一下：$text")
+    }
+
     // ---- 状态行（符号那条路：正在搜 / 搜不成）----
 
     @Test
@@ -157,13 +225,16 @@ class CompletionPopupTest {
     }
 
     @Test
-    fun `长描述不会把弹层撑宽 —— 截断是造候选那层的职责`() {
+    fun `长描述不会把弹层撑宽 —— 宽度定死，行文本按像素收口`() {
         val long = CompletionItem("x", "x", "字".repeat(500))
         val list = buildCompletionList(listOf(long), selected = 0)
+        val label = labelsOf(list).single { it.text.contains("字") }
 
-        // 弹层原样渲染给它的东西（截断由 describeCommand 那条 oneLine 负责，
-        // 见 CommandCandidatesTest），但宽度是定死的
-        assertEquals(completionRowText(long), labelsOf(list).single { it.text.contains("字") }.text)
+        // 两道收口各管一段（2026-09-24）：`oneLine` 管**数据**（110 字的帽，
+        // 见 CommandCandidatesTest），行的像素收口管**排版** —— 只差几个像素的话
+        // 那道帽拦不住，而放不下就会折行、折了就被裁。
+        assertTrue(label.text.startsWith("x$ROW_SEPARATOR"), "名字不动：${label.text}")
+        assertTrue(label.text.endsWith("…"), "按像素收口：${label.text}")
         assertEquals(com.intellij.util.ui.JBUI.scale(COMPLETION_WIDTH), list.preferredSize.width)
     }
 
