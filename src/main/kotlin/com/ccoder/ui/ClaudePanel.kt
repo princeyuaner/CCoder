@@ -1320,6 +1320,11 @@ class ClaudePanel(
         runDetailPopup = null
         openDetail = null
         runningListShown = false
+        // **also 把"正在等子代理清单"那面旗清掉**（2026-09-24 补）。它是"这一趟还
+        // 算不算数"的凭据：不清的话，一条迟到的应答会以为自己仍被需要，于是把你
+        // 刚点开的**另一张**卡的浮层顶掉（点了「任务列表」，跳出来的却是「子代理」）。
+        // 收起来的动作本身就等于"这一趟不要了"。
+        subagentsLoading = false
         statusCards.context.setOpen(false)
         statusCards.todos.setOpen(false)
         statusCards.running.setOpen(false)
@@ -1367,10 +1372,12 @@ class ClaudePanel(
     private fun showRunningDetail(agents: List<SubagentInfo>) {
         runningAgents = agents
         shownRunning = runStatus.running
-        showDetailPopup(statusCards.running, runningDetailPanel())
         // 旗子**必须在 showDetailPopup 之后立**：它内部先 cancel 旧浮层，
-        // 那一刻的 onClosed 会走 closeDetail 把旗清掉
-        runningListShown = true
+        // 那一刻的 onClosed 会走 closeDetail 把旗清掉。
+        //
+        // 而"立不立"取决于浮层**真显示出来了没有** —— 没显示还立着，下一次刷新
+        // 就会把那个从没露过面的窗口显示出来（2026-09-24 用户报的"自己跳出来"）。
+        runningListShown = showDetailPopup(statusCards.running, runningDetailPanel())
     }
 
     /**
@@ -1411,7 +1418,10 @@ class ClaudePanel(
      * 把人正看着的转写顶掉比不刷新坏得多。
      */
     private fun refreshRunningPopup() {
-        if (!runningListShown || runDetailPopup == null) return
+        // 除了那面旗，还核一眼**它真在屏幕上**：旗有可能漏网（浮层被某种不触发
+        // onClosed 的方式收掉时不会清），而"以为开着"的代价就是下一次刷新把这个
+        // 其实没人看得见的窗口显示出来 —— 就是用户说的"自己跳出来"
+        if (!runningListShown || runDetailPopup?.isVisible != true) return
         if (runStatus.running == shownRunning) return
         if (runStatus.running.rendersSameShapeAs(shownRunning) && swapRunningDetailContent()) return
         // 形状真变了（多了/少了一个任务、或者某条冒出了进行时）→ 高度也变了，
@@ -1472,20 +1482,40 @@ class ClaudePanel(
         }
     }
 
-    /** 把详情浮层挂到某张卡上。首次打开与换页走同一条。 */
-    private fun showDetailPopup(card: StatusCardView, content: JComponent) {
+    /**
+     * 把详情浮层挂到某张卡上。首次打开与换页走同一条。
+     *
+     * @return **真显示出来了没有**。锚点不在屏上时 `showAboveOrBelow` 会提前返回，
+     *   那时浮层只是个对象、从没露过面 —— 调用方据此决定要不要把"开着"的旗子立起来
+     *   （见 [showRunningDetail] 与那几个字段的注释）。
+     */
+    private fun showDetailPopup(card: StatusCardView, content: JComponent): Boolean {
         // 先取消旧的：它的 onClosed 会把字段置空，所以必须排在赋值之前
         runDetailPopup?.cancel()
-        runDetailPopup = showTogglePopup(anchor = card, content = content, underAnchor = true) {
+        val popup = showTogglePopup(anchor = card, content = content, underAnchor = true) {
             // 点浮层外面关掉时也要把高亮与"开着谁"一起清掉 ——
             // 少了这一句，那张卡会一直亮着，再点它反而变成"收起"
             closeDetail()
         }
+        // **锚点不在屏上时 `showAboveOrBelow` 会提前返回**，那个浮层于是**从没显示过**
+        // （对象建了、`showInScreenCoordinates` 没调）。从前照样把 `runDetailPopup`
+        // 与 `openDetail` 立起来，于是面板以为"开着" —— 而**任何一次**后续刷新
+        // （清单变了、或者一条迟到的应答）都会 `cancel` 掉它再新建一个，
+        // 那一次锚点在屏上了，窗口就**自己跳出来**了。
+        //
+        // 2026-09-24 用户报的原话："我都没点，为什么自己跳这个页面"。
+        if (!popup.isVisible) {
+            runDetailPopup = null
+            card.setOpen(false)
+            return false
+        }
+        runDetailPopup = popup
         card.setOpen(true)
         // 取消旧浮层时 onClosed 把 openDetail 清掉了（见上面那句注释），
         // 这里按新内容补回来 —— 不补的话换页/重画之后"再点一次收起"会失灵
         // （点它变成重新打开）。2026-09-18 与「运行中」重画一起补的
         detailOf(card)?.let { openDetail = it }
+        return true
     }
 
     /**
