@@ -353,7 +353,14 @@ const TOOL_GLYPHS: Record<string, ToolGlyph> = {
   WebFetch: 'globe',
   WebSearch: 'globe',
 
+  // 两个都收：真机发来的名字是 **`Agent`**（2026-09-24 从会话记录里实证：
+  // `{"name":"Agent","input":{"description":…,"subagent_type":"Explore",…}}`），
+  // 而 `Task` 是旧名 —— 与 Kotlin 侧 `Activity.kt` 的 `"Task", "Agent"` 同一份口径。
+  //
+  // **少了这一行**，父卡就落到首字母兜底（显示一个大写 `A`）、两个小人图标不出现，
+  // 而子代理那条竖线的颜色本该跟这个徽标同源（`styles.css` 里定的）。
   Task: 'agent',
+  Agent: 'agent',
 
   TodoWrite: 'checklist',
   TaskCreate: 'checklist',

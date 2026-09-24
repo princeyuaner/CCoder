@@ -374,6 +374,13 @@ describe('toolBadgeOf', () => {
     expect(toolBadgeOf('AskUserQuestion')).toEqual({ glyph: 'bubble', tone: 'ask' })
   })
 
+  it('父卡认 Agent 也认 Task —— 真机发的是 Agent', () => {
+    // 少了 Agent，父卡就落到"首字母兜底"显示一个大写 A，两个小人图标不出现，
+    // 而子代理那条竖线的颜色本该跟这个徽标同源（styles.css 里定的那一句）
+    expect(toolBadgeOf('Agent')).toEqual({ glyph: 'agent', tone: 'task' })
+    expect(toolBadgeOf('Agent')).toEqual(toolBadgeOf('Task'))
+  })
+
   it('联网那两条都走地球', () => {
     expect(toolBadgeOf('WebFetch')).toEqual({ glyph: 'globe', tone: 'net' })
     expect(toolBadgeOf('WebSearch')).toEqual({ glyph: 'globe', tone: 'net' })
