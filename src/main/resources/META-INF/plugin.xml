@@ -160,68 +160,28 @@
     </ul>
     ]]></description>
 
-    <!-- 口径：**只写相对上一版（0.2.25）的增量**，中英各一份（§八）。
-         0.2.26 **没上架** —— 市场的 Plugin Verifier 拦在 internal API 上（我用了
-         `JBCefApp.getNativeBundleVersionString()`，它带 `@ApiStatus.Internal`；
-         审核指南里那条是拦路不是提示，见发布设计稿 §七）。已改成 `org.cef` 的公开 API，
-         0.2.27 重发。所以这一版**不是相对 0.2.26 的增量，而是 0.2.26 那七条原样带出** ——
-         用户从没拿到过它们（这就是当初留的那条应急方案）。
-         那七条在 tag `v0.2.26` → 98b3b32 那棵树的 plugin.xml 里。复核法见发布设计稿 §五。 -->
+    <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
+         2026-09-24 复核：**0.2.27 已过审上架**
+         （`api/plugins/34281/updates?version=0.2.27`：id 1177711，`approve`/`listed`
+         都是 true，link 是 /versions/stable/1177711）。也就是 `org.cef` 那处改法过了
+         市场的 Plugin Verifier —— §七 那道闸门的事到此为止。
+         于是本版是**相对 0.2.27 的真增量**："万一没上架就得并上一版"的应急方案**作废**
+         （0.2.27 带着 0.2.26 那七条一起上架了，用户已经拿到）。上一版那七条在
+         tag `v0.2.27` → 1270187 那棵树的 plugin.xml 里。复核法见发布设计稿 §五。
+         另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
+         同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.27</h3>
+    <h3>0.2.28</h3>
     <ul>
-      <li><b>The conversation view survives a broken embedded browser</b> &mdash; IntelliJ
-          2025.2+ runs JCEF in a separate process, and on the JCEF build that 2026.2 ships
-          that channel drops (JBR-9234, an NPE inside RemoteMessageRouterImpl). The view
-          used to stop updating mid-session, or take the whole new session down with an
-          exception dialog. It now degrades to a page with a Retry; a heartbeat catches a
-          channel that died without saying so; and when the IDE is in that mode the page
-          offers a one-click way to turn it off (which needs a full IDE restart). A session
-          opens with a heads-up first &mdash; you hear about it before the freeze, not
-          after.</li>
-      <li><b>Fixed: Shift+Enter makes a newline again</b> &mdash; the input's key map had
-          only plain Enter bound to a line break, and Shift+Enter was left to a character
-          event that the IDE drops. It is now bound to exactly the same action as plain
-          Enter.</li>
-      <li><b>Fixed: the input area scrolls once the text outgrows it</b> &mdash; past the
-          visible rows there was no scrollbar, so the rest of what you typed was
-          unreachable. It fills the area while the text fits and hands over to a scrollbar
-          when it does not.</li>
-      <li><b>Sessions are cards now</b> &mdash; the current one is marked with an accent bar
-          and a bold title, sessions already open elsewhere are dimmed, and eight fit on a
-          screen where ten used to.</li>
-      <li><b>Long tool output no longer chokes the view</b> &mdash; a tool result over 8000
-          characters is truncated with its original length noted, and very large bodies are
-          pushed in chunks instead of as one script.</li>
-      <li><b>Model keys can be copied</b> &mdash; a button beside the key field copies the
-          whole value even while it is masked, and confirms with a checkmark. You no longer
-          have to reveal the secret in order to copy it.</li>
-      <li><b>Requires IntelliJ 2026.1 or newer</b> &mdash; the plugin is now built against
-          2026.1, where it used to target 2025.3. Older IDEs will not be offered this
-          update.</li>
+      <li>TODO: this version's changes, written as the delta against 0.2.27 (see the
+          publish spec, section 8). Do not copy the previous version's list &mdash; it is in
+          git (tag v0.2.27 &rarr; 1270187).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>内嵌浏览器坏掉时，对话区扛得住了</b> —— IntelliJ 2025.2 起把 JCEF 放在独立
-          进程里，而 2026.2 捆的那版 JCEF 上那条通道会断（JBR-9234，
-          RemoteMessageRouterImpl 里的空指针）。从前表现为"用着用着输出区不动了"，
-          或者干脆把整个新会话一起带崩成一个异常对话框。现在会降级成一张带「重试」的
-          说明页；心跳能发现"断得一声不吭"那种；跑在那个模式上时，页上还给一颗一键关掉
-          它的键（改完要完全重启 IDE）。会话打开时先提醒一句 —— 在卡死之前说，而不是之后。</li>
-      <li><b>修好：Shift+Enter 又能换行了</b> —— 输入框的键表里只有裸 Enter 绑了换行，
-          Shift+Enter 靠的是一个会被 IDE 丢掉的字符事件。现在它绑的是和裸 Enter
-          <b>同一个</b>动作。</li>
-      <li><b>修好：文本装不下时输入框出滚动条</b> —— 从前超出可视区的那部分既看不见也够不着。
-          现在装得下就撑满，装不下就交给滚动条。</li>
-      <li><b>会话列表改成卡片</b> —— 当前会话有强调条和加粗标题，已在别处打开的会话变淡，
-          一屏 8 条（原来 10 条）。</li>
-      <li><b>超长的工具输出不再把界面压死</b> —— 工具结果超过 8000 字会截断并标注原长，
-          特别大的正文分片推送。</li>
-      <li><b>模型密钥可以复制了</b> —— 密钥框旁边一颗键，打码状态下也照复制整条，点完变对勾。
-          不必为了复制先把它显示在屏幕上。</li>
-      <li><b>要求 IntelliJ 2026.1 或更新</b> —— 编译目标从 2025.3 抬到了 2026.1。
-          更老的 IDE 不会收到这次更新。</li>
+      <li>待写：本版相对 0.2.27 的增量（见发布设计稿 §八）。别照抄上一版的清单 —— 它在
+          git 里（tag v0.2.27 &rarr; 1270187）。</li>
     </ul>
     ]]></change-notes>
 
