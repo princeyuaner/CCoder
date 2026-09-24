@@ -187,6 +187,16 @@ Git Bash 里 `export PATH="/c/Program Files/nodejs:$PATH"`，守护进程要
 两个坑：它**不能和别的 Gradle 构建并发跑**（会撞 "Timeout waiting to lock Artifact
 transforms cache"）；第一次跑要下 IDE 分发，慢。
 
+**2026-09-24 补（这条闸门被跳过了一次，所以更要紧了）**：0.2.26 发的时候**又没跑**这条
+—— 而且这次是"知道规矩但没照做"。代价一样：市场报 `Internal method usage (1)
+JBCefApp.getNativeBundleVersionString()`（`JcefBrokenAdvice` 里取 JCEF 版本那处，
+字节码里是 `public static`，拦截的是注解），0.2.26 没上架；改走 `org.cef` 的公开 API
+之后，0.2.27 一次过（`approve`/`listed` 都真）。
+
+所以"靠人记"到此为止：**该把它接成 `publishPlugin` 的前置依赖**。接之前先解决第三个
+（EAP）验证目标本地挂住的问题 —— 跑到 "Finished 2 of 3" 之后就再也不写日志了
+（261/262 都正常报 Compatible），现在接上会把发版本身卡死。见 0.2.28 开版挂账 2。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
@@ -199,6 +209,15 @@ transforms cache"）；第一次跑要下 IDE 分发，慢。
 2026-09-16 起按增量写，并接受一条已知风险：**万一 0.2.15 最终没过审，0.2.16 就是
 首个公开版本**，那时要把它那十条再补回来。补回来比删掉容易 —— 十条都还在 git 历史里
 （`git show 0073cd0:src/main/resources/META-INF/plugin.xml`）。
+
+**2026-09-24 补（这条应急方案被真用过一次，管用）**：0.2.26 被 Plugin Verifier 拦下
+没上架（§七），于是 0.2.27 就落在"首个公开版本"那一侧 —— 它把 0.2.26 那七条原样带了
+出去（commit 1270187，tag `v0.2.27`）。**0.2.27 过审了**（`approve`/`listed` 都真），
+用户拿到的就是那七条，这条风险到此结清，0.2.28 起回到正常增量。
+
+并条那一步的做法记在这儿，下次直接照做：`git show v0.2.26:src/main/resources/META-INF/plugin.xml`
+把上一版那段**整块取出来**，只改 `<h3>` 里的版本号，措辞一个字不动。整块取的好处是
+不必重新措辞 —— 少半个词不会有人发现，而这段字正是用户唯一会读的那段。
 
 ## 出处
 
