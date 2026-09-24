@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 子代理浮层 · 设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用。产品配色与 420px 宽度沿用同系列设计稿。
+   本页讨论的是**点「子代理」卡弹出来的那个浮层**：它现在把同一批人列了两遍。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --raise:#33363a; --editor:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --raise:#ffffff; --editor:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page-bg); color: var(--page-fg); font-family: var(--ui); font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1560px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 74ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; padding: 9px 16px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.brief { margin-top: 30px; padding: 20px 24px; border:1px solid var(--page-line); border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; background: var(--page-card); }
+.brief h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13.5px; }
+.brief b { color: var(--page-fg); }
+.brief ul { margin: 8px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13.5px; }
+.brief li { margin-bottom: 5px; }
+.brief code, .card code, .note code { font-family: var(--mono); font-size: 12px; background: var(--editor); border:1px solid var(--border-soft); border-radius: 4px; padding: 1px 5px; color: var(--text); }
+
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(470px, 1fr)); gap: 30px; margin-top: 34px; align-items:start; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 14px; padding: 22px 22px 20px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; margin:0; }
+.card h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 8px 0 8px; }
+.pick { color: var(--page-dim); font-size: 13.5px; margin: 0 0 16px; }
+.pick b { color: var(--page-fg); }
+.pick code { font-size: 11.5px; }
+
+/* ---- 浮层本体：420px，与真机同宽（`detailBox` 的宽度由内容决定，
+   转写区那块是 380，加左右各 12 的内边距）---- */
+.pop {
+  width: 420px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px 11px; font-size: 13px; line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+}
+[data-theme="light"] .pop { box-shadow: 0 8px 24px rgba(16,24,40,.10); }
+.pop .frame-note { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+
+/* 段头（现状用） */
+.sec { display:flex; justify-content:space-between; align-items:baseline; color: var(--dim); font-size: 12px; margin: 0 0 6px; }
+.sec .n { color: var(--accent); font-family: var(--mono); }
+.sec + .sec, .block + .block { margin-top: 14px; }
+
+/* 现状那一版的行 */
+.row2 { margin-bottom: 8px; }
+.row2 .head { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+.row2 .name { white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
+.row2 .meta { color: var(--dim); font-size: 11.5px; white-space: nowrap; font-family: var(--mono); }
+.row2 .detail { color: var(--dim); font-size: 11.5px; padding-left: 14px; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
+.flat { display:flex; align-items:baseline; gap:8px; color: var(--text); font-size: 12.5px; padding: 2px 0; }
+.flat .sep { color: var(--border); }
+
+/* 终止那颗小方块（现状） */
+.stop { width: 12px; height: 12px; border:1px solid var(--border); border-radius: 3px; background: var(--editor); flex: 0 0 auto; align-self:center; }
+.stop::after { content:""; }
+
+/* ---- 方案甲：逐条卡 ---- */
+.acard { border:1px solid var(--border); border-radius: 8px; background: var(--raise); padding: 8px 10px 7px; margin-bottom: 7px; }
+.acard.run { border-color: var(--accent-soft); }
+.acard.done { opacity: .62; }
+.acard .top { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+.acard .who { display:flex; align-items:baseline; gap:7px; min-width:0; }
+.dot { width:7px; height:7px; border-radius:50%; background: var(--dim); flex:0 0 auto; }
+.dot.live { background: var(--accent); }
+.tick { color: var(--dim); font-size: 11px; }
+.acard .title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.acard .stop { align-self: baseline; }
+.acard .now { color: var(--dim); font-size: 11.5px; padding-left: 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* align-items 用 center 不用 baseline：右边那排格子是几个空 <i>，没有文字基线，
+   挂 baseline 会被推到下一行去（第一版渲染图上就是那样） */
+.acard .foot { display:flex; justify-content:space-between; align-items:center; margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border-soft); font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.acard .foot .bars { display:flex; gap:3px; align-items:center; }
+.bar { width: 14px; height: 3px; border-radius: 2px; background: var(--border); }
+.bar.on { background: var(--accent); }
+
+/* ---- 方案乙：一张卡 + 状态芯片 ---- */
+/* 行本身是 block，里面一条 head（flex，一行） + 一条 sub（第二行）。
+   第一版把 sub 直接挂在 flex 行里 —— 它就成了第四个 flex 项，跑到统计右边去了。 */
+.oneline { padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.oneline:last-child { border-bottom: 0; }
+.oneline .head { display:flex; align-items:baseline; gap:8px; }
+.oneline .title { flex: 1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.oneline .meta { color: var(--dim); font-family: var(--mono); font-size: 11px; white-space:nowrap; }
+.oneline .sub { color: var(--dim); font-size: 11px; padding-left: 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chip { font-size: 10px; font-family: var(--mono); padding: 1px 6px; border-radius: 999px; border:1px solid var(--border); color: var(--dim); white-space:nowrap; }
+.chip.live { border-color: var(--accent-soft); color: var(--accent); }
+.oneline.done { opacity:.6; }
+
+/* ---- 方案丙：汇总 + 单行 ---- */
+.sum { border:1px solid var(--border); border-radius: 8px; background: var(--raise); padding: 9px 11px; margin-bottom: 10px; }
+.sum .big { display:flex; align-items:baseline; gap:8px; }
+.sum .n { font-size: 22px; font-weight:600; line-height:1.1; }
+.sum .n small { font-size: 12px; font-weight:400; color: var(--dim); margin-left: 2px; }
+.sum .gist { margin-left:auto; color: var(--dim); font-family: var(--mono); font-size: 11px; }
+.sum .dots { display:flex; gap:4px; margin-top: 7px; }
+.sum .dots i { width: 15px; height: 4px; border-radius: 2px; background: var(--accent); display:block; }
+.sum .dots i.idle { background: var(--border); }
+.mini { display:flex; align-items:baseline; gap:8px; padding: 3px 0; font-size: 12.5px; }
+.mini .meta { margin-left:auto; color: var(--dim); font-family: var(--mono); font-size: 11px; }
+.mini.done { opacity:.6; }
+
+/* ---- 方案丁：两栏网格 ---- */
+.tiles { display:grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.tile { border:1px solid var(--border); border-left: 3px solid var(--border); border-radius: 6px; background: var(--raise); padding: 7px 8px; min-width:0; }
+.tile.run { border-left-color: var(--accent); }
+.tile.done { opacity:.6; }
+.tile .t { font-size: 12px; font-weight:600; }
+.tile .d { color: var(--dim); font-size: 11px; height: 2.9em; overflow:hidden; }
+.tile .m { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 3px; }
+
+.disc { color: var(--accent); font-size: 12.5px; padding: 5px 0 0; }
+.disc.dim { color: var(--dim); }
+
+/* 取舍列表。标签用**绝对定位**放进左边那条槽，正文就还是一整条行内流。
+   前两版都栽在这儿：正文里有 `<b>` 又有裸文本，放进 flex 会被挤成一列窄条，
+   放进 grid 更糟 —— grid 把每个子元素当成独立格子，`<b>` 会掉到下一行去。 */
+.cost { list-style:none; margin: 16px 0 0; padding: 0; font-size: 12.5px; }
+.cost li { display:block; position:relative; padding: 4px 0 4px 60px; color: var(--page-dim); border-top: 1px solid var(--page-line); }
+.cost li:first-child { border-top: 0; }
+.cost .k { position:absolute; left:0; top:5px; width:52px; font-family: var(--mono); font-size: 10.5px; letter-spacing:.06em; text-transform:uppercase; }
+.cost .k.good { color: var(--ok); }
+.cost .k.bad { color: var(--warn); }
+.cost b { color: var(--page-fg); }
+
+.note { margin-top: 34px; padding: 20px 24px; border:1px solid var(--page-line); border-radius: 12px; background: var(--page-card); }
+.note h3 { margin: 0 0 12px; font-family: var(--serif); font-size: 19px; font-weight: 600; }
+.note table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.note th, .note td { text-align:left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--page-line); vertical-align: top; color: var(--page-dim); }
+.note th { color: var(--page-fg); font-weight: 600; font-size: 12px; }
+.note td b { color: var(--page-fg); }
+.note p { color: var(--page-dim); font-size: 13px; margin: 0 0 10px; }
+footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--page-line); color: var(--page-dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 设计稿 · 2026-09-24</p>
+      <h1>子代理浮层：把重复的那一段拿掉</h1>
+      <p class="lede">
+        点「子代理」卡弹出来的那个浮层。你说<b>信息太多</b> —— 拆开看，多的不是细节，
+        是<b>同一批人被列了两遍</b>，而下面那一遍天生只有名字。
+      </p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button id="t-dark" aria-pressed="true" onclick="setTheme('dark')">Dark</button>
+      <button id="t-light" aria-pressed="false" onclick="setTheme('light')">Light</button>
+    </div>
+  </header>
+
+  <section class="brief">
+    <h3>先把问题说准</h3>
+    <p>
+      那个浮层现在画两段（<code>RunDetail.kt:142</code> 的 <code>buildRunningDetail</code>）：
+      <b>「运行中」</b>用的是 <code>RunningTask</code>，每条两行 + 右侧统计 + 一颗终止方块；
+      <b>「全部子代理」</b>用的是 <code>SubagentInfo</code>，每条只有"类型 描述"一个标签。
+    </p>
+    <ul>
+      <li><b>重复</b>：正在跑的那几条在第二段里又出现一次 —— 而 <code>SUBAGENTS_SECTION</code> 的注释自己写着"还在跑的子代理同样在这一段里"。</li>
+      <li><b>第二段天生就这么瘦</b>：<code>SubagentInfo</code> 只有四个字段（<code>agentId</code> / <code>agentType</code> / <code>description</code> / <code>toolUseId</code>）——
+        没有 token、没有耗时、没有状态。所以它不是排版没排好，<b>是数据里就没有</b>。</li>
+      <li><b>但它不能删</b>：点一条回看它的转写，是目前<b>唯一</b>的回看入口（<code>RunDetail.kt:264</code> 那段注释）。</li>
+    </ul>
+    <p>
+      于是要解的就两件事：<b>①同一批人只说一遍</b>；<b>②第二段收成一条能点开的线</b>，
+      而不是两段摊开。空闲时其实已经这么做了（<code>historyExpanded</code> 那条
+      "看已结束的 N 个 ›"）—— 只差在"有在跑"的时候没这么做。
+    </p>
+  </section>
+
+  <div class="grid">
+
+    <!-- ================= 现状 ================= -->
+    <section class="card">
+      <p class="tag">现状 · 对照</p>
+      <h2>两段，同一批人各列一次</h2>
+      <p class="pick">这是你截图里那一屏，照 <code>taskRow</code>（<code>RunDetail.kt:397</code>）与 <code>subagentRow</code> 的实际排法还原。</p>
+      <div class="pop">
+        <div class="sec"><span>运行中</span><span class="n">3</span></div>
+        <div class="row2">
+          <div class="head"><span class="name">Explore　Survey unbuilt design mockups</span><span class="meta">47.5k tok · 19s</span></div>
+          <div class="detail">Running Extract text from flagged design HTMLs</div>
+        </div>
+        <div class="row2">
+          <div class="head"><span class="name">Explore　Survey CLI surface vs plugin</span><span class="meta">54.5k tok · 15s</span></div>
+          <div class="detail">Reading src\main\kotlin\com\ccoder\ui\RunStatusTracker.kt</div>
+        </div>
+        <div class="row2">
+          <div class="head"><span class="name">Explore　Survey frontend render gaps</span><span class="meta">64.9k tok · 13s</span></div>
+          <div class="detail">Reading src\main\kotlin\com\ccoder\ui\FailureHint.kt</div>
+        </div>
+        <div class="block">
+          <div class="sec"><span>全部子代理</span><span class="n">4</span></div>
+          <div class="flat">Explore <span class="sep">·</span> Survey CLI surface vs plugin <span class="stop" style="margin-left:auto"></span></div>
+          <div class="flat">Explore <span class="sep">·</span> Survey unbuilt design mockups <span class="stop" style="margin-left:auto"></span></div>
+          <div class="flat">Explore <span class="sep">·</span> Find EDT freeze risks <span class="stop" style="margin-left:auto"></span></div>
+          <div class="flat">Explore <span class="sep">·</span> Survey frontend render gaps <span class="stop" style="margin-left:auto"></span></div>
+        </div>
+      </div>
+      <ul class="cost">
+        <li><span class="k bad">多</span><b>11 行里，有 4 行是白列的</b> —— 第二段那三条正在跑的和上面一字不差（除了没有统计）。</li>
+        <li><span class="k bad">乱</span>统计被推到最右，与它描述的那条隔了 300px；终止方块四颗等距排着，看不出哪颗对哪条。</li>
+        <li><span class="k">其实</span>第二段里<b>只有最后一条</b>（Find EDT freeze risks，已结束）是新信息。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 甲 ================= -->
+    <section class="card">
+      <p class="tag">方案甲 · 推荐</p>
+      <h2>每个子代理一张卡</h2>
+      <p class="pick">
+        在跑的各自一张小卡（圆角 + 强调色描边 + 活点），卡内三段：<b>谁</b> / <b>现在在干嘛</b> / <b>用了多少</b>。
+        已结束的收成一条线，不再单列一段。
+      </p>
+      <div class="pop">
+        <div class="acard run">
+          <div class="top">
+            <span class="who"><i class="dot live"></i><span class="title">Explore　Survey unbuilt design mockups</span></span>
+            <span class="stop"></span>
+          </div>
+          <div class="now">Running Extract text from flagged design HTMLs</div>
+          <div class="foot">
+            <span>47.5k tok · 19s</span>
+            <span class="bars"><i class="bar on"></i><i class="bar on"></i><i class="bar on"></i><i class="bar"></i></span>
+          </div>
+        </div>
+        <div class="acard run">
+          <div class="top">
+            <span class="who"><i class="dot live"></i><span class="title">Explore　Survey CLI surface vs plugin</span></span>
+            <span class="stop"></span>
+          </div>
+          <div class="now">Reading src\main\kotlin\com\ccoder\ui\RunStatusTracker.kt</div>
+          <div class="foot"><span>54.5k tok · 15s</span><span class="bars"><i class="bar on"></i><i class="bar on"></i><i class="bar on"></i><i class="bar"></i></span></div>
+        </div>
+        <div class="acard run">
+          <div class="top">
+            <span class="who"><i class="dot live"></i><span class="title">Explore　Survey frontend render gaps</span></span>
+            <span class="stop"></span>
+          </div>
+          <div class="now">Reading src\main\kotlin\com\ccoder\ui\FailureHint.kt</div>
+          <div class="foot"><span>64.9k tok · 13s</span><span class="bars"><i class="bar on"></i><i class="bar on"></i><i class="bar on"></i><i class="bar"></i></span></div>
+        </div>
+        <div class="disc">看已结束的 1 个 ›</div>
+      </div>
+      <ul class="cost">
+        <li><span class="k good">好</span><b>谁在跑一眼分得清</b>：卡 = 在跑，线 = 记录。不用读小标题。</li>
+        <li><span class="k good">好</span>统计回到<b>它自己那张卡里</b>（底部一条分隔线下），不再飘到 300px 外。</li>
+        <li><span class="k good">好</span>终止方块跟着卡走，不用猜是哪条的。</li>
+        <li><span class="k bad">贵</span>卡要自绘圆角描边与底色（<code>RoundedLineBorder</code> 现成，3 行）；每条高 ~74px，<b>得封顶</b>（超过 4 张就滚，或收成"还有 N 个"），否则浮层顶出屏幕。</li>
+        <li><span class="k bad">注</span>右下那排小格是"快照条"（一条一格），<b>可选</b>：数据里只有计数，画不出真进度，画满反而像进度条 —— 不想让人误读就可以不要。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 乙 ================= -->
+    <section class="card">
+      <p class="tag">方案乙 · 改动最小</p>
+      <h2>一张卡 + 状态芯片</h2>
+      <p class="pick">
+        不分两段，就一张卡里一列到底：在跑的<b>两行</b>（任务名 / 现在在干嘛）+「运行中」芯片，
+        已结束的<b>一行</b>并把"现在在干嘛"挪进 tooltip。
+      </p>
+      <div class="pop">
+        <div class="sec"><span>子代理</span><span class="n">3 在跑 · 共 4</span></div>
+        <div class="oneline">
+          <div class="head">
+            <span class="title">Explore　Survey unbuilt design mockups</span>
+            <span class="chip live">运行中</span>
+            <span class="meta">47.5k · 19s</span>
+            <span class="stop"></span>
+          </div>
+          <div class="sub">Running Extract text from flagged design HTMLs</div>
+        </div>
+        <div class="oneline">
+          <div class="head">
+            <span class="title">Explore　Survey CLI surface vs plugin</span>
+            <span class="chip live">运行中</span>
+            <span class="meta">54.5k · 15s</span>
+            <span class="stop"></span>
+          </div>
+          <div class="sub">Reading src\main\kotlin\com\ccoder\ui\RunStatusTracker.kt</div>
+        </div>
+        <div class="oneline">
+          <div class="head">
+            <span class="title">Explore　Survey frontend render gaps</span>
+            <span class="chip live">运行中</span>
+            <span class="meta">64.9k · 13s</span>
+            <span class="stop"></span>
+          </div>
+          <div class="sub">Reading src\main\kotlin\com\ccoder\ui\FailureHint.kt</div>
+        </div>
+        <div class="oneline done">
+          <div class="head">
+            <span class="tick">✓</span>
+            <span class="title">Explore　Find EDT freeze risks</span>
+            <span class="chip">已结束</span>
+          </div>
+        </div>
+      </div>
+      <ul class="cost">
+        <li><span class="k good">好</span><b>删掉整整一段</b>与一个小标题：11 行 → 8 行，且没有一行是白列的。</li>
+        <li><span class="k good">好</span>改动最小：<code>taskRow</code> / <code>subagentRow</code> 合成一个函数，复用 <code>hint()</code>、<code>TaskStopButton</code>，不加新绘制。</li>
+        <li><span class="k bad">差</span>还是"行"不是"卡" —— 你要的卡片感只落在一层描边上。</li>
+        <li><span class="k bad">险</span>两行那条斜体子行挤在右侧芯片与统计下面，420px 下容易折行；<b>得先量</b>（<code>CompletionPopup.rowTextFor</code> 那套按宽度裁字的写法现成）。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 丙 ================= -->
+    <section class="card">
+      <p class="tag">方案丙 · 抬头有数</p>
+      <h2>汇总卡 + 单行明细</h2>
+      <p class="pick">
+        先给一句全局（在跑几个、共几个、烧了多少），明细每条<b>只占一行</b>。
+        明细里最下面那条也是唯一的记录入口。
+      </p>
+      <div class="pop">
+        <div class="sum">
+          <div class="big">
+            <span class="n">3<small>在跑</small></span>
+            <span class="gist">共 4 · 166.9k tok · 最长 19s</span>
+          </div>
+          <div class="dots"><i></i><i></i><i></i><i class="idle"></i><i class="idle"></i><i class="idle"></i></div>
+        </div>
+        <div class="mini"><i class="dot live"></i><span>Survey unbuilt design mockups</span><span class="meta">47.5k · 19s</span><span class="stop"></span></div>
+        <div class="mini"><i class="dot live"></i><span>Survey CLI surface vs plugin</span><span class="meta">54.5k · 15s</span><span class="stop"></span></div>
+        <div class="mini"><i class="dot live"></i><span>Survey frontend render gaps</span><span class="meta">64.9k · 13s</span><span class="stop"></span></div>
+        <div class="mini done"><span class="tick">✓</span><span>Find EDT freeze risks</span><span class="meta">看转写 ›</span></div>
+      </div>
+      <ul class="cost">
+        <li><span class="k good">好</span>最安静：4 条明细 4 行，加上汇总一共 6 行 —— <b>最省地方</b>。</li>
+        <li><span class="k good">好</span>汇总那条和状态卡的性格一致（卡面就只给一个数）。</li>
+        <li><span class="k bad">丢</span>"现在在干嘛"这一行<b>没地方放了</b>（<code>task_progress.summary</code> 每 ~30s 才有一句）。要么进 tooltip，要么再挪回两行 —— 那就不省了。</li>
+        <li><span class="k bad">贵</span>"合计 token / 最长耗时"要新算一处聚合；<code>166.9k</code> 这种数还容易被读成"这个会话烧了这么多"。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 丁 ================= -->
+    <section class="card">
+      <p class="tag">方案丁 · 不推荐</p>
+      <h2>两栏紧凑网格</h2>
+      <p class="pick">同样高度塞下更多，看起来最省。列在这里是为了把它的代价摆出来 —— 420px 宽下它不成立。</p>
+      <div class="pop">
+        <div class="sec"><span>子代理</span><span class="n">3 在跑 · 共 4</span></div>
+        <div class="tiles">
+          <div class="tile run">
+            <div class="t">Explore</div>
+            <div class="d">Survey unbuilt design mockups</div>
+            <div class="m">47.5k · 19s</div>
+          </div>
+          <div class="tile run">
+            <div class="t">Explore</div>
+            <div class="d">Survey CLI surface vs plugin</div>
+            <div class="m">54.5k · 15s</div>
+          </div>
+          <div class="tile run">
+            <div class="t">Explore</div>
+            <div class="d">Survey frontend render gaps</div>
+            <div class="m">64.9k · 13s</div>
+          </div>
+          <div class="tile done">
+            <div class="t">Explore</div>
+            <div class="d">Find EDT freeze risks</div>
+            <div class="m">看转写 ›</div>
+          </div>
+        </div>
+      </div>
+      <ul class="cost">
+        <li><span class="k bad">截</span>每格净宽 ~190px，"Survey unbuilt design <b>moc…</b>" 只剩前两个词 —— 而任务名就是这格子<b>唯一</b>的信息。</li>
+        <li><span class="k bad">丢</span>"现在在干嘛"同样没地方；终止方块塞进格子后与统计挤在一行。</li>
+        <li><span class="k bad">贵</span>浮层现在是 <code>BoxLayout(Y)</code>，要换 <code>GridLayout</code> 并把 <code>detailBox</code> 那套 LEFT 对齐（注释里踩过三次的坑）重看一遍。</li>
+      </ul>
+    </section>
+
+  </div>
+
+  <section class="note">
+    <h3>落地约束：这一屏是 Swing，不是网页</h3>
+    <p>上面这些是效果图，真做的时候是 Swing 画的。同一个观感，代价差别很大：</p>
+    <table>
+      <tr><th>想要的</th><th>在这套代码里</th><th>代价</th></tr>
+      <tr><td><b>圆角描边卡</b></td><td><code>RoundedLineBorder</code>（<code>RunDetail.kt:44</code>，聚焦只换色不加粗）</td><td>低 —— 已经有人写好了</td></tr>
+      <tr><td><b>卡底色比面板亮一档</b></td><td>取 <code>UIUtil</code> 的文本框底色，或按明暗方向偏移（<code>surfaceFor</code> 那套）</td><td>低</td></tr>
+      <tr><td><b>左侧强调条 / 底部统计带</b></td><td>自绘 —— <code>paintComposerFooter</code> 的"圆角矩形 ∩ 直角矩形求交"就是干这个的</td><td>中（要写 <code>paintComponent</code>）</td></tr>
+      <tr><td><b>活点 / 悬停提亮</b></td><td><code>TaskStopButton</code> 是现成的自绘模板（<code>preferredSize</code> 钉死 + 悬停提亮 + repaint）</td><td>中</td></tr>
+      <tr><td><b>阴影、渐变、hover 过渡动画</b></td><td>没有先例</td><td><b>高 —— 建议不做</b>，卡靠描边与底色分层就够</td></tr>
+      <tr><td><b>两栏流式布局</b></td><td><code>BoxLayout</code> 换 <code>GridLayout</code>，交叉轴对齐那套得重看</td><td>高（且方案丁本身也不成立）</td></tr>
+    </table>
+    <p style="margin-top:12px">
+      另：那一屏的高度<b>必须有上限</b> —— 浮层是挂在面板底部那张卡上的（
+      <code>showAboveOrBelow</code>），长到顶出屏幕就点不着了。现成做法见
+      <code>buildSubagentDetail</code> 里那块 <code>380×280</code> 的限高滚动区。
+    </p>
+  </section>
+
+  <section class="note">
+    <h3>选型建议</h3>
+    <p>
+      <b>甲（逐条卡）</b>最贴你说的"卡片式"，而且它顺手解决了那个真问题：卡 = 在跑、线 = 记录，
+      不用读小标题就分得清。它比乙贵在自绘，但圆角描边与悬停这套零件仓库里都有现成的。
+    </p>
+    <p>
+      想<b>先小步走</b>就选乙：它删掉的东西和甲一样多（整段重复 + 一个小标题），
+      只是没把"卡"做出来，改动面最小、最容易验。
+    </p>
+    <p>
+      丙值得留着做<b>第二步</b>：等哪天在跑的子代理真的到 6 个以上，"抬头那一个数"会比一张张卡更管用。
+      丁不建议。
+    </p>
+  </section>
+
+  <footer>
+    夹具照真机抄（2026-09-24 那台机器：3 个 Explore 在跑、1 个已结束，token 与秒数都是原样）。
+    宽度 420px 与真机一致（转写区那块是 380，加左右各 12 的内边距）。
+  </footer>
+</div>
+
+<script>
+function setTheme(name) {
+  document.documentElement.dataset.theme = name;
+  document.getElementById('t-dark').setAttribute('aria-pressed', String(name === 'dark'));
+  document.getElementById('t-light').setAttribute('aria-pressed', String(name === 'light'));
+}
+</script>
+</body>
+</html>
