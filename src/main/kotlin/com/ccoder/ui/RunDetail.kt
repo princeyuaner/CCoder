@@ -220,6 +220,38 @@ private fun dimNote(text: String): JComponent = JBLabel(text).apply {
 }
 
 /**
+ * 这两份清单画出来**长得一样**吗 —— 只有不影响布局的那些数（token、时长、进行时的字）
+ * 有差别时给 true。
+ *
+ * ## 为什么要问这个（2026-09-24 用户报"闪来闪去"）
+ *
+ * 开着的浮层靠 `refreshRunningPopup` 跟着清单刷新，而那个判等用的是整条列表的 `==`
+ * —— `task_progress` 每报一次就把 tokens / 时长 / 进行时改掉，于是**每走一步都判"变了"**。
+ * 而"变了"那条路是把浮层 **cancel 掉再新建一个**：四个子代理一起跑的时候，
+ * 这个窗口每秒被拆掉重建好几次，屏幕上就是"闪来闪去"。
+ *
+ * 现在分两档：形状没变就**就地换内容**（窗口不动，所以不闪），形状真变了
+ * （多了/少了一个任务、或者某条从"没有进行时"变成"有"）才重建 —— 那时高度确实变了，
+ * 重新量一次尺寸与位置是对的。
+ *
+ * 判据只认**会改高度的东西**：
+ *  - `id` / `kind` / `label`：换了就是另一张卡；
+ *  - 进行时**有没有**（不是内容）：有一条就多一行，高度不一样；
+ *  - 统计**有没有**（不是具体数）：`47.5k tok · 19s` 与 `1m02s` 一样宽，但
+ *    "还没有统计"到"有统计"会多出那条分隔线与一行。
+ */
+internal fun List<RunningTask>.rendersSameShapeAs(other: List<RunningTask>): Boolean =
+    size == other.size && zip(other).all { (a, b) ->
+        a.id == b.id &&
+            a.kind == b.kind &&
+            a.label == b.label &&
+            (a.detail?.isNotBlank() == true) == (b.detail?.isNotBlank() == true) &&
+            hasMeta(a) == hasMeta(b)
+    }
+
+private fun hasMeta(task: RunningTask): Boolean = task.tokens > 0 || task.durationMs > 0
+
+/**
  * 「看已结束的 N 个 ›」那一行：可点，颜色按"这是条能点的文字"来取。
  *
  * 监听器**同时挂在行与文字上**：Swing 的事件不冒泡，只挂行的话，点在字上没反应

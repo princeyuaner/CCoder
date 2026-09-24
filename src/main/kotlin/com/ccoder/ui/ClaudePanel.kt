@@ -1367,33 +1367,45 @@ class ClaudePanel(
     private fun showRunningDetail(agents: List<SubagentInfo>) {
         runningAgents = agents
         shownRunning = runStatus.running
-        showDetailPopup(
-            statusCards.running,
-            buildRunningDetail(
-                runStatus.running,
-                agents,
-                ::stopRunningTask,
-                ::openSubagentTranscript,
-                historyExpanded = subagentHistoryExpanded,
-                // 展开/收起就地重画：浮层的内容每画一次都是新造的，
-                // 状态只能住在面板上（见 buildRunningDetail 那个参数）
-                onToggleHistory = {
-                    subagentHistoryExpanded = !subagentHistoryExpanded
-                    showRunningDetail(agents)
-                },
-            ),
-        )
+        showDetailPopup(statusCards.running, runningDetailPanel())
         // 旗子**必须在 showDetailPopup 之后立**：它内部先 cancel 旧浮层，
         // 那一刻的 onClosed 会走 closeDetail 把旗清掉
         runningListShown = true
     }
 
     /**
+     * 那一屏的内容。三个入口共用（首次打开、形状变了重建、就地换内容）——
+     * 参数只写在一个地方，免得哪天漏改一处（"展开"那个回调尤其容易漏，
+     * 它捕获的是 [runningAgents] 而不是参数）。
+     */
+    private fun runningDetailPanel(): JComponent = buildRunningDetail(
+        runStatus.running,
+        runningAgents,
+        ::stopRunningTask,
+        ::openSubagentTranscript,
+        historyExpanded = subagentHistoryExpanded,
+        // 展开/收起就地重画：浮层的内容每画一次都是新造的，
+        // 状态只能住在面板上（见 buildRunningDetail 那个参数）
+        onToggleHistory = {
+            subagentHistoryExpanded = !subagentHistoryExpanded
+            showRunningDetail(runningAgents)
+        },
+    )
+
+    /**
      * 清单变了就重画开着的「运行中」浮层。
      *
      * 少了它，点「终止」之后那一行得收起再打开才消失 —— 看起来就是"点了没反应"。
-     * 判等拿的是整个清单（含 detail / 时长），所以 task_progress 每走一步，
-     * 浮层里那两行也跟着活（B2 的"跑着的时候看得见"就是这个意思）。
+     *
+     * ## 分两档：形状没变就地换内容，形状变了才重建（2026-09-24 修"闪来闪去"）
+     *
+     * 判等拿的是整个清单（含 detail / 时长），所以 `task_progress` 每走一步它都判"变了"
+     * —— 而从前那条路是 [showRunningDetail] → **cancel 旧浮层 + 新建一个**。
+     * 四个子代理一起跑的时候这个窗口每秒被拆好几次，用户看到的正是"闪来闪去"。
+     *
+     * `JBPopup` 没有 `setContent`，但 `content` 拿到的**就是我们自己那个 `JPanel`**
+     * （[buildRunningDetail] 返回的那个盒子），把它的孩子换掉就是"换内容不换窗"。
+     * 形状相同时高度也不变（判据见 [rendersSameShapeAs]），所以连尺寸都不用重设。
      *
      * 只在**画着清单**时重画：子代理转写页复用的是同一张卡的浮层，
      * 把人正看着的转写顶掉比不刷新坏得多。
@@ -1401,7 +1413,22 @@ class ClaudePanel(
     private fun refreshRunningPopup() {
         if (!runningListShown || runDetailPopup == null) return
         if (runStatus.running == shownRunning) return
+        if (runStatus.running.rendersSameShapeAs(shownRunning) && swapRunningDetailContent()) return
+        // 形状真变了（多了/少了一个任务、或者某条冒出了进行时）→ 高度也变了，
+        // 那就老老实实重建一次，让它重新量尺寸与位置
         showRunningDetail(runningAgents)
+    }
+
+    /** 就地换掉浮层里的内容（不拆窗）。拿不到那个容器就给 false，让调用方走重建。 */
+    private fun swapRunningDetailContent(): Boolean {
+        val box = runDetailPopup?.content as? JPanel ?: return false
+        shownRunning = runStatus.running
+        val fresh = runningDetailPanel()
+        box.removeAll()
+        fresh.components.forEach { box.add(it) }
+        box.revalidate()
+        box.repaint()
+        return true
     }
 
     /**

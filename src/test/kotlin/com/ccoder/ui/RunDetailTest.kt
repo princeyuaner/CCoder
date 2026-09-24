@@ -468,6 +468,54 @@ class RunDetailTest {
         assertNull(messageText(ev("""{"type":"system"}""")))
     }
 
+    // ---- 形状判等（2026-09-24 修"闪来闪去"）----
+
+    private fun task(
+        id: String = "t1",
+        kind: String? = "Explore",
+        label: String? = "找调用点",
+        detail: String? = null,
+        tokens: Long = 0,
+        durationMs: Long = 0,
+    ) = RunningTask(id, kind, label, detail, tokens, durationMs)
+
+    /**
+     * **这条钉的就是闪的根因**：`task_progress` 每走一步只改 token / 时长 / 进行时，
+     * 这几样都不改变布局 —— 该走"就地换内容"，不该把窗口拆了重建。
+     */
+    @Test
+    fun `只有 token、时长与进行时的字在变 —— 形状没变`() {
+        val before = listOf(task(detail = "Reading A.kt", tokens = 12_400, durationMs = 8_000))
+        val after = listOf(task(detail = "Reading B.kt", tokens = 47_500, durationMs = 19_000))
+
+        assertTrue(after.rendersSameShapeAs(before), "这几样一变就拆窗重建，屏幕上就是闪")
+    }
+
+    @Test
+    fun `进行时从无到有算形状变了 —— 那会多出一行`() {
+        assertTrue(
+            !listOf(task(detail = "Reading A.kt")).rendersSameShapeAs(listOf(task(detail = null))),
+            "有无进行时会改高度，重建才是对的",
+        )
+    }
+
+    @Test
+    fun `统计从无到有算形状变了 —— 那会多出一条分隔线`() {
+        assertTrue(
+            !listOf(task(tokens = 1)).rendersSameShapeAs(listOf(task(tokens = 0))),
+            "统计那一行是有无的问题，不是数值的问题",
+        )
+    }
+
+    @Test
+    fun `多一条、少一条、换一条都算形状变了`() {
+        val one = listOf(task(id = "t1"))
+        assertTrue(!(one + task(id = "t2")).rendersSameShapeAs(one), "多了一条")
+        assertTrue(!emptyList<RunningTask>().rendersSameShapeAs(one), "少了一条")
+        assertTrue(!listOf(task(label = "另一件事")).rendersSameShapeAs(one), "换了一条")
+        assertTrue(!listOf(task(id = "t2")).rendersSameShapeAs(one), "换了 id（对不上子代理了）")
+    }
+
     /** 树里有几张卡（在跑的子代理）。 */
     private fun countCards(root: Component): Int {
         var n = 0
