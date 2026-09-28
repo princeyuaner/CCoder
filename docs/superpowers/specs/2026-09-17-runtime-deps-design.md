@@ -230,6 +230,13 @@ PATH="/c/Program Files/nodejs:$PATH" ./gradlew test --tests 'com.ccoder.settings
    不联网，图片按**原始字节**打包（核过：显示尺寸下 JPEG 噪点远小于一个模块，
    重编码只会白添一次损失）。
 
+   > **2026-09-24 用户要求删掉这一页**（原话："设置里的群交流页签删除"）。页面类、
+   > 用例、`NavIcon.GroupChat`、三个词表键与 `images/wechat-qr.jpg` 一并删除，
+   > 页数回到八个（那一位由当天的「同步」页接上）。要找回那张码：
+   > `git show <删它之前的提交>:src/main/resources/images/wechat-qr.jpg`。
+   > 记在这里是因为**上面那一段是当时的事实**，不追改；选型稿
+   > `docs/design/settings-v3.html` / `settings-v4-b.html` 里那一页也照原样留着（那是选型时的样子）。
+
 ### 7.3 看图与用例揪出来的三处真问题
 
 | 症状 | 根因 | 修法 |
