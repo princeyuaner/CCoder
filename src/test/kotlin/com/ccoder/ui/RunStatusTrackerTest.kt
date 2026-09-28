@@ -282,6 +282,18 @@ class RunStatusTrackerTest {
     }
 
     @Test
+    fun `output_file 是空串时当成没有`() {
+        // 2026-09-28 真机：CLI 对某些任务给的是**空串**而不是省略。空串是"有值"，
+        // 于是「看输出」那颗按钮照样画出来，点下去只会弹一句"路径认不出来"
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed","output_file":""}""",
+        )
+
+        assertNull(t.recentFinished[0].outputFile, "空串该当成没有输出文件")
+    }
+
+    @Test
     fun `换会话时把刚结束的那几条也清掉`() {
         val t = trackerAfter(
             started("t1"),

@@ -58,6 +58,9 @@ internal fun readOutputTail(
     maxLines: Int = OUTPUT_TAIL_LINES,
     maxBytes: Int = OUTPUT_TAIL_BYTES,
 ): OutputRead {
+    // 空白路径当"不在"：`Path.of("")` 是合法的空路径，不挡的话会一路走到"文件不在"，
+    // 但调用方那边已经因为"非 null"把「看输出」画出来了（见 RunStatusTracker 那条注释）
+    if (path.isBlank()) return OutputRead.Missing
     val file = runCatching { Path.of(path) }.getOrNull() ?: return OutputRead.Missing
     if (!Files.isRegularFile(file)) return OutputRead.Missing
     // 读不动（权限、被独占、盘掉了）一律按"不在"说 —— 反正结果都是"看不到输出"，

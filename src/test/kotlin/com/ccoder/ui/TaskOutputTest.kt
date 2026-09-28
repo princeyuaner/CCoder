@@ -69,6 +69,14 @@ class TaskOutputTest {
     }
 
     @Test
+    fun `空白路径当不在，不拿去解析`() {
+        // `Path.of("")` 是合法的空路径 —— 不挡的话会一路走到"读不到"，
+        // 而调用方那边已经因为"非 null"把「看输出」画出来了
+        assertEquals(OutputRead.Missing, readOutputTail(""))
+        assertEquals(OutputRead.Missing, readOutputTail("   "))
+    }
+
+    @Test
     fun `目录不是文件，同样算不在`() {
         assertEquals(OutputRead.Missing, readOutputTail(tmp.toString()))
     }

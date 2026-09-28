@@ -407,7 +407,10 @@ internal class RunStatusTracker {
                 durationMs = usage?.long("duration_ms") ?: prev?.durationMs ?: existing?.durationMs ?: 0,
                 toolUses = usage?.long("tool_uses")?.toInt() ?: prev?.toolUses ?: existing?.toolUses ?: 0,
                 tokens = usage?.long("total_tokens") ?: prev?.tokens ?: existing?.tokens ?: 0,
-                outputFile = event.str("output_file") ?: existing?.outputFile,
+                // **空白当没有**：实测（2026-09-28）CLI 对某些任务给的是空串而不是省略，
+                // 拿它去开文件只会得到一句"路径认不出来"，而且那颗「看输出」按钮
+                // 是照 outputFile != null 画的 —— 空串会让按钮出现却点不动
+                outputFile = event.str("output_file")?.takeIf { it.isNotBlank() } ?: existing?.outputFile,
                 toolUseId = event.str("tool_use_id") ?: prev?.toolUseId ?: existing?.toolUseId,
             ),
         )

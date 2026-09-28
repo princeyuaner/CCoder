@@ -14,6 +14,7 @@ import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.Font
 import java.awt.event.ActionEvent
 import javax.swing.Action
 import javax.swing.Box
@@ -97,8 +98,10 @@ internal class TaskOutputDialog(
                 is OutputRead.Ok -> OutputState.Loaded(read.tail)
             }
             ApplicationManager.getApplication().invokeLater {
-                // 用户可能已经把框关了 —— 那时不必再填，也不该再去动两个动作的可用性
-                if (!isVisible) return@invokeLater
+                // **不要判 isVisible**（2026-09-28 真机踩到）：load() 是在 init 里跑的，
+                // 而框要到调用方 show() 才可见 —— 读得快时（文件不在、空文件）这一趟会赶在
+                // show 之前回来，判 isVisible 就把结果丢了，界面永远停在"读取中…"。
+                // 给一个已关掉的框塞内容是无害的（组件还在，只是窗口没了），所以不再 guard。
                 content.set(state)
                 if (state is OutputState.Missing) disableFileActions()
             }
@@ -132,7 +135,7 @@ internal class TaskOutputContent(private val task: FinishedTask) {
         isEditable = false
         lineWrap = false
         // 等宽：输出是给人**对字符**看的（路径、列号、堆栈），比例字体对不齐
-        font = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN)
+        font = monoFont()
         border = JBUI.Borders.empty(6, 8)
         text = CcoderText.text("transcript.detail.output.reading")
     }
@@ -199,9 +202,11 @@ internal class TaskOutputContent(private val task: FinishedTask) {
 
     fun set(state: OutputState) {
         when (state) {
+            // 状态文字走 **note（UI 字体）**，不塞进等宽区：
+            // 实测（2026-09-28）编辑器等宽字体没有中文字形，一句"读取中…"渲染成一排方块
             OutputState.Reading -> {
-                body.text = CcoderText.text("transcript.detail.output.reading")
-                note.text = ""
+                body.text = ""
+                note.text = CcoderText.text("transcript.detail.output.reading")
             }
 
             OutputState.Missing -> {
@@ -211,6 +216,7 @@ internal class TaskOutputContent(private val task: FinishedTask) {
 
             is OutputState.Loaded -> {
                 body.text = state.tail.lines.joinToString("\n")
+                applyContentFont(body.text)
                 body.caretPosition = 0
                 note.text = if (state.tail.truncatedHead) {
                     CcoderText.text("transcript.detail.output.tailCut", state.tail.lines.size)
@@ -223,6 +229,25 @@ internal class TaskOutputContent(private val task: FinishedTask) {
 
     /** 「复制全部」复制的就是这一屏 —— 复制不到的东西不该让按钮显得能复制。 */
     fun body(): String = body.text
+
+    /**
+     * 内容用等宽（输出是给人**对字符**看的），但**装不下就换 UI 字体**：
+     * 编辑器的等宽字体常常没有中文字形，命令行输出里带中文（中文路径、中文报错）
+     * 会渲染成一排方块。装不下就退回 UI 字体 —— 对齐差一点，但读得出来。
+     */
+    private fun applyContentFont(text: String) {
+        val mono = monoFont()
+        body.font = if (mono.canDisplayUpTo(text) < 0) mono else UIUtil.getLabelFont()
+    }
+
+    /**
+     * 编辑器那份等宽字体。**取不到就退回 UI 字体**：无头测试里平台没起来
+     * （`ApplicationManager.getApplication()` 是 null），而这一层不该因为挑不到字体就炸。
+     */
+    private fun monoFont(): Font =
+        runCatching {
+            EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN)
+        }.getOrNull() ?: UIUtil.getLabelFont()
 
     private companion object {
         const val AREA_WIDTH = 640
