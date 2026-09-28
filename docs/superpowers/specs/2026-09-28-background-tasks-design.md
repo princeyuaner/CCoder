@@ -72,6 +72,17 @@ SDK：`@anthropic-ai/claude-agent-sdk@0.3.283`（捆 CLI 2.1.283）。
 
 ## 5. 边界与代价
 
+- **后台命令（`run_in_background` 的 bash）根本进不了面板 —— 2026-09-28 实测。**
+  重跑 `node sidecar/tools/probe-stop-bash.mjs background`：命令确实起来了（心跳 0→3），
+  但消费侧**一个消息都没收到** —— 没有 `task_started`、没有 `task_notification`、
+  没有 `background_tasks_changed`（探针的原始落盘 jsonl 都没生成）。
+  2026-09-16 那次就是这个结论，今天原样复现，**不是本版引入的**。
+  **代价写清楚**：用户让 Claude 起一条后台命令时，面板上看不见它，更没有"看输出"可点。
+  能进面板的是**子代理** —— 同一天实测：派一个子代理，结束后 IDE 进程里
+  `TaskOutcome` 从"未加载"变成"已加载"，即"刚结束"那条路真的跑过了。
+  这条流为什么对 bash 哑、对子代理灵，**还没查**（探针文件头记了下次怎么查：
+  加一个"`canUseTool` 照常 allow 但不动 `updatedInput`"的对照组）。
+
 - **面板只记"连上这个会话之后看到的"**：`reset()` 在换会话时清空，重开会话不带历史。
   面板脚注明写这句（不然"我的任务呢"会变成一个说不清的 bug）。
 - **`resource_links` 没用**（MCP 任务产出的文件）：这一版只做输出，产出文件另说。
@@ -87,5 +98,9 @@ SDK：`@anthropic-ai/claude-agent-sdk@0.3.283`（捆 CLI 2.1.283）。
 - 渲染探针：`RunningDetailRenderProbe` → `build/probe/tasks-three-stage.png`
   （三段齐全那一张，含暂停与失败两行）。**离屏渲染是这一层唯一的"观感"证据。**
 - 三侧测试：Kotlin / web / sidecar，见发布流程。
+- **真机（2026-09-28，装了 0.2.30 的 PyCharm 上）**：派一个最小子代理 →
+  用 `jcmd <IDE pid> VM.class_hierarchy com.ccoder.ui.TaskOutcome` 查它有没有被加载 ——
+  "未加载 → 已加载"就证明"刚结束"那条路真的跑过（比"看着像"硬）。
+  同法可查 `TaskOutputContent`（点了「看输出」才会加载）。
 - 真机（挂账 #15 那条一起看）：三段在真实窗口里的高度与滚动；`output_file` 在 Windows 上
   的真实落点与生命周期；ambient 在真实会话里的数量级。
