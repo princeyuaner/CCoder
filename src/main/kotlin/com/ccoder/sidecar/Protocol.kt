@@ -203,6 +203,25 @@ sealed interface SidecarMessage {
         val servers: List<McpServerStatus>,
     ) : SidecarMessage
 
+    /**
+     * `mcpReconnect` / `mcpToggle` 的回执（2026-09-28）。
+     *
+     * **成败都走这一条**，靠 [error] 分辨有没有值。别的控制请求失败时只有一条
+     * `error` 广播，而那条**不带 id**（配不上对，收端只能等超时）—— 这条不能
+     * 那样：发起动作的是**设置框**，设置框是模态的，弹着的时候聊天被挡在后面，
+     * 用户在框里看不到任何反馈。所以失败也要回执，且原因要带上。
+     *
+     * [enabled] 只有 toggle 那条才有值（reconnect 没有这一档，sidecar 写 null）；
+     * [action] 是 `reconnect` / `toggle` 之一（协议词，原样透传，不做枚举）。
+     */
+    data class McpControlled(
+        val requestId: String,
+        val action: String,
+        val serverName: String?,
+        val enabled: Boolean?,
+        val error: String?,
+    ) : SidecarMessage
+
     /** 未知类型。与"解析失败"（null）区分开——这类要忽略而非报错。 */
     data class Unknown(val type: String) : SidecarMessage
 }
@@ -555,6 +574,18 @@ object Protocol {
                 SidecarMessage.McpServers(rid, parseMcpServers(obj.arr("servers")))
             }
 
+            "mcpControlled" -> obj.str("id")?.let { rid ->
+                SidecarMessage.McpControlled(
+                    requestId = rid,
+                    // action 认不出也给空串：这条回执的价值是"动作结束了 + 有没有错"，
+                    // 为一个认不出的词把整条丢了，设置框就又只能干等超时
+                    action = obj.str("action") ?: "",
+                    serverName = obj.str("serverName"),
+                    enabled = obj.bool("enabled"),
+                    error = obj.str("error"),
+                )
+            }
+
             "error" -> SidecarMessage.Failure(
                 message = obj.str("message") ?: CcoderText.text("chat.error.unknown"),
                 code = obj.str("code"),
@@ -657,6 +688,37 @@ object Protocol {
     fun encodeMcpServerStatus(id: String): String = encodeSimple(id, "mcpServerStatus")
 
     /**
+     * 重连一个 MCP server。
+     *
+     * 量过（`sidecar/tools/probe-mcp-controls.mjs`，2026-09-28，指向不存在命令的
+     * 假 server）：它**够得着** `.mcp.json` 里配的 server —— 抛的是连不上那句
+     * （`Connection closed`），不是"没这个 server"。也就是说这条不必先有一份
+     * 动态配置才有效，用户真配在项目里的那些就吃这一颗。
+     */
+    fun encodeMcpReconnect(id: String, serverName: String): String =
+        line(id, "mcpReconnect", JsonObject().apply { addProperty("serverName", serverName) })
+
+    /**
+     * 启用 / 停用一个 MCP server。
+     *
+     * 同一条探针量到的两件事：
+     *
+     * - `enabled=false` 对 `.mcp.json` 里的 server **当场生效** —— 状态立刻变
+     *   `disabled`，而且不抛错。所以「停用」是够得着的，不是空炮。
+     * - `enabled=true` 会**真去连**，连不上就抛那句连接错误、状态留在 `failed`。
+     *   这是如实的失败，界面照说不必包装。
+     *
+     * （同一次探针里 `setMcpServers({})` 对配置文件里的 server 纹丝不动 ——
+     * 照 SDK 文档，它只管动态加的，而我们从来没动态加过 `Options.mcpServers`。
+     * 所以那一条**没有接**：接上它就是一颗点了什么都不发生的按钮。）
+     */
+    fun encodeMcpToggle(id: String, serverName: String, enabled: Boolean): String =
+        line(id, "mcpToggle", JsonObject().apply {
+            addProperty("serverName", serverName)
+            addProperty("enabled", enabled)
+        })
+
+    /**
      * 换界面语言（热切换，2026-09-20）。
      *
      * 会话建立之后界面还能换语言，而 sidecar 自己的失败回执（"当前会话不支持换模型"
@@ -681,6 +743,7 @@ object Protocol {
         is SidecarMessage.SessionsCleared -> msg.requestId
         is SidecarMessage.Commands -> msg.requestId
         is SidecarMessage.McpServers -> msg.requestId
+        is SidecarMessage.McpControlled -> msg.requestId
         is SidecarMessage.ContextUsageReport -> msg.requestId
         is SidecarMessage.SessionRenamed -> msg.requestId
         is SidecarMessage.SessionTagged -> msg.requestId

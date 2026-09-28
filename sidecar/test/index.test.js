@@ -1588,3 +1588,115 @@ test('mcpServerStatus：没有会话时回 NO_SESSION', async () => {
 
   assert.equal(out.find((m) => m.type === 'error').code, 'NO_SESSION');
 });
+
+// ---- MCP 动作（mcpReconnect / mcpToggle）----
+
+/** 起一个会话，并给它挂上那两个动作方法（缺省不挂 = "这台 CLI 太老"）。 */
+function withMcpControl(extra = {}) {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+  const s = d.handle(START);
+  Object.assign(s, extra);
+  return { d, out };
+}
+
+test('mcpReconnect 成功后回一条带 id 的回执，说明动的是哪个 server', async () => {
+  const seen = [];
+  const { d, out } = withMcpControl({
+    reconnectMcpServer: async (name) => { seen.push(name); },
+  });
+
+  d.handle({ id: '21', method: 'mcpReconnect', params: { serverName: 'codegraph' } });
+  await tick();
+
+  assert.deepEqual(seen, ['codegraph'], '没把 server 名交给会话层');
+  const ack = out.find((m) => m.type === 'mcpControlled');
+  assert.ok(ack, '成功不回执的话，调用方不知道什么时候该去问新状态');
+  assert.equal(ack.id, '21', 'id 必须回传 —— 插件靠它配对');
+  assert.equal(ack.action, 'reconnect');
+  assert.equal(ack.serverName, 'codegraph');
+  assert.equal(ack.enabled, null, 'reconnect 没有这一档，但字段要在（收端只认一个形状）');
+  assert.equal(ack.error, null, '成功时 error 必须是 null，不能省掉这个键');
+});
+
+test('mcpToggle 把 enabled 原样交给会话层 —— false 也是正经营生', async () => {
+  const seen = [];
+  const { d, out } = withMcpControl({
+    toggleMcpServer: async (name, enabled) => { seen.push([name, enabled]); },
+  });
+
+  d.handle({ id: '22', method: 'mcpToggle', params: { serverName: 'proj', enabled: false } });
+  await tick();
+
+  assert.deepEqual(seen, [['proj', false]], '停用被吞掉了');
+  const ack = out.find((m) => m.type === 'mcpControlled');
+  assert.equal(ack.enabled, false, 'false 必须原样回传，不能被"假值"当成没设置');
+});
+
+test('mcpToggle：enabled 缺字段时不当成"停用"', async () => {
+  // 缺字段读成 false，等于替用户关掉一个 server —— 而用户只是点错了、或者
+  // 我们自己的编码器漏了字段。这两种都该报错，不该静默执行
+  const seen = [];
+  const { d, out } = withMcpControl({
+    toggleMcpServer: async (name, enabled) => { seen.push(enabled); },
+  });
+
+  d.handle({ id: '23', method: 'mcpToggle', params: { serverName: 'proj' } });
+  await tick();
+
+  assert.deepEqual(seen, [], '缺字段却被读成停用，就是替用户关了一个 server');
+  const err = out.find((m) => m.type === 'error');
+  assert.equal(err.code, 'MCP_TOGGLE_FAILED');
+  assert.match(err.message, /enabled/);
+});
+
+test('mcpReconnect：serverName 缺失或空串都拒掉', async () => {
+  const seen = [];
+  const { d, out } = withMcpControl({
+    reconnectMcpServer: async (name) => { seen.push(name); },
+  });
+
+  d.handle({ id: '24', method: 'mcpReconnect', params: {} });
+  d.handle({ id: '25', method: 'mcpReconnect', params: { serverName: '' } });
+  await tick();
+
+  assert.deepEqual(seen, [], '空名字不该走到会话层');
+  assert.equal(out.filter((m) => m.type === 'error').length, 2);
+  assert.match(out.find((m) => m.type === 'error').message, /serverName/);
+});
+
+test('MCP 动作失败时：广播与回执都发，回执里带着那句原因', async () => {
+  // 只发广播是不够的 —— 发起动作的设置框是**模态**的，弹着的时候聊天被挡在
+  // 后面，一条看不见的错误等于没报。所以失败也要回执，且原因要带上
+  const { d, out } = withMcpControl({
+    reconnectMcpServer: async () => { throw new Error('Connection closed'); },
+  });
+
+  d.handle({ id: '26', method: 'mcpReconnect', params: { serverName: 'x' } });
+  await tick();
+
+  const err = out.find((m) => m.type === 'error');
+  assert.equal(err.code, 'MCP_RECONNECT_FAILED', '聊天里那条留痕在（事后能查）');
+  assert.match(err.message, /Connection closed/);
+
+  const ack = out.find((m) => m.type === 'mcpControlled');
+  assert.ok(ack, '失败也得回执，否则设置框里只能干等超时');
+  assert.equal(ack.id, '26', 'id 必须回传 —— 插件靠它配对');
+  assert.equal(ack.error, 'Connection closed', '原因要原样带给设置框');
+});
+
+test('MCP 动作：没有会话时回错误，不静默', async () => {
+  const out = [];
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m) });
+
+  d.handle({ id: '27', method: 'mcpReconnect', params: { serverName: 'x' } });
+  d.handle({ id: '28', method: 'mcpToggle', params: { serverName: 'x', enabled: true } });
+  await tick();
+
+  assert.deepEqual(
+    out.filter((m) => m.type === 'error').map((m) => m.code),
+    ['MCP_RECONNECT_FAILED', 'MCP_TOGGLE_FAILED'],
+  );
+});

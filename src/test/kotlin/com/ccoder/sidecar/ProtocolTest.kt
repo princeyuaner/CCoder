@@ -879,4 +879,68 @@ class ProtocolTest {
         assertTrue(json.contains(""""method":"mcpServerStatus""""))
         assertTrue(json.endsWith("\n"), "NDJSON 必须以换行结尾")
     }
+
+    // ---- MCP 动作（mcpReconnect / mcpToggle）----
+
+    @Test
+    fun `解析 mcpControlled 回执，成败靠 error 有没有值分辨`() {
+        val ok = Protocol.parse("""{"type":"mcpControlled","id":"21","action":"reconnect","serverName":"codegraph","enabled":null,"error":null}""")
+            as SidecarMessage.McpControlled
+        assertEquals("21", ok.requestId)
+        assertEquals("reconnect", ok.action)
+        assertEquals("codegraph", ok.serverName)
+        assertNull(ok.enabled, "reconnect 没有这一档")
+        assertNull(ok.error, "成功时 error 是 null")
+
+        val bad = Protocol.parse("""{"type":"mcpControlled","id":"22","action":"toggle","serverName":"proj","enabled":true,"error":"Connection closed"}""")
+            as SidecarMessage.McpControlled
+        assertEquals(true, bad.enabled)
+        assertEquals("Connection closed", bad.error)
+    }
+
+    @Test
+    fun `mcpControlled 的 enabled 三态：true false null 分得开`() {
+        // false（停用）与"没有这一档"（null）是两件事 —— 读成同一个的话，
+        // 界面会把"停用成功了"显示成"没这一档"
+        val off = Protocol.parse("""{"type":"mcpControlled","id":"1","action":"toggle","serverName":"p","enabled":false,"error":null}""")
+            as SidecarMessage.McpControlled
+
+        assertEquals(false, off.enabled)
+    }
+
+    @Test
+    fun `mcpControlled 缺 id 时按畸形丢弃，认不出的 action 照收`() {
+        // 缺 id 就无从配对（同 mcpServers）；而 action 认不出**不该**丢 ——
+        // 这条回执的价值是"动作结束了"，为一个词把整条丢了，设置框又只能干等超时
+        assertNull(Protocol.parse("""{"type":"mcpControlled","action":"reconnect"}"""))
+
+        val odd = Protocol.parse("""{"type":"mcpControlled","id":"9","action":"将来才有的一种"}""")
+            as SidecarMessage.McpControlled
+        assertEquals("将来才有的一种", odd.action)
+    }
+
+    @Test
+    fun `mcpControlled 是响应消息，带关联 id`() {
+        val msg = Protocol.parse("""{"type":"mcpControlled","id":"21","action":"toggle","serverName":"p","enabled":true,"error":null}""")!!
+
+        assertEquals("21", Protocol.responseIdOf(msg))
+    }
+
+    @Test
+    fun `encodeMcpReconnect 带 serverName`() {
+        val json = Protocol.encodeMcpReconnect("req-1", "codegraph")
+
+        assertTrue(json.contains(""""method":"mcpReconnect""""))
+        assertTrue(json.contains(""""serverName":"codegraph""""))
+        assertTrue(json.endsWith("\n"), "NDJSON 必须以换行结尾")
+    }
+
+    @Test
+    fun `encodeMcpToggle 的 enabled 是布尔，false 照发不省`() {
+        // false 是"停用"这个正经营生。省掉或写成真值判断，就等于替用户开回来
+        val json = Protocol.encodeMcpToggle("req-1", "proj", false)
+
+        assertTrue(json.contains(""""method":"mcpToggle""""))
+        assertTrue(json.contains(""""enabled":false"""), "false 必须照发：$json")
+    }
 }

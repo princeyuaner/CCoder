@@ -74,6 +74,10 @@ export const CATALOGS = Object.freeze({
     'error.subagentsMissingSessionId': 'Missing sessionId.',
     'error.subagentMessagesMissingIds': 'Missing sessionId or agentId.',
     'error.missingTaskId': 'Missing taskId.',
+    // MCP 的两条动作请求。serverName 是**协议词**（server 的名字），不翻；
+    // enabled 同理 —— 它说的是字段本身缺了，不是让用户去填一个词
+    'error.missingMcpServerName': 'Missing serverName.',
+    'error.mcpToggleMissingEnabled': 'Missing enabled flag.',
     'error.stopTaskUnsupported': "This session can't stop tasks.",
     'error.setModeUnsupported': "This session can't change permission mode.",
     'error.missingLevel': 'Missing level.',
@@ -92,12 +96,14 @@ export const CATALOGS = Object.freeze({
 
     // —— session.js：CLI 太老。中文那句点出是哪个能力不支持，英文不点 ——
     //    用户刚点的就是那个按钮，上下文不缺；一句 "This needs a newer claude
-    //    executable." 反而更直接。于是五个键的英文一模一样，这是**刻意**的：
+    //    executable." 反而更直接。于是这七个键的英文一模一样，这是**刻意**的：
     //    中文值不同 → 键必须分开；英文收敛是巧合，不是漏写。
     'session.cliTooOldStopTask': 'This needs a newer claude executable.',
     'session.cliTooOldEffort': 'This needs a newer claude executable.',
     'session.cliTooOldModel': 'This needs a newer claude executable.',
     'session.cliTooOldMcp': 'This needs a newer claude executable.',
+    'session.cliTooOldMcpReconnect': 'This needs a newer claude executable.',
+    'session.cliTooOldMcpToggle': 'This needs a newer claude executable.',
     'session.cliTooOldContext': 'This needs a newer claude executable.',
     'session.queryFnNotAsyncIterable':
       'queryFn must return an AsyncIterable (a Query) synchronously. An async function returns a Promise, which breaks iteration.',
@@ -131,6 +137,8 @@ export const CATALOGS = Object.freeze({
     'error.subagentsMissingSessionId': '缺少 sessionId',
     'error.subagentMessagesMissingIds': '缺少 sessionId 或 agentId',
     'error.missingTaskId': '缺少 taskId 参数',
+    'error.missingMcpServerName': '缺少 serverName 参数',
+    'error.mcpToggleMissingEnabled': '缺少 enabled 参数',
     'error.stopTaskUnsupported': '当前会话不支持终止任务',
     'error.setModeUnsupported': '当前会话不支持切换权限模式',
     'error.missingLevel': '缺少 level 参数',
@@ -147,6 +155,8 @@ export const CATALOGS = Object.freeze({
     'session.cliTooOldEffort': '当前 CLI 不支持在会话中途调整思考深度，需要更新 claude 可执行文件',
     'session.cliTooOldModel': '当前 CLI 不支持在会话中途换模型，需要更新 claude 可执行文件',
     'session.cliTooOldMcp': '当前 CLI 不支持查询 MCP 连接状态，需要更新 claude 可执行文件',
+    'session.cliTooOldMcpReconnect': '当前 CLI 不支持重连 MCP 服务器，需要更新 claude 可执行文件',
+    'session.cliTooOldMcpToggle': '当前 CLI 不支持启停 MCP 服务器，需要更新 claude 可执行文件',
     'session.cliTooOldContext': '当前 CLI 不支持读取上下文用量，需要更新 claude 可执行文件',
     'session.queryFnNotAsyncIterable':
       'queryFn 必须同步返回 AsyncIterable（Query 对象）。async 函数返回的是 Promise 而非 Query，会导致迭代失败。',

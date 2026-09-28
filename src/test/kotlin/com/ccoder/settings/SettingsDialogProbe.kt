@@ -542,6 +542,26 @@ class SettingsDialogProbe {
     )
 
     /**
+     * MCP 页那一栏的**动作**（2026-09-28）。
+     *
+     * 画的是"有会话接得住、而且刚失败过一次"那一屏 —— 三种形态各一行：
+     * 连上的（重连 + 停用）、已经停用的（只给启用）、失败的（重连 + 停用），
+     * 最上面是那句失败。要能一眼看出"哪几颗会画、画在哪、失败那句长什么样"。
+     */
+    @Test
+    fun `把 MCP 页的动作与失败提示画成图片`() = render(
+        "build/probe/settings-mcp-actions.png",
+        page = "MCP",
+        mcpArmed = true,
+        mcpFailure = McpControl.Action.Reconnect("codegraph") to "MCP error -32000: Connection closed",
+        mcpServers = listOf(
+            McpServerStatus("codegraph", "failed", "user", "MCP error -32000: Connection closed", emptyList()),
+            McpServerStatus("已经停掉的那个", "disabled", "project", null, emptyList()),
+            McpServerStatus("我自己全局配的", "connected", "user", null, listOf("t1", "t2", "t3")),
+        ),
+    )
+
+    /**
      * hooks 页。文件里**两种都有**：归这个面板管的（能编辑），
      * 以及不归它管的（原样保留）。顶部那句"另有 N 处"是这一页最需要让人看见的
      * —— 不报的话，"我原来配的那些哪去了"是必然会被问的问题。
@@ -597,6 +617,10 @@ class SettingsDialogProbe {
         mcpFile: String? = null,
         /** 会话里的实时状态。空 = 还没拿到过。 */
         mcpServers: List<McpServerStatus> = emptyList(),
+        /** 有活着的会话接得住动作吗（false = 那几颗行内按钮一颗都不画）。 */
+        mcpArmed: Boolean = false,
+        /** 上一次动作的失败：动作 + CLI 给的原因。画的是"点失败了"那一屏。 */
+        mcpFailure: Pair<McpControl.Action, String>? = null,
         /** 写进临时项目根的 `.claude/settings.json`。null = 那份文件不存在。 */
         hooksFile: String? = null,
         /** 「运行依赖」两行的状态。默认两个都缺 —— 那是最该看的一屏。 */
@@ -628,6 +652,12 @@ class SettingsDialogProbe {
                 Files.writeString(base.resolve(".claude").resolve("settings.json"), it)
             }
             val mcpStatus = McpStatus().apply { if (mcpServers.isNotEmpty()) set(mcpServers) }
+            // 动作那条线：探针要画"有会话接得住"那一屏（行内那几颗按钮只有
+            // 那时才画）。处理器是个空壳 —— 出图不真发请求
+            val mcpControl = McpControl().apply {
+                if (mcpArmed) attach("探针") { true }
+                mcpFailure?.let { report(it.first, it.second) }
+            }
 
             // 「运行依赖」：假服务 + 假执行器，探针不真跑 `claude --version`，也不真装任何东西
             var fakeRun: FakeRun? = null
@@ -651,6 +681,7 @@ class SettingsDialogProbe {
                 service,
                 PromptPresets().apply { presets.forEach { upsert(it) } },
                 mcpStatus,
+                mcpControl,
                 deps,
                 UiLanguageSettings(),
                 // 界面偏好照 `reload()` 那条路勾上 —— 与"手动反悔一次"的 uncheckOptIn
@@ -751,7 +782,7 @@ class SettingsDialogSaveTest {
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
             dialog = SettingsDialog(
-                fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(),
+                fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), McpControl(), depsService(),
                 UiLanguageSettings(), UiPreferences(), SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             clickOn(listRowFor(dialog, profiles.first().displayName()))

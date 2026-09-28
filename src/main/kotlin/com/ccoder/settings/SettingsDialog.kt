@@ -50,6 +50,7 @@ fun showSettingsDialog(project: Project) {
         profiles = ModelProfiles.getInstance(),
         presets = PromptPresets.getInstance(),
         mcpStatus = McpStatus.getInstance(project),
+        mcpControl = McpControl.getInstance(project),
         deps = RuntimeDepsService.getInstance(project),
         language = UiLanguageSettings.getInstance(),
         prefs = UiPreferences.getInstance(),
@@ -93,6 +94,11 @@ internal class SettingsDialog(
     private val profiles: ModelProfiles,
     private val presets: PromptPresets,
     private val mcpStatus: McpStatus,
+    /**
+     * MCP 动作那条线（页面 → 会话 → 页面）。**不给默认值**，同 [syncStatus] 的理由
+     * —— 默认值只能写成 `McpControl.getInstance(project)`，而纯 JVM 的探针里会抛。
+     */
+    private val mcpControl: McpControl,
     /**
      * 运行依赖的检测结果与安装进度。**不给默认值**：默认值只能写成
      * `RuntimeDepsService.getInstance(project)`，而用例里没有平台服务（会抛），
@@ -150,7 +156,7 @@ internal class SettingsDialog(
             EnvironmentSettingsPage(project, settings, deps, depsUi) { models.refreshConflictWarning() } to
                 NavIcon.Environment,
             // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
-            McpSettingsPage(baseDir, mcpStatus) to NavIcon.Mcp,
+            McpSettingsPage(baseDir, mcpStatus, mcpControl) to NavIcon.Mcp,
             HooksSettingsPage(baseDir) to NavIcon.Hooks,
             // 目录同步（2026-09-24）。它读写自己的项目级配置，与别的页没有交集。
             // **它排在最后一个**是有来历的：此前这一位是「群交流」（一张二维码，

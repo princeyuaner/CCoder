@@ -17,6 +17,7 @@ import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.nio.file.Path
@@ -45,6 +46,15 @@ private const val MCP_FORM_CONTENT_WIDTH =
 private const val SMALL_BOX_HEIGHT = 62
 
 /**
+ * 失败那句那块地方的高度（整三行）。
+ *
+ * 三行不是拍的：CLI 给的原因往往是 `MCP error -32000: Connection closed`
+ * 这种一句半英文，在这栏宽度下正好折成三行 —— 给够它，常见的那几种就都能
+ * **整句**看见，也不会因为差几个像素而平白冒出一条滚动条（出图时就是这么差一点的）。
+ */
+private const val FAILURE_BOX_HEIGHT = 58
+
+/**
  * MCP 页：**左栏改配置（写 `.mcp.json`）、右栏看当前会话的实时状态**。
  *
  * 两栏是刻意的分工：
@@ -58,6 +68,11 @@ internal class McpSettingsPage(
     /** 项目根。null = 拿不到项目目录，这时**只读不写**（别猜一个路径去写）。 */
     private val baseDir: Path?,
     private val status: McpStatus,
+    /**
+     * 动作那条线（重连 / 启用停用，2026-09-28）。**只读** —— 页面把用户的点击
+     * 交给它，面板接过去执行；结果也回到它上面（见 [McpControl]）。
+     */
+    private val control: McpControl,
 ) : SettingsPage {
 
     override val title: String = "MCP"
@@ -109,16 +124,24 @@ internal class McpSettingsPage(
      */
     private val statusListener: () -> Unit = { refreshStatus() }
 
+    /**
+     * 动作那条线的通知有两件事会用到：失败那句话（[failureText]）和
+     * "这会儿有没有人能接"（[McpControl.armed] —— 它变了按钮该跟着出现/消失）。
+     */
+    private val controlListener: () -> Unit = { refreshStatus() }
+
     private fun filePath(): Path? = baseDir?.let { mcpJsonPath(it) }
 
     override fun component(): JComponent = built ?: build().also {
         built = it
         reload()
         status.addListener(statusListener)
+        control.addListener(controlListener)
     }
 
     override fun dispose() {
         status.removeListener(statusListener)
+        control.removeListener(controlListener)
     }
 
     override fun reload() {
@@ -176,7 +199,8 @@ internal class McpSettingsPage(
         )
         val statusCard = settingsCard(
             CcoderText.text("settings.mcp.currentSession"),
-            cardBlock(statusSlot),
+            // 顺序就是视觉顺序：失败那句在状态列表**上面**
+            cardBlock(failureHolder, statusSlot),
         )
         return settingsCardColumn(listOf(listCard, statusCard), width = MCP_LIST_WIDTH)
     }
@@ -229,6 +253,15 @@ internal class McpSettingsPage(
 
     private fun refreshStatus() {
         statusSlot.removeAll()
+        // 上一次动作的失败说在最上面：它说的是"你刚点的那个没成"，
+        // 得在用户去找那一行之前就看见
+        val message = failureText()
+        failureHolder.isVisible = message != null
+        if (message != null) {
+            failureArea.text = message
+            // 从头显示：不设的话对话框一开，光标的默认位置会让这段滚到尾巴上
+            failureArea.caretPosition = 0
+        }
         when {
             !status.known -> statusSlot.add(hint(CcoderText.text("settings.mcp.statusUnknown")))
             status.servers.isEmpty() -> statusSlot.add(hint(CcoderText.text("settings.mcp.statusEmpty")))
@@ -238,12 +271,104 @@ internal class McpSettingsPage(
         statusSlot.repaint()
     }
 
+    /**
+     * 上一次动作失败那句话。成功、或者还没动作过，都是 null（不占地方）。
+     *
+     * 三种措辞按**用户刚点的那一颗**分（重连 / 启用 / 停用），不是按回执里的
+     * 布尔值推 —— 回执里的字段可能是从我们自己的编码器漏出去的，而用户点的是
+     * 哪一颗，这里最清楚。
+     */
+    private fun failureText(): String? {
+        val failure = control.failure ?: return null
+        val name = failure.action.serverName
+        return when (val action = failure.action) {
+            is McpControl.Action.Reconnect ->
+                CcoderText.text("settings.mcp.reconnectFailed", name, failure.message)
+
+            is McpControl.Action.Toggle ->
+                if (action.enabled) {
+                    CcoderText.text("settings.mcp.enableFailed", name, failure.message)
+                } else {
+                    CcoderText.text("settings.mcp.disableFailed", name, failure.message)
+                }
+        }
+    }
+
+    /**
+     * 失败那句。**要折行**（错误色，同表单页的删除标签那条：红=出事了）。
+     *
+     * 一行的标签在这里必然被裁掉 —— 那栏两百来像素，而 CLI 给的原因
+     * （`MCP error -32000: Connection closed`）远超它，裁了还没有任何提示
+     * 告诉用户后面还有字。这个坑同步页先踩过（`logArea` 那条注释），抄的就是它那套。
+     *
+     * `internal` 是给用例看的：这句**故意不是标签**（要折行，标签不折），
+     * 所以按文字找控件的 `findLabel` 够不着它 —— 用例拿这个实例比对在不在树上。
+     */
+    internal val failureArea = JBTextArea().apply {
+        isEditable = false
+        isFocusable = false
+        lineWrap = true
+        wrapStyleWord = true
+        font = UIUtil.getLabelFont()
+        foreground = UIUtil.getErrorForeground()
+        isOpaque = false
+        rows = 3
+    }
+
+    /**
+     * 那句失败整块（含滚动条）。**只钉高度，宽度交给卡身去铺** ——
+     * 同同步页的日志框那条。
+     *
+     * 宽度是踩出来的：这块原先摆在 `statusSlot` 里（卡身里又套了一层 BoxLayout），
+     * 结果被缩成一半宽，那句话折成三截还裁掉一截（出图看出来的）。挪成卡身的
+     * **直接子件**之后就铺满了 —— 多套一层的代价看不出来，只在出图时露馅。
+     */
+    private val failureBox = JBScrollPane(failureArea).apply {
+        // 不要那个方框：它是一句话，不是一扇窗（同步页那块日志是窗，所以那边留着）
+        border = null
+        preferredSize = Dimension(MCP_LIST_WIDTH - 40, JBUI.scale(FAILURE_BOX_HEIGHT))
+        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(FAILURE_BOX_HEIGHT))
+    }
+
+    /**
+     * 失败那句话的容器：没有失败时**整块藏起来**（BoxLayout 不给不可见的子件留地方），
+     * 于是"上一次没失败"与"这次也没失败"长得一样。
+     *
+     * `internal` 是给用例看的 —— [failureArea] 藏在里面，而"在不在树上"要问它。
+     */
+    internal val failureHolder = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        isVisible = false
+        add(failureBox, BorderLayout.CENTER)
+    }
+
     private fun statusRow(server: McpServerStatus): JComponent {
+        val actions = controlActions(server)
         val row = JPanel(BorderLayout()).apply {
             isOpaque = false
             border = JBUI.Borders.empty(3, 9)
-            add(JBLabel(server.name).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.WEST)
-            add(JBLabel(statusTail(server)).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.EAST)
+            add(
+                JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    add(JBLabel(server.name).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.WEST)
+                    add(JBLabel(statusTail(server)).apply { foreground = UIUtil.getInactiveTextColor() }, BorderLayout.EAST)
+                },
+                BorderLayout.CENTER,
+            )
+            // 动作**另起一行**（出图看出来的）：这一栏只有两百来像素，名字 + 动作 + 状态
+            // 挤在一行时 BorderLayout 会让 WEST 与 EAST **直接重叠**（"我自己全局配的已连接"），
+            // 而三个都是要读的字，谁也不该让位。没动作时这一行根本不存在 ——
+            // 于是没会话接的那一屏与从前长得一模一样
+            if (actions.isNotEmpty()) {
+                add(
+                    JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
+                        isOpaque = false
+                        border = JBUI.Borders.emptyTop(JBUI.scale(3))
+                        actions.forEach { add(it) }
+                    },
+                    BorderLayout.SOUTH,
+                )
+            }
         }
         // 失败原因放进 tooltip：列表里塞不下，但**必须有地方看见** ——
         // 只说"失败"等于什么都没说
@@ -251,6 +376,39 @@ internal class McpSettingsPage(
         row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
         return row
     }
+
+    /**
+     * 这一行给哪几颗动作。
+     *
+     * **没人接就一颗都不画**（[McpControl.armed] = 有活着的会话）—— 画一颗点了
+     * 没反应的按钮，正是这个仓库最不肯做的事（见 `CardAction` 的注释）。
+     *
+     * 画哪几颗看状态：`disabled` 只给「启用」（它现在就是关着的，再给「停用」
+     * 是废话）；其余一律「重连 + 停用」—— 连上的、失败中的、要认证的，这两颗
+     * 都有意义，将来 CLI 多一档也落到这一支（重连对任何"没关掉"的状态都安全）。
+     */
+    private fun controlActions(server: McpServerStatus): List<JComponent> {
+        if (!control.armed) return emptyList()
+        val name = server.name
+        return if (server.status == "disabled") {
+            listOf(action("settings.mcp.enable") { McpControl.Action.Toggle(name, true) })
+        } else {
+            listOf(
+                action("settings.mcp.reconnect") { McpControl.Action.Reconnect(name) },
+                action("settings.mcp.disable") { McpControl.Action.Toggle(name, false) },
+            )
+        }
+    }
+
+    /**
+     * 一颗行内动作。样式走 [actionLabel]（设置页里没有 JButton，全是这种灰字），
+     * 键**字面量写在调用点上**（同 [statusTail] 那条：词表与源码的对账靠源码扫描）。
+     *
+     * 送不出去时**这里不必管**：[McpControl.send] 自己会把那条线放掉再通知一次，
+     * 这一行跟着就没了（"按钮在、按了没反应"比"按钮不在"糟得多）。
+     */
+    private fun action(key: String, make: () -> McpControl.Action): JComponent =
+        actionLabel(CcoderText.text(key)) { control.send(make()) }
 
     // ---- 右栏 ----
 

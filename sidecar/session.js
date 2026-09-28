@@ -335,6 +335,39 @@ export function createSession({
     },
 
     /**
+     * 重连一个 MCP server（连不上、掉线之后让它再试一次）。
+     *
+     * 与 [mcpServerStatus] 同一条规矩：**缺方法就抛**，不走可选链 ——
+     * 可选链在 query 为 null 或 CLI 太老时整句静默成功，上层据此发出一条
+     * 假回执：用户点了「重连」，看到的是"已重连"，而 CLI 那边什么都没发生。
+     *
+     * **成功不回数据**：这个动作的产物是"连接换了一条"，而连接状态是
+     * [mcpServerStatus] 的事 —— 一次只答一件事（调用方拿到回执后再问一次状态）。
+     */
+    async reconnectMcpServer(name) {
+      if (!query || typeof query.reconnectMcpServer !== 'function') {
+        throw new Error(t('session.cliTooOldMcpReconnect'));
+      }
+      await query.reconnectMcpServer(name);
+    },
+
+    /**
+     * 启用 / 停用一个 MCP server。
+     *
+     * scope 是**量出来的**，不是照文档推的：SDK 对 setMcpServers 明说"只管动态
+     * 加的 server，配置文件里的不受影响"，对 mcp_toggle 一个字没说。见
+     * `tools/probe-mcp-controls.mjs` 与设计稿 §3。
+     *
+     * 同 [reconnectMcpServer]：缺方法抛错，不静默成功。
+     */
+    async toggleMcpServer(name, enabled) {
+      if (!query || typeof query.toggleMcpServer !== 'function') {
+        throw new Error(t('session.cliTooOldMcpToggle'));
+      }
+      await query.toggleMcpServer(name, enabled);
+    },
+
+    /**
      * 会话可用的命令列表（带描述）。
      *
      * 尽力而为：取不到给空数组，**不抛**。命令补全挂着不该把聊天带崩 ——
