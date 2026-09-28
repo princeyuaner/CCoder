@@ -173,18 +173,32 @@
     <change-notes><![CDATA[
     <h3>0.2.29</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.28 (see the
-          publish spec, section 8). Do not copy the previous version's list &mdash; it is in
-          git (tag v0.2.28 &rarr; c5b4eff). <b>Check whether 0.2.28 has been approved
-          first</b>: it is still in review, and if it never gets listed, its five entries
-          have to be carried into this list.</li>
+      <li><b>Keep a second folder in step with yours</b> &mdash; Settings has a new
+          <i>Sync</i> page: pick a local folder and a target folder, flip the switch, and
+          every file you add, edit or delete is mirrored over while the tool window is
+          open. Nothing happens until you configure it; the plugin's own state lives in the
+          IDE's system directory, never in your project; and on the other side it only ever
+          removes files <i>it</i> copied &mdash; if the target's copy was changed by
+          something else, it says so and leaves it alone.</li>
+      <li><b>The sync card tells you what it did</b> &mdash; a card left of <i>Context</i>
+          holds the on/off switch and the log. When a round really moved files, a small
+          bubble above the card names up to three of them for three seconds, and clicking it
+          opens the same log.</li>
+      <li><b>The group-chat page is gone from Settings</b> &mdash; it was a single QR code;
+          the <i>Sync</i> page takes that slot.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 0.2.28 的增量（见发布设计稿 §八）。别照抄上一版的清单 —— 它在
-          git 里（tag v0.2.28 &rarr; c5b4eff）。<b>先查 0.2.28 过审没有</b>：它还在审核中，
-          万一没过审，那五条要并进来。</li>
+      <li><b>让第二个目录跟着你的目录走</b> &mdash; 设置里多了一页「同步」：选一个本地目录、
+          一个目标目录，打开开关，你在本地新增 / 修改 / 删除的文件就会镜像过去（工具窗口开着
+          的时候）。<b>不配置就不开启</b>；插件自己的状态放在 IDE 的系统目录里，<b>一个字都
+          不写进你的项目</b>；目标端那边，它只删<b>自己复制过去的</b>那些 &mdash;
+          那份被别的程序改过的话，它只提醒、不动手。</li>
+      <li><b>同步卡把做过的事说出来</b> &mdash; 上下文左边多了一张卡：开关在卡上，
+          日志点一下就开。一轮真的动了文件时，卡上方会冒一句"同步了哪几个文件"（最多三条），
+          3 秒后自己关；点它打开的就是同一屏日志。</li>
+      <li><b>设置里的「群交流」页签删了</b> &mdash; 那一页只有一张二维码，位置现在归「同步」。</li>
     </ul>
     ]]></change-notes>
 
