@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 后台任务面板 · 提案</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm New UI 的真实主题变量，与
+   sync-bubble / card-actions / context-details / status-cards-b 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --track:#2b2d30;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --track:#e8eaed;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1220px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+  padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 78ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 8px 14px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.intro { margin: 40px 0 8px; display:grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); gap: 16px; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 8px; font-size: 13px; font-family: var(--mono); letter-spacing:.06em; color: var(--page-dim); text-transform:uppercase; }
+.card p { margin: 0; font-size: 13.5px; color: var(--page-dim); }
+.card p + p { margin-top: 8px; }
+.card p b { color: var(--page-fg); }
+.card code, .spec code, .note code, .rel code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+
+.variant { margin: 72px 0 0; padding-top: 34px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap: 14px; flex-wrap:wrap; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.1em; text-transform:uppercase; padding: 4px 9px; border-radius: 5px;
+  border:1px solid var(--page-line); color: var(--page-dim); background: var(--page-card); }
+.tag.pick { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+h2 { font-size: 22px; margin: 0; font-weight: 600; }
+.vsub { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 84ch; }
+.split { display:grid; grid-template-columns: 460px minmax(280px,1fr); gap: 34px; margin-top: 26px; align-items:start; }
+@media (max-width: 940px) { .split { grid-template-columns: 1fr; } }
+
+/* ---- 那个 420px 的工具窗口 ---- */
+.pane { border:1px solid var(--border); border-radius: 10px; padding: 16px; background: var(--editor); }
+.win { position: relative; width: 420px; border:1px solid var(--border); border-radius: 6px; overflow:hidden; background: var(--panel); }
+.win-head { display:flex; align-items:center; gap:6px; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
+.chip { font-family: var(--mono); font-size: 10px; color: var(--dim); border:1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
+.chip.on { color: var(--text); background: var(--hover); }
+.transcript { background: var(--editor); padding: 10px 12px 14px; min-height: 176px; }
+.ln { height: 7px; border-radius: 4px; background: var(--track); margin-bottom: 9px; }
+.ln.w80 { width: 80%; } .ln.w62 { width: 62%; } .ln.w71 { width: 71%; } .ln.w45 { width: 45%; }
+.ln.accent { background: var(--accent-soft); }
+
+/* 五张状态卡：面板 420、两侧各 8、卡片间隙 5 → 每张 76.8（与真机一致） */
+.strip { display:grid; grid-template-columns: repeat(5, 1fr); gap:5px; padding: 0 8px; }
+.sc { position:relative; border:1px solid var(--border); border-radius:6px; background: var(--panel);
+  padding: 5px 8px 6px; min-height: 50px; display:flex; flex-direction:column; align-items:center; }
+.sc .row1 { display:flex; align-items:center; gap:4px; font-size: 10.5px; color: var(--dim); white-space:nowrap; }
+.sc .val { font-size: 12px; color: var(--text); margin-top: 2px; white-space:nowrap; }
+.sc.quiet .val { color: var(--dim); }
+.sc.hl { border-color: var(--accent); }
+.meter { position:absolute; left:0; right:0; bottom:0; height: 2px; background: var(--track); border-radius: 0 0 5px 5px; overflow:hidden; }
+.meter i { display:block; height:100%; width: 6%; background: var(--accent); }
+.composer { margin: 7px 8px 8px; border:1px solid var(--border); border-radius: 8px; background: var(--editor); }
+.composer .in { padding: 12px 12px 4px; }
+.composer .foot { display:flex; align-items:center; justify-content:space-between; padding: 6px 10px 8px; border-top: 1px solid var(--border-soft); }
+.pill { font-family: var(--mono); font-size: 10px; color: var(--dim); border:1px solid var(--border); border-radius: 999px; padding: 2px 7px; }
+.send { width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); display:grid; place-items:center; font-size: 11px; }
+
+/* ---- 浮层（任务面板 / 输出）---- */
+.pop { position:absolute; z-index:4; background: var(--surface); border:1px solid var(--border); border-radius: 9px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.40); }
+.pop .ph { display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 9px 12px 7px; }
+.pop .ph .t { font-size: 12.5px; color: var(--text); }
+.pop .ph .t b { font-weight: 600; }
+.pop .ph .x { color: var(--dim); font-size: 12px; }
+.pop .foot2 { display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 7px 12px 9px;
+  border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--dim); }
+
+/* 面板里的分段 */
+.psec { display:flex; align-items:center; justify-content:space-between; padding: 7px 12px 4px;
+  font-family: var(--mono); font-size: 10px; letter-spacing:.09em; text-transform:uppercase; color: var(--dim); }
+.psec .c { letter-spacing:0; }
+.prow { padding: 6px 12px 8px; border-top: 1px solid var(--border-soft); }
+.prow.fin { opacity:.82; }
+.pl1 { display:flex; align-items:baseline; gap:6px; }
+.btag { font-family: var(--mono); font-size: 9.5px; letter-spacing:.06em; border:1px solid var(--border);
+  border-radius: 4px; padding: 0 5px; color: var(--dim); white-space:nowrap; }
+.btag.agent { color: var(--accent); border-color: var(--accent-soft); }
+.pname { font-size: 12.5px; color: var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.pmeta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space:nowrap; }
+.pl2 { display:flex; align-items:center; gap:6px; margin-top: 3px; }
+.psum { font-size: 11.5px; color: var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.psum .k { color: var(--text); }
+.psum .er { color: var(--danger); }
+.btn { font-size: 10.5px; color: var(--text); border:1px solid var(--border); background: var(--panel);
+  border-radius: 5px; padding: 1px 7px; white-space:nowrap; }
+.btn.pri { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+.stop { width: 8px; height: 8px; border-radius: 2px; background: var(--dim); }
+.fold { display:flex; align-items:center; justify-content:space-between; padding: 7px 12px 9px;
+  border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--dim); }
+.fold .ar { font-family: var(--mono); }
+.okmark { color: var(--ok); font-family: var(--mono); font-size: 11px; }
+.ermark { color: var(--danger); font-family: var(--mono); font-size: 11px; }
+
+/* 输出浮层 */
+.out { margin: 0 12px 8px; border:1px solid var(--border-soft); border-radius: 6px; background: var(--code);
+  padding: 8px 10px; font-family: var(--mono); font-size: 10.5px; line-height: 1.65; color: var(--dim);
+  white-space: pre-wrap; }
+.out .g { color: var(--ok); } .out .k { color: var(--text); } .out .er { color: var(--danger); }
+.opth { font-family: var(--mono); font-size: 10.5px; color: var(--dim); padding: 0 12px 6px; }
+
+/* 转写区的工具卡：放到后台的三种态 */
+.tool { margin: 0 0 9px; border:1px solid var(--border); border-radius: 7px; background: var(--panel); }
+.tool .th { display:flex; align-items:center; gap:7px; padding: 6px 9px; border-bottom: 1px solid var(--border-soft); }
+.tool .tn { font-size: 12px; color: var(--text); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tool .tt { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space:nowrap; }
+.tool .tb { padding: 7px 9px; font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+.tool .tb .k { color: var(--text); }
+.tool .tfoot { display:flex; align-items:center; justify-content:space-between; padding: 5px 9px 7px;
+  border-top: 1px solid var(--border-soft); font-size: 10.5px; color: var(--dim); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.dot.ok { background: var(--ok); } .dot.er { background: var(--danger); }
+.spin { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--accent); border-right-color: transparent; }
+
+/* ---- 右侧说明 ---- */
+.spec { margin: 0; }
+.spec dt { font-family: var(--mono); font-size: 10.5px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); margin-top: 16px; }
+.spec dt:first-child { margin-top: 0; }
+.spec dd { margin: 6px 0 0; font-size: 13.5px; color: var(--page-fg); }
+.spec dd.dim { color: var(--page-dim); }
+.spec ul { margin: 6px 0 0; padding-left: 18px; color: var(--page-dim); font-size: 13.5px; }
+.spec li { margin: 3px 0; }
+.spec li b { color: var(--page-fg); }
+
+.rel { margin: 40px 0 0; padding: 20px 22px; border:1px solid var(--page-line); border-radius: 12px; background: var(--page-card); }
+.rel h3 { margin: 0 0 10px; font-size: 15px; }
+.rel p { margin: 8px 0 0; font-size: 13.5px; color: var(--page-dim); max-width: 96ch; }
+.rel p b { color: var(--page-fg); }
+.rel .warnbox { margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--warn); background: var(--code); border-radius: 0 8px 8px 0; }
+.rel .warnbox p { margin: 0; }
+.rel .warnbox p + p { margin-top: 8px; }
+
+.verdict { margin-top: 56px; padding: 24px 26px; border:1px solid var(--page-line); border-radius: 14px; background: var(--page-card); }
+.verdict h2 { font-size: 19px; margin-bottom: 10px; }
+.verdict p { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 96ch; }
+.verdict b { color: var(--page-fg); }
+.verdict ol { color: var(--page-dim); font-size: 13.5px; padding-left: 20px; }
+.verdict ol li { margin: 8px 0; }
+.verdict ol li b { color: var(--page-fg); }
+.note { color: var(--page-dim); font-size: 12.5px; margin-top: 26px; max-width: 100ch; }
+.note code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 0.2.30 候选 · 提案</p>
+      <h1>后台任务面板做完整，是指什么</h1>
+      <p class="lede">
+        今天那张 <b>⚇ 子代理</b> 卡只回答一个问题——"眼下有谁在跑"。跑完就从表里删掉，
+        而<b>结局、输出文件、花了多少、正在做什么</b>这些字段，SDK 早就一笔一笔送过来了。
+        "做完整"= 把面板从<b>在跑清单</b>变成<b>有始有终的账单</b>，再加一个今天完全没有的动作：
+        <b>把前台阻塞的任务挪到后台</b>（终端里的 Ctrl+B）。
+      </p>
+    </div>
+    <div class="toggle" id="theme">
+      <button data-t="dark" aria-pressed="true">Dark</button>
+      <button data-t="light" aria-pressed="false">Light</button>
+    </div>
+  </div>
+
+  <!-- ================= 四条前提（都是查过的） ================= -->
+  <div class="intro">
+    <div class="card">
+      <h3>今天</h3>
+      <p>浮层 = <code>runStatus.running</code> 的行，一行一张卡（kind + label），右端 ■ 终止；
+        对得上子代理记录的才点得开转写。</p>
+      <p><code>task_notification</code> 一到就把这条从 <code>byId</code> 里 <b>remove</b>
+        （RunStatusTracker.kt:237）—— 所以"完了没有、成了没有"在界面上是<b>零</b>。</p>
+    </div>
+    <div class="card">
+      <h3>事件流里已经有、只是没画</h3>
+      <p><code>task_progress</code>：<code>usage{total_tokens, tool_uses, duration_ms}</code>、
+        <code>last_tool_name</code>、<code>summary</code>。</p>
+      <p><code>task_updated.patch</code>：<code>status</code>(跑/暂停/成/败/被杀)、
+        <code>end_time</code>、<code>error</code>、<code>is_backgrounded</code>。<br>
+        <code>task_notification</code>：<code>status</code>、<code>summary</code>、
+        <b><code>output_file</code></b>、<code>usage</code>、<code>resource_links</code>。</p>
+    </div>
+    <div class="card">
+      <h3>一行摘要：开关早已打开</h3>
+      <p><code>agentProgressSummaries: true</code> 就写在 <code>session.js:93</code>。
+        SDK 的原话：每 ~30 秒 fork 一次子代理的对话，产出一句现在时的描述
+        （"Analyzing authentication module"），挂在 <code>task_progress.summary</code> 上，
+        复用模型与 prompt 缓存。MCP 任务则自带 status。</p>
+      <p>也就是说：<b>这一行数据此刻正在流过来，只是被丢掉了</b>。</p>
+    </div>
+    <div class="card">
+      <h3>今天完全没有的一个动作</h3>
+      <p><code>Query.backgroundTasks(toolUseId?)</code> —— 把<b>前台正在阻塞</b>的 bash /
+        子代理挪到后台，等价于终端里按 <b>Ctrl+B</b>：那个阻塞的 tool call 立刻返回
+        "running in the background"，回合继续往下走，任务照跑，结束时照发
+        <code>task_notification</code>。</p>
+      <p>我们没有它：一条 <code>pnpm test --watch</code> 就是把你钉在那儿。</p>
+    </div>
+  </div>
+
+  <!-- ============================================================ 甲 -->
+  <section class="variant">
+    <div class="vhead"><span class="tag">甲 · 现状</span><h2>只有"在跑"，跑完就没了</h2></div>
+    <p class="vsub">
+      点 ⚇ 卡弹出来的这一屏。能做的只有两件：看谁在跑、终止它。空态写着"当前没有在跑的子代理"
+      —— 词表里那句注还记着代价：已结束的<b>回看不了转写</b>（那个入口 2026-09-24 被你砍掉了）。
+    </p>
+    <div class="split">
+      <div class="pane">
+        <div class="win">
+          <div class="win-head"><span class="chip on">新会话</span><span class="chip">会话 2</span><span class="chip">＋</span></div>
+          <div class="transcript">
+            <div class="ln w80"></div><div class="ln w62"></div><div class="ln accent w45"></div><div class="ln w71"></div>
+          </div>
+          <div class="strip">
+            <div class="sc"><div class="row1">◍ 连接</div><div class="val">已连接</div></div>
+            <div class="sc"><div class="row1">⟳ 同步</div><div class="val">空闲</div></div>
+            <div class="sc"><div class="row1">◔ 上下文</div><div class="val">6%</div><div class="meter"><i></i></div></div>
+            <div class="sc quiet"><div class="row1">☑ 任务列表</div><div class="val">空闲</div></div>
+            <div class="sc hl"><div class="row1">⚇ 子代理</div><div class="val">2 个在跑</div></div>
+          </div>
+          <div class="composer"><div class="in"><div class="ln w62"></div></div>
+            <div class="foot"><span class="pill">@ 文件 · # 符号 · Enter 发送</span><span class="send">↑</span></div></div>
+
+          <!-- 现状浮层：贴着 ⚇ 卡 -->
+          <div class="pop" style="left:186px; width:224px; bottom:calc(100% - 206px);">
+            <div style="padding: 9px 12px 10px;">
+              <div style="display:flex;align-items:baseline;gap:6px;">
+                <span class="btag agent">子代理</span>
+                <span class="pname">调研 SDK 的后台任务面</span>
+                <span class="stop"></span>
+              </div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-top:9px;">
+                <span class="btag agent">子代理</span>
+                <span class="pname">校验 plugin.xml</span>
+                <span class="stop"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>能看见的</dt>
+        <dd>谁在跑（kind + label）、一颗 ■ 终止、对得上号时能点开转写。</dd>
+        <dt>看不见的</dt>
+        <dd class="dim">跑了多久、用了多少 token、调了几次工具、最后成了还是败了、
+          失败原因、输出去哪了、它产出过哪些文件 —— 这些字段在事件里<code>都有</code>。</dd>
+        <dt>最刺眼的一处</dt>
+        <dd>一条后台命令跑完了，界面上<b>什么都没发生</b>：那一行静悄悄地消失。
+          用户能看见"有个东西在跑"，却永远等不到"它好了"。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============================================================ 乙 -->
+  <section class="variant">
+    <div class="vhead"><span class="tag pick">乙 · 主图</span><h2>任务面板：在跑 · 暂停 · 刚结束</h2></div>
+    <p class="vsub">
+      同一张卡点开，换成三段式。每行两排：上排<b>名字 + 时间/用量 + ■</b>，下排<b>一行摘要 + 动作</b>。
+      跑着的照旧只算"活着的"，但<b>刚结束的留一小段</b>（成/败/停 + 用时 + 看输出），
+      管家任务（ambient）折成一行不占地方。
+    </p>
+    <div class="split">
+      <div class="pane">
+        <div class="win">
+          <div class="win-head"><span class="chip on">新会话</span><span class="chip">会话 2</span><span class="chip">＋</span></div>
+          <div class="transcript" style="min-height:400px; position:relative;">
+            <div class="ln w80"></div><div class="ln w62"></div>
+          </div>
+          <div class="strip">
+            <div class="sc"><div class="row1">◍ 连接</div><div class="val">已连接</div></div>
+            <div class="sc"><div class="row1">⟳ 同步</div><div class="val">空闲</div></div>
+            <div class="sc"><div class="row1">◔ 上下文</div><div class="val">6%</div><div class="meter"><i></i></div></div>
+            <div class="sc quiet"><div class="row1">☑ 任务列表</div><div class="val">空闲</div></div>
+            <div class="sc hl"><div class="row1">⚇ 任务</div><div class="val">2 跑 · 1 完</div></div>
+          </div>
+          <div class="composer"><div class="in"><div class="ln w62"></div></div>
+            <div class="foot"><span class="pill">@ 文件 · # 符号 · Enter 发送</span><span class="send">↑</span></div></div>
+
+          <!-- 提案浮层：从 ⚇ 卡往上弹，盖住转写区 -->
+          <div class="pop" style="left:8px; width:404px; top:62px;">
+            <div class="ph">
+              <span class="t"><b>后台任务</b>　<span class="pmeta">5 条 · 从连上这个会话起记账</span></span>
+              <span class="x">✕</span>
+            </div>
+
+            <div class="psec"><span>在跑</span><span class="c">2</span></div>
+
+            <div class="prow">
+              <div class="pl1">
+                <span class="btag agent">子代理</span>
+                <span class="pname">调研 SDK 的后台任务面</span>
+                <span class="pmeta">1m42s · 12 工具 · 48k</span>
+                <span class="stop"></span>
+              </div>
+              <div class="pl2">
+                <span class="psum">正在读 <span class="k">sidecar/tools/sdk-surface.mjs</span>，前一份表已对完</span>
+                <span class="btn">Read</span>
+              </div>
+            </div>
+
+            <div class="prow">
+              <div class="pl1">
+                <span class="btag">命令</span>
+                <span class="pname">pnpm test --watch</span>
+                <span class="pmeta">3m12s · 前台阻塞</span>
+                <span class="stop"></span>
+              </div>
+              <div class="pl2">
+                <span class="psum">第 3 轮 · 上次 316 passed</span>
+                <span class="btn pri">放到后台</span>
+              </div>
+            </div>
+
+            <div class="psec"><span>刚结束</span><span class="c">2</span></div>
+
+            <div class="prow fin">
+              <div class="pl1">
+                <span class="okmark">✓</span>
+                <span class="pname">校验 plugin.xml 的十个通道</span>
+                <span class="pmeta">2m08s · 38 工具</span>
+              </div>
+              <div class="pl2">
+                <span class="psum">10 条通道全绿，一条空态缺说明</span>
+                <span class="btn">看输出</span><span class="btn">看转写</span>
+              </div>
+            </div>
+
+            <div class="prow fin">
+              <div class="pl1">
+                <span class="ermark">✕</span>
+                <span class="pname">node tools/probe-x.mjs</span>
+                <span class="pmeta">0m41s · 退出码 1</span>
+              </div>
+              <div class="pl2">
+                <span class="psum er">Error: Cannot find module 'undici'</span>
+                <span class="btn">看输出</span>
+              </div>
+            </div>
+
+            <div class="fold"><span>还有 3 个后台维护任务（ambient：看盘、live-update 之类，不进活动指示）</span><span class="ar">⌄</span></div>
+            <div class="foot2"><span>只有从连上这个会话起看到的那些 —— 重开会话不带历史</span><span>清空</span></div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>三段的分法</dt>
+        <dd>
+          <b>在跑</b>＝<code>task_updated.patch.status ∈ running / pending</code>；
+          <b>暂停</b>（图里是空的，SDK 有 <code>paused</code> 与 <code>total_paused_ms</code>，
+          有就单起一段）；<b>刚结束</b>＝<code>completed / failed / killed / stopped</code>。
+        </dd>
+        <dt>每行的数字</dt>
+        <dd><code>task_progress.usage</code> 直接给 <code>duration_ms</code> /
+          <code>tool_uses</code> / <code>total_tokens</code>；<code>last_tool_name</code>
+          就是右端那颗小标（图上那颗 <b>Read</b>）。</dd>
+        <dt>一行摘要</dt>
+        <dd><code>task_progress.summary</code> —— 子代理那句我们已经在收
+          （<code>agentProgressSummaries: true</code>）；MCP 任务用它自己的 status。
+          取不到时这一行写"正在跑"，<b>不装</b>。</dd>
+        <dt>刚结束那一段</dt>
+        <dd>每行带结局标记（✓ / ✕ / 停）、用时、一行 <code>summary</code>；右端
+          <b>看输出</b>（<code>output_file</code>）、子代理还有<b>看转写</b>；
+          MCP 任务若有 <code>resource_links</code>，那儿写"产出文件 N 个"，点开就是那几个文件。</dd>
+        <dt>ambient 那行</dt>
+        <dd class="dim">SDK 的原话：这些管家任务<b>不该进活动指示，但可以出现在任务面板里</b>。
+          默认折成一行、给个数 —— 别让 live-update 的看门狗把面板刷满。</dd>
+        <dt>人数上限</dt>
+        <dd class="dim">在跑那段照旧封顶（今天 <code>MAX_AGENT_CARDS</code>），多出来的仍是
+          "还有 N 个在跑"；刚结束只留最近两条，不清空也在下一轮进来时挤掉旧的。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============================================================ 丙 -->
+  <section class="variant">
+    <div class="vhead"><span class="tag">丙 · 点"看输出"</span><h2>输出文件：末尾几十行 + 在编辑器里打开</h2></div>
+    <p class="vsub">
+      <code>task_notification.output_file</code> 是每个任务完整输出的落盘位置（今天完全没用）。
+      浮层读末尾一屏、给"在编辑器里打开"和"复制全部"；<b>文件不在了就说不在了</b>
+      （临时目录会被清），不装作"输出是空的"。
+    </p>
+    <div class="split">
+      <div class="pane">
+        <div class="win">
+          <div class="win-head"><span class="chip on">新会话</span><span class="chip">＋</span></div>
+          <div class="transcript" style="min-height:150px;position:relative;">
+            <div class="pop" style="left:8px; width:404px; top:8px;">
+              <div class="ph">
+                <span class="t"><b>命令输出</b>　<span class="pmeta">node tools/probe-mcp-hooks.mjs · 0m41s · 退出码 1</span></span>
+                <span class="x">✕</span>
+              </div>
+              <div class="opth">C:\Users\…\Temp\ccoder-claude\…\task_01H9…\output.txt</div>
+              <div class="out">…
+Q0: 无配置时 mcpServerStatus 返回 3 个
+Q1: 被读到了：status=failed error="Connection closed"
+Q2: 批准后仍是 status=failed（说明 Q1 那次也不是被批准挡住的）
+
+<span class="er">Error: Cannot find module 'undici'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1215:15)</span>
+    at probe (tools/probe-x.mjs:41:11)</div>
+              <div class="foot2"><span>末尾 200 行 · 全文 1,284 行</span>
+                <span><span class="btn">复制全部</span>　<span class="btn pri">在编辑器里打开</span></span></div>
+            </div>
+          </div>
+          <div class="strip">
+            <div class="sc"><div class="row1">◍ 连接</div><div class="val">已连接</div></div>
+            <div class="sc"><div class="row1">⟳ 同步</div><div class="val">空闲</div></div>
+            <div class="sc"><div class="row1">◔ 上下文</div><div class="val">6%</div><div class="meter"><i></i></div></div>
+            <div class="sc quiet"><div class="row1">☑ 任务列表</div><div class="val">空闲</div></div>
+            <div class="sc"><div class="row1">⚇ 任务</div><div class="val">1 完</div></div>
+          </div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>为什么不做成"贴进转写区"</dt>
+        <dd>长输出贴进对话会把转写区淹掉，而且它是<b>工具产出</b>，不是对话内容。
+          浮层是"要的时候才看"的那一档；真要细看，在编辑器里打开（顺手就有搜索、折叠、大文件支持）。</dd>
+        <dt>三处边界</dt>
+        <dd class="dim">
+          ① 文件被清掉 → 一行"输出文件不在了（临时目录会清）"，并仍然给"看转写"；
+          ② 文件很大 → 只读末尾 N 行，标题写明"末尾 200 行 · 全文 N 行"；
+          ③ 编码/换行 → 按 UTF-8 读、坏字节替换，不因为一行乱码整屏读不出来。
+        </dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ============================================================ 丁 -->
+  <section class="variant">
+    <div class="vhead"><span class="tag pick">丁 · 新动作</span><h2>转写区那张工具卡上多一颗「放到后台」</h2></div>
+    <p class="vsub">
+      <code>Query.backgroundTasks(toolUseId)</code> 只对<b>前台正阻塞</b>的那个 tool call 有意义
+      （子代理的 <code>Task</code>、单条 <code>Bash</code>）。它一旦出手，那条 tool_result
+      立刻变成 "running in the background"，回合接着往下走 —— 这是"我不想等，但也不想杀它"。
+    </p>
+    <div class="split">
+      <div class="pane">
+        <div class="win">
+          <div class="win-head"><span class="chip on">新会话</span><span class="chip">＋</span></div>
+          <div class="transcript" style="min-height:236px;">
+            <!-- 态一：前台阻塞 -->
+            <div class="tool">
+              <div class="th"><span class="spin"></span><span class="tn">Bash · pnpm test --watch</span><span class="tt">3 分 12 秒</span></div>
+              <div class="tfoot"><span>还在跑 · 没有输出上限就看不到头</span><span class="btn pri">放到后台</span></div>
+            </div>
+            <!-- 态二：已挪到后台 -->
+            <div class="tool">
+              <div class="th"><span class="dot"></span><span class="tn">Bash · node tools/probe-mcp-hooks.mjs</span><span class="tt">在后台跑 · 0 分 41 秒</span></div>
+              <div class="tb">running in the background</div>
+              <div class="tfoot"><span>结束时会在面板上留一条，并给一句摘要</span><span class="btn">看输出</span></div>
+            </div>
+            <!-- 态三：完了 -->
+            <div class="tool">
+              <div class="th"><span class="dot ok"></span><span class="tn">Bash · git status --short</span><span class="tt">完成 · 0 分 03 秒</span></div>
+              <div class="tb"><span class="k">M src/main/kotlin/com/ccoder/ui/RunStatusTracker.kt</span></div>
+              <div class="tfoot"><span>结局与输出都在面板里，不再从卡上消失</span><span class="btn">看输出</span></div>
+            </div>
+          </div>
+          <div class="strip">
+            <div class="sc"><div class="row1">◍ 连接</div><div class="val">已连接</div></div>
+            <div class="sc"><div class="row1">⟳ 同步</div><div class="val">空闲</div></div>
+            <div class="sc"><div class="row1">◔ 上下文</div><div class="val">7%</div><div class="meter"><i></i></div></div>
+            <div class="sc quiet"><div class="row1">☑ 任务列表</div><div class="val">空闲</div></div>
+            <div class="sc hl"><div class="row1">⚇ 任务</div><div class="val">1 跑 · 1 完</div></div>
+          </div>
+          <div class="composer"><div class="in"><div class="ln w62"></div></div>
+            <div class="foot"><span class="pill">@ 文件 · # 符号 · Enter 发送</span><span class="send">↑</span></div></div>
+        </div>
+      </div>
+      <dl class="spec">
+        <dt>两个入口，一个动作</dt>
+        <dd>转写区的工具卡上（图里），以及面板"在跑"那段的行上 —— 同一颗按钮，
+          走同一条 <code>backgroundTasks(toolUseId)</code>。</dd>
+        <dt>为什么不是"停止"</dt>
+        <dd>停止是<b>杀</b>；这颗是<b>换车道</b>。今天的界面上只有杀，于是"这条命令要跑十分钟"
+          只剩两个选项：等，或者杀掉重来。</dd>
+        <dt>失败怎么说</dt>
+        <dd><code>toolUseId</code> 对不上任何前台任务时返回 <code>false</code>（那是竞态：
+          它刚好自己跑完了）—— 按钮撤掉、卡按正常结局收尾，不弹错。
+          会话被 <code>CLAUDE_CODE_DISABLE_BACKGROUND_TASKS</code> 禁掉时抛错 —— 那时按钮<b>根本不该出现</b>。</dd>
+        <dt>禁用条件</dt>
+        <dd class="dim">非前台阻塞的卡（子代理里再派子代理、已经结束的、MCP 任务）不给这颗按钮 —— 它没有意义。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ================= 与既有决定的关系 ================= -->
+  <div class="rel">
+    <h3>三处要跟你已经拍过的板对齐</h3>
+
+    <div class="warnbox">
+      <p><b>① "刚结束"那一段，和你 2026-09-24 说过的话是反的。</b>
+        你当时砍掉的是<b>"查看已结束的"整段历史子代理</b>（一长串、噪声、还要单独发一次请求去磁盘读）——
+        词表里那句注（<code>CcoderBundle_zh.properties:405</code>）记着当时的代价：已结束的回看不了转写。</p>
+      <p>这里要的只有<b>最近这一两次的结局</b>：一条、带输出入口、下一轮就被挤掉。
+        但我不含糊 —— 若你仍然不要，乙那段直接砍掉，面板保持只列在跑的，
+        只留"一行摘要 + 看输出 + 放到后台"这三样（<b>那三样与那个决定不冲突</b>）。</p>
+    </div>
+
+    <p><b>② <code>perTaskStopAffordance</code> 是个要拍板的开关。</b>
+      今天不声明它：点「停止」= 中断这一回合，<b>后台任务跟着一起被杀</b>。
+      声明它（SDK 的原话是"宿主自己渲染了逐个停的控件"）：中断<b>只收这一回合</b>，
+      后台任务留着，由面板逐个停。我们其实已经有逐个停的按钮了 ——
+      但要不要把"停止"从"全杀"改成"只收这一回合"，是产品决定，不是 SDK 决定。</p>
+
+    <p><b>③ ambient 会改变"有没有在跑"的口径。</b>
+      <code>task_started.ambient</code> 与 <code>background_tasks_changed[].ambient</code>
+      是 SDK 明说的"别拿它当活动指示"的那些（看盘、live-update 看门狗）。
+      今天我们没有这个字段的概念，卡上的数很可能把它们也算进去了 ——
+      接面板时顺手把卡面的计数改成 <code>非 ambient 的在跑数</code>。</p>
+  </div>
+
+  <!-- ============================================================ 落地 -->
+  <div class="verdict">
+    <h2>落地分四步（每步都能单独发一版）</h2>
+    <ol>
+      <li><b>行上补数据</b>：<code>RunStatusTracker</code> 已经收着 <code>task_progress</code>
+        / <code>task_updated</code> —— 把 <code>usage</code>、<code>last_tool_name</code>、
+        <code>summary</code>、<code>patch.status</code> 存进 <code>RunningTask</code>，
+        面板两排就能画满；结束的那条别 remove，标成结局。</li>
+      <li><b>看输出</b>：<code>output_file</code> → 浮层读末尾 N 行 + 在编辑器里打开；
+        文件不在了说实话。</li>
+      <li><b>放到后台</b>：协议加一条 <code>backgroundTasks</code>（照 <code>stopTask</code> 的写法），
+        转写区工具卡与面板行两个入口；<code>false</code> 当竞态处理。</li>
+      <li><b>两个开关拍板</b>：<code>perTaskStopAffordance</code>（停止的语义）、
+        "刚结束"这一段要不要 —— 我的建议是<b>要</b>，但只留最近两条。</li>
+    </ol>
+    <p>
+      真机上要看的三件（无头环境验不了）：面板在有 5+ 条时的<b>高度与滚动</b>；
+      <code>output_file</code> 在 Windows 上的<b>真实落点与生命周期</b>（谁清的、多久清）；
+      ambient 任务在真实会话里的<b>数量级</b>（会不会一开就有五六条）。
+    </p>
+  </div>
+
+  <p class="note">
+    这一页里的字段名全部取自 <code>@anthropic-ai/claude-agent-sdk@0.3.283</code> 的
+    <code>sdk.d.ts</code>（<code>SDKTaskStartedMessage</code> / <code>SDKTaskProgressMessage</code> /
+    <code>SDKTaskUpdatedMessage</code> / <code>SDKTaskNotificationMessage</code> /
+    <code>SDKBackgroundTasksChangedMessage</code> / <code>Query.backgroundTasks</code> /
+    <code>Options.agentProgressSummaries</code> / <code>Options.perTaskStopAffordance</code>）；
+    现状那一段对着 <code>RunStatusTracker.kt:204-240</code>、<code>RunDetail.kt:153-180</code>、
+    <code>session.js:93</code>、<code>CcoderBundle_zh.properties:405</code> 核过。
+    图上的窗口尺寸（420px、五张卡各 76.8px）与 <code>sync-bubble.html</code> 同一套。
+  </p>
+
+</div>
+
+<script>
+  const root = document.documentElement;
+  document.querySelectorAll('#theme button').forEach(b => b.addEventListener('click', () => {
+    root.setAttribute('data-theme', b.dataset.t);
+    document.querySelectorAll('#theme button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+</script>
+</body>
+</html>

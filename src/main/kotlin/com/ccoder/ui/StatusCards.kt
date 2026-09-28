@@ -238,12 +238,17 @@ internal fun todoCardOf(todos: TaskList?): StatusCardModel {
     )
 }
 
-// ---- 子代理 ----
+// ---- 后台任务 ----
 
 /**
- * 子代理卡。
+ * 任务卡（2026-09-28 起叫「任务」，从前叫「子代理」—— 它现在装的不只是子代理，
+ * 还有后台命令与 MCP 任务，见 `RunDetail.kt` 的三段式面板）。
  *
- * **不画进度条。** 子代理没有分母 —— 在跑几个就是几个。见 [Indicator]。
+ * **不画进度条。** 任务没有分母 —— 在跑几个就是几个。见 [Indicator]。
+ *
+ * **数的是"在跑"**：暂停的照算（它还占着机器、还能被停掉），ambient 那些看家的不算
+ * （SDK 明说它们不是活动，`RunStatusTracker.isAmbient`）—— 否则指示器永远不归零。
+ * 刚结束的那几条**不进这个数**：卡是说"现在"，面板才是"刚才"。
  */
 internal fun runningCardOf(running: List<RunningTask>): StatusCardModel {
     if (running.isEmpty()) return quietCard(CARD_AGENTS)

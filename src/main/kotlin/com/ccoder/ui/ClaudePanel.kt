@@ -545,10 +545,15 @@ class ClaudePanel(
      */
     private var openDetail: DetailCard? = null
 
-    /** 画「运行中」浮层用的两份输入 —— 清单变了重画时照用，子代理那段不重问 sidecar。 */
+    /** 画「任务」浮层用的两份输入 —— 清单变了重画时照用，子代理那段不重问 sidecar。 */
     private var runningAgents: List<SubagentInfo> = emptyList()
 
     private var shownRunning: List<RunningTask> = emptyList()
+
+    /** 上一次画进去的"刚结束"与管家任务数 —— 判"要不要重画"要和 [shownRunning] 一起看。 */
+    private var shownFinished: List<FinishedTask> = emptyList()
+
+    private var shownAmbient = 0
 
     /**
      * 此刻浮层里画的是**"运行中"清单**（而不是某个子代理的转写页）。
@@ -1433,7 +1438,7 @@ class ClaudePanel(
             DetailCard.Todos -> showDetailPopup(
                 view,
                 runStatus.todos?.let(::buildTodoDetail)
-                    ?: buildRunningDetail(emptyList(), emptyList(), {}, {}),
+                    ?: buildTasksDetail(emptyList(), emptyList(), 0, emptyList(), {}, {}, {}),
             )
 
             // 子代理那一段要问一次 sidecar —— 它的记录在磁盘上，不在事件流里。
@@ -1525,7 +1530,7 @@ class ClaudePanel(
      */
     private fun showRunningDetail(agents: List<SubagentInfo>) {
         runningAgents = agents
-        shownRunning = runStatus.running
+        rememberShown()
         val box = runningDetailPanel()
         runningPopupBox = box
         // 旗子**必须在 showDetailPopup 之后立**：它内部先 cancel 旧浮层，
@@ -1541,11 +1546,14 @@ class ClaudePanel(
      * 参数只写在一个地方，免得哪天漏改一处（"展开"那个回调尤其容易漏，
      * 它捕获的是 [runningAgents] 而不是参数）。
      */
-    private fun runningDetailPanel(): JPanel = buildRunningDetail(
+    private fun runningDetailPanel(): JPanel = buildTasksDetail(
         runStatus.running,
+        runStatus.recentFinished,
+        runStatus.ambientCount,
         runningAgents,
         ::stopRunningTask,
         ::openSubagentTranscript,
+        ::openTaskOutput,
     )
 
     /**
@@ -1577,8 +1585,8 @@ class ClaudePanel(
         // 说还开着，于是这一趟刷新就把窗口**重新显示**出来。
         val box = runningPopupBox ?: return
         if (!runningListShown || !box.isShowing) return
-        if (runStatus.running == shownRunning) return
-        if (runStatus.running.rendersSameShapeAs(shownRunning)) {
+        if (!shownChanged()) return
+        if (!shownShapeChanged()) {
             swapInto(box)
             return
         }
@@ -1595,11 +1603,43 @@ class ClaudePanel(
      * 所以搬过去之后一切照旧；而换掉盒子就得重建窗口，那就会闪。
      */
     private fun swapInto(box: JPanel) {
-        shownRunning = runStatus.running
+        rememberShown()
         box.removeAll()
         runningDetailPanel().components.forEach { box.add(it) }
         box.revalidate()
         box.repaint()
+    }
+
+    /**
+     * "这一屏画的到底是哪一份" —— 三个字段**总是一起变**，所以只留一个写入口。
+     *
+     * 分开写的话，必然有一处漏掉：漏了"刚结束"，那条结局就永远不会自己冒出来。
+     */
+    private fun rememberShown() {
+        shownRunning = runStatus.running
+        shownFinished = runStatus.recentFinished
+        shownAmbient = runStatus.ambientCount
+    }
+
+    /** 内容变了没有（含读数、结局这类**不改高度**的东西）。 */
+    private fun shownChanged(): Boolean =
+        runStatus.running != shownRunning ||
+            runStatus.recentFinished != shownFinished ||
+            runStatus.ambientCount != shownAmbient
+
+    /**
+     * 形状变了没有（会改高度的那些，判据见 [rendersSameShapeAs]）。
+     *
+     * 管家任务那个数从 0 变 1 会**多出一行**，所以它算形状，不算内容。
+     */
+    private fun shownShapeChanged(): Boolean =
+        !runStatus.running.rendersSameShapeAs(shownRunning) ||
+            !runStatus.recentFinished.rendersSameShapeAs(shownFinished) ||
+            runStatus.ambientCount != shownAmbient
+
+    /** 看某个任务的输出文件（"刚结束"那段行上的那颗按钮）。 */
+    private fun openTaskOutput(task: FinishedTask) {
+        showTaskOutput(project, task)
     }
 
     /**

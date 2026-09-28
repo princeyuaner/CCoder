@@ -12,6 +12,12 @@ import com.google.gson.JsonObject
  *
  * @param kind `subagent_type`（explore / general-purpose …）或 `task_type`（local_bash …）
  * @param detail `task_progress` 里模型生成的一行进度，比最初的 description 更贴近"现在在干嘛"
+ * @param toolUses `task_progress.usage.tool_uses`
+ * @param lastTool `task_progress.last_tool_name` —— 它此刻正在用的那个工具
+ * @param paused `task_updated.patch.status == "paused"`（2026-09-28 起不再忽略）
+ * @param toolUseId SDK 在 task 族事件里同时给 `task_id` 与 `tool_use_id`；后者才是
+ *   与子代理记录（`SubagentInfo.toolUseId`）对号的那把钥匙 —— 从前只存 task_id，
+ *   靠"两者相等"这个**没验过的假设**在对号
  */
 internal data class RunningTask(
     val id: String,
@@ -20,6 +26,39 @@ internal data class RunningTask(
     val detail: String?,
     val tokens: Long,
     val durationMs: Long,
+    val toolUses: Int = 0,
+    val lastTool: String? = null,
+    val paused: Boolean = false,
+    val toolUseId: String? = null,
+)
+
+/** 一条任务的结局。`killed` 与 `stopped` 都归到 [Stopped]：对用户是同一件事。 */
+internal enum class TaskOutcome { Done, Failed, Stopped }
+
+/**
+ * 刚结束的那一条 —— 面板"刚结束"那段的原料。
+ *
+ * 为什么留：`task_notification` 自带 `status` / `summary` / `usage` / **`output_file`**，
+ * 而从前这条事件只做一件事 —— 把那一行从表里删掉（`byId::remove`）。于是"成了没有、
+ * 败在哪、输出去哪看"在界面上是零。
+ *
+ * @param detail 结局摘要（`task_notification.summary`，取不到时退到跑着时的最后一句进度）
+ * @param error `task_updated.patch.error` —— 失败的原因（通知事件里没有这个字段）
+ * @param outputFile 这个任务**完整输出**的落盘位置（`task_notification.output_file`）
+ * @param toolUseId 同 [RunningTask.toolUseId]：与子代理记录对号用
+ */
+internal data class FinishedTask(
+    val id: String,
+    val kind: String?,
+    val label: String?,
+    val detail: String?,
+    val outcome: TaskOutcome,
+    val error: String?,
+    val durationMs: Long,
+    val toolUses: Int,
+    val tokens: Long,
+    val outputFile: String?,
+    val toolUseId: String?,
 )
 
 /**
@@ -48,6 +87,22 @@ internal class RunStatusTracker {
     private val byId = LinkedHashMap<String, RunningTask>()
 
     /**
+     * 刚结束的那几条，**新的在前**。
+     *
+     * 有界（[MAX_FINISHED]）：这是"刚才那一下怎么了"的账，不是历史。要回看整段历史，
+     * 那是会话文件的事，不是这张浮层的事。
+     */
+    private val finished = ArrayDeque<FinishedTask>()
+
+    /**
+     * 还活着的 ambient 任务（看盘、live-update 看门狗那些）。
+     *
+     * 它们不进 [running]（SDK 明说别拿它们当活动指示，见 [isAmbient]），
+     * 但面板里要能说一句"还有 N 个后台维护任务"—— 只留一个数，不逐条画。
+     */
+    private val ambient = mutableSetOf<String>()
+
+    /**
      * 任务清单的条目，顺序 = 创建顺序。
      *
      * 新一代任务工具是**增量**的（一次一条 + 打补丁），所以这里存的是逐条累积的
@@ -70,8 +125,16 @@ internal class RunStatusTracker {
 
     val running: List<RunningTask> get() = byId.values.toList()
 
+    /** 刚结束的那几条（新的在前，最多 [MAX_FINISHED] 条）。 */
+    val recentFinished: List<FinishedTask> get() = finished.toList()
+
+    /** 还活着的 ambient 任务数 —— 面板里那句"还有 N 个后台维护任务"。 */
+    val ambientCount: Int get() = ambient.size
+
     fun reset() {
         byId.clear()
+        finished.clear()
+        ambient.clear()
         items.clear()
         awaitingCreate.clear()
         awaitingSnapshot.clear()
@@ -209,11 +272,14 @@ internal class RunStatusTracker {
                 val id = event.str("task_id") ?: return
                 if (isAmbient(event)) {
                     byId.remove(id)
+                    ambient.add(id)
                     return
                 }
+                ambient.remove(id)
                 byId[id] = (byId[id] ?: blankTask(id)).with(
                     kind = event.str("subagent_type") ?: event.str("task_type"),
                     label = event.str("description"),
+                    toolUseId = event.str("tool_use_id"),
                 )
             }
 
@@ -231,16 +297,26 @@ internal class RunStatusTracker {
                     detail = event.str("summary") ?: event.str("description") ?: prev.detail,
                     tokens = usage?.long("total_tokens") ?: prev.tokens,
                     durationMs = usage?.long("duration_ms") ?: prev.durationMs,
+                    toolUses = usage?.long("tool_uses")?.toInt() ?: prev.toolUses,
+                    lastTool = event.str("last_tool_name") ?: prev.lastTool,
                 )
             }
 
-            "task_notification" -> event.str("task_id")?.let(byId::remove)
+            // 结束：留一条"刚结束"的账，再把人从在跑的表里摘掉
+            "task_notification" -> finishFromNotification(event)
 
             "task_updated" -> {
                 val id = event.str("task_id") ?: return
-                event.obj("patch")?.str("status")?.let { status ->
-                    // 终态才移除。中间态（running / paused / pending）不动
-                    if (status in TERMINAL_STATUSES) byId.remove(id)
+                val patch = event.obj("patch") ?: return
+                // 描述被改（"移到了后台"之类）也认 —— 面板上那行名字要跟着走
+                patch.str("description")?.let { text ->
+                    byId[id]?.let { byId[id] = it.copy(label = text) }
+                }
+                when (patch.str("status")) {
+                    // 暂停：从前明确不动（那时面板只有"在跑"一档，暂停没有落点）
+                    "paused" -> byId[id]?.let { byId[id] = it.copy(paused = true) }
+                    "running", "pending" -> byId[id]?.let { byId[id] = it.copy(paused = false) }
+                    in TERMINAL_STATUSES -> finishFromUpdate(id, patch)
                 }
             }
         }
@@ -254,11 +330,15 @@ internal class RunStatusTracker {
      */
     private fun replaceMembership(tasks: JsonArray?) {
         val next = LinkedHashMap<String, RunningTask>()
+        val nextAmbient = mutableSetOf<String>()
         tasks?.forEach { element ->
             if (!element.isJsonObject) return@forEach
             val o = element.asJsonObject
             val id = o.str("task_id") ?: return@forEach
-            if (isAmbient(o)) return@forEach
+            if (isAmbient(o)) {
+                nextAmbient.add(id)
+                return@forEach
+            }
 
             val prev = byId[id] ?: blankTask(id)
             next[id] = prev.with(
@@ -268,15 +348,104 @@ internal class RunStatusTracker {
         }
         byId.clear()
         byId.putAll(next)
+        // ambient 也整集替换：这一版里就有、下一版里没了，那个数跟着回落
+        ambient.clear()
+        ambient.addAll(nextAmbient)
+    }
+
+    /**
+     * `task_updated` 报到终态：把手上这条挪进"刚结束"。
+     *
+     * 认不出的 id（没 started 过）就什么都不做 —— 没有名字可画，记一条空行只是噪声。
+     */
+    private fun finishFromUpdate(id: String, patch: JsonObject) {
+        // 先把它从管家任务里摘掉，**再**看有没有可记的：一个 ambient 任务报了终态，
+        // 我们不记它（它本来就不是活动），但"它结束了"这件事必须让那个计数跟着回落
+        ambient.remove(id)
+        val prev = byId.remove(id) ?: return
+        record(
+            FinishedTask(
+                id = id,
+                kind = prev.kind,
+                label = prev.label,
+                detail = prev.detail,
+                outcome = outcomeOf(patch.str("status")),
+                error = patch.str("error"),
+                durationMs = prev.durationMs,
+                toolUses = prev.toolUses,
+                tokens = prev.tokens,
+                outputFile = null,
+                toolUseId = prev.toolUseId,
+            ),
+        )
+    }
+
+    /**
+     * `task_notification`：结局 + 输出文件都在这条事件上，是"刚结束"那段的主来源。
+     *
+     * 它与 `task_updated` 的终态**会先后到**（谁先谁后不定），所以同一个 id 认两回：
+     * 后到的把先到的那条补齐（通知带来 `output_file`，更新带来 `error`），不新增第二行。
+     */
+    private fun finishFromNotification(event: JsonObject) {
+        val id = event.str("task_id") ?: return
+        val usage = event.obj("usage")
+        val prev = byId.remove(id)
+        ambient.remove(id)
+        val existing = finished.firstOrNull { it.id == id }
+        // started 没见过、更新的终态也没见过 —— 那就真没有名字，不留空行
+        if (prev == null && existing == null) return
+
+        record(
+            FinishedTask(
+                id = id,
+                kind = prev?.kind ?: existing?.kind,
+                label = prev?.label ?: existing?.label,
+                detail = event.str("summary") ?: prev?.detail ?: existing?.detail,
+                outcome = outcomeOf(event.str("status")),
+                // 通知里没有 error —— 那一条来自 task_updated
+                error = existing?.error,
+                durationMs = usage?.long("duration_ms") ?: prev?.durationMs ?: existing?.durationMs ?: 0,
+                toolUses = usage?.long("tool_uses")?.toInt() ?: prev?.toolUses ?: existing?.toolUses ?: 0,
+                tokens = usage?.long("total_tokens") ?: prev?.tokens ?: existing?.tokens ?: 0,
+                outputFile = event.str("output_file") ?: existing?.outputFile,
+                toolUseId = event.str("tool_use_id") ?: prev?.toolUseId ?: existing?.toolUseId,
+            ),
+        )
+    }
+
+    /** 同 id 的替换掉（两路事件都会来），新的排前面，只留 [MAX_FINISHED] 条。 */
+    private fun record(task: FinishedTask) {
+        finished.removeAll { it.id == task.id }
+        finished.addFirst(task)
+        while (finished.size > MAX_FINISHED) finished.removeLast()
+    }
+
+    /**
+     * 终态词 → 那个勾/叉。
+     *
+     * 两套词表要合着认：`task_updated.patch.status` 是
+     * `completed / failed / killed`，`task_notification.status` 是
+     * `completed / failed / stopped`（sdk.d.ts:6011 与 :5906）。少认一个，
+     * 那类结束就会落到"完成"那一档 —— 比不显示更糟。
+     */
+    private fun outcomeOf(status: String?): TaskOutcome = when (status) {
+        "failed" -> TaskOutcome.Failed
+        "killed", "stopped" -> TaskOutcome.Stopped
+        else -> TaskOutcome.Done
     }
 
     private fun blankTask(id: String) =
         RunningTask(id, kind = null, label = null, detail = null, tokens = 0, durationMs = 0)
 
     /** 只覆盖非 null 的字段：电平信号往往比 started 携带的信息少。 */
-    private fun RunningTask.with(kind: String? = null, label: String? = null) = copy(
+    private fun RunningTask.with(
+        kind: String? = null,
+        label: String? = null,
+        toolUseId: String? = null,
+    ) = copy(
         kind = kind ?: this.kind,
         label = label ?: this.label,
+        toolUseId = toolUseId ?: this.toolUseId,
     )
 
     /**
@@ -287,6 +456,9 @@ internal class RunStatusTracker {
 
     private companion object {
         val TERMINAL_STATUSES = setOf("completed", "failed", "killed")
+
+        /** "刚结束"那段留几条。两条：够看见"刚才那一下怎么了"，又不至于变成历史列表。 */
+        const val MAX_FINISHED = 2
     }
 }
 

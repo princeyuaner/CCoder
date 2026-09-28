@@ -9,6 +9,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import kotlin.jvm.JvmName
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
@@ -112,12 +113,12 @@ internal fun hint(text: String): JComponent = JBLabel(text).apply {
 }
 
 /**
- * 运行中那一段。点"子代理"卡弹它。
+ * 任务面板：**在跑 / 暂停 / 刚结束**三段。点那张卡弹它。
  *
  * 空着时给一句实话而不是一个空框 —— 卡上写着"空闲"时本不该弹得出来，
  * 但真弹出来了就得说清楚。
  *
- * ## 这一天改了两次，两次都记在这儿（2026-09-24）
+ * ## 这一天改过四次，前三次记在这儿（2026-09-24）
  *
  * **第一次**：从"两段摊开"改成"卡 + 一条线"（用户从选型台上挑了方案甲）。
  * 从前的排法是上面「运行中」每条两行 + 右侧统计 + 一颗终止方块，紧接着
@@ -126,57 +127,114 @@ internal fun hint(text: String): JComponent = JBLabel(text).apply {
  * 一眼分得清），记录收在一条线（"看已结束的 N 个 ›"）后面；两个小标题一并删掉。
  *
  * **第二次**：用户说"查看已结束的不要了，只要显示当前在跑的子代理" ——
- * 那条线与它后面那列记录**整段去掉**，这一屏现在只剩在跑的子代理。
+ * 那条线与它后面那列记录**整段去掉**，这一屏只剩在跑的那些。
  *
- * **第三次（当前）**：用户说"也不用显示当前运行的工具，只需要显示标题即可" ——
- * 卡上只剩**一行**（活点 + 类型与任务名 + 右端终止钮），进行时那行与统计那行都去掉。
- * 三层结构（列 / 分隔线 / 统计）一起塌回 [agentCard] 里那一行。
+ * **第三次**：用户说"也不用显示当前运行的工具，只需要显示标题即可" ——
+ * 卡上只剩**一行**（活点 + 类型与任务名 + 右端终止钮）。
  *
- * 代价说清楚：`RunningTask` 的 `detail` / `tokens` / `durationMs` **从此没有任何
- * 地方显示**（`RunStatusTracker` 照样解析、用例照样钉着解析结果，只是没人画了）。
+ * ## 第四次（2026-09-28，当前）：从"在跑清单"变成"有始有终的账"
  *
- * ## [subagents] 这个参数现在只用来"对上号"
+ * 用户从 `docs/design/background-tasks.html` 里挑了**乙**。同时 SDK 那边
+ * （`@anthropic-ai/claude-agent-sdk@0.3.283`）的字段也早就送过来了，只是没人接：
+ * `task_notification` 带 `status` / `summary` / `usage` / **`output_file`**，
+ * `task_updated.patch` 带 `paused` / `error`。于是这一屏变成三段：
  *
- * 它不再被列出来。剩下的唯一用途：拿 [SubagentInfo.toolUseId] 去 [RunningTask.id]
- * 里找，对上了这张卡才点得开（没有 agentId 就取不到转写）。**没有别的判据** ——
- * `SubagentInfo` 没有状态字段。
+ * - **在跑**（含"暂停"单起一段）：两排 —— 上排名字 + 一行读数 + 终止钮，
+ *   下排进行时（`task_progress.summary`，取不到退到 description）+ 最后用的工具。
+ *   **这两排是第三次那条改动的反转**：用户看的就是带读数的版式，[RunningTask]
+ *   里那几个字段（`detail`/`tokens`/`durationMs`/`toolUses`/`lastTool`）重新有人画。
+ * - **刚结束**：成/败/停 + 用时 + 一行结局（或失败原因）+ **看输出**（[FinishedTask.outputFile]）
+ *   + 子代理还能看转写。留最近两条（`RunStatusTracker.MAX_FINISHED`）。
+ *   **与第二次那条不冲突**：那次去掉的是"全部已结束子代理"那列历史（长列表 +
+ *   还要为它单独发一次请求读磁盘）；这里是刚发生的那一两次的结局。
+ * - **管家任务**：`ambient` 那些（看盘、live-update 看门狗）不逐条画，折成一句
+ *   "还有 N 个后台维护任务" —— SDK 说它们不该进活动指示，但可以出现在面板里。
  *
- * **代价说清楚**：已结束的子代理从此**回看不了转写了** —— 那一段从前是唯一的入口
- * （在跑的卡还能点开）。要回看只能去会话列表重开那条会话。
+ * ## [subagents] 这个参数只用来"对上号"
  *
- * @param onStop 点每张卡右端那颗方块 → 终止这个任务（给的是任务的 id，即事件里那个
- *   `task_id`）。放在 [onOpen] **前面**：尾随 lambda 只绑最后一个参数
- *   （StatusCardsRow 的注释里记过这个坑），新参数一律加在它们前面。
- * @param onOpen 点某张卡 → 看它的转写。对不上号的（元信息没读到、或本来就不是
- *   子代理而是后台命令）不可点 —— 没有 agentId 就取不到转写
+ * 它不再被列出来。剩下的唯一用途：拿 [SubagentInfo.toolUseId] 与本行的
+ * `toolUseId`（退到 `id`）找，对上了才给"看转写"。
+ *
+ * @param onStop 点每张卡右端那颗方块 → 终止这个任务（给的是事件的 `task_id`）。
+ * @param onOpenTranscript 看某个子代理的转写。
+ * @param onOpenOutput 看某个任务的输出文件（[FinishedTask.outputFile]）。
+ *   三个回调都排在参数表**后面**：尾随 lambda 只绑最后一个参数
+ *   （StatusCardsRow 的注释里记过这个坑）。
  */
-internal fun buildRunningDetail(
+internal fun buildTasksDetail(
     running: List<RunningTask>,
+    finished: List<FinishedTask>,
+    ambientCount: Int,
     subagents: List<SubagentInfo>,
     onStop: (String) -> Unit,
-    onOpen: (SubagentInfo) -> Unit,
+    onOpenTranscript: (SubagentInfo) -> Unit,
+    onOpenOutput: (FinishedTask) -> Unit,
 ): JPanel {
     val box = detailBox()
-    if (running.isEmpty()) {
+    val live = running.filter { !it.paused }
+    val paused = running.filter { it.paused }
+
+    if (running.isEmpty() && finished.isEmpty()) {
         // 卡上写着"空闲"时本不该弹得出来，但真弹出来了就得说实话
-        box.add(dimNote(CcoderText.text("transcript.detail.noRunningSubagents")))
+        box.add(dimNote(CcoderText.text("transcript.detail.noTasks")))
+        if (ambientCount > 0) box.add(dimNote(CcoderText.text("transcript.detail.ambient", ambientCount)))
         return box
     }
 
-    running.take(MAX_AGENT_CARDS).forEachIndexed { index, task ->
-        // 缝加在前一张下面（不是在每张后面），免得最后一张底下多出一截空
-        if (index > 0) box.add(Box.createVerticalStrut(JBUI.scale(AGENT_CARD_GAP)))
-        // 任务 → 子代理：靠 tool_use id 对上。对上了这张卡才点得开；对不上也不影响
-        // 终止钮（停的是任务，不是"子代理"这个身份）
-        box.add(agentCard(task, subagents.firstOrNull { it.toolUseId == task.id }, onStop, onOpen))
+    if (live.isNotEmpty()) {
+        box.add(sectionHeader(CcoderText.text("transcript.detail.section.running"), live.size.toString()))
+        box.add(runningCards(live, subagents, onStop, onOpenTranscript))
     }
-    val hidden = running.size - MAX_AGENT_CARDS
+    if (paused.isNotEmpty()) {
+        if (live.isNotEmpty()) box.add(Box.createVerticalStrut(JBUI.scale(SECTION_GAP)))
+        box.add(sectionHeader(CcoderText.text("transcript.detail.section.paused"), paused.size.toString()))
+        box.add(runningCards(paused, subagents, onStop, onOpenTranscript))
+    }
+    if (finished.isNotEmpty()) {
+        if (live.isNotEmpty() || paused.isNotEmpty()) box.add(Box.createVerticalStrut(JBUI.scale(SECTION_GAP)))
+        box.add(sectionHeader(CcoderText.text("transcript.detail.section.finished"), finished.size.toString()))
+        finished.forEachIndexed { index, task ->
+            if (index > 0) box.add(Box.createVerticalStrut(JBUI.scale(AGENT_CARD_GAP)))
+            box.add(finishedCard(task, agentOf(task.toolUseId ?: task.id, subagents), onOpenTranscript, onOpenOutput))
+        }
+    }
+    if (ambientCount > 0) box.add(dimNote(CcoderText.text("transcript.detail.ambient", ambientCount)))
+    return box
+}
+
+/**
+ * 任务 → 子代理记录。**两把钥匙都试**：SDK 在 task 族事件里同时给 `task_id` 与
+ * `tool_use_id`，而磁盘那份记录（`agent-<id>.meta.json`）里写的是后者。
+ * 从前只拿 `task.id` 去比 —— 那是在押"两者相等"，没人验过。
+ */
+private fun agentOf(key: String, subagents: List<SubagentInfo>): SubagentInfo? =
+    subagents.firstOrNull { it.toolUseId != null && it.toolUseId == key }
+
+/** 一段的卡列成一竖条；超了 [MAX_AGENT_CARDS] 就明说"还有 N 个在跑"。 */
+private fun runningCards(
+    tasks: List<RunningTask>,
+    subagents: List<SubagentInfo>,
+    onStop: (String) -> Unit,
+    onOpen: (SubagentInfo) -> Unit,
+): JComponent {
+    val column = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
+    }
+    tasks.take(MAX_AGENT_CARDS).forEachIndexed { index, task ->
+        // 缝加在前一张下面（不是在每张后面），免得最后一张底下多出一截空
+        if (index > 0) column.add(Box.createVerticalStrut(JBUI.scale(AGENT_CARD_GAP)))
+        // 对上了这张卡才点得开；对不上也不影响终止钮（停的是任务，不是身份）
+        column.add(agentCard(task, agentOf(task.toolUseId ?: task.id, subagents), onStop, onOpen))
+    }
+    val hidden = tasks.size - MAX_AGENT_CARDS
     if (hidden > 0) {
         // 卡不画了，但**数目不能瞒**：卡面上写着 6，这里只画 4 张，
         // 不说一句就成了"看漏了"（状态卡上的数才是权威的那个数）
-        box.add(dimNote(CcoderText.text("transcript.detail.moreRunning", hidden)))
+        column.add(dimNote(CcoderText.text("transcript.detail.moreRunning", hidden)))
     }
-    return box
+    return column
 }
 
 /** 一句压暗的说明（空态、"还有 N 个在跑"）。靠左——见 [dimNote] 里那条对齐的坑。 */
@@ -201,15 +259,31 @@ private fun dimNote(text: String): JComponent = JBLabel(text).apply {
  *
  * ## 判据只认**会改高度的东西**
  *
- * 卡上现在只有一行字，而那一行是 `kind + label`（见 [agentCard]），所以判据就剩
- * 这三样。`id` 不影响高度，但它决定这张卡点不点得开（要拿它去对子代理），
- * 换了就重建一次，省得点击绑在旧的目标上。
+ * 卡上是两排（[agentCard]）：上排名字（`kind + label`），下排进行时 —— 而**有没有
+ * 下排**由"`detail` 或 `lastTool` 有没有"决定，所以读数**变了**不重建（就地换字），
+ * **从无到有**才重建。`id` 决定这张卡点不点得开（要拿它去对子代理），换了也重建一次。
  *
- * **2026-09-24 第三次改版顺手把判据瘦了一圈**：从前还要判"进行时有没有""统计有没有"
- * （各会多出一行），现在那两行都不画了 —— 于是 `task_progress` 报什么都**不可能**
- * 再触发重建，只有"多了/少了一个任务/换了任务"会。
+ * 2026-09-28 第四次改版把"段归属"补进判据：暂停的行要挪到另一段去，
+ * 光看 `paused` 不算的话它会留在原地换个数字。
  */
+@JvmName("runningRendersSameShapeAs")
 internal fun List<RunningTask>.rendersSameShapeAs(other: List<RunningTask>): Boolean =
+    size == other.size && zip(other).all { (a, b) ->
+        a.id == b.id && a.kind == b.kind && a.label == b.label && a.paused == b.paused &&
+            hasSecondLine(a) == hasSecondLine(b)
+    }
+
+/** 有没有第二排（进行时 / 最后工具）。只有它决定卡的高度。 */
+private fun hasSecondLine(task: RunningTask): Boolean = task.detail != null || task.lastTool != null
+
+/**
+ * "刚结束"那段的同款判据。
+ *
+ * 这一段的行**恒为两排**（第二排是结局或失败原因，没有就写一个结局词），
+ * 所以只有"多了/少了一条、换了哪条"会改形状 —— 结局从"在跑"变成"完成"不改高度。
+ */
+@JvmName("finishedRendersSameShapeAs")
+internal fun List<FinishedTask>.rendersSameShapeAs(other: List<FinishedTask>): Boolean =
     size == other.size && zip(other).all { (a, b) ->
         a.id == b.id && a.kind == b.kind && a.label == b.label
     }
@@ -237,6 +311,21 @@ private const val AGENT_CARD_GAP = 6
 /** 嵌在浮层里的卡，圆角跟浮层一致（8）。`CARD_CORNER_ARC`(16) 是**顶层**卡片的
  *  语言，缩在浮层里再 16 会显得泡泡的。 */
 private const val AGENT_CARD_ARC = 8
+
+/** 两段之间的空。比卡与卡的缝大一点，才看得出"这是两段"而不是"多了一个任务"。 */
+private const val SECTION_GAP = 10
+
+/** 名字最多留几个字。浮层宽度有限，而子代理的名字可以很长（"校验 plugin.xml 的十个通道"）。 */
+private const val NAME_MAX = 42
+
+/** 下排那行进行时/结局最多留几个字 —— 它常是一整句人话，比名字更需要留宽。 */
+private const val DETAIL_MAX = 60
+
+/** 下排左端那截缩进，用来对齐上排的名字（记号 7px + 缝 6px）。 */
+private const val SECOND_LINE_INDENT = 13
+
+/** 两颗小按钮之间的缝。 */
+private const val BUTTON_GAP = 10
 
 /**
  * 一个在跑的子代理 = 一张卡。**一行**：活点 + 类型与任务名，右端一颗终止钮。
@@ -269,11 +358,7 @@ private fun agentCard(
 ): JComponent {
     val card = AgentCard(clickable = agent != null)
 
-    val name = listOfNotNull(task.kind, task.label)
-        .joinToString("  ")
-        .ifBlank { task.id.take(8) }
-
-    val nameLabel = JBLabel(name)
+    val nameLabel = JBLabel(clip(nameOf(task.kind, task.label, task.id), NAME_MAX))
     if (agent != null) {
         val watcher = object : MouseAdapter() {
             // 悬停提亮由卡自己管（它才知道自己在画什么），点击的回调在这里
@@ -286,29 +371,227 @@ private fun agentCard(
     }
 
     card.add(
-        JPanel(BorderLayout()).apply {
-            isOpaque = false
-            // **这一句不能少**：detailBox 是 BoxLayout，交叉轴上所有子件共用一个
-            // 对齐基准 —— 混着一个 0.5（面板的默认值）就会把窄的那些按最宽子件的
-            // 中心摆，表现为"文字莫名其妙缩进了一截"。
-            // 2026-09-24 就是这么栽的：探针把每件的 x 倒出来才看见（当时那行 x=125）。
-            alignmentX = Component.LEFT_ALIGNMENT
-            add(
-                JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.X_AXIS)
-                    isOpaque = false
-                    add(LiveDot())
-                    add(Box.createHorizontalStrut(JBUI.scale(6)))
-                    add(nameLabel)
-                },
-                BorderLayout.WEST,
-            )
-            add(TaskStopButton(task.id, onStop), BorderLayout.EAST)
-        },
+        cardBody(
+            first = lineOne(
+                mark = LiveDot(),
+                name = nameLabel,
+                meta = metaOf(task),
+                trailing = TaskStopButton(task.id, onStop),
+            ),
+            // 第二排只有"有东西可写"时才画 —— 卡的高度由它决定，判形状要看有没有
+            second = if (hasSecondLine(task)) {
+                lineTwo(detail = task.detail, detailTone = null, lastTool = task.lastTool, buttons = emptyList())
+            } else {
+                null
+            },
+        ),
         BorderLayout.CENTER,
     )
     return card
 }
+
+/**
+ * 一条刚结束的任务 = 一张卡。**恒两排**：上排 结局记号 + 名字 + 读数，
+ * 下排 结局摘要（或失败原因）+「看输出」/「看转写」。
+ *
+ * 与在跑那张的区别只有三处：记号换成 ✓/✕/■、右端不是终止钮、多了两颗按钮。
+ * 卡本身**不可点**（[AgentCard] 的 clickable=false）—— 一个已经结束的东西，
+ * 整块可点会让人以为点下去还有下文；要看的都在下排那两颗按钮上。
+ */
+private fun finishedCard(
+    task: FinishedTask,
+    agent: SubagentInfo?,
+    onOpenTranscript: (SubagentInfo) -> Unit,
+    onOpenOutput: (FinishedTask) -> Unit,
+): JComponent {
+    val buttons = buildList {
+        if (task.outputFile != null) {
+            add(
+                smallAction(CcoderText.text("transcript.detail.viewOutput")) { onOpenOutput(task) },
+            )
+        }
+        if (agent != null) {
+            add(
+                smallAction(CcoderText.text("transcript.detail.viewTranscript")) { onOpenTranscript(agent) },
+            )
+        }
+    }
+
+    return AgentCard(clickable = false).apply {
+        add(
+            cardBody(
+                first = lineOne(
+                    mark = outcomeMark(task.outcome),
+                    name = JBLabel(clip(nameOf(task.kind, task.label, task.id), NAME_MAX)),
+                    meta = metaOf(task),
+                    trailing = null,
+                ),
+                second = lineTwo(
+                    // 失败原因优先：它比"跑完了"这句话有用得多
+                    detail = task.error ?: task.detail ?: CcoderText.text(outcomeKeyOf(task.outcome)),
+                    detailTone = if (task.error != null) dangerColor() else null,
+                    lastTool = null,
+                    buttons = buttons,
+                ),
+            ),
+            BorderLayout.CENTER,
+        )
+    }
+}
+
+/** 两排的外壳。交叉轴对齐的坑见 [AgentCard] —— 这里也一律 LEFT。 */
+private fun cardBody(first: JComponent, second: JComponent?): JComponent = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    alignmentX = Component.LEFT_ALIGNMENT
+    add(first, BorderLayout.NORTH)
+    if (second != null) add(second, BorderLayout.CENTER)
+}
+
+/** 上排：左 记号 + 名字，右 读数 + 尾随控件（终止钮）。 */
+private fun lineOne(mark: JComponent, name: JComponent, meta: String, trailing: JComponent?): JComponent =
+    JPanel(BorderLayout()).apply {
+        isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
+        add(
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                add(mark)
+                add(Box.createHorizontalStrut(JBUI.scale(6)))
+                add(name)
+            },
+            BorderLayout.WEST,
+        )
+        add(
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                if (meta.isNotBlank()) add(dimLabel(meta))
+                if (trailing != null) add(trailing)
+            },
+            BorderLayout.EAST,
+        )
+    }
+
+/**
+ * 下排：左边一行进行时 / 结局，右边一颗"最后用到的工具"或那两颗按钮。
+ *
+ * 左端那截缩进是**对齐名字**用的：上排的记号 + 缝一共 13px，不补的话下排会顶到
+ * 卡的最左边，两排看起来不是一棵树。
+ */
+private fun lineTwo(
+    detail: String?,
+    detailTone: Color?,
+    lastTool: String?,
+    buttons: List<JComponent>,
+): JComponent = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    alignmentX = Component.LEFT_ALIGNMENT
+    border = JBUI.Borders.emptyTop(2)
+    add(
+        JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(Box.createHorizontalStrut(JBUI.scale(SECOND_LINE_INDENT)))
+            add(
+                dimLabel(clip(detail.orEmpty(), DETAIL_MAX)).apply {
+                    if (detailTone != null) foreground = detailTone
+                },
+            )
+        },
+        BorderLayout.WEST,
+    )
+    if (lastTool != null || buttons.isNotEmpty()) {
+        add(
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                if (lastTool != null) add(dimLabel(lastTool))
+                buttons.forEach {
+                    add(Box.createHorizontalStrut(JBUI.scale(BUTTON_GAP)))
+                    add(it)
+                }
+            },
+            BorderLayout.EAST,
+        )
+    }
+}
+
+/** 结局记号：✓ / ✕ / ■，各自带色。用字符而不是自绘图形 —— 与 [todoRow] 同一口径。 */
+private fun outcomeMark(outcome: TaskOutcome): JComponent = JBLabel(
+    when (outcome) {
+        TaskOutcome.Done -> "✓"
+        TaskOutcome.Failed -> "✕"
+        TaskOutcome.Stopped -> "■"
+    },
+).apply {
+    foreground = when (outcome) {
+        TaskOutcome.Done -> okColor()
+        TaskOutcome.Failed -> dangerColor()
+        TaskOutcome.Stopped -> UIUtil.getInactiveTextColor()
+    }
+}
+
+/** 摘要取不到时的兜底词：把结局本身写出来，别让第二排空着。 */
+private fun outcomeKeyOf(outcome: TaskOutcome): String = when (outcome) {
+    TaskOutcome.Done -> "transcript.detail.outcome.done"
+    TaskOutcome.Failed -> "transcript.detail.outcome.failed"
+    TaskOutcome.Stopped -> "transcript.detail.outcome.stopped"
+}
+
+/** 行内那颗小按钮：「看输出」「看转写」。样式照队列条那颗 ✕（不要默认按钮的底与框）。 */
+private fun smallAction(text: String, onClick: () -> Unit): JComponent = LinkButton(text).apply {
+    isContentAreaFilled = false
+    isBorderPainted = false
+    foreground = focusColor()
+    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    addActionListener { onClick() }
+}
+
+/** 压暗一行小字（下排的进行时、右端的读数、最后工具）。 */
+private fun dimLabel(text: String): JComponent = JBLabel(text).apply {
+    foreground = UIUtil.getInactiveTextColor()
+    font = font.deriveFont(font.size2D - 1f)
+}
+
+/** `task_id` 与 `label` 都没有时拿 id 顶上 —— 一张画不出名字的卡不如一颗短 id。 */
+private fun nameOf(kind: String?, label: String?, id: String): String =
+    listOfNotNull(kind, label).joinToString("  ").ifBlank { id.take(8) }
+
+/**
+ * 上排右端那串读数：`暂停 · 3m12s · 12 工具 · 48.2k`。
+ *
+ * 每一项都是**有才写**：刚起来的任务只有一个时长，不该写成"0 工具 · 0"。
+ * 时长照 [elapsedText]（工具卡与思考块同款），token 照 [formatTokenCount]
+ * （上下文卡同款，"48200"没人读得下去）。
+ */
+private fun metaOf(task: RunningTask): String = listOfNotNull(
+    if (task.paused) CcoderText.text("transcript.detail.paused") else null,
+    durationTextOf(task.durationMs),
+    if (task.toolUses > 0) CcoderText.text("transcript.detail.meta.tools", task.toolUses) else null,
+    if (task.tokens > 0) formatTokenCount(task.tokens) else null,
+).joinToString(" · ")
+
+private fun metaOf(task: FinishedTask): String = listOfNotNull(
+    durationTextOf(task.durationMs),
+    if (task.toolUses > 0) CcoderText.text("transcript.detail.meta.tools", task.toolUses) else null,
+    if (task.tokens > 0) formatTokenCount(task.tokens) else null,
+).joinToString(" · ")
+
+/** 一秒以内按毫秒说（与同步气泡、设置页同一个口径）。 */
+internal fun durationTextOf(durationMs: Long): String? = when {
+    durationMs <= 0 -> null
+    durationMs < 1_000 -> CcoderText.text("transcript.detail.meta.millis", durationMs)
+    else -> elapsedText(Math.round(durationMs / 1000.0).toInt())
+}
+
+/** 长名字、长摘要砍尾。浮层宽度有限，而这两处**都可能很长**。 */
+private fun clip(text: String, max: Int): String =
+    if (text.length <= max) text else text.take(max - 1) + "…"
 
 /**
  * 卡片自己画底与描边，不用 [RoundedLineBorder] 当 border —— 悬停要**整块换底色**，

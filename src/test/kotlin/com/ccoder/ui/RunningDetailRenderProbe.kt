@@ -15,16 +15,17 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
- * 渲染探针：「运行中」浮层画成 PNG，好让人眼看一眼。
+ * 渲染探针：任务面板画成 PNG，好让人眼看一眼。
  *
  * 2026-09-18 加，为两颗东西出图：那张卡的两行（任务名 + 进行时）与行右端那颗
  * 「终止」方块。单测钉得住"点了会报 task id"，钉不住"方块挤不挤、提亮
  * 看不看得出来" —— 而后者正是这颗钮的全部。
  *
- * 2026-09-24 卡塌成**一行**（用户："也不用显示当前运行的工具，只需要显示标题即可"），
- * 这一批图跟着重出。
+ * 2026-09-24 卡塌成**一行**；2026-09-28 第四次改版又变回**两排**，并且这一屏
+ * 从"在跑清单"变成三段（在跑 / 暂停 / 刚结束）。
  *
- * 产物在 `build/probe/running-detail*.png`。改了这层的观感就跑一下看一眼。
+ * 产物在 `build/probe/running-detail*.png` 与 `build/probe/tasks-three-stage.png`。
+ * 改了这层的观感就跑一下看一眼。
  *
  * **跑在真机 LAF 下**（[IdeLaf.withRealLaf]）—— 测试 JVM 默认的 Metal
  * 哪个 IDE 都不用（见 [IdeLaf] 的说明）。浅色出不了图（同 [IdeLaf] 里
@@ -43,24 +44,35 @@ class RunningDetailRenderProbe {
     /**
      * **空闲那一版**。
      *
-     * 空闲时那一屏只有一句实话：「当前没有在跑的子代理」。
+     * 空闲时那一屏只有一句实话：「现在没有在跑的任务」。
      * 从前它下面还跟着一行「看已结束的 N 个 ›」，2026-09-24 用户说
      * "查看已结束的不要了"，整段删掉了 —— 这一格现在看的是"只剩一句话"会不会太空。
      */
     @Test
     fun `把空闲时的浮层画成图片`() = renderIdle("build/probe/running-detail-idle.png")
 
+    /**
+     * **第四次改版的主图**：在跑两条（一条带暂停）+ 刚结束两条（一成一致）+
+     * 一句管家任务。要看的是四件事：三段标题的层级够不够清楚；两排之间的行距；
+     * ✓/✕ 两个记号在深色底上认不认得出；「看输出」那两颗小按钮挤不挤。
+     */
+    @Test
+    fun `把三段齐全的样子画成图片`() = renderThreeStage("build/probe/tasks-three-stage.png")
+
     private fun renderIdle(path: String) = IdeLaf.withRealLaf {
         SwingUtilities.invokeAndWait {
-            val content = buildRunningDetail(
+            val content = buildTasksDetail(
                 emptyList(),
+                emptyList(),
+                0,
                 listOf(
                     SubagentInfo("a1", "Explore", "Map the composer input path", "call_1"),
                     SubagentInfo("a2", "Plan", "Design the drag-drop plan", "call_2"),
                     SubagentInfo("a3", "general-purpose", "Settings area i18n migration", "call_3"),
                 ),
                 {},
-                onOpen = {  },
+                {},
+                {},
             )
             paint(content, path, hoverStop = false)
         }
@@ -68,10 +80,9 @@ class RunningDetailRenderProbe {
 
     private fun render(path: String, hoverStop: Boolean) = IdeLaf.withRealLaf {
         SwingUtilities.invokeAndWait {
-            val content = buildRunningDetail(
+            val content = buildTasksDetail(
                 listOf(
-                    // **故意把 detail / tokens / durationMs 喂满**（真实事件流里它们
-                    // 就是这样）—— 图上多出任何一行都是 bug
+                    // **把 detail / lastTool / usage 喂满**（真实事件流里它们就是这样）
                     RunningTask(
                         id = "call_9",
                         kind = "Explore",
@@ -79,9 +90,11 @@ class RunningDetailRenderProbe {
                         detail = "正在核对 TokenStore 的刷新路径",
                         tokens = 12_400,
                         durationMs = 80_000,
+                        toolUses = 7,
+                        lastTool = "Read",
                     ),
                     // 后台命令：没有类型（local_bash 那类）、不可点开转写 ——
-                    // 终止钮一样要在
+                    // 终止钮一样要在，下排只有时长（没有 lastTool）
                     RunningTask(
                         id = "t2",
                         kind = "local_bash",
@@ -91,12 +104,83 @@ class RunningDetailRenderProbe {
                         durationMs = 8_000,
                     ),
                 ),
+                emptyList(),
+                0,
                 listOf(SubagentInfo("a1", "Explore", "找一下 token 刷新的调用点", "call_9")),
+                {},
                 {},
                 {},
             )
 
             paint(content, path, hoverStop)
+        }
+    }
+
+    private fun renderThreeStage(path: String) = IdeLaf.withRealLaf {
+        SwingUtilities.invokeAndWait {
+            val content = buildTasksDetail(
+                listOf(
+                    RunningTask(
+                        id = "call_9",
+                        kind = "Explore",
+                        label = "调研 SDK 的后台任务面",
+                        detail = "正在读 sidecar/tools/sdk-surface.mjs，前一份表已对完",
+                        tokens = 48_200,
+                        durationMs = 102_000,
+                        toolUses = 12,
+                        lastTool = "Read",
+                    ),
+                    RunningTask(
+                        id = "t2",
+                        kind = "local_bash",
+                        label = "pnpm test --watch",
+                        detail = "第 3 轮 · 上次 316 passed",
+                        tokens = 0,
+                        durationMs = 192_000,
+                        paused = true,
+                    ),
+                ),
+                listOf(
+                    FinishedTask(
+                        id = "t1",
+                        kind = "Explore",
+                        label = "校验 plugin.xml 的十个通道",
+                        detail = "10 条通道全绿，一条空态缺说明",
+                        outcome = TaskOutcome.Done,
+                        error = null,
+                        durationMs = 128_000,
+                        toolUses = 38,
+                        tokens = 31_000,
+                        outputFile = "C:/Users/CY/AppData/Local/Temp/ccoder/task-t1/output.txt",
+                        // 与上面那份 SubagentInfo 的 toolUseId 对上 —— 图上才会出现「看转写」
+                        toolUseId = "call_1",
+                    ),
+                    FinishedTask(
+                        id = "t3",
+                        kind = "local_bash",
+                        label = "node tools/probe-x.mjs",
+                        detail = null,
+                        outcome = TaskOutcome.Failed,
+                        error = "Error: Cannot find module 'undici'",
+                        durationMs = 41_000,
+                        toolUses = 2,
+                        tokens = 0,
+                        outputFile = "C:/Users/CY/AppData/Local/Temp/ccoder/task-t3/output.txt",
+                        toolUseId = null,
+                    ),
+                ),
+                3,
+                listOf(
+                    SubagentInfo("a1", "Explore", "调研 SDK 的后台任务面", "call_9"),
+                    SubagentInfo("a9", "Explore", "校验 plugin.xml 的十个通道", "call_1"),
+                ),
+                {},
+                {},
+                {},
+            )
+
+            println("[任务面板探针] 三段齐全 → 首选高 ${content.preferredSize.height}px")
+            paint(content, path, hoverStop = false)
         }
     }
 
@@ -136,14 +220,17 @@ class RunningDetailRenderProbe {
             ) + (1..extra).map {
                 RunningTask("x$it", "general-purpose", "Extra agent $it", "Working…", 10_000, 5_000)
             }
-            val content = buildRunningDetail(
+            val content = buildTasksDetail(
                 tasks,
+                emptyList(),
+                0,
                 listOf(
                     SubagentInfo("a1", "Explore", "Survey unbuilt design mockups", "call_1"),
                     SubagentInfo("a2", "Explore", "Find EDT freeze risks", "call_9"),
                 ),
                 {},
-                onOpen = {  },
+                {},
+                {},
             )
 
             // 量一遍高度：上限那个数就是这么定的。**画之前**量，量的是内容

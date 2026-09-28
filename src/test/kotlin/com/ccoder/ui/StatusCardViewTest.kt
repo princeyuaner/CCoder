@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
+import com.ccoder.text.CcoderText
 import com.intellij.util.ui.UIUtil
 import java.awt.event.MouseEvent
 import javax.swing.JLabel
@@ -573,7 +574,10 @@ class StatusCardViewTest {
         tasks.setModel(todoCardOf(TaskList(emptyList())))
 
         val contextLabel = descendantsOf(context).filterIsInstance<JLabel>().first { it.text == "上下文" }
-        val tasksLabel = descendantsOf(tasks).filterIsInstance<JLabel>().first { it.text == "任务列表" }
+        // 按**键**取，不按字面量：2026-09-28 这张卡从「任务列表」改名「清单」，
+        // 写死的字面量当场就红了（而它要断言的其实是颜色，与那两个字无关）
+        val tasksLabel = descendantsOf(tasks).filterIsInstance<JLabel>()
+            .first { it.text == CcoderText.text("status.card.tasks") }
 
         assertEquals(UIUtil.getLabelForeground(), contextLabel.foreground)
         assertEquals(UIUtil.getInactiveTextColor(), tasksLabel.foreground)

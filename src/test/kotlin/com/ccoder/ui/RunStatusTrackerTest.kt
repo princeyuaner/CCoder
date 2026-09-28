@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -202,6 +203,197 @@ class RunStatusTrackerTest {
         )
 
         assertEquals(listOf("t1"), t.running.map { it.id })
+    }
+
+    // ---- 刚结束那一段 ----
+
+    @Test
+    fun `task_notification 留一条结局，不再只是把人删掉`() {
+        // 从前这条事件只做 byId::remove —— 于是"成了没有、输出去哪看"在界面上是零。
+        // 通知自带 status / summary / usage / output_file，是"刚结束"那段的主来源
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed",
+                "summary":"10 条通道全绿","output_file":"C:/tmp/out.txt",
+                "usage":{"total_tokens":31000,"tool_uses":38,"duration_ms":128000}}""",
+        )
+
+        assertTrue(t.running.isEmpty())
+        assertEquals(1, t.recentFinished.size)
+        val f = t.recentFinished[0]
+        assertEquals(TaskOutcome.Done, f.outcome)
+        assertEquals("10 条通道全绿", f.detail)
+        assertEquals("C:/tmp/out.txt", f.outputFile)
+        assertEquals(38, f.toolUses)
+        assertEquals(128_000, f.durationMs)
+    }
+
+    @Test
+    fun `stopped 与 killed 都算停，不是完成`() {
+        // 两套词表：task_notification 用 stopped，task_updated 用 killed。
+        // 少认一个，那类结束就会被画成一个勾 —— 比不显示更糟
+        val t = trackerAfter(
+            started("t1"), started("t2"),
+            """{"type":"system","subtype":"task_notification","task_id":"t1","status":"stopped"}""",
+            """{"type":"system","subtype":"task_updated","task_id":"t2","patch":{"status":"killed"}}""",
+        )
+
+        assertEquals(listOf(TaskOutcome.Stopped, TaskOutcome.Stopped), t.recentFinished.map { it.outcome })
+    }
+
+    @Test
+    fun `失败原因来自更新、输出文件来自通知 —— 同一个 id 只留一条`() {
+        // 两件事件谁先谁后不定。后到的补齐先到的那条，不新增第二行
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_updated","task_id":"t1",
+                "patch":{"status":"failed","error":"Cannot find module 'undici'"}}""",
+            """{"type":"system","subtype":"task_notification","task_id":"t1","status":"failed",
+                "output_file":"C:/tmp/out.txt"}""",
+        )
+
+        assertEquals(1, t.recentFinished.size)
+        assertEquals("Cannot find module 'undici'", t.recentFinished[0].error)
+        assertEquals("C:/tmp/out.txt", t.recentFinished[0].outputFile)
+        assertEquals(TaskOutcome.Failed, t.recentFinished[0].outcome)
+    }
+
+    @Test
+    fun `刚结束那段只留最近两条`() {
+        // 这是"刚才那一下怎么了"的账，不是历史 —— 回看整段历史是会话文件的事
+        val t = trackerAfter(
+            started("t1"), started("t2"), started("t3"),
+            """{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed"}""",
+            """{"type":"system","subtype":"task_notification","task_id":"t2","status":"completed"}""",
+            """{"type":"system","subtype":"task_notification","task_id":"t3","status":"completed"}""",
+        )
+
+        assertEquals(listOf("t3", "t2"), t.recentFinished.map { it.id })
+    }
+
+    @Test
+    fun `没见过的任务结束时不记空行`() {
+        // 没有 started、没有更新的终态 —— 名字与类型都没有，记下来只是一条画不出内容的空行
+        val t = trackerAfter(
+            """{"type":"system","subtype":"task_notification","task_id":"ghost","status":"completed"}""",
+        )
+
+        assertTrue(t.recentFinished.isEmpty())
+    }
+
+    @Test
+    fun `换会话时把刚结束的那几条也清掉`() {
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_notification","task_id":"t1","status":"completed"}""",
+        )
+        t.reset()
+
+        assertTrue(t.recentFinished.isEmpty())
+        assertTrue(t.running.isEmpty())
+    }
+
+    // ---- 暂停与用量（面板两排读数靠这几样）----
+
+    @Test
+    fun `task_updated 的 paused 被记下来`() {
+        // 从前中间态一律不动 —— 那时面板只有"在跑"一档，暂停没有落点
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_updated","task_id":"t1","patch":{"status":"paused"}}""",
+        )
+
+        assertTrue(t.running[0].paused)
+    }
+
+    @Test
+    fun `task_updated 把 paused 改回 running`() {
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_updated","task_id":"t1","patch":{"status":"paused"}}""",
+            """{"type":"system","subtype":"task_updated","task_id":"t1","patch":{"status":"running"}}""",
+        )
+
+        assertFalse(t.running[0].paused)
+    }
+
+    @Test
+    fun `task_progress 收下工具次数与最后那个工具`() {
+        val t = trackerAfter(
+            started("t1"),
+            """{"type":"system","subtype":"task_progress","task_id":"t1","last_tool_name":"Read",
+                "usage":{"total_tokens":1,"tool_uses":12,"duration_ms":1}}""",
+        )
+
+        assertEquals(12, t.running[0].toolUses)
+        assertEquals("Read", t.running[0].lastTool)
+    }
+
+    @Test
+    fun `task_id 与 tool_use_id 各存各的`() {
+        // 与子代理记录对号（SubagentInfo.toolUseId）靠的是后者；从前只存 task_id，
+        // 等于押"两者相等"这个没验过的假设
+        val t = trackerAfter(
+            """{"type":"system","subtype":"task_started","task_id":"t1","tool_use_id":"toolu_9",
+                "description":"甲","subagent_type":"explore"}""",
+        )
+
+        assertEquals("t1", t.running[0].id)
+        assertEquals("toolu_9", t.running[0].toolUseId)
+    }
+
+    // ---- ambient：进计数、不进列表 ----
+
+    @Test
+    fun `ambient 的任务进计数、不进列表`() {
+        // 文档原话：这类任务不该进活动指示器，但"可以出现在任务面板里" ——
+        // 于是它们只贡献一个数
+        val t = trackerAfter(
+            started("t1"),
+            started("w1", ""","ambient":true"""),
+        )
+
+        assertEquals(listOf("t1"), t.running.map { it.id })
+        assertEquals(1, t.ambientCount)
+    }
+
+    @Test
+    fun `电平信号里的 ambient 也计数，并且整集替换`() {
+        val t = trackerAfter(
+            """{"type":"system","subtype":"background_tasks_changed","tasks":[
+                {"task_id":"w1","task_type":"local_agent","description":"监视","ambient":true},
+                {"task_id":"w2","task_type":"local_agent","description":"看盘","ambient":true}
+            ]}""",
+            """{"type":"system","subtype":"background_tasks_changed","tasks":[
+                {"task_id":"w1","task_type":"local_agent","description":"监视","ambient":true}
+            ]}""",
+        )
+
+        assertEquals(1, t.ambientCount)
+    }
+
+    @Test
+    fun `ambient 任务结束就不再算在计数里`() {
+        val t = trackerAfter(
+            started("w1", ""","ambient":true"""),
+            """{"type":"system","subtype":"task_notification","task_id":"w1","status":"completed"}""",
+        )
+
+        assertEquals(0, t.ambientCount)
+        assertTrue(t.recentFinished.isEmpty(), "管家任务不进刚结束那段 —— 它本来就不是活动")
+    }
+
+    @Test
+    fun `ambient 任务靠 task_updated 结束时，计数也跟着回落`() {
+        // 两条结束的路都要算：通知那条上面钉了，更新这条从前会把它**永远**留在计数里
+        // （先 byId.remove、早退，就没走到摘 ambient 那一步）
+        val t = trackerAfter(
+            started("w1", ""","ambient":true"""),
+            """{"type":"system","subtype":"task_updated","task_id":"w1","patch":{"status":"killed"}}""",
+        )
+
+        assertEquals(0, t.ambientCount)
+        assertTrue(t.recentFinished.isEmpty(), "管家任务不进刚结束那段")
     }
 
     // ---- 任务列表 ----
