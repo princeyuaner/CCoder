@@ -159,6 +159,27 @@ src/main/resources/messages/CcoderBundle_zh.properties   中文
 值行与标签行，撑破就红。用 `-PtestLang=en` 跑一遍就是英文那一遍；它一次列出**所有**
 放不下的词（只报第一个的话，改一个词要重跑一次才能看见下一个）。
 
+**2026-09-24 加同步卡（五张等宽）之后，上面那张表整档收短了一次。** 一格从 97px 掉到 76px
+（值行 79→58），八个英文词当场撑破 —— 挑词用的尺子是 `CardTextMeasureProbe`
+（把一批候选塞进真实的卡里打印宽度），不是估：
+
+| 档 | 中文 | 2026-09-20 | **2026-09-24（量过）** |
+|---|---|---|---|
+| Idle | 未连接 | No session (67) | **Offline (42)** |
+| Loading | 载入中… | Loading… (60) | **Loading (49)**（省略号去掉） |
+| Starting | 启动中… | Starting… (60) | **Starting (49)**（同上） |
+| Connected | 已连接 | Connected (67) | **Linked (40)**（与卡片自己的 Link 同词根） |
+| RestoreFailed | 恢复失败 | No resume (68) | **Lost (26)** |
+| StartFailed | 启动失败 | Won't start (69) | **Failed (35)** |
+| Disconnected | 已断开 | Dropped (54) | Dropped（没动） |
+| Ended | 已结束 | Ended (38) | Ended（没动） |
+| 压缩中 | 压缩中 | Compacting (75) | **Shrink (39)** |
+| Searching 动作词 | 搜索 | Searching (61) | **Search (42)** |
+
+挑法不是"挑最短的"：**四档失败/断开状态彼此仍旧分得开**（Lost / Failed / Dropped，加上
+Offline），这是那一档真正要保的东西。中文那份同时收短了两个词
+（子代理在跑→代理在跑、压缩中…→压缩中）。
+
 ### 英文离屏那一遍看到了什么（2026-09-20，`-PtestLang=en` 跑全部探针）
 
 **一个真缺陷**：会话列表「清空全部」的确认语被**截断**成

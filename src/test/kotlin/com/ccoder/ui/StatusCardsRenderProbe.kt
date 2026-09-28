@@ -1,5 +1,7 @@
 package com.ccoder.ui
 
+import com.ccoder.sync.SyncRun
+import com.ccoder.sync.SyncSnapshot
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -16,10 +18,10 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
- * 渲染探针：把四张状态卡画成 PNG，好让人眼看一眼。
+ * 渲染探针：把五张状态卡画成 PNG，好让人眼看一眼。
  *
- * 没有断言，也不该有 —— 单测钉得住"收边的卡 alpha 是 0""四张等宽"，
- * 钉不住"四张卡放在 420px 里整体好不好看"。而后者正是这次改版的
+ * 没有断言，也不该有 —— 单测钉得住"收边的卡 alpha 是 0""五张等宽"，
+ * 钉不住"五张卡放在 420px 里整体好不好看"。而后者正是这次改版的
  * **全部理由**（用户要的就是"更美观"），不该只靠信念。
  *
  * 产物在 `build/status-cards-probe*.png`。改了卡的观感就跑一下看一眼。
@@ -27,10 +29,10 @@ import javax.swing.SwingUtilities
 class StatusCardsRenderProbe {
 
     @Test
-    fun `把忙时的四张卡画成图片`() = render("build/status-cards-probe.png", busy = true)
+    fun `把忙时的五张卡画成图片`() = render("build/status-cards-probe.png", busy = true)
 
     @Test
-    fun `把空闲的四张卡画成图片`() = render("build/status-cards-probe-idle.png", busy = false)
+    fun `把空闲的五张卡画成图片`() = render("build/status-cards-probe-idle.png", busy = false)
 
     /**
      * **最长的那条连接文字**单独出一张。
@@ -61,7 +63,7 @@ class StatusCardsRenderProbe {
      * 挤的是同一格，所以必须单独看一眼宽度够不够。
      */
     @Test
-    fun `把正在运行指令时的四张卡画成图片`() =
+    fun `把正在运行指令时的五张卡画成图片`() =
         render("build/status-cards-probe-activity.png", busy = true, activity = Activity.Running)
 
     /**
@@ -71,7 +73,7 @@ class StatusCardsRenderProbe {
      * 只有看图才知道。
      */
     @Test
-    fun `把等待响应时的四张卡画成图片`() =
+    fun `把等待响应时的五张卡画成图片`() =
         render("build/status-cards-probe-waiting.png", busy = true, waitingSeconds = 42)
 
     /**
@@ -81,7 +83,7 @@ class StatusCardsRenderProbe {
      * 只有看图才知道。
      */
     @Test
-    fun `把子代理在跑时的四张卡画成图片`() = render(
+    fun `把子代理在跑时的五张卡画成图片`() = render(
         "build/status-cards-subagent.png",
         busy = true,
         activity = Activity.Running,
@@ -105,7 +107,10 @@ class StatusCardsRenderProbe {
         subagent: Boolean = false,
     ) {
         SwingUtilities.invokeAndWait {
-            val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
+            val cards = StatusCardsRow(
+                onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {},
+                onOpenRunning = {}, onOpenSync = {}, onToggleSync = {},
+            ).apply {
                 connection.setModel(
                     when {
                         waitingSeconds != null -> waitingCardOf(waitingSeconds, subagent)
@@ -116,6 +121,24 @@ class StatusCardsRenderProbe {
                         )
                     }
                 )
+                // 同步卡：忙那张画"运行中"（带上一轮的计数），空闲那张画"未开启" ——
+                // 两档都在这排 76px 的格子里，正好看看五个状态词里最长的两个
+                sync.setModel(
+                    if (busy) {
+                        syncCardOf(
+                            SyncSnapshot(
+                                run = SyncRun.RUNNING,
+                                lastRoundAtMs = 1_756_000_000_000L,
+                                copied = 12,
+                                deleted = 3,
+                                unchanged = 420,
+                            )
+                        )
+                    } else {
+                        syncCardOf(null)
+                    }
+                )
+                sync.setAction(syncActionOf(if (busy) SyncSnapshot(run = SyncRun.RUNNING) else null, pathsReady = true))
                 context.setModel(
                     when {
                         noUsage -> contextCardOf(null)
@@ -205,7 +228,7 @@ class StatusCardsRenderProbe {
      * **「等待响应」那一版单独出一张**：连接卡的标签是四字（最长的一档），
      * 而右上角多了一颗 16px 的图标 —— 挤不挤只有看图才知道。
      *
-     * 这一档只在等第一口 token 时出现（实测 P99 38.8s），但它是四张卡里
+     * 这一档只在等第一口 token 时出现（实测 P99 38.8s），但它是五张卡里
      * 标签行最宽的一刻，宽度问题都集中在这里暴露。
      */
     @Test
@@ -215,7 +238,7 @@ class StatusCardsRenderProbe {
     /**
      * 动作图标那一排。
      *
-     * **不是 [StatusCardsRow]，是四张卡自己拼的**：[StatusCardsRow] 会把回调接上去，
+     * **不是 [StatusCardsRow]，是五张卡自己拼的**：[StatusCardsRow] 会把回调接上去，
      * 而这里只要画得出来 —— 真实接线由 ClaudePanel 做。
      *
      * 悬停直接驱动监听器（与 [hover] 同一条路）：走 `dispatchEvent` 会把事件送给
@@ -231,6 +254,7 @@ class StatusCardsRenderProbe {
             val compacting = shot == ActionShot.Compacting
 
             val connection = StatusCardView(icon = CardIcon.Link, onAction = {})
+            val sync = StatusCardView(icon = CardIcon.Sync, onOpen = {}, onAction = {})
             val context = StatusCardView(icon = CardIcon.Context, onOpen = {}, onAction = {})
             val todos = StatusCardView(icon = CardIcon.Tasks, onOpen = {})
             val running = StatusCardView(icon = CardIcon.Agents, onOpen = {})
@@ -245,6 +269,16 @@ class StatusCardsRenderProbe {
                     else -> connectionCardOf(ConnectionState.Connected)
                 }
             )
+            // 同步卡：跑着的那几档画 ⏸（关闭），空闲那张画 ▶（开启）—— 两颗新图形
+            // 各出一遍。压缩中那张照"开着"画（现实里也是：压缩与同步互不相干）
+            sync.setModel(
+                if (compacting) syncCardOf(SyncSnapshot(run = SyncRun.DISABLED))
+                else syncCardOf(SyncSnapshot(run = SyncRun.RUNNING))
+            )
+            sync.setAction(
+                if (compacting) syncActionOf(null, pathsReady = true)
+                else syncActionOf(SyncSnapshot(run = SyncRun.RUNNING), pathsReady = true)
+            )
             context.setModel(contextCardOf(ContextUsage(12300, 200000), compacting = compacting))
             todos.setModel(todoCardOf(null))
             running.setModel(runningCardOf(emptyList()))
@@ -252,9 +286,9 @@ class StatusCardsRenderProbe {
             connection.setAction(clearActionOf(ready = true, busy = connBusy))
             context.setAction(compactActionOf(ready = true, busy = busy, compacting = compacting))
 
-            val cards = JPanel(GridLayout(1, 4, JBUI.scale(5), 0)).apply {
+            val cards = JPanel(GridLayout(1, 5, JBUI.scale(5), 0)).apply {
                 isOpaque = false
-                add(connection); add(context); add(todos); add(running)
+                add(connection); add(sync); add(context); add(todos); add(running)
             }
 
             val outer = JPanel(BorderLayout()).apply {

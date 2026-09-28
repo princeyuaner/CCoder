@@ -70,7 +70,7 @@ class ContextWaterRenderProbe {
                 caption("③ 三档色调 + 压缩中：70% 起琥珀、90% 起红；压缩中那层水一直动")
                 column.add(strip(listOf(card(34), card(76), card(93), card(60, compacting = true))))
 
-                caption("④ 一排四张（真实上下文：404px 宽，间距 5）")
+                caption("④ 一排五张（真实上下文：404px 宽，间距 5）")
                 column.add(realRow())
 
                 column.add(Box.createVerticalGlue())
@@ -136,12 +136,14 @@ class ContextWaterRenderProbe {
         layoutAll(host)
     }
 
-    /** 真机那一排：404px 里四张等宽。 */
+    /** 真机那一排：404px 里五张等宽。 */
     private fun realRow(): JPanel {
         val row = StatusCardsRow(
-            onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {},
+            onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {},
+            onOpenRunning = {}, onOpenSync = {}, onToggleSync = {},
         ).apply {
             connection.setModel(connectionCardOf(ConnectionState.Connected))
+            sync.setModel(syncCardOf(null))
             context.setModel(contextCardOf(ContextUsage(usedTokens = 68_000, windowTokens = 200_000)))
             todos.setModel(
                 todoCardOf(
@@ -170,8 +172,8 @@ class ContextWaterRenderProbe {
     }
 
     private companion object {
-        /** 真机上单张卡的尺寸：一行 404、四张、间距 5 → 97.25 → 取整 97。 */
-        val CARD_W = 97
+        /** 真机上单张卡的尺寸：一行 404、**五张**、间距 5 → 76.8 → 取整 77。 */
+        val CARD_W = 77
         val CARD_H = 56
         val STATUS_ROW_W = 404
     }

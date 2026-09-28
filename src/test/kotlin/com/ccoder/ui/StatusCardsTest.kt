@@ -1,5 +1,8 @@
 package com.ccoder.ui
 
+import com.ccoder.sync.SyncRun
+import com.ccoder.sync.SyncSnapshot
+import com.ccoder.sync.SyncTexts
 import com.ccoder.text.CcoderText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -7,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** 四张卡各自的内容与形状。全是纯函数，不碰 Swing。 */
+/** 五张卡各自的内容与形状。全是纯函数，不碰 Swing。 */
 class StatusCardsTest {
 
     // ---- 连接：每一档自带色调 ----
@@ -224,4 +227,48 @@ class StatusCardsTest {
 
     private fun task(id: String) =
         RunningTask(id = id, kind = null, label = null, detail = null, tokens = 0, durationMs = 0)
+
+    // ---- 目录同步（2026-09-24）----
+
+    @Test
+    fun `同步卡的五个状态各有各的词与色调`() {
+        // 词**必须**短到装进 58px：五张卡时值行只有那么宽，而 JLabel 撑破了会静默打
+        // 省略号（`StatusCardsRowTest` 那条按文字量的用例守着长度，这条守"哪一档说哪句"）。
+        // 词一律取自 `sync.state.*` —— 与设置页那行「状态」同一个来源，不再抄一份
+        val tones = mapOf(
+            SyncRun.RUNNING to Tone.Ok,
+            SyncRun.FAILED to Tone.Danger,
+            SyncRun.OCCUPIED to Tone.Warn,
+            SyncRun.STOPPED to Tone.Warn,
+            SyncRun.DISABLED to Tone.Idle,
+        )
+        for ((run, tone) in tones) {
+            val card = syncCardOf(SyncSnapshot(run = run))
+            assertEquals(CcoderText.text(SyncTexts.runKey(run)), card.value, "$run 那一档的词")
+            assertEquals(tone, card.tone, "$run 那一档的色调")
+        }
+    }
+
+    @Test
+    fun `没开同步也不收边 —— "没开"是一种状态，不是没数据`() {
+        // 同连接卡那条：这一格是"要不要开"的唯一入口，灰掉/收边会让人以为它坏了
+        val card = syncCardOf(null)
+
+        assertFalse(card.quiet, "没配置也不该收边")
+        assertEquals(CARD_SYNC, card.label)
+        assertEquals(CcoderText.text(SyncTexts.runKey(SyncRun.DISABLED)), card.value)
+    }
+
+    @Test
+    fun `同步卡不画比例条 —— 一轮的总量跑完才知道`() {
+        // 拿计划数当分母就是画一条一路涨到满的假进度（Indicator 那条"必须有真实分母"）
+        assertEquals(Indicator.None, syncCardOf(SyncSnapshot(run = SyncRun.RUNNING)).indicator)
+    }
+
+    @Test
+    fun `副值就是状态栏那句话 —— 同一件事不写两份`() {
+        val snapshot = SyncSnapshot(run = SyncRun.RUNNING, lastRoundAtMs = 1_700_000_000_000L, copied = 3)
+
+        assertEquals(syncStatusBarTooltip(snapshot), syncCardOf(snapshot).sub)
+    }
 }

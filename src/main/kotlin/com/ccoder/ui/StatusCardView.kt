@@ -40,7 +40,7 @@ import kotlin.math.sin
  *
  * **自绘，不用平台图标**（[CardIconView] 里有详细理由）。
  */
-internal enum class CardIcon { Link, Context, Tasks, Agents }
+internal enum class CardIcon { Link, Sync, Context, Tasks, Agents }
 
 /** 右上角那颗动作图标的圆角（悬停底色用的）。 */
 private const val ACTION_CORNER_ARC = 4
@@ -73,7 +73,7 @@ private const val SUBAGENT_BADGE = 4
  *
  * ## 收边为什么用"透明描边"而不是"不设 border"
  *
- * 四张卡等宽并排。若收边时换掉 border 对象，`getBorderInsets` 会从 1 变成 0，
+ * 五张卡等宽并排。若收边时换掉 border 对象，`getBorderInsets` 会从 1 变成 0，
  * 这一格就宽出去 2px —— 旁边三张跟着挪。用全透明色画同一条边，insets 恒定，
  * 布局一动不动。
  *
@@ -84,8 +84,8 @@ private const val SUBAGENT_BADGE = 4
  *
  * ## 动作图标：**常驻在右上角，自绘，不新增组件**（2026-09-17）
  *
- * 连接卡右上角一把扫把（清空会话）、上下文卡右上角一个压缩记号（压缩上下文）。
- * 三条设计约束叠在一起得出这个形态：
+ * 连接卡右上角一把扫把（清空会话）、上下文卡右上角一个压缩记号（压缩上下文）、
+ * 同步卡右上角 ▶/⏸（拨目录同步的总开关）。三条设计约束叠在一起得出这个形态：
  *
  * 1. **必须自绘**（与 [CardIconView] 同一套路数）：平台图标是固定颜色，
  *    而这一颗要跟着"可不可点 / 悬停"变；何况扫把与压缩记号平台里根本没有。
@@ -98,7 +98,7 @@ private const val SUBAGENT_BADGE = 4
  *    （见 [refreshActionLook] 里那条）。画出来 + 按几何判点击（[cardClickTargetOf]）
  *    则**画出来的和能点的天然是同一块**。
  *
- * @param icon 左上角画哪个图标。四张卡固定，所以由**构造参数**而不是模型决定：
+ * @param icon 左上角画哪个图标。五张卡固定，所以由**构造参数**而不是模型决定：
  *   模型是"这一刻的数据"，图标是"这一格是什么"，两者寿命不同。
  * @param onOpen 点卡片（动作图标之外）做什么。null = 这张卡没有详情（连接卡）。
  * @param onAction 右上角那颗图标做什么。null = 这张卡没有动作（默认；任务列表/子代理就是）。
@@ -173,7 +173,7 @@ internal class StatusCardView(
     }
 
     /**
-     * 图标 + 标签那一行。整行居中：方案甲要的就是"四张卡里不再有三种对齐"。
+     * 图标 + 标签那一行。整行居中：方案甲要的就是"五张卡里不再有三种对齐"。
      *
      * 用 [FlowLayout] 而不是 BoxLayout X：FlowLayout 天生按内容居中，
      * 而 BoxLayout 在容器比内容宽时会把富余空间**分给子件**（标签会被撑开、
@@ -196,7 +196,7 @@ internal class StatusCardView(
         labelView.font = labelView.font.deriveFont(labelView.font.size2D - 2f)
         labelView.foreground = UIUtil.getInactiveTextColor()
         // 值统一大一号。改版前是 11/12/15 三种字号按 bigValue 二选一，
-        // 扫一眼分不出哪个是重点 —— 现在四张卡一个字号
+        // 扫一眼分不出哪个是重点 —— 现在五张卡一个字号
         valueView.font = valueView.font.deriveFont(valueView.font.size2D + 1f)
         // 值在它自己那一行里居中；那一行由 [valueRow] 负责拉满卡片宽度
         valueView.horizontalAlignment = SwingConstants.CENTER
@@ -204,7 +204,7 @@ internal class StatusCardView(
         add(topRow)
         add(valueRow)
         // 竖直弹簧：GridLayout 把每张卡拉到同一高度，弹簧让**指示器贴底**。
-        // 没有它的话上下文卡的条会比任务列表卡的点阵低一截，四张卡底边参差
+        // 没有它的话上下文卡的条会比任务列表卡的点阵低一截，五张卡底边参差
         add(Box.createVerticalGlue())
         add(indicatorRow)
 
@@ -295,7 +295,7 @@ internal class StatusCardView(
      * 画卡片的底。
      *
      * **自己画一层，不让父容器透出来。** 顶部这排坐在哪块容器上、那块容器是什么
-     * 底色，是别的代码说了算 —— 实测在真实 IDE 里那块底是暗的，透出来之后四张卡
+     * 底色，是别的代码说了算 —— 实测在真实 IDE 里那块底是暗的，透出来之后五张卡
      * 跟背景糊成一片，设计稿里那种"灰卡片"就没了（探针里看不出来：它恰好把
      * 面板色当背景）。
      *
@@ -306,7 +306,7 @@ internal class StatusCardView(
      * 画 —— 两个数一旦分叉，四个角上就会露出"底比边圆"或者反过来的一圈毛刺。
      *
      * **收边（quiet）也照画**：那是"这格现在没数据"（值变灰），不是"这格不存在"。
-     * 2026-09-14 用户明确要求过：没数据时边框与底照常要有，四张卡看着是一排。
+     * 2026-09-14 用户明确要求过：没数据时边框与底照常要有，五张卡看着是一排。
      */
     override fun paintComponent(g: Graphics) {
         // 动作也算"有东西要画"—— 探针会只给动作不给模型地画一张
@@ -515,7 +515,7 @@ internal class StatusCardView(
      * 换动作。null = 这张卡现在没有动作（回到今天的样子）。
      *
      * **一个字都不动布局**：图标自绘在卡片坐标系里，不占 `FlowLayout` / `BoxLayout`
-     * 的位子，所以四张卡的位置一动不动 —— 97×50 的格子经不起再塞一个组件进去。
+     * 的位子，所以五张卡的位置一动不动 —— 76×50 的格子经不起再塞一个组件进去。
      */
     fun setAction(next: CardAction?) {
         action = next
@@ -595,7 +595,7 @@ internal class StatusCardView(
             g2.fillRoundRect(b.x, b.y, b.width, b.height, arc, arc)
         }
 
-        // 图形本身比命中区小一圈：命中区要够大才点得中，墨迹太大则四张卡都吵。
+        // 图形本身比命中区小一圈：命中区要够大才点得中，墨迹太大则五张卡都吵。
         // **0.88 是看图定的**：第一版画到 0.78（约 12px 里再留白，墨迹只剩 7px），
         // 扫把缩成一道斜杠、压缩缩成一个小叉 —— 两颗都认不出来
         val side = (minOf(b.width, b.height) * 0.88).toInt()
@@ -609,6 +609,8 @@ internal class StatusCardView(
             when (a.kind) {
                 CardActionKind.Clear -> paintBroom(g3)
                 CardActionKind.Compact -> paintCompress(g3)
+                CardActionKind.TurnOn -> paintPlay(g3)
+                CardActionKind.TurnOff -> paintPause(g3)
             }
         } finally {
             g3.dispose()
@@ -670,6 +672,36 @@ internal class StatusCardView(
     }
 
     /**
+     * ▶（开启同步）：一个等边三角形，**描边不填充** —— 与另外两颗同一套语言
+     * （扫把与压缩记号也都是线）。填充的实心块在这 14px 上会比其它两颗重一档，
+     * 一排卡里看着像"这颗更急"。
+     *
+     * 指向**右**（不是向上）：右是"开始"（媒体控件里那条最通用的语言），
+     * 而向上会被读成"导出/上传"。
+     */
+    private fun paintPlay(g2: Graphics2D) {
+        g2.draw(
+            Path2D.Double().apply {
+                moveTo(5.2, 3.0)
+                lineTo(13.0, 8.0)
+                lineTo(5.2, 13.0)
+                closePath()
+            }
+        )
+    }
+
+    /**
+     * ⏸（关闭同步）：两根竖杠。
+     *
+     * 与 [paintPlay] 成对 —— 用户不用读字就知道这一颗是往哪个方向拨。
+     * 两根杠的间距取 5.2：再近就并成一根粗线、再远就像两撇。
+     */
+    private fun paintPause(g2: Graphics2D) {
+        g2.draw(Line2D.Double(5.4, 3.2, 5.4, 12.8))
+        g2.draw(Line2D.Double(10.6, 3.2, 10.6, 12.8))
+    }
+
+    /**
      * 最小高度 = 首选高度：**卡不能被压扁**，压扁就是几行字叠在一起。
      *
      * 不覆写的话这里会报出 15px —— `JLabel` 没有布局管理器，它的
@@ -684,12 +716,12 @@ internal class StatusCardView(
     /**
      * 卡片高度**固定**（2026-09-15 用户报"子代理有任务时高度会自己变高"）。
      *
-     * 四张卡的高度由 GridLayout 拉平到最高的那张（见 [StatusCardsRow]），而指示器
+     * 五张卡的高度由 GridLayout 拉平到最高的那张（见 [StatusCardsRow]），而指示器
      * 那一行的高度是**随类型变**的：无 0px / 比例条 2px / 分段 4px / 点阵 5px。
      * 于是"子代理从空闲变成 1"会让**整排**长高 5px，下面的转写区跟着跳一下。
      *
      * 做法：高度按**最高的那个指示器槽**（点阵的 5px）算死，差出来的空间由竖直
-     * 弹簧吸收 —— 指示器因此照旧贴底、四张卡底边齐，而卡片高度一动都不动。
+     * 弹簧吸收 —— 指示器因此照旧贴底、五张卡底边齐，而卡片高度一动都不动。
      * 代价是空闲时卡片底部多 5px 空档 —— 那正是"固定"的意思。
      */
     override fun getPreferredSize(): Dimension {
@@ -706,7 +738,7 @@ internal class StatusCardView(
      * 只有 `setModel` 一次都没调过（model == null，生产里不会出现）时才全透明。
      *
      * 无论哪种情况都返回颜色而不换 border 对象：`getBorderInsets` 因此恒为 1，
-     * 收边与否都不会让四张卡左右跳。
+     * 收边与否都不会让五张卡左右跳。
      */
     private fun strokeColor(): Color = when {
         model == null -> Color(0, 0, 0, 0)
@@ -723,7 +755,7 @@ internal class StatusCardView(
  * 跟 [Tone] 变色的自绘。而**颜色必须跟着色调走**：连接卡的"已连接 / 正在载入 /
  * 启动失败"就靠这一处区分（原来是一个前置状态点，并进图标了）。
  *
- * 四个形状各三五笔，缩放按组件实际宽度算，高 DPI 下画出来还是清楚的。
+ * 五个形状各三五笔，缩放按组件实际宽度算，高 DPI 下画出来还是清楚的。
  */
 internal class CardIconView(val icon: CardIcon) : JComponent() {
 
@@ -765,6 +797,25 @@ internal class CardIconView(val icon: CardIcon) : JComponent() {
                     // 地球：一圈加一条横线。连接/会话这一类语义最不容易被误读
                     g2.draw(Ellipse2D.Double(2.4, 2.4, 11.2, 11.2))
                     g2.draw(Line2D.Double(2.6, 8.0, 13.4, 8.0))
+                }
+
+                CardIcon.Sync -> {
+                    // 两个首尾相追的箭头 —— 与设置页那一页的导航图标同一个意象
+                    // （`NavIcon.Sync` 当初挑的就是它："同步"这件事最不容易被读错的画法）。
+                    // 这里按卡片图标的尺寸重画了一遍而不是去调那边：那边是 16px 的
+                    // 导航图标，用的是它自己那套描边与坐标系
+                    g2.draw(Arc2D.Double(2.5, 2.5, 11.0, 11.0, 160.0, -140.0, Arc2D.OPEN))
+                    g2.draw(
+                        Path2D.Double().apply {
+                            moveTo(10.9, 4.6); lineTo(13.2, 6.1); lineTo(10.8, 7.6)
+                        }
+                    )
+                    g2.draw(Arc2D.Double(2.5, 2.5, 11.0, 11.0, 200.0, 140.0, Arc2D.OPEN))
+                    g2.draw(
+                        Path2D.Double().apply {
+                            moveTo(5.1, 8.4); lineTo(2.8, 9.9); lineTo(5.2, 11.4)
+                        }
+                    )
                 }
 
                 CardIcon.Context -> {

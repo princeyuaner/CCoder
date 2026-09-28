@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.intellij.util.ui.UIUtil
 import java.awt.Color
 
 /**
@@ -26,8 +27,9 @@ internal const val CONTRAST_AA = 4.5
 /**
  * 兜底的两个蓝：深色底上亮的赢、浅色底上深的赢 —— 由对比度算出来，不是 if 出来的。
  *
- * 取色用它们当最后一道的有两处：[PermissionCard] 的计划正文（HTML 里那点颜色），
- * 与 [ThemeInjector.accentTextFor]（网页层当文字色的强调色）。
+ * 取色用它们当最后一道的有三处：[PermissionCard] 的计划正文（HTML 里那点颜色）、
+ * [ThemeInjector.accentTextFor]（网页层当文字色的强调色），与 [accentTextOn]
+ * （弹层里小一号的强调文字，2026-09-28 加）。
  *
  * 后者这段历史值得记一笔：2026-09-16 修计划框时曾一并给网页层算过一份，
  * 随"正文路径可点击"那版**一起撤了**，网页那边又退回用主题给的 `--accent`
@@ -83,3 +85,21 @@ internal fun blend(fg: Color, bg: Color, keep: Double): Color {
     fun mix(a: Int, b: Int) = (a * keep + b * (1 - keep)).toInt().coerceIn(0, 255)
     return Color(mix(fg.red, bg.red), mix(fg.green, bg.green), mix(fg.blue, bg.blue))
 }
+
+/**
+ * 弹层里强调文字（链接、状态词）在 [background] 上看得清的那一档。
+ *
+ * 主题的 `focusColor` 是给**正文字号**的；小一号的字（气泡那句"还有 N 个 ›"、
+ * 日志浮层右边那个状态词都是 `size - 1`）压在深色底上就发闷。不够就往后走
+ * [CODE_BLUE_BRIGHT]：规矩同 [pickReadable]，主题色在前、兜底在后 ——
+ * 浅色主题下主题色自己就够（深蓝压白底），轮不到兜底。
+ *
+ * 量过（Darcula 的提示底 #4b4d4d，见 `SyncBubbleRenderProbe` 的打点）：
+ * 主题那个 `focusColor` 只有 2.x:1，兜底那个蓝 3.9:1 —— 在这块底上两个都到不了
+ * 4.5:1，所以**这里只保证"不比主题给的差"**，别把它当成一条及格线。
+ *
+ * [background] 是**估算**的底：这些弹层的底由平台画（我们只往里放内容），拿不到真值。
+ * 同一族的取值在深浅两种主题下都在一档里，挑色的结果对这点误差不敏感。
+ */
+internal fun accentTextOn(background: Color): Color =
+    pickReadable(listOf(focusColor(), CODE_BLUE_BRIGHT), background)

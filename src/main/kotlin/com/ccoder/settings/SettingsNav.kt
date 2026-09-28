@@ -15,6 +15,7 @@ import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.geom.Arc2D
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Path2D
 import java.awt.geom.RoundRectangle2D
@@ -43,7 +44,7 @@ import javax.swing.JPanel
  */
 
 /** 左栏那八枚。与页一一对应。 */
-internal enum class NavIcon { Models, Presets, General, Permission, Environment, Mcp, Hooks, GroupChat }
+internal enum class NavIcon { Models, Presets, General, Permission, Environment, Mcp, Hooks, Sync }
 
 /** 图标边长（dp）。 */
 internal const val NAV_ICON_SIDE = 16
@@ -154,19 +155,18 @@ private fun glyph(g: Graphics2D, kind: NavIcon) = when (kind) {
         g.draw(p)
     }
 
-    // 群交流：两个人（"群"比"一个气泡"更贴这一页）
-    NavIcon.GroupChat -> {
-        g.draw(Ellipse2D.Double(3.4, 3.4, 4.4, 4.4))
-        val body = Path2D.Double()
-        body.moveTo(1.8, 13.2)
-        body.curveTo(1.8, 10.3, 3.5, 9.2, 5.6, 9.2)
-        body.curveTo(7.7, 9.2, 9.4, 10.3, 9.4, 13.2)
-        g.draw(body)
-        g.draw(Ellipse2D.Double(9.6, 4.2, 3.4, 3.4))
-        val arm = Path2D.Double()
-        arm.moveTo(11.4, 13.2)
-        arm.curveTo(11.4, 11.0, 10.6, 10.0, 9.4, 9.9)
-        g.draw(arm)
+    // 同步：两个首尾相追的箭头（桌面那个同步工具用的就是同一个意象）
+    NavIcon.Sync -> {
+        // 上半个圆弧（160° → 20°，顺时针量）＋右端的箭头
+        g.draw(Arc2D.Double(2.5, 2.5, 11.0, 11.0, 160.0, -140.0, Arc2D.OPEN))
+        val topHead = Path2D.Double()
+        topHead.moveTo(10.9, 4.6); topHead.lineTo(13.2, 6.1); topHead.lineTo(10.8, 7.6)
+        g.draw(topHead)
+        // 下半个圆弧（200° → 340°）＋左端的箭头
+        g.draw(Arc2D.Double(2.5, 2.5, 11.0, 11.0, 200.0, 140.0, Arc2D.OPEN))
+        val bottomHead = Path2D.Double()
+        bottomHead.moveTo(5.1, 8.4); bottomHead.lineTo(2.8, 9.9); bottomHead.lineTo(5.2, 11.4)
+        g.draw(bottomHead)
     }
 }
 

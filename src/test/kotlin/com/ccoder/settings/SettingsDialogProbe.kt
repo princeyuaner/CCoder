@@ -1,5 +1,13 @@
 package com.ccoder.settings
 
+import com.ccoder.sync.Failed
+import com.ccoder.sync.KeptWhy
+import com.ccoder.sync.KeptItem
+import com.ccoder.sync.SyncConfig
+import com.ccoder.sync.SyncRun
+import com.ccoder.sync.SyncSettings
+import com.ccoder.sync.SyncSnapshot
+import com.ccoder.sync.SyncStatus
 import com.ccoder.text.CcoderText
 import com.ccoder.sidecar.DepStatus
 import com.ccoder.sidecar.McpServerStatus
@@ -440,13 +448,52 @@ class SettingsDialogProbe {
     )
 
     /**
-     * 群交流页：一句说明 + 一张二维码（2026-09-17）。
+     * 同步页的**两屏**都要看：
      *
-     * 看图只回答三件事：码够不够大（手机扫得动不）、有没有被拉变形、
-     * 整页是不是空得发慌。
+     * 1. **没配置**那一屏 —— 大多数人第一次看到的、也是唯一会看到的一屏（不填就不跑）。
+     *    它必须说清"填哪两样东西就可以开始"，否则这一页就是一堆看不懂的开关
+     * 2. **在跑**那一屏 —— 左栏三个数（复制/删除/失败）+ 需要注意的项 + 最近日志。
+     *    240px 宽的栏里那些**值**会不会折行、日志框会不会顶开别的卡，只有画出来才知道
      */
     @Test
-    fun `把群交流页画成图片`() = render("build/probe/settings-group-chat.png", page = "settings.page.groupChat")
+    fun `把同步页没配置的样子画成图片`() =
+        render("build/probe/settings-file-sync-empty.png", page = "settings.page.fileSync")
+
+    @Test
+    fun `把同步页在跑的样子画成图片`() = render(
+        "build/probe/settings-file-sync-running.png",
+        page = "settings.page.fileSync",
+        syncConfig = SyncConfig(
+            enabled = true,
+            src = "C:\\M71\\server",
+            dst = "Z:\\m71\\server",
+            syncRoots = listOf("trunk"),
+            exclude = listOf("temp", "*.log"),
+            deleteMissing = true,
+        ),
+        syncSnapshot = SyncSnapshot(
+            run = SyncRun.RUNNING,
+            lastRoundAtMs = 1_756_000_000_000L,
+            lastCostMs = 480,
+            copied = 12,
+            deleted = 3,
+            pruned = 1,
+            unchanged = 16_743,
+            watchedDirs = 739,
+            hints = 214,
+            // 混一条"本地已删但目标端那份被改过"——那是这一页最需要被看见的一类
+            kept = listOf(KeptItem("trunk/tools/run.bat", KeptWhy.TARGET_MODIFIED)),
+            failed = listOf(Failed("trunk/temp/locked.pdb", "被占用")),
+            log = listOf(
+                "[启动] 先跑一轮基线同步，把当前差异推过去",
+                "[监听] 已注册 739 个目录（用时 148 ms）",
+                "[巡检] 定时兜底扫描（防事件遗漏）→ 开始检查",
+                "[内容对账] 本地 16743 个文件，目标 16745 个文件；已核实一致 16728 个，内容有差异 12 个",
+                "[提醒] trunk/tools/run.bat — 本地已删，但目标端那份已被改动过，没有自动删",
+                "[完成] 复制 12/12，删除 3 项（0 项目标端本不存在），顺带清掉 1 个空目录，失败 1 项（用时 480 ms）",
+            ),
+        ),
+    )
 
     /**
      * 预置页。两条预设、其中一条正文多行 —— 内容框的高度封没封住、
@@ -559,6 +606,10 @@ class SettingsDialogProbe {
         installingLog: List<String> = emptyList(),
         /** true = 这台机器上装不了（没有 npm/winget/brew），两行都走兜底那条路。 */
         noPackageManager: Boolean = false,
+        /** 同步页要画的那套配置。null = 画「没配置」那一屏（大多数人第一次看到的就是它）。 */
+        syncConfig: SyncConfig? = null,
+        /** 同步页左栏那份状态快照。null = 画「刚打开还没有一轮跑完」那一屏。 */
+        syncSnapshot: SyncSnapshot? = null,
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -609,6 +660,9 @@ class SettingsDialogProbe {
                     font?.let { fontChoice = it }
                     scale?.let { fontScale = it }
                 },
+                // 同步那两个注入的是"种好的"实例：页只读它们，所以既能画空态也能画真态
+                SyncSettings().apply { syncConfig?.let { update(it) } },
+                SyncStatus().apply { syncSnapshot?.let { set(it) } },
                 DepsUi(os = Os.WINDOWS, tools = { tools }),
                 base,
             )
@@ -698,7 +752,7 @@ class SettingsDialogSaveTest {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
             dialog = SettingsDialog(
                 fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(),
-                UiLanguageSettings(), UiPreferences(), TEST_DEPS_UI,
+                UiLanguageSettings(), UiPreferences(), SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             clickOn(listRowFor(dialog, profiles.first().displayName()))
         }

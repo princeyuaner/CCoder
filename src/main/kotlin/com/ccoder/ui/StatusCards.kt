@@ -1,5 +1,8 @@
 package com.ccoder.ui
 
+import com.ccoder.sync.SyncRun
+import com.ccoder.sync.SyncSnapshot
+import com.ccoder.sync.SyncTexts
 import com.ccoder.text.CcoderText
 
 /**
@@ -91,13 +94,21 @@ internal val CARD_COMPACTING_TEXT: String get() = CcoderText.text("status.card.c
 /** 点数封顶。数字才是权威，点只是让"2"变得看得见。 */
 internal const val MAX_DOTS = 6
 
-// 四张卡的格子名。取值时机是**每次建模**（getter 而不是 const）—— 语言在
+// 五张卡的格子名。取值时机是**每次建模**（getter 而不是 const）—— 语言在
 // 一个面板的生命周期里是定的，但卡片会随每一轮 token 重算，没有理由把文案钉在类加载那一刻。
 
 internal val CARD_LINK: String get() = CcoderText.text("status.card.link")
 internal val CARD_CONTEXT: String get() = CcoderText.text("status.card.context")
 internal val CARD_TASKS: String get() = CcoderText.text("status.card.tasks")
 internal val CARD_AGENTS: String get() = CcoderText.text("status.card.agents")
+
+/**
+ * 同步卡那一格的标签（2026-09-24）。第五张，排在**上下文左边**。
+ *
+ * 卡上那两件事分给两处（与上下文卡同一套分流）：点卡片主体 → 看日志
+ * （浮层，见 [SyncLogDetail]），点右上角那颗 → 拨同步的总开关（`syncActionOf`）。
+ */
+internal val CARD_SYNC: String get() = CcoderText.text("status.card.sync")
 
 private fun quietCard(label: String) =
     StatusCardModel(label = label, value = CARD_IDLE_TEXT, quiet = true)
@@ -241,5 +252,50 @@ internal fun runningCardOf(running: List<RunningTask>): StatusCardModel {
         label = CARD_AGENTS,
         value = running.size.toString(),
         indicator = Indicator.Dots(minOf(running.size, MAX_DOTS)),
+    )
+}
+
+// ---- 目录同步 ----
+
+/**
+ * 同步卡。**永远不空闲** —— "没开"是一种状态，不是"没数据"（同连接卡那条）。
+ *
+ * ## 值行说的是五种状态，色调说的是"要不要你管"
+ *
+ * | run | 值 | 色调 | 什么时候 |
+ * |---|---|---|---|
+ * | `RUNNING` | 运行中 | Ok | 正常工作 |
+ * | `FAILED` | 有失败 | Danger | 有失败项，下一轮会自己重试，但得让人知道 |
+ * | `OCCUPIED` | 被占用 | Warn | 同一对目录被另一个 IDE 窗口同步着，本窗口没启动 |
+ * | `STOPPED` | 已停止 | Warn | 开关开着却起不来（目录不在、盘没挂） |
+ * | `DISABLED` | 未开启 | Idle | 开关在关那一侧 |
+ *
+ * `Ok` 给的是绿点（[toneColor]），而这一格**确实**是"安定状态"——后台在干活、
+ * 什么都不用管。只有它出问题时才该从一排卡里跳出来。
+ *
+ * ## 没有比例条
+ *
+ * 同步没有"总量"这回事：一轮里复制多少是**跑完才知道**的，拿计划数当分母会画出
+ * 一条一路涨到满的假进度（[Indicator] 那段"每一种都必须有真实分母"）。
+ * 一轮的详情在 tooltip 与日志里。
+ *
+ * ## 副值（tooltip）直接用状态栏那句
+ *
+ * 同一件事在两处各写一遍，迟早出现"一处改了、另一处还是旧口径"。
+ * `syncStatusBarTooltip` 已经把"上次同步 12:03:44 · 复制 3，删除 0，失败 0"
+ * 这类话说全了，直接复用。
+ */
+internal fun syncCardOf(snapshot: SyncSnapshot?): StatusCardModel {
+    val s = snapshot ?: SyncSnapshot()
+    return StatusCardModel(
+        label = CARD_SYNC,
+        value = CcoderText.text(SyncTexts.runKey(s.run)),
+        tone = when (s.run) {
+            SyncRun.RUNNING -> Tone.Ok
+            SyncRun.FAILED -> Tone.Danger
+            SyncRun.OCCUPIED, SyncRun.STOPPED -> Tone.Warn
+            SyncRun.DISABLED -> Tone.Idle
+        },
+        sub = syncStatusBarTooltip(s),
     )
 }

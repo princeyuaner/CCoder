@@ -208,7 +208,7 @@
         <!--
           设置**没有**注册在这里，是刻意的（2026-09-15 删掉了那个 projectConfigurable）。
           全部设置都在工具窗口右上角那个齿轮里（`com.ccoder.settings.SettingsDialog`，
-          八个页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 群交流）—— 从前这里有一页 IDE 设置，
+          八个页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 同步）—— 从前这里有一页 IDE 设置，
           与对话框各管一半字段，用户得记"哪项在哪儿"。
 
           代价知道：IDE Settings 的搜索框里再也搜不到 CCoder。而齿轮**不随忙闲置灰**，
@@ -240,6 +240,14 @@
         <statusBarWidgetFactory
             id="CCoderPendingPermissions"
             implementation="com.ccoder.ui.PendingPermissionStatusBarFactory"/>
+
+        <!-- 目录同步的状态段（2026-09-24）。**没配置就什么都不显示**，所以它不占地方。
+             它顺带是同步的启动器：注解式服务是惰性实例化的，而这个组件在项目打开时
+             一定会被创建（同上面那颗计数组件依赖的同一件事）—— 于是"打开项目就开始
+             同步"不必再加一个启动钩子（那属于启动路径，得跑 runIde 验，挂在账上）。 -->
+        <statusBarWidgetFactory
+            id="CCoderSync"
+            implementation="com.ccoder.ui.SyncStatusBarFactory"/>
 
         <!-- 转写区里点文件名却打不开时的提示（见 OpenFileTarget）。
              这里是**非粘性**的：那只是"这一次没打开"，不是需要用户处理的

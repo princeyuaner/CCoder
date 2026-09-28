@@ -344,7 +344,7 @@ private class RestartChip(text: String) : JLabel(text) {
     init {
         val base = UIUtil.getLabelFont()
         // 小两号而不是一号：它是**提示**，不是这一行的正文 —— 探针里一号时
-        // 它跟模型名一样大，四张卡上就是四块最响的色（设计稿里是 10.5 : 12.5）
+        // 它跟模型名一样大，五张卡上就是五块最响的色（设计稿里是 10.5 : 12.5）
         font = base.deriveFont(base.size2D - 2f)
         foreground = warningColor()
         isOpaque = false

@@ -80,7 +80,7 @@ class StatusCardViewTest {
     @Test
     fun `收边的卡也画边框与底 —— 那是"没数据"，不是"没有这格"`() {
         // 2026-09-14 用户明确要求：任务列表 / 子代理没数据时边框照常要有，
-        // 四张卡看着是一排。quiet 只把值与图标压暗
+        // 五张卡看着是一排。quiet 只把值与图标压暗
         val card = StatusCardView()
         card.setModel(StatusCardModel(label = "任务列表", value = CARD_IDLE_TEXT, quiet = true))
 
@@ -88,7 +88,7 @@ class StatusCardViewTest {
     }
 
     @Test
-    fun `收边与否不改变 insets —— 否则四张卡会左右跳`() {
+    fun `收边与否不改变 insets —— 否则五张卡会左右跳`() {
         val card = StatusCardView()
         card.setModel(busy)
         val busyInsets = card.border.getBorderInsets(card)
@@ -194,7 +194,7 @@ class StatusCardViewTest {
     @Test
     fun `指示器从无到有，卡片高度一动不动`() {
         // 2026-09-15 用户报"子代理有任务时高度会自己变高，把高度算好固定死"。
-        // 四张卡的高度由 GridLayout 拉平到最高的那张，而指示器那一行的高度随类型
+        // 五张卡的高度由 GridLayout 拉平到最高的那张，而指示器那一行的高度随类型
         // 变（无 0 / 比例条 2 / 分段 4 / 点阵 5）—— 于是"子代理从空闲变成 1"
         // 会让整排长高 5px，下面的转写区跟着跳。
         val card = StatusCardView()

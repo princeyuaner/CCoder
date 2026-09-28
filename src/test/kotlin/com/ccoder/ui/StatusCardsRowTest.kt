@@ -1,5 +1,7 @@
 package com.ccoder.ui
 
+import com.ccoder.sync.SyncRun
+import com.ccoder.sync.SyncSnapshot
 import com.intellij.ui.components.JBLabel
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -10,12 +12,15 @@ import java.awt.FlowLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
 
-/** 四张卡怎么排。 */
+/** 五张卡怎么排。 */
 class StatusCardsRowTest {
 
     private val quietTodos = StatusCardModel(label = "任务列表", value = CARD_IDLE_TEXT, quiet = true)
 
-    private fun row() = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {})
+    private fun row() = StatusCardsRow(
+        onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {},
+        onOpenRunning = {}, onOpenSync = {}, onToggleSync = {},
+    )
 
     private fun layoutAll(c: Container) {
         c.doLayout()
@@ -25,19 +30,22 @@ class StatusCardsRowTest {
     }
 
     @Test
-    fun `四张卡始终都在，包括没内容的时候`() {
+    fun `五张卡始终都在，包括没内容的时候`() {
         // 这条钉的是 spec §4 那次推翻：旧原则是"取不到就不显示"，
-        // 而这里必须常驻 —— 卡一会儿出现一会儿消失，输入框就会上下跳
+        // 而这里必须常驻 —— 卡一会儿出现一会儿消失，输入框就会上下跳。
+        // 2026-09-24 加的同步卡同理：**没配置时也不收起来**，它那一格
+        // 正是"要不要开"的唯一入口（见 syncCardOf 的头注）
         val r = row()
         r.todos.setModel(quietTodos)
         r.running.setModel(StatusCardModel(label = "子代理", value = CARD_IDLE_TEXT, quiet = true))
+        r.sync.setModel(syncCardOf(null))
 
-        assertEquals(4, r.componentCount, "四张卡必须常驻")
+        assertEquals(5, r.componentCount, "五张卡必须常驻")
         assertTrue(r.components.all { it.isVisible }, "收边不等于隐藏")
     }
 
     @Test
-    fun `四张卡都挂了监听器 —— 连接卡那一个只为动作按钮而挂`() {
+    fun `五张卡都挂了监听器 —— 连接卡那一个只为动作按钮而挂`() {
         // 2026-09-17 改：连接卡多了一颗动作按钮（悬停值行 →「清空会话」），
         // 监听器因此必须挂 —— 它从 v2 起一直是四张里唯一没有监听器的那张。
         //
@@ -49,22 +57,28 @@ class StatusCardsRowTest {
         assertTrue(r.context.mouseListeners.isNotEmpty(), "上下文卡该可点（点开看用量明细）")
         assertTrue(r.todos.mouseListeners.isNotEmpty(), "任务列表卡该可点")
         assertTrue(r.running.mouseListeners.isNotEmpty(), "子代理卡该可点")
+        assertTrue(r.sync.mouseListeners.isNotEmpty(), "同步卡该可点（点开看日志，右上角那颗拨开关）")
         assertTrue(r.connection.mouseListeners.isNotEmpty(), "连接卡要有监听器，动作按钮才亮得起来")
     }
 
     @Test
-    fun `四张卡等宽，总量不超出可用宽度`() {
+    fun `五张卡等宽，总量不超出可用宽度`() {
         // 等宽是这一行的规矩（GridLayout 强制等分，宽度与内容无关）。
-        // 420px 下每张约 101px，真实那一行 404px（面板 420 减两侧各 8px 边距）
-        // 下每张约 97px —— 下面那条"八种连接文字都放得下"就是量这个的
+        // 420px 下每张约 81px，真实那一行 404px（面板 420 减两侧各 8px 边距）
+        // 下每张约 76px —— 下面那条"八种连接文字都放得下"就是量这个的。
+        //
+        // **下限是量出来的，不是估的**：76px 一张（值行 58px）是 2026-09-24 加同步卡
+        // 之后每一格真正拿到的宽度；而这个数曾经是 80 —— 那是四张卡时的口径。
+        // 真正守着"内容别被裁"的是下面那两条按文字**逐条量**的用例，这一条守的是
+        // "别被压得更窄"，所以它跟着卡数改。
         val r = row()
         r.setSize(420, 60)
         layoutAll(r)
 
         val widths = r.components.map { it.width }
-        assertEquals(1, widths.distinct().size, "四张卡宽度不一致：$widths")
+        assertEquals(1, widths.distinct().size, "五张卡宽度不一致：$widths")
         assertTrue(widths.sum() <= 420, "总宽超出面板：${widths.sum()}")
-        assertTrue(widths.all { it >= 80 }, "每张卡被压得太窄，内容会裁掉：$widths")
+        assertTrue(widths.all { it >= 76 }, "每张卡被压得太窄，内容会裁掉：$widths")
     }
 
     @Test
@@ -90,7 +104,7 @@ class StatusCardsRowTest {
         assertEquals(
             heights.max(),
             r.minimumSize.height,
-            "四张卡首选高度=$heights，行最小=${r.minimumSize.height}",
+            "五张卡首选高度=$heights，行最小=${r.minimumSize.height}",
         )
     }
 
@@ -135,31 +149,40 @@ class StatusCardsRowTest {
     }
 
     @Test
-    fun `卡面短词都放得下 —— 值行与标签行各有约 79px`() {
-        // 三类短词共用这一格：十个动作词（`activityCardOf` 放值行、`waitingCardOf`
-        // 放标签行）、空格子那句（`CARD_IDLE_TEXT`）、压缩中那句（`CARD_COMPACTING_TEXT`）。
-        // 中文那份是按 ≤4 个字量出来的，英文同样只有约 79px —— 要**量**，不要估。
+    fun `卡面短词都放得下 —— 值行与标签行各有约 58px`() {
+        // 四类短词共用这一格：十个动作词（`activityCardOf` 放值行、`waitingCardOf`
+        // 放标签行）、空格子那句（`CARD_IDLE_TEXT`）、压缩中那句（`CARD_COMPACTING_TEXT`），
+        // 以及 2026-09-24 起同步卡的五个状态词（`sync.state.*`）。
+        // 中文那份是按 ≤4 个字量出来的，英文同样只有约 58px —— 要**量**，不要估。
         // 用 -PtestLang=en 跑一遍，哪个英文词撑破格子当场就红（设计稿 §8）。
+        //
+        // **58 这个数是加同步卡之后量出来的**（五张卡、一行 404px）：从前是 79
+        // （四张卡）。加卡那天就是靠这条用例发现"压缩中…"与英文的 `Compacting`
+        // 放不下了，两个词因此收短（见 StatusCardsRow 的头注）。
         val r = configured()
         r.setSize(404, 100)
 
         val tooWide = mutableListOf<String>()
-        fun measure(model: StatusCardModel, labelRow: Boolean = false) {
-            r.connection.setModel(model)
+        fun measure(card: StatusCardView, model: StatusCardModel, labelRow: Boolean = false) {
+            card.setModel(model)
             layoutAll(r)
-            val target = if (labelRow) labelLabelOf(r.connection) else valueLabelOf(r.connection)
+            val target = if (labelRow) labelLabelOf(card) else valueLabelOf(card)
             val row = if (labelRow) "标签行" else "值行"
             if (target.preferredSize.width > target.width) {
-                tooWide += "$row「${target.text}」要 ${target.preferredSize.width}px（只有 ${target.width}px）"
+                tooWide += "${target.text} 的${row}要 ${target.preferredSize.width}px（只有 ${target.width}px）"
             }
         }
 
         for (activity in Activity.entries) {
-            measure(activityCardOf(activity))
-            measure(waitingCardOf(42), labelRow = true)
+            measure(r.connection, activityCardOf(activity))
+            measure(r.connection, waitingCardOf(42), labelRow = true)
         }
-        measure(todoCardOf(null))                                                   // 空格子那句
-        measure(contextCardOf(ContextUsage(12300, 200000), compacting = true))       // 压缩中那句
+        measure(r.connection, todoCardOf(null))                                     // 空格子那句
+        measure(r.context, contextCardOf(ContextUsage(12300, 200000), compacting = true))
+        // 同步卡：五个状态词一个都不能被省略号切掉（"被另一窗口占用"就是这么发现太长的）
+        for (run in SyncRun.entries) {
+            measure(r.sync, syncCardOf(SyncSnapshot(run = run)))
+        }
 
         assertTrue(tooWide.isEmpty(), "这些词放不下：" + tooWide.joinToString("；"))
     }
@@ -231,14 +254,28 @@ class StatusCardsRowTest {
     }
 
     @Test
-    fun `四张卡各带各的图标`() {
+    fun `五张卡各带各的图标`() {
         // 图标是"这一格是什么"，由行来分配 —— 换了模型不该换图标
         val r = row()
 
         assertEquals(CardIcon.Link, iconOf(r.connection).icon)
+        assertEquals(CardIcon.Sync, iconOf(r.sync).icon)
         assertEquals(CardIcon.Context, iconOf(r.context).icon)
         assertEquals(CardIcon.Tasks, iconOf(r.todos).icon)
         assertEquals(CardIcon.Agents, iconOf(r.running).icon)
+    }
+
+    @Test
+    fun `同步卡排在上下文的左边`() {
+        // 位置是用户点名要的（2026-09-24："上下文左侧增加一个卡片"）——
+        // 钉住它，免得哪天顺手按"数据来源"重排把这张卡挪走
+        val r = row()
+
+        assertEquals(1, r.components.indexOf(r.sync), "同步卡该是第二张（连接与上下文之间）")
+        assertTrue(
+            r.components.indexOf(r.sync) < r.components.indexOf(r.context),
+            "同步卡跑到上下文右边去了",
+        )
     }
 
     private fun iconOf(c: Container): CardIconView {
@@ -252,9 +289,10 @@ class StatusCardsRowTest {
         error("这棵树里没有图标")
     }
 
-    /** 跟生产一样：四张卡都灌上模型。 */
+    /** 跟生产一样：五张卡都灌上模型。 */
     private fun configured(): StatusCardsRow = row().apply {
         connection.setModel(connectionCardOf(ConnectionState.Connected))
+        sync.setModel(syncCardOf(null))
         context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
         todos.setModel(todoCardOf(null))
         running.setModel(runningCardOf(emptyList()))

@@ -192,7 +192,7 @@ class ComposerRulesTest {
         )
         assertNull(
             layout.getLayoutComponent(BorderLayout.NORTH),
-            "NORTH 该空着 —— 四张状态卡是独立的一排，在输入卡外面",
+            "NORTH 该空着 —— 五张状态卡是独立的一排，在输入卡外面",
         )
     }
 

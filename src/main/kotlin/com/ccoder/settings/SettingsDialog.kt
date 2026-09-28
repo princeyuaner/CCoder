@@ -1,5 +1,7 @@
 package com.ccoder.settings
 
+import com.ccoder.sync.SyncSettings
+import com.ccoder.sync.SyncStatus
 import com.ccoder.text.CcoderText
 import com.intellij.openapi.project.Project
 import java.nio.file.Path
@@ -51,13 +53,15 @@ fun showSettingsDialog(project: Project) {
         deps = RuntimeDepsService.getInstance(project),
         language = UiLanguageSettings.getInstance(),
         prefs = UiPreferences.getInstance(),
+        syncSettings = SyncSettings.getInstance(project),
+        syncStatus = SyncStatus.getInstance(project),
     ).show()
 }
 
 /**
  * 设置对话框（骨架是 2026-09-15 的方案 C；2026-09-20 按用户选的**方案 B** 改版：
  * 左栏带图标与胶囊选中态、页里改成卡片分区 —— 选型图在 `docs/design/settings-v3.html`）。
- * 八页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 群交流。
+ * 八页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 同步。
  *
  * ## 从三栏到四页签
  *
@@ -107,6 +111,14 @@ internal class SettingsDialog(
      */
     private val prefs: UiPreferences,
     /**
+     * 目录同步的配置（项目级）。**不给默认值**，同 [deps] 的理由 ——
+     * 默认值只能写成 `SyncSettings.getInstance(project)`，而它在纯 JVM 的探针里会抛。
+     * 探针直接 `SyncSettings()` 造一个（它就是个普通类，注解只对平台注册有意义）。
+     */
+    private val syncSettings: SyncSettings,
+    /** 同步状态的发布点（只读）。同样不给默认值；探针用 `SyncStatus()`。 */
+    private val syncStatus: SyncStatus,
+    /**
      * 「运行依赖」那块的确认框/剪贴板/浏览器外壳。生产用默认值；渲染探针换掉它
      * （要画"这台机器上装不了"那一屏就得把平台与工具一起换掉）。
      */
@@ -140,9 +152,11 @@ internal class SettingsDialog(
             // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
             McpSettingsPage(baseDir, mcpStatus) to NavIcon.Mcp,
             HooksSettingsPage(baseDir) to NavIcon.Hooks,
-            // 一页只放一张二维码（2026-09-17）。它不读写任何配置，放最后 ——
-            // 前面七页是"把插件配成你要的样子"，这一页是"找人"
-            GroupChatSettingsPage() to NavIcon.GroupChat,
+            // 目录同步（2026-09-24）。它读写自己的项目级配置，与别的页没有交集。
+            // **它排在最后一个**是有来历的：此前这一位是「群交流」（一张二维码，
+            // 2026-09-17 加、2026-09-24 用户要求删掉）—— 一页只放一张码，
+            // 既不该夹在配置页中间，也没有"页序"要照顾
+            FileSyncSettingsPage(project, syncSettings, syncStatus) to NavIcon.Sync,
         )
     }
 

@@ -13,10 +13,10 @@ import javax.imageio.ImageIO
 import javax.swing.SwingUtilities
 
 /**
- * 渲染探针：把输入区连同它上方的四张状态卡画成 PNG，好让人眼看一眼。
+ * 渲染探针：把输入区连同它上方的五张状态卡画成 PNG，好让人眼看一眼。
  *
- * 没有断言，也不该有 —— 单测能钉住"收边的卡 alpha 是 0""四张等宽"，
- * 钉不住"四张卡和输入框叠在一起整体好不好看"。而后者正是这次改版的
+ * 没有断言，也不该有 —— 单测能钉住"收边的卡 alpha 是 0""五张等宽"，
+ * 钉不住"五张卡和输入框叠在一起整体好不好看"。而后者正是这次改版的
  * **全部理由**，不该只靠信念。
  *
  * 状态卡也不再是输入卡内部的一行：它们是独立的一排，挂在输入卡**外面**的
@@ -82,8 +82,12 @@ class ComposerRenderProbe {
         longText: Boolean = false,
     ) {
         SwingUtilities.invokeAndWait {
-            val cards = StatusCardsRow(onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {}, onOpenRunning = {}).apply {
+            val cards = StatusCardsRow(
+                onClear = {}, onCompact = {}, onOpenContext = {}, onOpenTodos = {},
+                onOpenRunning = {}, onOpenSync = {}, onToggleSync = {},
+            ).apply {
                 connection.setModel(connectionCardOf(ConnectionState.Connected))
+                sync.setModel(syncCardOf(null))
                 context.setModel(contextCardOf(ContextUsage(usedTokens = 12300, windowTokens = 200000)))
                 todos.setModel(
                     todoCardOf(

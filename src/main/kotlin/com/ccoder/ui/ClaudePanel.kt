@@ -30,6 +30,10 @@ import com.ccoder.settings.PromptPreset
 import com.ccoder.settings.PromptPresets
 import com.ccoder.settings.displayName
 import com.ccoder.settings.showSettingsDialog
+import com.ccoder.sync.SyncService
+import com.ccoder.sync.SyncSettings
+import com.ccoder.sync.SyncSnapshot
+import com.ccoder.sync.SyncStatus
 import com.ccoder.text.CcoderText
 import com.ccoder.update.ChangelogStore
 import com.ccoder.update.PropertiesChangelogStore
@@ -49,6 +53,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
@@ -171,7 +176,7 @@ class ClaudePanel(
     private var compacting = false
 
     /**
-     * 四张状态卡。**常驻** —— 没内容的格子收边，不隐藏。
+     * 五张状态卡。**常驻** —— 没内容的格子收边，不隐藏。
      *
      * 卡一会儿出现一会儿消失，输入框就会在会话中途上下跳；稳定比安静重要。
      */
@@ -183,7 +188,40 @@ class ClaudePanel(
         onOpenContext = { toggleDetail(DetailCard.Context) },
         onOpenTodos = { toggleDetail(DetailCard.Todos) },
         onOpenRunning = { toggleDetail(DetailCard.Running) },
+        onOpenSync = { toggleDetail(DetailCard.Sync) },
+        // 同步那颗**不是**一条命令：它拨的是 `SyncConfig.enabled`（见 [toggleSync]）
+        onToggleSync = { toggleSync() },
     )
+
+    /**
+     * 同步状态（项目级，见 `SyncStatus`）。
+     *
+     * `null` = 取不到（项目已关那一类的路径）—— 那时同步卡照常画，只是永远显示
+     * "未开启"：**卡不能消失**（一会儿有一会儿没有，输入框就会上下跳）。
+     */
+    private val syncStatus: SyncStatus? =
+        runCatching { SyncStatus.getInstance(project) }.getOrNull()
+
+    /** 状态一变就重刷那一格。跑在 EDT 上（`SyncStatus.set` 的契约）。 */
+    private val syncListener: () -> Unit = { refreshSyncCard() }
+
+    /**
+     * 点开的日志浮层。**只有它真显示出来了才非 null** —— 锚点不在屏上时
+     * [showDetailPopup] 会返回 false，那时留着它，下一次刷新就会去改一个从没露过面的窗口
+     * （同一类"自己跳出来"的事故，见 [runningPopupBox] 上那段）。
+     */
+    private var syncLogDetail: SyncLogDetail? = null
+
+    /** 此刻挂着的那颗同步气泡。连轮进来时先收掉它再弹新的 —— 同一位置不叠第二个。 */
+    private var syncBubble: Balloon? = null
+
+    /**
+     * 已经报过的那一轮（`SyncSnapshot.lastRoundAtMs`）。
+     *
+     * 用它挡"同一轮报两次"：一次跑完会连着推几次快照（先 RUNNING 再按结果分档），
+     * 而**拿整份快照判等不行** —— 那些中间的发布与跑完那一次可以有完全相同的字段。
+     */
+    private var announcedRoundAtMs: Long? = null
 
     /**
      * 被最小化的提问那条带子（见 [AskRestoreBar]）。
@@ -539,7 +577,7 @@ class ClaudePanel(
     private var runningPopupBox: JPanel? = null
 
     /** 哪张卡的详情浮层。连接卡没有详情，所以不在其中。 */
-    private enum class DetailCard { Context, Todos, Running }
+    private enum class DetailCard { Context, Todos, Running, Sync }
 
     /** 回合进行中：已发出消息，但还没收到 result。 */
     private var busy = false
@@ -687,6 +725,11 @@ class ClaudePanel(
     init {
         // 标签数变化 → 「＋」的可用性重算（多标签之后它只在到上限时置灰）
         SessionTabs.getInstance(project).addTabsListener(tabsListener)
+        // 同步：状态变了刷那一格。**顺手把服务拉起来** —— 注解式服务是惰性的，
+        // 而这张卡上的开关得有个东西真的去响应它（状态栏组件那条路已经在拉，
+        // 这里是第二条保险：卡出现了，开关就该能用）
+        runCatching { SyncService.getInstance(project) }
+        syncStatus?.addListener(syncListener)
         // 补全：文本变了就重算候选。用文档监听而不是按键监听 ——
         // 粘贴、撤销、退格都会改文本，而它们不都是"按键"
         input.document.addDocumentListener(object : DocumentAdapter() {
@@ -822,7 +865,7 @@ class ClaudePanel(
         val composerToolbar =
             buildComposerToolbar(attachButton, modelLabel, modeLabel, effortLabel, sendButton)
 
-        // 四张卡先灌一次初值，否则它们是一排没有内容的空框
+        // 五张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
 
         val inputArea = buildComposerCard(inputScroll, composerToolbar, attachments)
@@ -863,7 +906,7 @@ class ClaudePanel(
                     .apply { alignmentX = LEFT_ALIGNMENT }
             )
             add(statusCards)
-            // 卡片与输入框之间留一口气。紧贴着看时，四张卡像是输入框的一部分
+            // 卡片与输入框之间留一口气。紧贴着看时，五张卡像是输入框的一部分
             // （而且状态卡是"常驻控件"，不是输入区里的一行）。strut 宽 0，
             // 不参与对齐的加权平均，不必管它
             add(Box.createVerticalStrut(JBUI.scale(7)))
@@ -1132,7 +1175,7 @@ class ClaudePanel(
      * 当前动作的唯一写入口。
      *
      * **值没变就直接返回**：流式期间这条会被每个 token 调一次，而"思考中"
-     * 要连着几十上百次增量保持不变 —— 不挡一下就是每个 token 重画一次四张卡。
+     * 要连着几十上百次增量保持不变 —— 不挡一下就是每个 token 重画一次五张卡。
      */
     private fun setActivity(next: Activity?, subagent: Boolean) {
         // 两个都判：动作词没变、归属变了（主线程 → 子代理在跑同一类活）也得重画
@@ -1189,9 +1232,9 @@ class ClaudePanel(
     }
 
     /**
-     * 按当前四份数据重画四张卡。
+     * 按当前五份数据重画五张卡。
      *
-     * 没内容的格子由 [StatusCardModel.quiet] 收边 —— 不是隐藏，四张卡始终在。
+     * 没内容的格子由 [StatusCardModel.quiet] 收边 —— 不是隐藏，五张卡始终在。
      */
     private fun refreshStatusCards() {
         // 忙时这张卡改说"在干什么"：转写区是滚动区，长任务跑起来最新的那条
@@ -1201,6 +1244,7 @@ class ClaudePanel(
         statusCards.context.setModel(contextCardOf(lastUsage, compacting = compacting))
         statusCards.todos.setModel(todoCardOf(runStatus.todos))
         statusCards.running.setModel(runningCardOf(runStatus.running))
+        refreshSyncCard()
         refreshCardActions()
         // 「运行中」浮层开着时，清单变了就重画 —— task_progress 每走一步、
         // 终止后那一行被收掉，都会走到这儿
@@ -1208,9 +1252,88 @@ class ClaudePanel(
     }
 
     /**
-     * 两颗动作按钮的可用性。
+     * 同步卡单独一刷。
      *
-     * **与卡面分开刷**：卡面的四份数据各有各的来源，而动作只跟"会话活着吗 /
+     * 与 [refreshStatusCards] 分开的理由同连接卡：它的数据来自**项目**服务
+     * （[SyncStatus]，另一条线程上跑的），与这个会话的忙闲、用量、清单毫无关系 ——
+     * 一轮同步跑完就来一次，凭什么让另外四张跟着重算。
+     *
+     * ## 顺手把开着的日志浮层就地更新
+     *
+     * 用户点开那张卡多半正是为了盯着看（"我改的东西怎么没同步"）。判据与
+     * [refreshRunningPopup] 同一条：**先核它真在屏幕上**（`isShowing`），
+     * 再去改里面的字 —— 旗子有可能漏网，而"以为开着"的代价是改一个没人看得见的框。
+     */
+    private fun refreshSyncCard() {
+        val snapshot = currentSyncSnapshot()
+        statusCards.sync.setModel(syncCardOf(snapshot))
+        statusCards.sync.setAction(syncActionOf(snapshot, syncPathsReady()))
+        syncLogDetail?.takeIf { it.isShowing }?.setSnapshot(snapshot)
+        announceSyncRound(snapshot)
+    }
+
+    /**
+     * 一轮真的动了文件就在卡上冒一句（3 秒后自己关，见 [showSyncBubble]）。
+     *
+     * ## 三道闸，每一道都对应一个真会撞上的情况
+     *
+     * 1. **一轮只报一次**：[shouldAnnounceSyncRound]，判据是那一轮的 `lastRoundAtMs`
+     * 2. **面板得真在屏幕上**：同步是**项目级**的，而面板是每个标签一个 ——
+     *    不在前台的标签不该冒气泡（那正是"我都没点，为什么自己跳这个页面"那类投诉）。
+     *    注意这一条**先记下"报过了"再判可见性**：不然切回这个标签时会把上一轮补报一次
+     * 3. **连轮不叠**：先收掉旧的再弹新的（同一个位置，新的内容、新的 3 秒）
+     *
+     * 失败也报（见 [syncBubbleModelOf]）—— 那是"我改的东西没过去"的唯一现场提示。
+     */
+    private fun announceSyncRound(snapshot: SyncSnapshot) {
+        if (!shouldAnnounceSyncRound(snapshot, announcedRoundAtMs)) return
+        announcedRoundAtMs = snapshot.lastRoundAtMs
+        if (!isShowing) return
+
+        val model = syncBubbleModelOf(snapshot) ?: return
+        syncBubble?.hide()
+        syncBubble = showSyncBubble(
+            anchor = statusCards.sync,
+            model = model,
+            // 点气泡 = 点卡片：同一条路（打开日志浮层），不是第三种点击去处
+            onClick = { toggleDetail(DetailCard.Sync) },
+            parent = this,
+        )
+    }
+
+    /**
+     * 手上那份同步快照。
+     *
+     * 取不到服务时给一份默认的（"未开启"）—— **不返回 null 去让调用点各判一次**：
+     * 卡面的五种状态、动作的开关方向、日志那一屏，三处都只认一份东西。
+     */
+    private fun currentSyncSnapshot(): SyncSnapshot =
+        syncStatus?.snapshot ?: SyncSnapshot()
+
+    /** 两端目录填好了没有（同步那颗按钮的可点条件，见 [syncActionOf]）。 */
+    private fun syncPathsReady(): Boolean {
+        val cfg = SyncSettings.getInstanceOrNull(project)?.config ?: return false
+        return cfg.src.isNotBlank() && cfg.dst.isNotBlank()
+    }
+
+    /**
+     * 拨同步那个总开关。
+     *
+     * **不在这里判断能不能开**（`syncActionOf` 已经判过、按钮灰着时根本点不到）：
+     * 这里只做那一件事 —— 把开关拨过去。剩下的全归服务：`SyncSettings.update`
+     * 会通知它、它自己在后台线程上重建（重建看盘在映射网络盘上要 3.4 秒，
+     * 不能在这条 EDT 上做）。
+     */
+    private fun toggleSync() {
+        val settings = SyncSettings.getInstanceOrNull(project) ?: return
+        settings.update(settings.config.copy(enabled = !settings.config.enabled))
+    }
+
+    /**
+     * **会话那两颗**动作按钮的可用性（同步那颗在 [refreshSyncCard] 里 ——
+     * 它跟的是同步状态，与会话毫无关系）。
+     *
+     * **与卡面分开刷**：卡面的五份数据各有各的来源，而动作只跟"会话活着吗 /
      * 忙不忙 / 在压缩吗"三件事走 —— 忙闲切换时卡面数据一个字都没变，
      * 但按钮必须跟着灰（spec §3.5）。漏调一次就会出现"按钮亮着、点了没反应"。
      */
@@ -1320,6 +1443,15 @@ class ClaudePanel(
                 subagentsLoading = true
                 requestSubagents()
             }
+
+            // 同步：**当场弹**（同上下文卡，不问任何东西）。用的是手上那份快照 ——
+            // 日志本来就在快照里（`SyncSnapshot.log`），点一下就该看见东西。
+            // 开着的时候它会**就地更新**（见 [refreshSyncCard]）：用户点它多半正是
+            // 为了盯着下一轮跑到哪儿
+            DetailCard.Sync -> {
+                val view = SyncLogDetail().apply { setSnapshot(currentSyncSnapshot()) }
+                syncLogDetail = if (showDetailPopup(statusCards.sync, view)) view else null
+            }
         }
     }
 
@@ -1327,9 +1459,10 @@ class ClaudePanel(
         DetailCard.Context -> statusCards.context
         DetailCard.Todos -> statusCards.todos
         DetailCard.Running -> statusCards.running
+        DetailCard.Sync -> statusCards.sync
     }
 
-    /** 收起详情浮层：三张卡的高亮一起取消。 */
+    /** 收起详情浮层：五张卡的高亮一起取消。 */
     private fun closeDetail() {
         runDetailPopup?.cancel()
         runDetailPopup = null
@@ -1338,6 +1471,8 @@ class ClaudePanel(
         // 那只盒子跟着窗口一起没了 —— 留着的话，下一次刷新会去改一个已经不在
         // 浮层里的组件（改了也看不见，白忙）
         runningPopupBox = null
+        // 同步那一屏同理：窗口没了还攥着它，下一轮同步就会去改一个不在屏幕上的框
+        syncLogDetail = null
         // **also 把"正在等子代理清单"那面旗清掉**（2026-09-24 补）。它是"这一趟还
         // 算不算数"的凭据：不清的话，一条迟到的应答会以为自己仍被需要，于是把你
         // 刚点开的**另一张**卡的浮层顶掉（点了「任务列表」，跳出来的却是「子代理」）。
@@ -1346,6 +1481,7 @@ class ClaudePanel(
         statusCards.context.setOpen(false)
         statusCards.todos.setOpen(false)
         statusCards.running.setOpen(false)
+        statusCards.sync.setOpen(false)
     }
 
     /**
@@ -1556,6 +1692,7 @@ class ClaudePanel(
         statusCards.context -> DetailCard.Context
         statusCards.todos -> DetailCard.Todos
         statusCards.running -> DetailCard.Running
+        statusCards.sync -> DetailCard.Sync
         else -> null
     }
 
@@ -1573,7 +1710,7 @@ class ClaudePanel(
          *
          * false（默认）= 贴面板左边缘，底部那排长列表用（会话标签是右对齐的，
          * 跟着锚点会整块溢出）；true = 贴锚点，唯一用户是状态卡那三个详情浮层 ——
-         * 四张卡横排，浮层跑到面板最左就跟"这是哪张卡的"断了联系（见 [popupCardX]）。
+         * 五张卡横排，浮层跑到面板最左就跟"这是哪张卡的"断了联系（见 [popupCardX]）。
          *
          * **必须排在 `onClosed` 前面**：尾随 lambda 会静默绑到最后一个参数上，
          * 放在后面的话下面四个调用点的 `{ ... }` 会变成往 Boolean 上传函数 ——
@@ -2999,6 +3136,12 @@ class ClaudePanel(
         // 状态栏那份记账也要摘干净：留着的 restoreAsk 会让人点一下"回到提问"，
         // 而那个框属于一个已经销毁的面板（点下去什么都不发生，或者更糟）
         PendingPermissionCount.getInstance(project).clear(this)
+        // 同步那条订阅同理：`SyncStatus` 攥着监听器，不摘的话每关一条标签就漏一个，
+        // 而它们捕获着这个面板（下一轮同步跑完就会去刷一个已经没了的界面）
+        syncStatus?.removeListener(syncListener)
+        // 气泡不必手动收：它是拿 `setDisposable(this)` 建的，平台会跟着这个面板一起销毁
+        // （在这里调 `hide()` 反而要担心"已经销毁了还 hide"）
+        syncBubble = null
         stopSession()
         Disposer.dispose(transcriptView)
     }

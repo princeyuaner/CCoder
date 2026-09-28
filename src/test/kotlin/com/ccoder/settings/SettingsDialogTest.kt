@@ -1,5 +1,7 @@
 package com.ccoder.settings
 
+import com.ccoder.sync.SyncSettings
+import com.ccoder.sync.SyncStatus
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBLabel
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -145,7 +147,9 @@ class SettingsDialogLayoutTest {
                 PromptPresets(),
                 McpStatus(),
                 // 假服务：用例不真跑 `node --version` / `claude --version`
-                depsService(), UiLanguageSettings(), UiPreferences(), TEST_DEPS_UI,
+                depsService(), UiLanguageSettings(), UiPreferences(),
+                // 同步那两个也是普通类，直接造（注解只对平台的注册有意义）
+                SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             val pane = dialog.contentPane ?: dialog.contentPanel
             pane.setSize(DIALOG_WIDTH, DIALOG_HEIGHT)
@@ -279,7 +283,7 @@ class SettingsPagesTest {
         SwingUtilities.invokeAndWait {
             dialog = SettingsDialog(
                 layoutProbeProject(), settings, ModelProfiles(emptyStore()), PromptPresets(), McpStatus(),
-                depsService(), UiLanguageSettings(), prefs, TEST_DEPS_UI,
+                depsService(), UiLanguageSettings(), prefs, SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             layoutAll(dialog.contentPane)
         }

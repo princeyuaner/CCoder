@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -76,6 +77,31 @@ class ContrastTest {
         assertTrue(dimmed.red in bg.red..fg.red, "压过头或压反了：$dimmed")
         // 压一档仍要比"主题的次要文字色"清楚（次要色在深色下约 3.4:1）
         assertTrue(contrastRatio(dimmed, bg) > CONTRAST_AA, "压完还不到 4.5:1 就没意义了")
+    }
+
+    /**
+     * 2026-09-28 用户报："弹框里的字体颜色太暗了"。
+     *
+     * 这条量的是那件事**为什么发生**：弹层那种底上，主题的"次要文字色"
+     * （气泡里那几行、"日志浮层"的小标题原先用的就是它）连正文色的一半都不到 ——
+     * 它的语义本来就是"可以看不清"（禁用、水印、句尾补充）。
+     *
+     * 所以那两处最后都直接用了正文色，**没有再压一档**：深色底上根本没有余量可压
+     * （Darcula 量出来：正文色 4.43、压 15% 只剩 3.66、主题的次要色 1.93）。
+     *
+     * 钉的是**前提**：哪天主题的次要色自己就够清楚了，说明前提变了，
+     * 回那两处看一眼要不要改回去（写法同上面那条"选中块底色确实不够"）。
+     */
+    @Test
+    fun `弹层那种底上，主题的次要色连正文色的一半都不到`() = IdeLaf.withRealLaf {
+        val bg = UIUtil.getToolTipBackground()
+        val full = contrastRatio(UIUtil.getLabelForeground(), bg)
+        val inactive = contrastRatio(UIUtil.getInactiveTextColor(), bg)
+
+        assertTrue(
+            inactive < full * 0.6,
+            "次要色没比正文暗多少（%.2f:1 vs %.2f:1）—— 前提变了，回那两处看一眼".format(inactive, full),
+        )
     }
 
     @Test
