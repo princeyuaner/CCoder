@@ -72,16 +72,23 @@ SDK：`@anthropic-ai/claude-agent-sdk@0.3.283`（捆 CLI 2.1.283）。
 
 ## 5. 边界与代价
 
-- **后台命令（`run_in_background` 的 bash）根本进不了面板 —— 2026-09-28 实测。**
-  重跑 `node sidecar/tools/probe-stop-bash.mjs background`：命令确实起来了（心跳 0→3），
-  但消费侧**一个消息都没收到** —— 没有 `task_started`、没有 `task_notification`、
-  没有 `background_tasks_changed`（探针的原始落盘 jsonl 都没生成）。
-  2026-09-16 那次就是这个结论，今天原样复现，**不是本版引入的**。
-  **代价写清楚**：用户让 Claude 起一条后台命令时，面板上看不见它，更没有"看输出"可点。
-  能进面板的是**子代理** —— 同一天实测：派一个子代理，结束后 IDE 进程里
-  `TaskOutcome` 从"未加载"变成"已加载"，即"刚结束"那条路真的跑过了。
-  这条流为什么对 bash 哑、对子代理灵，**还没查**（探针文件头记了下次怎么查：
-  加一个"`canUseTool` 照常 allow 但不动 `updatedInput`"的对照组）。
+- **命令类任务（`local_bash`）是上报的 —— 2026-09-28 真机截图确认。**
+  面板「刚结束」里出现过两行 `local_bash`，带 ✓ 与「看输出」：那是一个子代理跑的两条
+  `awk` 计数命令。**这条面板的覆盖面比原先写的大**：命令类任务照样进面板、而且带
+  `output_file`（「看输出」真正有料可看的就是它们）。
+- **但主代理自己发的 `run_in_background` 命令没进面板**（同一天：12 秒 ticker、
+  注定失败那条、带暗号的短命令，三条都没出现）。两种可能，**还没分辨**：
+  ① 它们被 CLI 标成 `ambient` / `skip_transcript`，而我们把这类**整个丢掉**
+  （`RunStatusTracker.isAmbient`：不进 `byId`、结束也不留记录）——
+  可 SDK 的原话是这类 "may still appear in a tasks panel"，**那这条就是我们自己的取舍错**；
+  ② 主代理侧的 background bash 在 harness 那层就没注册成 task。
+  **分辨法（下次先做）**：派一个子代理去跑同一条 `run_in_background` 命令，
+  看它进不进面板 —— 子代理跑的命令已经证明能进。
+- **`probe-stop-bash.mjs` 自己是瞎的**：2026-09-28 按它文件头写的最短路径加了对照相位
+  `background-plain`（`canUseTool` 照常 allow、**不动 `updatedInput`**）——结果命令照跑
+  （心跳 9 条）而消费侧**一条消息都没收到**，连 `assistant` 都没有。
+  所以**不是 `updatedInput` 的锅**；这条流为什么哑仍未知。
+  **不要再用这个探针下"CLI 不上报"的结论**（当天我就这么误判过一次）。
 
 - **面板只记"连上这个会话之后看到的"**：`reset()` 在换会话时清空，重开会话不带历史。
   面板脚注明写这句（不然"我的任务呢"会变成一个说不清的 bug）。
@@ -98,9 +105,12 @@ SDK：`@anthropic-ai/claude-agent-sdk@0.3.283`（捆 CLI 2.1.283）。
 - 渲染探针：`RunningDetailRenderProbe` → `build/probe/tasks-three-stage.png`
   （三段齐全那一张，含暂停与失败两行）。**离屏渲染是这一层唯一的"观感"证据。**
 - 三侧测试：Kotlin / web / sidecar，见发布流程。
-- **真机（2026-09-28，装了 0.2.30 的 PyCharm 上）**：派一个最小子代理 →
-  用 `jcmd <IDE pid> VM.class_hierarchy com.ccoder.ui.TaskOutcome` 查它有没有被加载 ——
-  "未加载 → 已加载"就证明"刚结束"那条路真的跑过（比"看着像"硬）。
-  同法可查 `TaskOutputContent`（点了「看输出」才会加载）。
+- **真机（2026-09-28，装了 0.2.30 的 PyCharm 上）**：
+  - 派一个最小子代理 → `jcmd <IDE pid> VM.class_hierarchy com.ccoder.ui.TaskOutcome`
+    从未加载变已加载 ⇒ "刚结束"那条路真的跑过（比"看着像"硬）。
+  - 截图确认：`local_bash` 行（✓ + 看输出）、■ 停止（连停两个子代理）、
+    "只留最近两条"都在真机上成立。
+  - **还没验的**：点一次「看输出」（`TaskOutputContent` 才会加载）。
+    验法同上：点完再问那个进程一次。
 - 真机（挂账 #15 那条一起看）：三段在真实窗口里的高度与滚动；`output_file` 在 Windows 上
   的真实落点与生命周期；ambient 在真实会话里的数量级。

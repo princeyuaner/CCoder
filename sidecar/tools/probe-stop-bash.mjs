@@ -143,7 +143,12 @@ const q = query({
     includePartialMessages: true,
     canUseTool: (toolName) => {
       if (toolName !== 'Bash') {
-        return Promise.resolve({ behavior: 'deny', message: '探针：只放 Bash，且命令会被换掉' });
+        return Promise.resolve({ behavior: 'deny', message: '探针：只放 Bash' });
+      }
+      if (!REWRITE) {
+        // 对照组：**原样放行**（不碰 updatedInput）—— 要量的是"不改写入参时，
+        // 后台任务到底报不报事件"
+        return Promise.resolve({ behavior: 'allow' });
       }
       // **换掉命令**：不管模型想跑什么，跑的都是我们这条自限时心跳
       return Promise.resolve({
@@ -218,18 +223,28 @@ await settle(400);
 // Phase B 迟到的命令写进了 Phase A 的文件，"中断前心跳 21 条"这种数字就不知道
 // 是谁的。分开跑，每个进程只有一条命令、一个文件。
 const PHASE = (process.argv[2] ?? 'foreground').toLowerCase();
-if (!['foreground', 'background'].includes(PHASE)) {
-  console.log(`用法：node sidecar/tools/probe-stop-bash.mjs [foreground|background]`);
+if (!['foreground', 'background', 'background-plain'].includes(PHASE)) {
+  console.log(`用法：node sidecar/tools/probe-stop-bash.mjs [foreground|background|background-plain]`);
   process.exit(2);
 }
-RUN_IN_BACKGROUND = PHASE === 'background';
-console.log(`=== ${PHASE === 'background' ? 'Phase B：后台 Bash + stopTask' : 'Phase A：前台 Bash + interrupt'} ===\n`);
+RUN_IN_BACKGROUND = PHASE !== 'foreground';
+// **对照组**：照常 allow，但不改写入参 —— 模型跑它自己那条命令。
+// 要分辨的就是"我们换命令"是不是那条流变哑的原因（本文件头 2026-09-16 记的那个悬案）
+const REWRITE = PHASE !== 'background-plain';
+const TITLE = PHASE === 'foreground' ? 'Phase A：前台 Bash + interrupt'
+  : PHASE === 'background' ? 'Phase B：后台 Bash + stopTask'
+    : 'Phase C（对照）：后台 Bash，**不换命令**';
+console.log(`=== ${TITLE} ===\n`);
 console.log(`心跳文件：${heartbeatPath}`);
 console.log(`原始消息落盘：${dumpPath}`);
 
 input.send(PHASE === 'background'
   ? '请用 Bash 工具跑一条命令（跑久一点，放后台也行）。'
-  : '请用 Bash 工具跑一条命令（跑久一点，前台跑，别放后台）。');
+  : PHASE === 'background-plain'
+    // 对照组必须靠模型照做（我们不换命令）—— 给一条**自限时**的，跑 20 秒自己结束
+    ? `请用 Bash 工具、带上 run_in_background: true，跑这条命令（它自己 20 秒后结束）：`
+      + `for i in $(seq 1 20); do date +%s >> "${heartbeatPath}"; sleep 1; done`
+    : '请用 Bash 工具跑一条命令（跑久一点，前台跑，别放后台）。');
 
 // 判据是**心跳真的开始跳**，不是"事件里看见了 tool_use"：
 // 后者依赖模型的响应速度（实测 16 秒到一分钟以上都有），窗口一开就可能错过。
@@ -247,6 +262,22 @@ console.log(`  命令跑起来了：心跳 ${before} 条（等了 ${Math.round((
 if (before < 3) {
   console.log('  ⚠ 等到超时也没跳够三条 —— 下面的结论不作数（模型可能没照做）');
   console.log(`  事件：\n    ${EVENT_LOG.join('\n    ') || '（无）'}`);
+}
+
+if (PHASE === 'background-plain') {
+  // 对照组的判据只有一条：**事件里有没有 task 族的东西**
+  await settle(6000); // 让任务注册、事件到达（比上面那半多等一会儿：这次任务是自己跑的）
+  console.log(`  心跳 ${beats()} 条${beats() >= 1 ? '（模型照做了）' : '（⚠ 没跳 —— 模型没照做，下面的结论不作数）'}`);
+  console.log(`  事件：\n    ${EVENT_LOG.join('\n    ') || '（无）'}`);
+  const hasTask = EVENT_LOG.some((l) => /task_started|task_progress|task_notification|task_updated|background_tasks_changed/.test(l));
+  console.log(`  → 有没有 task 族事件：${hasTask ? '**有**' : '没有'}`);
+  await settle(3000);
+  q.close();
+  console.log('  （对照组不做 stopTask，直接收尾）');
+  console.log(`\n  原始消息落盘：${dumpPath}`);
+  for (const f of createdHeartbeats) { try { unlinkSync(f); } catch { /* 收尾失败不影响结论 */ } }
+  console.log('  收尾完成。');
+  process.exit(0);
 }
 
 if (PHASE === 'background') {
