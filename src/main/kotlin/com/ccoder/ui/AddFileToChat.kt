@@ -101,10 +101,13 @@ class AddFilesToChatAction : AnAction(), DumbAware {
         // **灰的时候要说为什么。** 这一类"看得见、点不动"从界面上看不出原因
         // （2026-09-15 就是这么被问到的：项目树里选中文件，那一项是灰的）。
         // 置灰仍然是置灰，但 tooltip 里给出下一步。
+        //
+        // 2026-09-28：「选中的是文件夹」那一支没了（目录现在照收），而且把 desc
+        // 换成了**复数**那条 —— 这里从前写的是 `action.addFile.desc`（单数那句，
+        // "把这个文件…"），多选三个文件时那句是错的
         e.presentation.description = when {
             e.project == null -> null
-            picked.isNotEmpty() -> CcoderText.text("action.addFile.desc")
-            selectedIsOnlyDirectory(e) -> CcoderText.text("action.addFiles.dirOnly")
+            picked.isNotEmpty() -> CcoderText.text("action.addFiles.desc")
             else -> CcoderText.text("action.addFiles.none")
         }
         // 同上面那条：设置里的语言靠这一句生效
@@ -113,7 +116,7 @@ class AddFilesToChatAction : AnAction(), DumbAware {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val mentions = files(e).joinToString(" ") { fileMention(mentionPathOf(project, it.path)) }
+        val mentions = files(e).joinToString(" ") { mentionOf(project, it) }
         if (mentions.isBlank()) return
         withPanel(project) { it.addToComposer(mentions) }
     }
@@ -143,8 +146,10 @@ class AddFilesToChatAction : AnAction(), DumbAware {
      * 于是"平台给的那一个到底是什么"在日志里看不见，只能再猜一轮。现在每个对象
      * 后面跟一个"认得出/认不出"—— 认不出时类名就在眼前，不用再等第二次反馈。
      *
-     * 读法：**`✓` 还原样灰着，只剩一种解释 —— 选中的是目录**（`@` 认的是文件，
-     * 那是 [pickFiles] 的活，设计如此）；`✗` 则是我们真的没认出来，类名就在那一行。
+     * 读法：**`✗` = 我们真的没认出来**，类名就在那一行（那是唯一一种"该认没认"）。
+     * 全是 `✓` 还灰着，那就不是认不认的问题，而是这一层**一个来源都没拿到**
+     * （`array`/`single`/`navigatables` 全空）—— 从前还有一种"选中的是目录"，
+     * 2026-09-28 起目录照收，那一支没了。
      */
     private fun diagnose(e: AnActionEvent) {
         val navs = e.getData(CommonDataKeys.NAVIGATABLE_ARRAY)
@@ -168,15 +173,6 @@ class AddFilesToChatAction : AnAction(), DumbAware {
         val read = navigatableFile(nav) != null
         return (if (read) cls.simpleName else cls.name) + if (read) "✓" else "✗"
     }
-
-    /** 选中项里**只有**目录 —— 用来把 tooltip 的话说准，不是用来判定的。 */
-    private fun selectedIsOnlyDirectory(e: AnActionEvent): Boolean =
-        pickFiles(
-            e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.toList(),
-            e.getData(CommonDataKeys.VIRTUAL_FILE)?.let(::listOf),
-            e.getData(CommonDataKeys.NAVIGATABLE_ARRAY)?.mapNotNull { navigatableFile(it) },
-            isDirectory = { false },
-        ).isNotEmpty()
 }
 
 /**
@@ -220,8 +216,8 @@ class AddFilesToChatAction : AnAction(), DumbAware {
  * 都认不出来才返回 null —— 那时动作该是灰的，那是正确行为
  * （[AddFilesToChatAction.update] 会给一句为什么灰）。
  *
- * 目录**照旧在这里放行**：滤掉目录是 [pickFiles] 的活（`@` 认的是文件），
- * 两处混在一起会让"选中的是文件夹"那句 tooltip 失去依据。
+ * 目录**照旧在这里放行**：这一层只回答"这个导航对象是哪个文件"，收不收是
+ * [pickFiles] 的事（从前那边会把目录滤掉，2026-09-28 起不滤了 —— 见它的注释）。
  */
 internal fun navigatableFile(
     navigatable: Any?,
@@ -253,7 +249,7 @@ internal fun navigatableFile(
 private fun nodeValueOf(nav: Any): Any? = (nav as? AbstractTreeNode<*>)?.value
 
 /**
- * 从若干候选来源里挑出这一次要加的文件：**取第一个非空的来源**，再把目录滤掉。
+ * 从若干候选来源里挑出这一次要加的那些：**取第一个非空的来源**。
  *
  * ## 为什么不能只认一个键
  *
@@ -268,14 +264,39 @@ private fun nodeValueOf(nav: Any): Any? = (nav as? AbstractTreeNode<*>)?.value
  * 一处都没给才返回空 —— 那时动作该是灰的，那是正确行为（[AddFilesToChatAction.update]
  * 会给一句为什么灰）。
  *
- * 目录一律滤掉：`@` 认的是文件，给过去一个目录名 CLI 展开不出东西。
+ * ## 目录**不滤**（2026-09-28 改了）
+ *
+ * 这里从前有一句写死的判据："`@` 认的是文件，给过去一个目录名 CLI 展开不出东西"。
+ * **那句话没被量过** —— 2026-09-14 那次实测（纯路径展开、0 次工具调用）只覆盖了文件。
+ * 2026-09-28 补量（`tools/probe-mention-dir.mjs`，带对照相位）：
+ *
+ *   - 对照 `@root.txt` → 0 次工具调用、答对（仪器可信）；
+ *   - `@sub` → **0 次工具调用**，模型列出了 `sub/a.txt`、`sub/b.txt` → 展开了；
+ *   - `@sub/` → 同上。
+ *
+ * 所以目录照收，形状见 [mentionTextOf]。
  */
-internal fun pickFiles(
-    vararg sources: List<VirtualFile>?,
-    // 判定口子：无头测试里造不出 isDirectory=true 的 VirtualFile
-    // （`LightVirtualFile` 恒定返回 false，真造一个目录要起 Application）
+internal fun pickFiles(vararg sources: List<VirtualFile>?): List<VirtualFile> =
+    sources.firstOrNull { !it.isNullOrEmpty() }.orEmpty()
+
+/**
+ * 一个文件/目录在输入框里那个 `@` 引用长什么样。
+ *
+ * **目录补一个尾斜杠**（`@src/`）：CLI 自己的 `@` 补全给目录插的就是这个形状
+ * （从 `claude.exe` 的内嵌 JS 里读到的：`displayText: name + "/"`）——
+ * 两条路进到输入框的写法一致，用户才看不出是两个来源。带不带斜杠**都展开**
+ * （探针两个都量过），选斜杠是为了这个一致性。
+ *
+ * 抽成纯函数（只吃"相对路径 + 是不是目录"）是为了可测：无头 JVM 里造不出
+ * `isDirectory=true` 的 `VirtualFile`（`LightVirtualFile` 恒定返回 false，
+ * 真造一个目录要起 Application）。
+ */
+internal fun mentionTextOf(relativePath: String, isDirectory: Boolean): String =
+    fileMention(if (isDirectory) "$relativePath/" else relativePath)
+
+/** [mentionTextOf] 的生产入口：路径先相对化，再按是不是目录补斜杠。 */
+internal fun mentionOf(
+    project: com.intellij.openapi.project.Project,
+    file: VirtualFile,
     isDirectory: (VirtualFile) -> Boolean = { it.isDirectory },
-): List<VirtualFile> {
-    val picked = sources.firstOrNull { !it.isNullOrEmpty() }.orEmpty()
-    return picked.filterNot(isDirectory)
-}
+): String = mentionTextOf(mentionPathOf(project, file.path), isDirectory(file))

@@ -83,5 +83,8 @@ internal fun refToken(path: String, lines: IntRange): String =
  * 多一个尾随空格）。这不是巧合，是必须的 —— CLI 就是靠这个 `@` 把文件内容
  * 展开进上下文的（2026-09-14 实测：纯路径展开，0 次工具调用；带行范围不展开）。
  * 两处形状一旦不一致，右键加进来的那个就成了普通文字。
+ *
+ * 目录也走这一条（形状是 `@目录/`，见 [mentionTextOf]）：2026-09-28 实测，
+ * `@目录` 与 `@目录/` **都**被展开成目录列举，0 次工具调用。
  */
 internal fun fileMention(path: String): String = "@$path "

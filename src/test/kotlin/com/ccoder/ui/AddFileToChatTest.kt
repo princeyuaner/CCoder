@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test
  * 无头 JVM 里没有 Application，造不出 PsiElement）。
  *
  * 两条取数的 `getData` 是胶水，这里测的是**判定**：谁的优先级高、
- * 空的怎么退、目录怎么滤、认不出的导航对象怎么办。
+ * 空的怎么退、目录怎么加、认不出的导航对象怎么办。
  */
 class AddFileToChatTest {
 
@@ -53,14 +53,22 @@ class AddFileToChatTest {
     }
 
     @Test
-    fun `目录被滤掉 —— @ 认的是文件`() {
-        // 目录判定的口子在参数里：无头测试造不出 isDirectory=true 的 VirtualFile
-        val picked = pickFiles(
-            listOf(file("a.kt"), file("src")),
-            isDirectory = { it.name == "src" },
-        )
+    fun `目录不再被滤掉 —— 跟文件一起加进去`() {
+        // **2026-09-28 改的**：这里从前断言"目录被滤掉"，依据是一句没量过的话
+        // （"@ 认的是文件"）。补量之后（tools/probe-mention-dir.mjs，带对照相位）
+        // `@目录` 是**会**展开的 —— 0 次工具调用，模型直接列出了目录里的文件。
+        // 所以目录与文件在取数这一层一视同仁，形状的差别在 [mentionTextOf]。
+        val picked = pickFiles(listOf(file("a.kt"), file("src")))
 
-        assertEquals(listOf("a.kt"), picked.map { it.name })
+        assertEquals(listOf("a.kt", "src"), picked.map { it.name })
+    }
+
+    @Test
+    fun `目录的引用带尾斜杠 —— 与 CLI 补全插的同一个形状`() {
+        // 带不带斜杠都展开（两个都量过）；选斜杠是为了与 CLI 自己那条路一致：
+        // 它的补全给目录插的就是 `name/`
+        assertEquals("@src/ ", mentionTextOf("src", isDirectory = true))
+        assertEquals("@a.kt ", mentionTextOf("a.kt", isDirectory = false))
     }
 
     @Test
