@@ -161,45 +161,29 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-09-28 复核：**0.2.29 已过审上架**
-         （`api/plugins/34281/updates?version=0.2.29`：id 1181380，`approve`/`listed`
-         都是 true，link 是 /versions/stable/1181380）—— 当天传、当天过。
-         于是本版是**相对 0.2.29 的真增量**，"并上一版"的应急方案用不上；
-         上一版那三条在 tag `v0.2.29` → 6aaa2c8 那棵树的 plugin.xml 里。
+         2026-09-29 复核：**0.2.30 已上架**（`api/plugins/34281/updates?version=0.2.30`：
+         id 1182241，`approve`/`listed` 都是 true）。开版那一刻它还在审，写 change-notes
+         之前又复核了一次才落定 —— 所以本版**只写相对 0.2.30 的增量**，
+         "没过审就得把上一版并进来"那套（0.2.26→0.2.27 用过，见发布设计稿 §八）用不上。
+         0.2.30 那三条在 tag `v0.2.30` → 87a0db5 那棵树的 plugin.xml 里，可对照措辞。
          复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.30</h3>
+    <h3>0.2.31</h3>
     <ul>
-      <li><b>The task card now says how it ended</b> &mdash; it used to answer only "who is
-          running right now", and a task simply vanished the moment it finished. It is now
-          three sections: <i>running</i> / <i>paused</i> / <i>just finished</i>. Rows that
-          finished keep their outcome (done / failed / stopped), how long they took, how
-          many tool calls they made &mdash; and the reason, when they failed.</li>
-      <li><b>Read a finished task's output</b> &mdash; the last 200 lines in a dialog, with a
-          button that opens the whole file in the editor (search, folding and large files
-          come for free there). If the output file is gone &mdash; temporary directories do
-          get cleaned up &mdash; it says so instead of showing an empty box.</li>
-      <li><b>Right-click a folder in the project view to add it to the chat</b> &mdash; that
-          menu item used to be greyed out for folders. It now inserts an <code>@</code>
-          reference just like a file (<code>@src/</code>), and the CLI expands it into the
-          listing of that folder &mdash; so a folder costs one line rather than the whole
-          tree, and files and folders can be picked in the same go.</li>
+      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
+          version &mdash; check whether 0.2.30 has been approved first (see the comment
+          above; as of 2026-09-29 it was still in review). If it has not, merge 0.2.30's
+          three items in as well. The previous list lives in git (tag v0.2.30 &rarr;
+          87a0db5); do not copy it blindly.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>任务卡现在会说"成了没有"</b> &mdash; 从前它只回答"眼下有谁在跑"，任务一结束
-          那一行就凭空消失。现在分三段：<i>在跑</i> / <i>暂停</i> / <i>刚结束</i>；刚结束
-          的那些留着结局（成了 / 失败 / 被停掉）、耗时、调了多少次工具，失败的话还有原因。</li>
-      <li><b>看一个已结束任务的输出</b> &mdash; 一屏给最后 200 行，旁边一颗按钮把完整那份在
-          编辑器里打开（搜索、折叠、大文件都现成）。输出文件不在了（临时目录会被清掉）会
-          <b>明说</b>，而不是给一个空框。</li>
-      <li><b>项目树里右键文件夹也能加进聊天框</b> &mdash; 从前对着文件夹那一项是<b>灰的</b>。
-          现在和文件一样插一条 <code>@</code> 引用（<code>@src/</code>），CLI 会把它展开成
-          那个文件夹的文件列表 &mdash; 所以它只占一行、不会把整棵树塞进去；文件与文件夹
-          可以一次混着选。</li>
+      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.30
+          过审没有（上面那条注释；2026-09-29 开版时还在审）—— 没过审就得把 0.2.30 那三条
+          一并并进来。上一版的清单在 git 里（tag v0.2.30 &rarr; 87a0db5），别照抄。</li>
     </ul>
     ]]></change-notes>
 
