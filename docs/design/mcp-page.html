@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CCoder MCP 页改版 · 提案</title>
+<title>CCoder MCP 页改版 · 一台一张卡片</title>
 <style>
 /* ============================================================
    页面外壳 —— 展示用，不是产品的一部分。
@@ -50,7 +50,7 @@ body {
 .masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
   padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
 h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
-.lede { color: var(--page-dim); max-width: 82ch; margin: 0; font-size: 14.5px; }
+.lede { color: var(--page-dim); max-width: 84ch; margin: 0; font-size: 14.5px; }
 .lede b { color: var(--page-fg); }
 .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
 .toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
@@ -64,7 +64,7 @@ h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacin
 .card p { margin: 0; font-size: 13.5px; color: var(--page-dim); }
 .card p + p { margin-top: 8px; }
 .card p b { color: var(--page-fg); }
-.card code, .note code, .spec code, .rel code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.card code, .note code, .spec code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
 
 .variant { margin: 72px 0 0; padding-top: 34px; border-top: 1px solid var(--page-line); }
 .vhead { display:flex; align-items:baseline; gap: 14px; flex-wrap:wrap; }
@@ -88,65 +88,60 @@ h2 { font-size: 22px; margin: 0; font-weight: 600; }
   color: var(--text); text-decoration:none; }
 .snav a .ic { font-size: 11px; opacity:.8; }
 .snav a.on { background: var(--accent); color: var(--accent-fg); }
-.spane { padding: 12px 14px; display:flex; gap: 12px; align-items:flex-start; }
+.spane { padding: 12px 14px; min-width: 0; }
+/* 单栏：卡片流铺满整宽（右栏撤掉之后，页面就是这一列） */
+.flow { max-width: 100%; }
 
-/* 列表（240px）+ 详情（其余）—— 与真机的 MCP_LIST_WIDTH 一致 */
-.col-list { width: 240px; flex: 0 0 240px; }
-.col-main { flex: 1; min-width: 0; }
-.pcard { border:1px solid var(--border); border-radius: 8px; background: var(--surface); overflow:hidden; }
-.pcard + .pcard { margin-top: 10px; }
-.pcard .ch { display:flex; align-items:center; justify-content:space-between; gap:6px;
-  padding: 6px 10px 6px 12px; border-bottom: 1px solid var(--border-soft);
-  font-family: var(--mono); font-size: 11px; color: var(--dim); }
-.pcard .ch b { color: var(--text); font-weight: 600; }
-.pcard .cb { padding: 8px 10px; }
-.pcard .cf { display:flex; align-items:center; gap:8px; padding: 7px 10px; border-top: 1px solid var(--border-soft);
-  font-size: 11.5px; color: var(--dim); }
-.plus { width: 20px; height: 20px; border:1px solid var(--border); border-radius: 5px; background: var(--panel);
-  color: var(--text); display:grid; place-items:center; font-size: 13px; }
+/* 分段标题：一栏里唯一的分组手段 */
+.grp { display:flex; align-items:baseline; gap:8px; margin: 2px 0 8px; }
+.grp .gt { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase; color: var(--dim); }
+.grp .gd { font-size: 11px; color: var(--dim); }
+.grp + .grp { margin-top: 18px; }
 
-/* 列表里的一台 server */
-.srow { padding: 6px 8px; border-radius: 6px; }
-.srow.sel { background: var(--accent); color: var(--accent-fg); }
-.srow .n { font-size: 12.5px; }
-.srow .m { font-size: 10.5px; color: var(--dim); font-family: var(--mono); margin-top: 2px; }
-.srow.sel .m { color: rgba(255,255,255,.78); }
-.srow .line2 { display:flex; align-items:center; gap:5px; margin-top: 2px; }
-.srow.sel .m { color: rgba(255,255,255,.8); }
+/* ---- 一台 server 一张卡 ---- */
+.mcard { border:1px solid var(--border); border-radius: 8px; background: var(--surface); overflow:hidden; }
+.mcard + .mcard { margin-top: 8px; }
+.mcard .mh { display:flex; align-items:center; gap:8px; padding: 7px 12px; border-bottom: 1px solid var(--border-soft); }
+.mcard .nm { font-size: 13px; color: var(--text); font-weight: 600; }
+.mcard .kind { font-family: var(--mono); font-size: 9.5px; letter-spacing:.06em; color: var(--dim);
+  border:1px solid var(--border); border-radius: 4px; padding: 0 5px; white-space:nowrap; }
+.mcard .st { margin-left:auto; display:flex; align-items:center; gap:6px;
+  font-family: var(--mono); font-size: 11px; white-space:nowrap; }
+.mcard .mb { padding: 9px 12px 10px; }
+.mcard .cmd { font-family: var(--mono); font-size: 11.5px; color: var(--text); line-height: 1.7;
+  word-break: break-all; }
+.mcard .meta { font-size: 11.5px; color: var(--dim); margin-top: 6px; }
+.mcard .meta .k { font-family: var(--mono); color: var(--text); }
+.mcard .err { font-size: 11.5px; color: var(--danger); margin-top: 6px; }
+/* 紧凑卡的第二行：命令摘要（长了走省略号 —— 两台像不像得靠它，所以只省它） */
+.mcard .mb2 { padding: 0 12px 7px; font-family: var(--mono); font-size: 11px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcard .mb2.err { color: var(--danger); }
+.mcard .mf { display:flex; align-items:center; gap:8px; padding: 6px 10px; border-top: 1px solid var(--border-soft); }
+.mcard .mf .sp { margin-left: auto; }
+/* 认不出的形状：今天完全看不见它们 —— 一张压暗的卡把这件事说出来 */
+.mcard.unknown { opacity: .72; }
+.mcard.unknown .nm { font-weight: 500; }
+/* 全局配的：只读，卡片更矮，动作一个都没有 */
+.mcard.ro .mb { padding: 7px 12px 8px; }
+.mcard.ro { background: var(--panel); }
 
-/* 详情卡里的一行：标签在上、值在下（宽栏才有这个余地） */
-.fld { margin: 0 0 12px; }
-.fld:last-child { margin-bottom: 0; }
-.fld .lb { font-size: 11.5px; color: var(--dim); margin-bottom: 4px; }
-.fld .val { font-size: 12.5px; color: var(--text); }
-.fld .val.mono { font-family: var(--mono); font-size: 11.5px; }
-.fld .hint { font-size: 11px; color: var(--dim); margin-top: 3px; }
+/* ＋ 添加：虚线占位卡（卡片流里最自然的入口） */
+.addcard { margin-top: 8px; border:1px dashed var(--border); border-radius: 8px; padding: 10px 12px;
+  display:flex; align-items:center; gap:8px; color: var(--dim); font-size: 12.5px; }
+.addcard .plus { width: 18px; height: 18px; border:1px solid var(--border); border-radius: 5px; background: var(--panel);
+  color: var(--text); display:grid; place-items:center; font-size: 12px; }
 
-/* 状态一行：**名字过长走省略号、状态钉右不换行** —— 今天那版两者都换行，240px 里就叠在一起了 */
-.st-row { display:flex; align-items:baseline; gap:6px; padding: 6px 8px; border-radius: 6px; }
-.st-row + .st-row { margin-top: 2px; }
-.st-row .name { font-size: 12.5px; color: var(--text); flex:1; min-width:0;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.st-row .st { font-family: var(--mono); font-size: 11px; white-space: nowrap; }
-.st-row .why { font-size: 11px; color: var(--dim); padding: 0 8px 6px; }
-.st-ok { color: var(--ok); } .st-warn { color: var(--warn); } .st-er { color: var(--danger); } .st-dim { color: var(--dim); }
+.btn { font-size: 11.5px; color: var(--text); border:1px solid var(--border); background: var(--panel);
+  border-radius: 5px; padding: 2px 9px; }
+.btn.danger { color: var(--danger); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display:inline-block; }
 .dot.ok { background: var(--ok); } .dot.er { background: var(--danger); } .dot.dim { background: var(--dim); }
-
-/* 今天那页的样子（对照用）：右栏是常驻表单 */
-.tf { border:1px solid var(--border); border-radius: 5px; background: var(--editor); padding: 4px 8px;
-  font-size: 12px; color: var(--text); font-family: var(--mono); }
-.tf.area { min-height: 54px; padding: 6px 8px; line-height: 1.7; }
-.dd { border:1px solid var(--border); border-radius: 5px; background: var(--panel); padding: 3px 8px;
-  font-size: 12px; color: var(--text); display:flex; align-items:center; justify-content:space-between; }
-.clash { position: relative; outline: 1.5px dashed var(--danger); outline-offset: 2px; border-radius: 6px; }
-.clash::after { content: "撞在一起了"; position:absolute; right:0; top:-19px; font-family: var(--mono); font-size: 10px; color: var(--danger); }
+.st-ok { color: var(--ok); } .st-warn { color: var(--warn); } .st-er { color: var(--danger); } .st-dim { color: var(--dim); }
 
 /* ---- 弹窗 ---- */
-.shade { position: relative; }
-.modal { position: relative; width: 560px; margin: 0 auto; background: var(--surface); border:1px solid var(--border);
+.modal { width: 560px; background: var(--surface); border:1px solid var(--border);
   border-radius: 10px; box-shadow: 0 22px 60px rgba(0,0,0,.45); overflow:hidden; }
-.modal.wide { width: 640px; }
 .modal .mh { display:flex; align-items:center; justify-content:space-between; gap:10px;
   padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
 .modal .mh .t { font-size: 13.5px; color: var(--text); font-weight: 600; }
@@ -154,36 +149,18 @@ h2 { font-size: 22px; margin: 0; font-weight: 600; }
 .modal .mb { padding: 14px 16px; }
 .modal .mf { display:flex; align-items:center; justify-content:space-between; gap:10px;
   padding: 10px 16px 12px; border-top: 1px solid var(--border-soft); }
-.btn { font-size: 12px; color: var(--text); border:1px solid var(--border); background: var(--panel);
-  border-radius: 6px; padding: 4px 12px; }
 .btn.pri { color: #fff; background: var(--accent); border-color: transparent; }
-.btn.danger { color: var(--danger); }
-.mrow { display:grid; grid-template-columns: 96px 1fr; gap: 10px; align-items:start; margin-bottom: 12px; }
+.mrow { display:grid; grid-template-columns: 96px minmax(0,1fr); gap: 10px; align-items:start; margin-bottom: 12px; }
 .mrow > .lb { font-size: 12px; color: var(--dim); padding-top: 5px; }
 .mrow .hint { font-size: 11px; color: var(--dim); margin-top: 4px; }
-
-/* 弹窗右下角的"要写进文件的 JSON"预览 */
+.tf { border:1px solid var(--border); border-radius: 5px; background: var(--editor); padding: 4px 8px;
+  font-size: 12px; color: var(--text); font-family: var(--mono); }
+.tf.area { min-height: 50px; padding: 6px 8px; line-height: 1.7; }
+.dd { border:1px solid var(--border); border-radius: 5px; background: var(--panel); padding: 3px 8px;
+  font-size: 12px; color: var(--text); display:flex; align-items:center; justify-content:space-between; }
 .json { margin-top: 4px; border:1px solid var(--border-soft); border-radius: 6px; background: var(--code);
   padding: 8px 10px; font-family: var(--mono); font-size: 11px; line-height: 1.7; color: var(--dim); white-space: pre-wrap; }
 .json .k { color: var(--text); } .json .s { color: var(--accent); }
-
-/* 模板墙 */
-/* minmax(0,1fr) + min-width:0：不加这两条，卡片里那行 nowrap 的长命令会把网格轨道顶宽，
-   整张模板墙会溢出弹窗右边（2026-09-30 出图时当场看见的） */
-.tpls { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.tpl { border:1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 10px 12px; min-width: 0; }
-.tpl .tn { font-size: 12.5px; color: var(--text); display:flex; align-items:center; justify-content:space-between; gap:6px; }
-.tpl .td { font-size: 11px; color: var(--dim); margin-top: 4px; }
-.tpl .cmd { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 6px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-/* 粘贴框 */
-.paste { border:1px solid var(--border); border-radius: 6px; background: var(--editor); min-height: 120px;
-  padding: 10px 12px; font-family: var(--mono); font-size: 11.5px; line-height: 1.8; color: var(--text); }
-.paste .ph { color: var(--dim); }
-.paste .er { color: var(--danger); }
-.tabs { display:flex; gap: 14px; font-family: var(--mono); font-size: 11px; color: var(--dim); margin-bottom: 8px; }
-.tabs .on { color: var(--accent); }
 
 .spec { margin: 0; }
 .spec dt { font-family: var(--mono); font-size: 10.5px; letter-spacing:.08em; text-transform:uppercase; color: var(--page-dim); margin-top: 16px; }
@@ -207,9 +184,9 @@ table.pick td { color: var(--page-dim); }
 .verdict ol { color: var(--page-dim); font-size: 13.5px; padding-left: 20px; }
 .verdict ol li { margin: 8px 0; }
 .verdict ol li b { color: var(--page-fg); }
-.rel .warnbox { margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--warn); background: var(--code); border-radius: 0 8px 8px 0; }
-.rel .warnbox p { margin: 0; }
-.rel .warnbox p + p { margin-top: 8px; }
+.warnbox { margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--warn); background: var(--code); border-radius: 0 8px 8px 0; }
+.warnbox p { margin: 0; }
+.warnbox p + p { margin-top: 8px; }
 .note { color: var(--page-dim); font-size: 12.5px; margin-top: 26px; max-width: 100ch; }
 </style>
 </head>
@@ -218,14 +195,14 @@ table.pick td { color: var(--page-dim); }
 
   <div class="masthead">
     <div>
-      <p class="eyebrow">CCoder · 0.2.31 候选 · 提案</p>
-      <h1>MCP 页改版：新增走弹窗，右栏改成只读</h1>
+      <p class="eyebrow">CCoder · 0.2.31 候选 · 提案（第二稿）</p>
+      <h1>MCP 页：一台 server 一张卡片</h1>
       <p class="lede">
-        今天这页是 <b>左 240px 列表 + 右 591px 常驻表单</b>，"添加"是列表卡页脚的一个标签 ——
-        点下去其实是"进入编辑态"，<b>没有弹窗</b>。要改三件事：
-        ① 新增改成一个<b>弹窗</b>；② 右栏的常驻表单撤掉，换成<b>只读详情</b>（编辑也走弹窗）；
-        ③ 顺手修掉「当前会话」那张卡里<b>名字与状态在 240px 里撞在一起</b>的老毛病。
-        三个方案在<b>弹窗第一屏放什么</b>上分岔，页面那半是三案共用的。
+        <b>右栏那张常驻表单撤掉</b> —— 页面就是一列卡片，一台 server 一张：卡头是名字与状态，
+        卡体是它长什么样（命令 / URL / 变量键名），卡脚是「编辑」「删除」，新增走弹窗。
+        今天那套「左 240px 列表 + 右 591px 表单」里，列表一行只够写个名字，
+        而<b>状态得挤在另一张卡里</b>（就是你截图里名字与状态叠住的那张）—— 卡片把这三样并成了一处。
+        下面两稿只差在<b>卡片多高</b>，弹窗两稿共用。
       </p>
     </div>
     <div class="toggle" id="theme">
@@ -234,39 +211,35 @@ table.pick td { color: var(--page-dim); }
     </div>
   </div>
 
-  <!-- ================= 四条前提（都是查过的） ================= -->
+  <!-- ================= 三条前提（都是查过的） ================= -->
   <div class="intro">
-    <div class="card">
-      <h3>今天「添加」在哪</h3>
-      <p>列表卡页脚一行 <code>＋ 添加 server</code>。点它<b>不落库</b> —— 它只是把右栏那张常驻表单切到"空白"，
-        名字（也就是 <code>.mcp.json</code> 的键）还没定，落库会写出一条无名记录，读回来时又被丢掉。</p>
-      <p>也就是说：今天根本没有"新增"这个动作，只有"进入编辑态"。</p>
-    </div>
     <div class="card">
       <h3>.mcp.json 认三种形状</h3>
       <p><b>命令行</b>（stdio，不写 <code>type</code>）用 <code>command</code> / <code>args</code> / <code>env</code>；
         <b>SSE</b> 与 <b>HTTP</b> 用 <code>url</code> / <code>headers</code>。</p>
-      <p>写回时按原文件顺序重建、空字段不写（别塞 <code>"args": []</code>）；认不出的形状（<code>sdk</code>、
-        <code>claudeai-proxy</code>）<b>原样保留</b>，面板看不见它们，但改别的绝不能弄丢。</p>
+      <p>写回时按原文件顺序重建、空字段不写；认不出的形状（<code>sdk</code>、<code>claudeai-proxy</code>）
+        <b>原样保留</b> —— 今天它们在这页上完全看不见，这次给它们一张压暗的卡，把这件事说出来。</p>
     </div>
     <div class="card">
-      <h3>还有一份"状态"，来自会话</h3>
-      <p>已连接 / 连接中 / 失败 / 已禁用，带范围（项目内 / 我自己全局配的）与工具数。它是<b>会话的事实，
-        不是文件的事实</b> —— 左下角列的是文件里的，右边状态含你全局配的，两边对不齐是正常的。</p>
-      <p>失败时还有一句原因（探针实测里最常见的两种：<code>Connection closed</code>、命令找不到）。</p>
+      <h3>状态来自会话，不是文件</h3>
+      <p>已连接 / 连接中 / 失败 / 已禁用，带工具数与失败原因（探针实测最常见的是
+        <code>Connection closed</code> 与命令找不到）。</p>
+      <p>它<b>还包含你自己全局配的</b>那些 —— 那些不在项目文件里，所以这页分成两段：
+        项目里的（可编辑）与全局的（只读）。两边对不齐是正常的。</p>
     </div>
     <div class="card">
-      <h3>一个既有缺陷</h3>
-      <p>「当前会话」卡里，名字钉左、状态钉右，而这一栏只有 240px。两边都换行，一长就<b>叠在一起</b>
-        （下图 甲 里圈出来了）—— 与这次改版无关，顺手修：<b>名字过长走省略号、状态钉右不换行</b>，
-        失败原因另起一行（下图 乙 里就是这个样子）。</p>
+      <h3>卡片上不铺开的两种东西</h3>
+      <p><b>环境变量与请求头的值</b>：只列<b>键名</b>（<code>GITHUB_TOKEN、LOG_LEVEL</code>）。
+        这些值里常有 token，卡片是会被截图、被投屏的地方；要看值请开弹窗或看文件。</p>
+      <p><b>认不出的形状</b>：只写"原样保留、插件不会动它"，不假装能编辑。</p>
     </div>
   </div>
 
-  <!-- ============================================================ 甲 · 现状 -->
-  <div class="variant" id="v-jia">
-    <div class="vhead"><span class="tag">甲 · 现状</span><h2>没有弹窗，右栏是常驻表单</h2></div>
-    <p class="vsub">照着 <code>settings-mcp.png</code> 那张探针实图描的。注意「当前会话」卡里的箭头处。</p>
+  <!-- ============================================================ 方案一 · 标准卡 -->
+  <div class="variant" id="v-std">
+    <div class="vhead"><span class="tag pick">方案一 · 推荐</span><h2>标准卡：三行说清一台</h2></div>
+    <p class="vsub">卡头（名字 + 形状 + 状态）／卡体（命令或 URL；变量键名；失败原因）／卡脚（编辑、删除）。
+      一屏大约放得下 4 台。</p>
     <div class="split">
       <div><div class="dlg">
         <div class="dlg-head"><span class="t">设置</span><span>·</span><span>MCP</span></div>
@@ -278,268 +251,235 @@ table.pick td { color: var(--page-dim); }
             <a href="#"><span class="ic">⌗</span>hooks</a><a href="#"><span class="ic">↻</span>同步</a>
           </nav>
           <div class="spane">
-            <div class="col-list">
-              <div class="pcard">
-                <div class="ch"><b>.mcp.json</b></div>
-                <div class="cb">
-                  <div class="srow sel"><div class="n">codegraph</div><div class="m">项目内的</div></div>
-                  <div class="srow"><div class="n">context7</div><div class="m">项目内的</div></div>
+            <div class="flow">
+              <div class="grp"><span class="gt">项目里 · .mcp.json</span><span class="gd">跟着仓库走，会被提交</span></div>
+
+              <div class="mcard">
+                <div class="mh"><span class="nm">codegraph</span><span class="kind">命令行</span>
+                  <span class="st st-er"><span class="dot er"></span>失败</span></div>
+                <div class="mb">
+                  <div class="cmd">npx -y codegraph</div>
+                  <div class="err">Connection closed</div>
                 </div>
-                <div class="cf">＋ 添加 server</div>
+                <div class="mf"><span class="btn">编辑</span><span class="btn danger">删除</span></div>
               </div>
-              <div class="pcard">
-                <div class="ch"><b>当前会话</b></div>
-                <div class="cb">
-                  <div class="clash">
-                    <div class="st-row"><span class="name">codegraph</span><span class="st st-er">失败</span></div>
-                    <div class="st-row"><span class="name">项目内的</span><span class="st st-warn">连接中</span></div>
-                    <div class="st-row"><span class="name">我自己全局配的</span><span class="st st-ok">已连接 · 3 个工具</span></div>
-                  </div>
+
+              <div class="mcard">
+                <div class="mh"><span class="nm">context7</span><span class="kind">HTTP</span>
+                  <span class="st st-ok"><span class="dot ok"></span>已连接</span></div>
+                <div class="mb">
+                  <div class="cmd">https://mcp.context7.com/mcp</div>
+                  <div class="meta">请求头 1 个：<span class="k">CONTEXT7_API_KEY</span></div>
                 </div>
+                <div class="mf"><span class="btn">编辑</span><span class="btn danger">删除</span></div>
               </div>
-            </div>
-            <div class="col-main">
-              <div class="pcard">
-                <div class="ch"><b>codegraph</b></div>
-                <div class="cb">
-                  <div class="fld"><div class="lb">名称</div><div class="tf">codegraph</div></div>
-                  <div class="fld"><div class="lb">形状</div><div class="dd"><span>命令行</span><span>▾</span></div></div>
-                  <div class="fld"><div class="lb">命令</div><div class="tf">npx</div></div>
-                  <div class="fld"><div class="lb">参数（一行一个）</div><div class="tf area">-y<br>codegraph</div></div>
-                  <div class="fld"><div class="lb">环境变量（一行一个 KEY=VALUE）</div><div class="tf area"></div></div>
-                  <div class="hint">改动写进项目根目录的 .mcp.json —— 那是会被提交、CLI 也认的文件。新加或改过的
-                    server 下次开 会话才生效；左下那栏是此刻已经连上的，还包含你自己全局配的那些，所以两边对不齐是正常的。</div>
+
+              <div class="mcard">
+                <div class="mh"><span class="nm">github</span><span class="kind">命令行</span>
+                  <span class="st st-warn"><span class="dot"></span>连接中</span></div>
+                <div class="mb">
+                  <div class="cmd">npx -y @modelcontextprotocol/server-github</div>
+                  <div class="meta">环境变量 2 个：<span class="k">GITHUB_TOKEN、LOG_LEVEL</span></div>
                 </div>
-                <div class="cf"><span class="btn danger">删除</span></div>
+                <div class="mf"><span class="btn">编辑</span><span class="btn danger">删除</span></div>
+              </div>
+
+              <div class="addcard"><span class="plus">＋</span>添加 MCP server</div>
+
+              <div class="grp" style="margin-top:18px"><span class="gt">全局 · 你自己配的</span>
+                <span class="gd">这页只读 —— 插件只写项目里的 .mcp.json</span></div>
+              <div class="mcard ro">
+                <div class="mh"><span class="nm">playwright</span>
+                  <span class="st st-dim"><span class="dot ok"></span>已连接 · 3 个工具</span></div>
+              </div>
+              <div class="mcard ro">
+                <div class="mh"><span class="nm">ide-tools</span>
+                  <span class="st st-dim"><span class="dot dim"></span>已禁用</span></div>
+              </div>
+
+              <div class="grp" style="margin-top:18px"><span class="gt">认不出的</span>
+                <span class="gd">插件不认这种形状，但一个字都不会动它</span></div>
+              <div class="mcard unknown">
+                <div class="mh"><span class="nm">internal-sdk-proxy</span><span class="kind">原始 JSON</span></div>
+                <div class="mb"><div class="meta">它不在上面两段里：形状不是命令行 / SSE / HTTP，
+                  保存别的 server 时也不会碰它。</div></div>
               </div>
             </div>
           </div>
         </div>
       </div></div>
       <dl class="spec">
-        <dt>问题</dt>
-        <dd>右栏那张表单<b>一直占着 591px</b>，哪怕你只是来看看状态；而它同时是"新增"和"编辑"的唯一入口。</dd>
-        <dt>「添加」的语义</dt>
-        <dd class="dim">不是新增一台，是"把右栏清空进编辑态"。取消掉它没有痕迹 —— 列表里从没出现过。</dd>
-        <dt>那个重叠</dt>
-        <dd class="dim">名字与状态是同一行里的 WEST / EAST，240px 里放不下长的（比如"我自己全局配的"+"已连接 · 3 个工具"）。</dd>
+        <dt>卡头</dt>
+        <dd>名字 + 形状标签（命令行 / SSE / HTTP）+ 状态（点 + 词）钉右。失败时点变红。</dd>
+        <dt>卡体</dt>
+        <dd>命令行那种：命令与参数连着写一行（等宽、可全选复制，长了换行）；
+          HTTP/SSE 那种：URL 一行。变量与请求头<b>只列键名</b>。失败原因红字一行。</dd>
+        <dt>卡脚</dt>
+        <dd>「编辑」「删除」。删除是红字但<b>不复选、不弹第二遍确认</b> —— 文件里有、git 里有，误删一次找得回来。</dd>
+        <dt>认不出的那条</dt>
+        <dd class="dim">今天它在这页上是隐形的（<code>preserved</code> 原样留在文件里，但用户不知道）。给它一张压暗的卡，
+          比"悄悄留着"诚实。</dd>
+        <dt>代价</dt>
+        <dd class="dim">比旧版占地方：旧的一行一台，一屏能看 8 台名字；现在一屏 4 台，但<b>每台都看得见长什么样</b>。
+          设备/服务器多了（10 台以上）要滚动 —— 方案二的紧凑卡就是为这个准备的。</dd>
       </dl>
     </div>
   </div>
 
-  <!-- ============================================================ 乙 · 表单弹窗 -->
-  <div class="variant" id="v-yi">
-    <div class="vhead"><span class="tag pick">乙 · 推荐骨架</span><h2>列表 + 只读详情，增改都走一张表单弹窗</h2></div>
-    <p class="vsub">页面：列表 240px 仍是主界面，右栏换成只读详情（可全选复制），状态并入卡里。
-      弹窗：一张表单，字段与今天那栏一致，右下角多一块<b>要写进文件的 JSON 预览</b>。</p>
+  <!-- ============================================================ 方案二 · 紧凑卡 -->
+  <div class="variant" id="v-tight">
+    <div class="vhead"><span class="tag">方案二</span><h2>紧凑卡：一台两行，动作钉在右边</h2></div>
+    <p class="vsub">第一行名字 + 形状 + 状态 + 两颗动作，第二行是命令摘要（超长走省略号，变量与请求头折进它尾巴）；
+      <b>失败原因仍然独占一行红字</b> —— 那是"要不要去修"的唯一线索，不能省。一屏 8～9 台。</p>
     <div class="split">
-      <div>
-        <div class="dlg">
-          <div class="dlg-head"><span class="t">设置</span><span>·</span><span>MCP</span></div>
-          <div class="dlg-body">
-            <nav class="snav">
-              <a href="#"><span class="ic">◇</span>模型</a><a href="#"><span class="ic">▤</span>预置</a>
-              <a href="#"><span class="ic">≋</span>通用</a><a href="#"><span class="ic">◈</span>权限</a>
-              <a href="#"><span class="ic">▣</span>环境</a><a href="#" class="on"><span class="ic">⇄</span>MCP</a>
-              <a href="#"><span class="ic">⌗</span>hooks</a><a href="#"><span class="ic">↻</span>同步</a>
-            </nav>
-            <div class="spane">
-              <div class="col-list">
-                <div class="pcard">
-                  <div class="ch"><b>.mcp.json</b><span class="plus">＋</span></div>
-                  <div class="cb">
-                    <div class="srow sel"><div class="n">codegraph</div><div class="m">命令行 · 项目内</div></div>
-                    <div class="srow"><div class="n">context7</div><div class="m">HTTP · 项目内</div></div>
-                  </div>
-                </div>
-                <div class="pcard">
-                  <div class="ch"><b>当前会话</b></div>
-                  <div class="cb">
-                    <div class="st-row"><span class="dot er"></span><span class="name">codegraph</span><span class="st st-er">失败</span></div>
-                    <div class="why">Connection closed</div>
-                    <div class="st-row"><span class="dot ok"></span><span class="name">context7</span><span class="st st-ok">已连接</span></div>
-                    <div class="st-row"><span class="dot dim"></span><span class="name">playwright（我自己全局配的）</span><span class="st st-dim">已连接 · 3 个工具</span></div>
-                  </div>
-                </div>
+      <div><div class="dlg">
+        <div class="dlg-head"><span class="t">设置</span><span>·</span><span>MCP</span></div>
+        <div class="dlg-body">
+          <nav class="snav">
+            <a href="#"><span class="ic">◇</span>模型</a><a href="#"><span class="ic">▤</span>预置</a>
+            <a href="#"><span class="ic">≋</span>通用</a><a href="#"><span class="ic">◈</span>权限</a>
+            <a href="#"><span class="ic">▣</span>环境</a><a href="#" class="on"><span class="ic">⇄</span>MCP</a>
+            <a href="#"><span class="ic">⌗</span>hooks</a><a href="#"><span class="ic">↻</span>同步</a>
+          </nav>
+          <div class="spane">
+            <div class="flow">
+              <div class="grp"><span class="gt">项目里 · .mcp.json</span><span class="gd">跟着仓库走，会被提交</span></div>
+
+              <div class="mcard">
+                <div class="mh"><span class="nm">codegraph</span><span class="kind">命令行</span>
+                  <span class="st st-er"><span class="dot er"></span>失败</span>
+                  <span class="btn">编辑</span><span class="btn danger">删除</span></div>
+                <div class="mb2">npx -y codegraph</div>
+                <div class="mb2 err">Connection closed</div>
               </div>
-              <div class="col-main">
-                <div class="pcard">
-                  <div class="ch"><b>codegraph</b><span class="st st-er">失败</span></div>
-                  <div class="cb">
-                    <div class="fld"><div class="lb">形状</div><div class="val">命令行（stdio）</div></div>
-                    <div class="fld"><div class="lb">命令</div><div class="val mono">npx</div></div>
-                    <div class="fld"><div class="lb">参数</div><div class="val mono">-y<br>codegraph</div></div>
-                    <div class="fld"><div class="lb">环境变量</div><div class="val dim">（无）</div></div>
-                    <div class="hint">这里是<b>只读</b>的，可全选复制；改它请点右下角「编辑」。</div>
-                  </div>
-                  <div class="cf"><span class="btn">编辑</span><span class="btn danger">删除</span></div>
-                </div>
+
+              <div class="mcard">
+                <div class="mh"><span class="nm">context7</span><span class="kind">HTTP</span>
+                  <span class="st st-ok"><span class="dot ok"></span>已连接</span>
+                  <span class="btn">编辑</span><span class="btn danger">删除</span></div>
+                <div class="mb2">https://mcp.context7.com/mcp · 请求头 1 个</div>
+              </div>
+
+              <div class="mcard">
+                <div class="mh"><span class="nm">github</span><span class="kind">命令行</span>
+                  <span class="st st-warn"><span class="dot"></span>连接中</span>
+                  <span class="btn">编辑</span><span class="btn danger">删除</span></div>
+                <div class="mb2">npx -y @modelcontextprotocol/server-github · 变量 2 个</div>
+              </div>
+
+              <div class="addcard"><span class="plus">＋</span>添加 MCP server</div>
+
+              <div class="grp" style="margin-top:18px"><span class="gt">全局 · 只读</span>
+                <span class="gd">你自己配的，插件只写项目里的 .mcp.json</span></div>
+              <div class="mcard ro">
+                <div class="mh"><span class="nm">playwright</span>
+                  <span class="st st-dim"><span class="dot ok"></span>已连接 · 3 个工具</span></div>
+              </div>
+              <div class="mcard ro">
+                <div class="mh"><span class="nm">ide-tools</span>
+                  <span class="st st-dim"><span class="dot dim"></span>已禁用</span></div>
+              </div>
+              <div class="mcard unknown">
+                <div class="mh"><span class="nm">internal-sdk-proxy</span><span class="kind">原始 JSON</span>
+                  <span class="st st-dim">原样保留</span></div>
               </div>
             </div>
           </div>
         </div>
-        <p class="vsub" style="margin-top:26px">点右上角 <b>＋</b>（或「编辑」）弹出的那张：</p>
-        <div class="shade">
-          <div class="modal">
-            <div class="mh"><span class="t">新增 MCP server</span><span class="sub">写进 .mcp.json</span></div>
-            <div class="mb">
-              <div class="mrow"><span class="lb">名称</span>
-                <div><div class="tf">codegraph</div><div class="hint">= <code>.mcp.json</code> 里的键，重复会当场说</div></div></div>
-              <div class="mrow"><span class="lb">形状</span>
-                <div><div class="dd"><span>命令行（stdio）</span><span>▾</span></div></div></div>
-              <div class="mrow"><span class="lb">命令</span><div><div class="tf">npx</div></div></div>
-              <div class="mrow"><span class="lb">参数</span>
-                <div><div class="tf area">-y<br>codegraph</div><div class="hint">一行一个</div></div></div>
-              <div class="mrow"><span class="lb">环境变量</span>
-                <div><div class="tf area" style="color:var(--dim)">（一行一个 KEY=VALUE，可空）</div></div></div>
-              <div class="fld" style="margin:14px 0 0">
-                <div class="lb">将写进 .mcp.json 的（空字段不写）</div>
-                <div class="json">{"<span class="k">codegraph</span>": {"<span class="k">command</span>": "<span class="s">npx</span>", "<span class="k">args</span>": ["<span class="s">-y</span>", "<span class="s">codegraph</span>"]}}</div>
-              </div>
-            </div>
-            <div class="mf">
-              <span class="hint">改过的 server 下次开会话才生效</span>
-              <span style="display:flex;gap:8px"><span class="btn">取消</span><span class="btn pri">添加</span></span>
-            </div>
-          </div>
-        </div>
-      </div>
+      </div></div>
       <dl class="spec">
-        <dt>弹窗里放什么</dt>
-        <dd>与今天右栏同字段的表单：名称 / 形状（下拉）/ 命令 / 参数 / 环境变量；选 SSE·HTTP 时下半张换成 URL / 请求头。</dd>
-        <dt>为什么要 JSON 预览</dt>
-        <dd class="dim">这个动作的产物是<b>要提交进仓库的文件</b>。预览一行，用户就知道自己写的是什么形状、哪些空字段不会被写出去 ——
-          也不必再去翻 <code>.mcp.json</code> 猜。</dd>
-        <dt>字段校验</dt>
-        <dd class="dim">名称重复、命令为空、URL 不是 http(s) —— 都在当场说，<b>「添加」置灰而不是点完没反应</b>。</dd>
-        <dt>代价</dt>
-        <dd class="dim">右栏从"能改"变成"要看" —— 多一次点击才到编辑。换来的是列表 240px 里不再挤着一张常驻表单。</dd>
+        <dt>差别只有一处</dt>
+        <dd>标准卡把命令、变量、失败原因摊成三行；紧凑卡把它们挤进第二行（超长省略号）。
+          <b>失败原因那条仍然独占一行</b> —— 它是"要不要去修"的唯一线索，不能省略号。</dd>
+        <dt>一屏几台</dt>
+        <dd>紧凑 8～9 台 vs 标准 4 台。你手上这台机器实测是 <b>3 个项目 server + 2 个全局</b>，
+          两稿都够用；紧凑卡是为"仓库里配了十几台"那种情况留的。</dd>
+        <dt>风险</dt>
+        <dd class="dim">第二行省略号之后，两台长得像的 server（同一命令不同参数）在列表里几乎分不出来 ——
+          标准卡不会。所以<b>我推荐标准卡</b>，紧凑卡留作"卡片数超过 8 台"时的退路。</dd>
       </dl>
     </div>
   </div>
 
-  <!-- ============================================================ 丙 · 模板墙 -->
-  <div class="variant" id="v-bing">
-    <div class="vhead"><span class="tag">丙 · 弹窗第一屏是模板墙</span><h2>先挑一个常见的，再改</h2></div>
-    <p class="vsub">页面与弹窗的第二屏与 乙 <b>完全一样</b>，只多第一屏：常见 server 的模板。
-      这一屏顺带把常见的坑写在脸上（<code>npx</code> 要 <code>-y</code>、github 要 token）。</p>
+  <!-- ============================================================ 弹窗 -->
+  <div class="variant" id="v-dlg">
+    <div class="vhead"><span class="tag">两稿共用</span><h2>新增 / 编辑：一张表单，右下角写着要落进文件的东西</h2></div>
+    <p class="vsub">与上一稿相同（你没提异议），只多一行：标题右边一个「从模板开始」入口 ——
+      点开是常见 server 的模板墙（filesystem / github / playwright / fetch / 自填），选完落回这张表单。不做也行，说一声就删。</p>
     <div class="split">
       <div>
-        <div class="shade">
-          <div class="modal wide">
-            <div class="mh"><span class="t">新增 MCP server</span><span class="sub">挑一个模板，或从空白开始</span></div>
-            <div class="mb">
-              <div class="tpls">
-                <div class="tpl"><div class="tn">filesystem<span class="st st-dim">stdio</span></div>
-                  <div class="td">读写指定目录 —— 要填一个允许的路径</div>
-                  <div class="cmd">npx -y @modelcontextprotocol/server-filesystem &lt;目录&gt;</div></div>
-                <div class="tpl"><div class="tn">github<span class="st st-warn">要 token</span></div>
-                  <div class="td">仓库、issue、PR —— 需要 <code>GITHUB_TOKEN</code>（环境变量里填）</div>
-                  <div class="cmd">npx -y @modelcontextprotocol/server-github</div></div>
-                <div class="tpl"><div class="tn">playwright<span class="st st-dim">stdio</span></div>
-                  <div class="td">开浏览器自己点 —— 首次要装浏览器内核</div>
-                  <div class="cmd">npx -y @playwright/mcp@latest</div></div>
-                <div class="tpl"><div class="tn">fetch<span class="st st-dim">stdio</span></div>
-                  <div class="td">抓网页并转成文本给模型</div>
-                  <div class="cmd">uvx mcp-server-fetch</div></div>
-                <div class="tpl"><div class="tn">自填（空白）</div>
-                  <div class="td">直接给我一张空表单</div>
-                  <div class="cmd">—</div></div>
-                <div class="tpl"><div class="tn">远端 URL<span class="st st-dim">sse / http</span></div>
-                  <div class="td">我手上有一条现成的服务地址</div>
-                  <div class="cmd">https://…</div></div>
-              </div>
-            </div>
-            <div class="mf"><span class="hint">模板只是填空，选完仍然落在同一张表单上，可以改</span>
-              <span class="btn">取消</span><span class="btn pri">下一步</span></div>
+        <div class="modal">
+          <div class="mh"><span class="t">新增 MCP server</span>
+            <span style="display:flex;align-items:center;gap:10px">
+              <span class="btn">从模板开始</span><span class="sub">写进 .mcp.json</span></span></div>
+          <div class="mb">
+            <div class="mrow"><span class="lb">名称</span>
+              <div><div class="tf">codegraph</div><div class="hint">= <code>.mcp.json</code> 里的键；重名当场说</div></div></div>
+            <div class="mrow"><span class="lb">形状</span>
+              <div><div class="dd"><span>命令行（stdio）</span><span>▾</span></div></div></div>
+            <div class="mrow"><span class="lb">命令</span><div><div class="tf">npx</div></div></div>
+            <div class="mrow"><span class="lb">参数</span>
+              <div><div class="tf area">-y<br>codegraph</div><div class="hint">一行一个</div></div></div>
+            <div class="mrow"><span class="lb">环境变量</span>
+              <div><div class="tf area" style="color:var(--dim)">（一行一个 KEY=VALUE，可空）</div></div></div>
+            <div class="fld"><div class="lb" style="font-size:11.5px;color:var(--dim);margin-bottom:4px">将写进 .mcp.json 的（空字段不写）</div>
+              <div class="json">{"<span class="k">codegraph</span>": {"<span class="k">command</span>": "<span class="s">npx</span>", "<span class="k">args</span>": ["<span class="s">-y</span>", "<span class="s">codegraph</span>"]}}</div></div>
           </div>
+          <div class="mf"><span class="hint">改过的 server 下次开会话才生效</span>
+            <span style="display:flex;gap:8px"><span class="btn">取消</span><span class="btn pri">添加</span></span></div>
         </div>
       </div>
       <dl class="spec">
-        <dt>为什么值得多这一屏</dt>
-        <dd>绝大多数人要加的就是那几个；模板把<b>命令的准确写法</b>（<code>-y</code>、<code>@latest</code>、包名）与<b>前置条件</b>
-          （token、浏览器内核、要装的运行时）一次说清 —— 这类"加上了但连不上"的求助，多半就出在这里。</dd>
-        <dt>代价</dt>
-        <dd class="dim">模板表要维护（每条：名字、命令、参数、说明、需要什么）。<b>可以先放 4~6 条</b>，用户报缺再添。</dd>
-        <dt>不做的事</dt>
-        <dd class="dim">不替用户装依赖、不去网上拉最新模板（那要联网 + 报错面大得多）；模板就是<b>本地的一张常量表</b>。</dd>
-      </dl>
-    </div>
-  </div>
-
-  <!-- ============================================================ 丁 · 粘贴优先 -->
-  <div class="variant" id="v-ding">
-    <div class="vhead"><span class="tag">丁 · 弹窗第一屏是粘贴框</span><h2>把抄来的那段贴进去，我拆成字段</h2></div>
-    <p class="vsub">同样落在 乙 那张表单上，区别是<b>从哪来</b>：适合从 README、文档、同事那儿复制配置的人。</p>
-    <div class="split">
-      <div>
-        <div class="shade">
-          <div class="modal">
-            <div class="mh"><span class="t">新增 MCP server</span><span class="sub">粘贴或手填</span></div>
-            <div class="mb">
-              <div class="paste"><span class="ph">把 JSON 片段、或 <b>claude mcp add …</b> 那一行贴进来，例如：</span><br><br>
-                claude mcp add --transport http context7 https://mcp.context7.com/mcp --header "CONTEXT7_API_KEY=xxx"</div>
-              <div class="hint" style="margin-top:8px">认三种写法：<code>claude mcp add</code> 命令行 · <code>{"名字": {…}}</code> 片段 ·
-                整个 <code>"mcpServers"</code> 块（多台会一次全列出来，挑一台）。解析不了会说清<b>哪一行的哪个位置</b>看不懂，
-                不猜、也不静默丢掉。</div>
-            </div>
-            <div class="mf"><span class="hint">下一步是一张已填好的表单，仍可改</span>
-              <span class="btn">取消</span><span class="btn pri">解析</span></div>
-          </div>
-        </div>
-      </div>
-      <dl class="spec">
-        <dt>为什么值得</dt>
-        <dd>官方文档给的从来不是表单字段，是一行命令或一段 JSON。今天用户得自己拆到"参数（一行一个）"里，
-          而 <code>args</code> 的切分是<b>带引号的</b>（<code>--header "X=1"</code> 是一段，不是两段）。</dd>
-        <dt>代价</dt>
-        <dd class="dim">要写一个解析器（还有它的用例）。范围要钉死：只认这三种写法、不做 shell 变量展开、不做命令执行。</dd>
-        <dt>与 丙 的关系</dt>
-        <dd class="dim">同一张表单的两个入口（挑模板 / 粘贴）。<b>先做 乙，两个入口后面各自加</b> —— 它们互不依赖。</dd>
+        <dt>为什么这块预览</dt>
+        <dd>这个动作的产物是<b>要提交进仓库的文件</b>。预览一行，用户就知道自己写的是什么形状、哪些空字段不会被写出去。</dd>
+        <dt>校验</dt>
+        <dd class="dim">名称重复、命令为空、URL 不是 http(s) —— 当场说，<b>「添加」置灰而不是点完没反应</b>。</dd>
+        <dt>编辑同一张</dt>
+        <dd class="dim">编辑时标题变成「编辑 MCP server」、按钮变「保存」，其余一字不差 —— 一套表单两处用。</dd>
       </dl>
     </div>
   </div>
 
   <!-- ============================================================ 对照 -->
   <table class="pick">
-    <thead><tr><th>方案</th><th>弹窗第一屏</th><th>新增一台要几步</th><th>要知道字段含义吗</th><th>抄来的配置</th><th>落地成本</th></tr></thead>
+    <thead><tr><th></th><th>旧版（两栏）</th><th>方案一 · 标准卡</th><th>方案二 · 紧凑卡</th></tr></thead>
     <tbody>
-      <tr><td><b>乙 · 表单</b></td><td>表单</td><td>5～7 个字段</td><td>要</td><td>自己拆</td><td><b>小</b>（一个 DialogWrapper + 校验 + 预览）</td></tr>
-      <tr><td><b>丙 · 模板墙</b></td><td>6 张模板卡</td><td>点一下 + 改名/填 token</td><td>不用</td><td>—</td><td>中（多一张模板常量表 + 它的用例）</td></tr>
-      <tr><td><b>丁 · 粘贴</b></td><td>大粘贴框</td><td>粘一次 + 确认</td><td>不用</td><td><b>直接贴</b></td><td>中（多一个解析器 + 用例）</td></tr>
+      <tr><td><b>一屏看几台</b></td><td>8 台（只有名字）</td><td><b>4 台</b></td><td>8～9 台</td></tr>
+      <tr><td><b>看得见什么</b></td><td>名字；命令要去右边看</td><td><b>命令 / URL / 变量键名 / 状态 / 失败原因</b></td><td>命令摘要（省略号）/ 状态 / 失败原因</td></tr>
+      <tr><td><b>状态在哪</b></td><td>另一张卡（名字与状态会叠）</td><td>每张卡的卡头</td><td>每张卡的卡头</td></tr>
+      <tr><td><b>编辑</b></td><td>右栏常驻表单，永远占着 591px</td><td>卡脚「编辑」→ 弹窗</td><td>行内「编辑」→ 同一弹窗</td></tr>
+      <tr><td><b>认不出的形状</b></td><td>隐形</td><td>一张压暗的卡</td><td>一张压暗的行</td></tr>
     </tbody>
   </table>
 
   <!-- ============================================================ 落地 -->
   <div class="verdict">
-    <h2>我的建议：乙 做骨架，丙 的模板做弹窗里的一个小入口，丁 先挂账</h2>
+    <h2>我的建议</h2>
     <p>
-      三个方案<b>页面那一半是三案共用的</b>（列表 + 只读详情 + 状态并入），先干这个 —— 它顺带修掉那个重叠。
-      弹窗先按 乙 做（字段与今天那栏一一对应，风险最小），并在标题行右边留一个「<b>从模板开始</b>」的小入口：
-      点开就是 丙 那面墙，选完落回同一张表单。这样 丙 的收益拿到了，而模板表可以慢慢添。
-      丁 的解析器单独排 —— 它最有用，但也是唯一一个"要自己写解析器"的，别和主流程捆在一起。
+      <b>方案一（标准卡）</b> —— 你手上是 3 + 2 台，占不满一屏，没有理由为省高度牺牲"两台长得像的能分清"。
+      与旧版相比，拆掉的正好是那张常驻表单，而它今天承担的"看"与"改"被拆给了卡片与弹窗，各归各位。
     </p>
     <ol>
-      <li><b>页面改只读 + 状态并一行</b>：详情卡（形状/命令/参数/环境变量 或 URL/请求头）+ 卡头状态 + 卡脚「编辑」「删除」；
-        列表行改成"名字 + 命令行 · 项目内"。<b>顺手把那处重叠修了</b>（有用例守着）。</li>
-      <li><b>新增/编辑弹窗</b>：一个 <code>DialogWrapper</code>，字段同今天；名称重复、命令为空、URL 非 http(s) 当场说；
-        底部 JSON 预览。</li>
-      <li><b>模板入口</b>：弹窗标题行加「从模板开始」，先放 4 条（filesystem / github / playwright / 自填）。</li>
-      <li><b>粘贴入口</b>（另排）：解析 <code>claude mcp add …</code> 与 JSON 片段；范围钉死在三种写法。</li>
+      <li><b>卡片流</b>：<code>.mcp.json</code> 的每条 → 一张卡（卡头 / 卡体 / 卡脚）；＋ 是虚线占位卡；
+        全局与认不出的各一段（全局只读、认不出的压暗）。</li>
+      <li><b>状态并进卡头</b>：从 <code>McpStatus</code> 那份会话状态里按<b>名字</b>取；
+        取不到（还没连上/不在会话里）就不画状态位，而不是画一个假的"未连接"。</li>
+      <li><b>弹窗</b>：一套表单两处用（新增/编辑），底部 JSON 预览；「从模板开始」按你要不要决定去留。</li>
+      <li><b>用例</b>：卡片渲染探针（三形状 + 失败 + 认不出的 + 全局只读各一张）、
+        卡头状态取不到时不画；键名列表与"值不铺开"那条各一条断言。</li>
     </ol>
     <p>
-      真机上要看的三件：① 弹窗在 856×559 的设置框里<b>不显得局促</b>（字段挤不挤、预览要不要折叠）；
-      ② <code>.mcp.json</code> 里混着 <code>sdk</code> 那类认不出的形状时，<b>列表与详情怎么说</b>（今天是不显示，建议加一行"1 条本插件认不出、已原样保留"）；
-      ③ 加完一台之后<b>要不要提示"下个会话才生效"</b> —— 今天那句在右栏底部，进了弹窗就得重新找一个位置说。
+      真机上要看的两件：① 卡片流在 10 台以上时的滚动与视觉噪声（要不要折叠成集团）；
+      ② 环境变量<b>只列键名</b>这条，你实际用起来够不够（够就按这个做，不够我给个「显示值」的小眼睛）。
     </p>
   </div>
 
   <p class="note">
-    这一页里的字段与规则取自 <code>McpConfig.kt</code>（三种形状、<code>preserved</code> 原样保留、按原顺序重建、空字段不写）、
-    <code>McpSettingsPage.kt</code>（<code>MCP_LIST_WIDTH=240</code>、"添加"只是进编辑态、状态卡的两栏布局）、
+    字段与规则取自 <code>McpConfig.kt</code>（三种形状、<code>preserved</code> 原样保留、按原顺序重建、空字段不写）、
     <code>McpStatus.kt</code>（<code>known</code> 与"列表为空"是两件事）与 <code>Protocol.kt</code> 的
-    <code>McpServerStatus</code>（name / status / scope / error / tools）；现状那半照着 <code>build/probe/settings-mcp.png</code> 描的。
-    窗口尺寸（856×559、列表 240px）与真机一致；配色沿用 <code>background-tasks.html</code> 那一套。
+    <code>McpServerStatus</code>（name / status / scope / error / tools）；旧版那半照着
+    <code>build/probe/settings-mcp.png</code> 描的。窗口尺寸（856×559）与真机一致；配色沿用
+    <code>background-tasks.html</code> 那一套。
   </p>
 
 </div>
