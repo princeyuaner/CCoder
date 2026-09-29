@@ -25,6 +25,12 @@
  * `.transcript` 的直接子项、天然满宽 —— 并排出现就成了"正文没对齐"。
  * 这一条同时守着反面：用户气泡**不该**铺满（宽度是"谁在说话"的分栏手段）。
  *
+ * 2026-09-29 再追加：表格**首列会不会被压瘪**（`reportCol0` / `numMinWidth`）。
+ * 用户第二张截图：一张中文长首列的表，第一列变成**一列一个字**。病因见
+ * styles.css 单元格那段（表的最小内容宽 ≥ 栏宽 ⇒ 余量为零 ⇒ 每列都钉在下限）。
+ * 样本是那张表的**真实前两行**（含串不可断的路径与标识符），
+ * 断言首列不低于 4em 的地板、且没有把气泡撑破。
+ *
  * 用法：
  *   npm run probe:layout
  *   CCoder_CHROMIUM="C:\path\to\msedge.exe" npm run probe:layout
@@ -224,6 +230,37 @@ function buildPage(scenario) {
     '</tbody></table></div></div></div></div>'
   t.appendChild(tbl)
 
+  // 第二张表：**2026-09-29 用户报障那张**（「报表指标按数据来源拆成四类」）。
+  // 与上面那张的差别正是它暴露的问题：首列是**整段中文**（不是序号），
+  // 而第二列里塞着长得离谱、又没有断行机会的路径与标识符 —— 表的最小内容宽
+  // 一顶到栏宽，首列就被压成一列一个字。原文见 table-style-probe.mjs 的 MD2
+  // （捞自游戏工程会话），这里取前两行，够摆出那两个"不可断的长串"。
+  const rep = document.createElement('div')
+  rep.className = 'entry'
+  rep.innerHTML = '<div class="row row--assistant"><div class="bubble bubble--assistant">' +
+    '<div class="bubble__text"><div class="md-table"><table>' +
+    '<thead><tr>' +
+    CELL('th', '类别') + CELL('th', '线上来源') + CELL('th', '满足度') +
+    '</tr></thead><tbody>' +
+    '<tr>' +
+    CELL('td', '<strong>配表项</strong>（成熟时长、浇水减时、造价、解锁等级/费用、图鉴积分、奖励档）') +
+    CELL('td', '直接读 <code class="inline-code">trunk/data</code>（' +
+      '<code class="inline-code">FarmCropData/FarmLevelData/FarmlandData/FarmMutationData/' +
+      'FarmCropCollectionData</code>…）') +
+    CELL('td', '✅ 现成，不用日志') +
+    '</tr>' +
+    '<tr>' +
+    CELL('td', '<strong>截面统计</strong>（等级/开地/图鉴/累计币/被祝福/当前作物分布）') +
+    CELL('td', '<code class="inline-code">FarmScene</code> 存档（mongo ' +
+      '<code class="inline-code">FARM_SCENE</code>：' +
+      'farmLevel/farmExp/unlockedLandSID/crops/blessedCount…）+ 玩家侧 ' +
+      '<code class="inline-code">MutantFarmData</code>' +
+      '（collectionItems/score/bestRecords/totalFarmCoin）+ 成就/目标实例') +
+    CELL('td', '✅ DB 只读查询聚合即可') +
+    '</tr>' +
+    '</tbody></table></div></div></div></div>'
+  t.appendChild(rep)
+
   t.scrollTop = t.scrollHeight   // 真实页面也会自动滚到底
 
   const h = (sel) => {
@@ -333,6 +370,24 @@ function buildPage(scenario) {
     })(),
     numRects: numRects,
     cellStyle: cellStyle,
+    // 列宽地板（2026-09-29）：没有它，overflow-wrap: anywhere 会把任意一列
+    // 的最小内容宽算成 1 个字
+    numMinWidth: (() => {
+      if (!numCell) return -1
+      return Math.round(parseFloat(getComputedStyle(numCell).minWidth) || 0)
+    })(),
+    // 报障那张表的首列宽 + 它有没有撑破自己的滚动壳
+    reportCol0: (() => {
+      const tbl2 = t.querySelectorAll('.md-table table')[1]
+      const r = tbl2 && tbl2.tBodies[0] && tbl2.tBodies[0].rows[0]
+      return r ? Math.round(r.cells[0].getBoundingClientRect().width) : -1
+    })(),
+    reportOverflow: (() => {
+      const tbl2 = t.querySelectorAll('.md-table table')[1]
+      if (!tbl2) return -1
+      const wrap = tbl2.closest('.md-table')
+      return wrap ? Math.round(tbl2.getBoundingClientRect().width - wrap.clientWidth) : -1
+    })(),
     // 表格字号必须**跟着正文**：Chromium 的 UA 样式表给 table/td 钉了
     // font-size: medium（16px），不显式拉回来就是"表格比正文大一号"，
     // 而且设置里的字号档（--fs-scale）永远到不了表格里（2026-09-21 实测）
@@ -452,21 +507,46 @@ for (const scenario of SCENARIOS) {
     )
   }
 
-  // 表格（2026-09-18）。三条断言对应当天那张"难看"的表里同时发作的三处继承 ——
-  // 它们全都来自 .bubble / .bubble__text，光看单元格的 CSS 是看不出来的
-  const CELL_STYLE_OK = 'normal | break-word | top'
+  // 表格（2026-09-18 立，2026-09-29 扩）。这几条对应当天那张 4 列表与第二轮那张
+  // 中文长首列表 —— 两轮的病因都来自 .bubble / .bubble__text 的**继承**，
+  // 光看单元格自己的 CSS 是看不出来的
+  const CELL_STYLE_OK = 'normal | anywhere | top'
   if (m.cellStyle !== CELL_STYLE_OK) {
     problems.push(
       `单元格计算样式 ${m.cellStyle} ≠ ${CELL_STYLE_OK} —— ` +
       '这三条必须显式写在 th/td 上：white-space 与 overflow-wrap 都会继承，' +
-      'anywhere 会把列宽下限算成 1 个字（首列序号会断行），' +
       'vertical-align 不写则继承 table 的 middle（数字飘在行中间）',
+    )
+  }
+  // 地板。`anywhere` 会把每格的最小内容宽算成 1 个字（这正是让浏览器有余量
+  // 按内容分列宽的手段），**但必须配一条 min-width** —— 余量耗尽时它才拦得住
+  // "每一列只剩一个字"（09-18 的 "17" 断成 "1"/"7" 就是这么来的）
+  const floor = 4 * (parseFloat(m.cellFontSize) || 13)
+  if (m.numMinWidth < floor - 1) {
+    problems.push(
+      `单元格没有列宽地板（min-width ${m.numMinWidth}px < 4em=${Math.round(floor)}px）—— ` +
+      'overflow-wrap: anywhere 没配 min-width 时，列宽下限会掉到 1 个字',
     )
   }
   if (m.numRects > 1) {
     problems.push(
       `首列序号占了 ${m.numRects} 行 —— 列被压瘪了。` +
-      'overflow-wrap: anywhere 又回到单元格上了吗？',
+      '地板的 min-width 掉了？',
+    )
+  }
+  // 中文长首列不能被第二列的"不可断长串"挤瘪（2026-09-29 用户截图那条）
+  if (m.reportCol0 < 1) {
+    problems.push('报障那张表没量到（DOM 结构改了吗？）')
+  } else if (m.reportCol0 < floor) {
+    problems.push(
+      `报障那张表首列只有 ${m.reportCol0}px（不到地板 ${Math.round(floor)}px）—— ` +
+      '中文首列又被第二列的长串挤瘪了，见 styles.css 2026-09-29 那段',
+    )
+  }
+  if (m.reportOverflow > 1) {
+    problems.push(
+      `报障那张表比滚动壳宽 ${m.reportOverflow}px —— 该横向滚的是表里面（.md-table），` +
+      '不是把气泡与整条转写区撑破',
     )
   }
   // 表格字号要跟正文一致（第四处"继承坑"，2026-09-21 补）：UA 给 table/td 钉了
