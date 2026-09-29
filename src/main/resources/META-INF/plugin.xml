@@ -33,7 +33,7 @@
           show as one-line tokens and expand when sent); <code>#</code> references
           project symbols such as classes and functions. Completion is fuzzy &mdash;
           <code>cmprk</code> finds <code>ComposerMode.kt</code>.</li>
-      <li><code>/</code> opens slash commands and the preset prompts you saved.</li>
+      <li><code>/</code> opens slash commands and any preset prompts you already have.</li>
       <li>Ctrl+V pastes a screenshot straight into the input box &mdash; click a
           thumbnail to open it full size.</li>
       <li>Type while Claude is working and your message is queued, sent when the turn ends.</li>
@@ -108,7 +108,7 @@
       <li><code>@</code> 引用文件，以及在编辑器里选中的代码（都显示成一行记号，发送时才展开）；
           <code>#</code> 引用项目里的类、函数等符号。补全是模糊的 &mdash;&mdash; 敲
           <code>cmprk</code> 也能找到 <code>ComposerMode.kt</code>。</li>
-      <li><code>/</code> 打开斜杠命令，以及你在设置里存下的预置 prompt。</li>
+      <li><code>/</code> 打开斜杠命令，以及你已经有的预置 prompt。</li>
       <li>Ctrl+V 把截图贴进输入框，点缩略图能看大图。</li>
       <li>Claude 干活时你照样能打字：消息排进队列，当前这轮一结束就发出去。</li>
     </ul>
@@ -207,7 +207,8 @@
         <!--
           设置**没有**注册在这里，是刻意的（2026-09-15 删掉了那个 projectConfigurable）。
           全部设置都在工具窗口右上角那个齿轮里（`com.ccoder.settings.SettingsDialog`，
-          八个页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 同步）—— 从前这里有一页 IDE 设置，
+          七个页签：模型 / 通用 / 权限 / 环境 / MCP / hooks / 同步 —— 预置那一页
+          2026-09-30 按用户要求删了，预置功能本身还在（输入框 `/` 里那个分组））—— 从前这里有一页 IDE 设置，
           与对话框各管一半字段，用户得记"哪项在哪儿"。
 
           代价知道：IDE Settings 的搜索框里再也搜不到 CCoder。而齿轮**不随忙闲置灰**，

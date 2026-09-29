@@ -82,21 +82,39 @@ fun mcpServersOf(root: JsonObject): McpConfig {
  * **按原文件的顺序重建**：改一条不该让它在文件里挪位置 —— 挪了就是一片
  * 与内容无关的 diff。新加的排最后。
  *
+ * [renames] 是**改名的那些**（原名 → 新名）。不给的话，一条改名的 server 在
+ * 这一步眼里就是"原来那条被删了 + 末尾多了一条新的"，文件里会多出一片挪动；
+ * 给了就让它**占着原来的位置**（2026-09-30 弹窗里改名走这条路时补的）。
+ *
  * 用户删掉的条目（既不在 [servers] 也不在 [preserved] 里）就不写出去，
  * 那正是"删除"的意思。
  */
-fun withMcpServers(root: JsonObject, servers: List<McpServer>, preserved: JsonObject): JsonObject {
+fun withMcpServers(
+    root: JsonObject,
+    servers: List<McpServer>,
+    preserved: JsonObject,
+    renames: Map<String, String> = emptyMap(),
+): JsonObject {
     val original = root.getAsJsonObject("mcpServers") ?: JsonObject()
     val byName = servers.associateBy { it.name }
+    val renamedTo = renames.entries.associate { (from, to) -> to to from }
     val block = JsonObject()
     for ((name, value) in original.entrySet()) {
         when {
+            // 改名的：位置留在原处，写的是新名字那一份
+            renames.containsKey(name) -> {
+                val now = renames.getValue(name)
+                byName[now]?.let { block.add(now, it.toMcpJson()) }
+            }
+
             byName.containsKey(name) -> block.add(name, byName.getValue(name).toMcpJson())
             preserved.has(name) -> block.add(name, value)
             else -> Unit   // 用户删掉了
         }
     }
-    servers.filter { !original.has(it.name) }.forEach { block.add(it.name, it.toMcpJson()) }
+    servers
+        .filter { !original.has(it.name) && !renamedTo.containsKey(it.name) }
+        .forEach { block.add(it.name, it.toMcpJson()) }
     return root.deepCopy().apply { add("mcpServers", block) }
 }
 

@@ -44,6 +44,8 @@ import javax.swing.border.AbstractBorder
 internal class RoundedLineBorder(
     private val colorProvider: () -> Color,
     private val arc: Int,
+    /** 虚线（MCP 页那张"＋ 添加"占位卡用它 —— 它不是配置，是一条待办）。 */
+    private val dashed: Boolean = false,
 ) : AbstractBorder() {
 
     /** 当前描边色。暴露出来是为了让"聚焦只换色不加粗"这条能被测试钉住。 */
@@ -54,7 +56,12 @@ internal class RoundedLineBorder(
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = colorProvider()
-            g2.stroke = BasicStroke(1f)
+            g2.stroke = if (dashed) {
+                val dash = JBUI.scale(3).toFloat()
+                BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 0f, floatArrayOf(dash, dash), 0f)
+            } else {
+                BasicStroke(1f)
+            }
             // 减 1：线宽 1 时画到 w 会有一半落在组件外，被裁掉
             g2.drawRoundRect(x, y, w - 1, h - 1, arc, arc)
         } finally {

@@ -71,12 +71,18 @@ internal const val CARD_CONTENT_WIDTH = PAGE_CONTENT_WIDTH - 2 * CARD_PAD_H
  * 这里把封顶写成**动态的**：页里的卡会随内容重建（列表加一条、状态刷新），
  * 一次性封顶会留下一个陈旧的高度。
  */
-internal class CardPanel : JPanel(BorderLayout()) {
+internal class CardPanel(
+    /** 虚线描边（"＋ 添加"那种占位卡）。 */
+    private val dashed: Boolean = false,
+) : JPanel(BorderLayout()) {
 
     /** 卡头那行文字。改它等于改卡头（`setTitle`）。 */
     private val headerLabel = JBLabel()
 
-    private var headerRow: JComponent? = null
+    private var headerRow: JPanel? = null
+
+    /** 卡头右端挂的那件东西（MCP 卡把形状与状态钉在那儿）。 */
+    private var headerTail: JComponent? = null
 
     private var footerRow: JComponent? = null
 
@@ -86,24 +92,48 @@ internal class CardPanel : JPanel(BorderLayout()) {
      *
      * 卡头要能**改**：模型页右栏那张卡的标题是"正在编辑哪条配置"，而两栏是
      * 建一次、内容随刷新重建（见 `ModelProfilesPage.refresh`）。
+     *
+     * **没有标题但有 [setHeaderTail] 时，卡头那条线还得留着**（只有状态没有名字的
+     * 卡是合法的：全局配的那些就只有名字与状态，名字就是标题）。
      */
     internal fun setTitle(title: String?) {
-        if (title == null) {
+        if (title == null && headerTail == null) {
             headerRow?.let { remove(it) }
             headerRow = null
         } else {
-            headerLabel.text = title
-            if (headerRow == null) {
-                headerRow = JPanel(BorderLayout()).apply {
-                    isOpaque = false
-                    border = BorderFactory.createCompoundBorder(hairlineBottom(), JBUI.Borders.empty(7, CARD_PAD_H))
-                    add(headerLabel.apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.WEST)
-                }
-                add(headerRow, BorderLayout.NORTH)
-            }
+            if (title != null) headerLabel.text = title
+            headerLabel.isVisible = title != null
+            ensureHeaderRow()
         }
         revalidate()
         repaint()
+    }
+
+    /**
+     * 卡头**右端**再挂一件东西；null = 摘掉。
+     *
+     * 位置是 EAST：与标题（WEST）之间自动隔开，窄栏里也不会撞 —— MCP 卡上
+     * "名字与状态叠在一起"那处老毛病，一半就是因为没有这个位置（两者都挤在
+     * 240px 的一行里）。
+     */
+    internal fun setHeaderTail(tail: JComponent?) {
+        headerRow?.let { row -> headerTail?.let { row.remove(it) } }
+        headerTail = tail
+        if (tail != null) ensureHeaderRow().add(tail, BorderLayout.EAST)
+        revalidate()
+        repaint()
+    }
+
+    private fun ensureHeaderRow(): JPanel {
+        headerRow?.let { return it }
+        val row = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = BorderFactory.createCompoundBorder(hairlineBottom(), JBUI.Borders.empty(7, CARD_PAD_H))
+            add(headerLabel.apply { foreground = UIUtil.getLabelForeground() }, BorderLayout.WEST)
+        }
+        headerRow = row
+        add(row, BorderLayout.NORTH)
+        return row
     }
 
     /**
@@ -141,7 +171,7 @@ internal class CardPanel : JPanel(BorderLayout()) {
 
     init {
         isOpaque = false
-        border = RoundedLineBorder(::lineColor, JBUI.scale(CARD_CORNER_ARC))
+        border = RoundedLineBorder(::lineColor, JBUI.scale(CARD_CORNER_ARC), dashed)
         // 页里的列是 BoxLayout（Y），交叉轴按 alignmentX 摆 —— 不压到 0，卡会各自居中
         alignmentX = Component.LEFT_ALIGNMENT
     }
@@ -162,8 +192,13 @@ private const val LABEL_COLUMN_PROP = "ccoder.settings.labelColumn"
  * 三段各自带自己的内边距，卡身**不加** —— 行自己带（见 [settingsRow]），
  * 因为"列表卡"那种身子要的是另一种留白。
  */
-internal fun settingsCard(title: String?, body: JComponent, footer: JComponent? = null): CardPanel =
-    CardPanel().apply {
+internal fun settingsCard(
+    title: String?,
+    body: JComponent,
+    footer: JComponent? = null,
+    dashed: Boolean = false,
+): CardPanel =
+    CardPanel(dashed).apply {
         add(body, BorderLayout.CENTER)
         setTitle(title)
         setFooter(footer)

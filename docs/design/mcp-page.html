@@ -245,8 +245,7 @@ table.pick td { color: var(--page-dim); }
         <div class="dlg-head"><span class="t">设置</span><span>·</span><span>MCP</span></div>
         <div class="dlg-body">
           <nav class="snav">
-            <a href="#"><span class="ic">◇</span>模型</a><a href="#"><span class="ic">▤</span>预置</a>
-            <a href="#"><span class="ic">≋</span>通用</a><a href="#"><span class="ic">◈</span>权限</a>
+            <a href="#"><span class="ic">◇</span>模型</a><a href="#"><span class="ic">≋</span>通用</a><a href="#"><span class="ic">◈</span>权限</a>
             <a href="#"><span class="ic">▣</span>环境</a><a href="#" class="on"><span class="ic">⇄</span>MCP</a>
             <a href="#"><span class="ic">⌗</span>hooks</a><a href="#"><span class="ic">↻</span>同步</a>
           </nav>
@@ -336,8 +335,7 @@ table.pick td { color: var(--page-dim); }
         <div class="dlg-head"><span class="t">设置</span><span>·</span><span>MCP</span></div>
         <div class="dlg-body">
           <nav class="snav">
-            <a href="#"><span class="ic">◇</span>模型</a><a href="#"><span class="ic">▤</span>预置</a>
-            <a href="#"><span class="ic">≋</span>通用</a><a href="#"><span class="ic">◈</span>权限</a>
+            <a href="#"><span class="ic">◇</span>模型</a><a href="#"><span class="ic">≋</span>通用</a><a href="#"><span class="ic">◈</span>权限</a>
             <a href="#"><span class="ic">▣</span>环境</a><a href="#" class="on"><span class="ic">⇄</span>MCP</a>
             <a href="#"><span class="ic">⌗</span>hooks</a><a href="#"><span class="ic">↻</span>同步</a>
           </nav>
@@ -454,7 +452,23 @@ table.pick td { color: var(--page-dim); }
 
   <!-- ============================================================ 落地 -->
   <div class="verdict">
-    <h2>我的建议</h2>
+    <h2>已按方案一落地（2026-09-30）</h2>
+    <p>
+      页面、弹窗、词表与用例都照这一稿做完了：卡片流三段（项目里 / 全局 / 认不出的）、
+      卡头挂形状与状态、虚线「＋ 添加 MCP server」、新增与编辑共用一张弹窗（底部 JSON 预览，
+      用的是真写文件那个序列化器）。两处与图不同、都是刻意的：卡脚那两颗动作按这个仓库的
+      卡片语言做成<b>灰字可点</b>（别的七页都是这个形状，一颗带边框的按钮太吵）；
+      「从模板开始」那个入口<b>没做</b> —— 它是另一稿（丙）的东西，等于多一张模板表，
+      要的话单独排一轮。真机图见 <code>build/probe/settings-mcp.png</code> 与
+      <code>build/probe/mcp-dialog.png</code>。
+    </p>
+    <p>
+      实现时逮到三条只有写出来才会露头的问题，都补上了：<b>改名</b>会把条目挪到文件末尾
+      （写回那层把它当"删一条 + 加一条"）、<b>重名校验漏了"认不出的那些"</b>（改名撞上去
+      会覆盖人家原样保留的那份）、以及页脚那句「改动即时保存」<b>在 MCP 页成了假话</b>
+      （现在改成跟着页走）。
+    </p>
+    <h2>原来的建议</h2>
     <p>
       <b>方案一（标准卡）</b> —— 你手上是 3 + 2 台，占不满一屏，没有理由为省高度牺牲"两台长得像的能分清"。
       与旧版相比，拆掉的正好是那张常驻表单，而它今天承担的"看"与"改"被拆给了卡片与弹窗，各归各位。

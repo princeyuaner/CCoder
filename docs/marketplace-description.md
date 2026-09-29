@@ -22,7 +22,7 @@ CCoder runs the Claude Code CLI (`claude`) you already have installed — it is 
 **Working in the project**
 
 - `@` references files and the code you selected in the editor (both show as one-line tokens and expand when sent); `#` references project symbols such as classes and functions. Completion is fuzzy — `cmprk` finds `ComposerMode.kt`.
-- `/` opens slash commands and the preset prompts you saved.
+- `/` opens slash commands and any preset prompts you already have.
 - Ctrl+V pastes a screenshot straight into the input box — click a thumbnail to open it full size.
 - Type while Claude is working and your message is queued, sent when the turn ends.
 
@@ -71,7 +71,7 @@ CCoder 驱动的是你自己已经装好的 Claude Code CLI（`claude`）—— 
 **在这个项目里干活**
 
 - `@` 引用文件，以及在编辑器里选中的代码（都显示成一行记号，发送时才展开）；`#` 引用项目里的类、函数等符号。补全是模糊的 —— 敲 `cmprk` 也能找到 `ComposerMode.kt`。
-- `/` 打开斜杠命令，以及你在设置里存下的预置 prompt。
+- `/` 打开斜杠命令，以及你已经有的预置 prompt。
 - Ctrl+V 把截图贴进输入框，点缩略图能看大图。
 - Claude 干活时你照样能打字：消息排进队列，当前这轮一结束就发出去。
 

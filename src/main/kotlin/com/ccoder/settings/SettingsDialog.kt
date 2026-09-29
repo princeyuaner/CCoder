@@ -48,7 +48,6 @@ fun showSettingsDialog(project: Project) {
         project = project,
         settings = ClaudeSettings.getInstance(project),
         profiles = ModelProfiles.getInstance(),
-        presets = PromptPresets.getInstance(),
         mcpStatus = McpStatus.getInstance(project),
         deps = RuntimeDepsService.getInstance(project),
         language = UiLanguageSettings.getInstance(),
@@ -61,7 +60,9 @@ fun showSettingsDialog(project: Project) {
 /**
  * 设置对话框（骨架是 2026-09-15 的方案 C；2026-09-20 按用户选的**方案 B** 改版：
  * 左栏带图标与胶囊选中态、页里改成卡片分区 —— 选型图在 `docs/design/settings-v3.html`）。
- * 八页签：模型 / 预置 / 通用 / 权限 / 环境 / MCP / hooks / 同步。
+ * 七页签：模型 / 通用 / 权限 / 环境 / MCP / hooks / 同步。
+ *（2026-09-30 用户「预置这个页签不要了」—— 那一页连它的图标一起删了；
+ * 预置功能本身还在，输入框 `/` 里那个分组照旧。）
  *
  * ## 从三栏到四页签
  *
@@ -91,7 +92,6 @@ internal class SettingsDialog(
     private val project: Project?,
     private val settings: ClaudeSettings,
     private val profiles: ModelProfiles,
-    private val presets: PromptPresets,
     private val mcpStatus: McpStatus,
     /**
      * 运行依赖的检测结果与安装进度。**不给默认值**：默认值只能写成
@@ -133,7 +133,7 @@ internal class SettingsDialog(
 ) : DialogWrapper(project) {
 
     /**
-     * 八页，连同左栏那枚图标。**页序 = 导航序** —— 图标与页成对写在一处，
+     * 七页，连同左栏那枚图标。**页序 = 导航序** —— 图标与页成对写在一处，
      * 免得日后插一页时导航上的小图整体错位一格（那只是"图标配错了"，不报错）。
      *
      * `internal val pages` 是给用例逐页点的（页多了漏挂监听器就看不出来）。
@@ -142,7 +142,6 @@ internal class SettingsDialog(
         val models = ModelProfilesPage(settings, profiles)
         listOf(
             models to NavIcon.Models,
-            PromptPresetsPage(presets) to NavIcon.Presets,
             GeneralSettingsPage(project, settings, language, prefs) to NavIcon.General,
             PermissionSettingsPage(settings) to NavIcon.Permission,
             // 环境页改一个键，模型页那条冲突警告要跟着重算 ——
@@ -163,6 +162,9 @@ internal class SettingsDialog(
     internal val pages: List<SettingsPage> = pageSpecs.map { it.first }
 
     private var current: SettingsPage = pages.first()
+
+    /** 页脚那句「我改的东西什么时候生效」—— 跟着页走（见 [SettingsPage.footerHint]）。 */
+    private val footerHintLabel = JBLabel().apply { foreground = UIUtil.getInactiveTextColor() }
 
     override fun dispose() {
         // 先让各页退订，再交给平台 —— 反过来的话，退订时可能碰到的组件已经没了
@@ -241,7 +243,7 @@ internal class SettingsDialog(
             // 「改动即时保存」与「关闭」是两颗浮在空白里的字，不像一条页脚
             border = hairlineTop()
             add(
-                JBLabel(FOOTER_HINT).apply { foreground = UIUtil.getInactiveTextColor() },
+                footerHintLabel.apply { text = current.footerHint() },
                 BorderLayout.WEST,
             )
             add(base, BorderLayout.CENTER)
@@ -290,6 +292,8 @@ internal class SettingsDialog(
      */
     private fun applySelection() {
         navItems.forEach { (page, item) -> item.setSelected(page === current) }
+        // 页脚那句话跟着页走（MCP 页要改口：那一页按了弹窗里的「保存」才算）
+        footerHintLabel.text = current.footerHint()
         pageHost.removeAll()
         pageHost.add(current.component(), BorderLayout.CENTER)
         pageHost.revalidate()

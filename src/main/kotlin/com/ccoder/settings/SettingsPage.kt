@@ -58,6 +58,14 @@ internal interface SettingsPage {
      * 设置漏一个监听器，而它捕获着这一页。
      */
     fun dispose() {}
+
+    /**
+     * 页脚左侧那句话。默认是「改动即时保存」—— 七页确实点一下就落库。
+     *
+     * MCP 页 2026-09-30 改版后要改口：那一页的新增与编辑走弹窗，**按了弹窗里的
+     * 「保存」才算**，所以它 override 这一条。留着那句假话，用户会以为敲完字就生效了。
+     */
+    fun footerHint(): String = FOOTER_HINT
 }
 
 /**
@@ -105,7 +113,7 @@ internal fun hairlineBottom(): Border = JBUI.Borders.customLineBottom(lineColor(
  * 列表栏在 `CENTER`，两者紧挨着，画哪边位置一样；而表单栏的宽度是各页写死的常量
  * （`*_FORM_WIDTH`），线跟着它走，不会被列表栏那侧忽多忽少的内容带偏。
  *
- * 四页共用（模型 / 预置 / MCP / hooks）—— 它们是同一个两栏骨架。
+ * 三页共用（模型 / hooks；2026-09-30 之前还有预置）—— 它们是同一个两栏骨架。
  */
 internal fun formColumnBorder(inner: Border): Border =
     BorderFactory.createCompoundBorder(hairlineLeft(), inner)
@@ -113,7 +121,7 @@ internal fun formColumnBorder(inner: Border): Border =
 /**
  * 「删除」那颗动作。
  *
- * 四页（模型 / 预置 / MCP / hooks）共用一句话 —— 它们全都是"删掉当前选中的那条"，
+ * 几页（模型 / hooks；MCP 页 2026-09-30 起走弹窗，也用它）共用一句话 —— 它们全都是"删掉当前选中的那条"，
  * 各写各的迟早出现四处措辞不一样、或者改了仨漏了第四个。
  */
 internal val DELETE_LABEL: String get() = CcoderText.text("settings.common.delete")

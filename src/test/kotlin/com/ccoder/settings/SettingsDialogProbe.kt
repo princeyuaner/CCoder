@@ -33,6 +33,7 @@ import java.io.File
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import javax.imageio.ImageIO
+import com.ccoder.ui.IdeLaf
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JComponent
@@ -496,30 +497,12 @@ class SettingsDialogProbe {
     )
 
     /**
-     * 预置页。两条预设、其中一条正文多行 —— 内容框的高度封没封住、
-     * 长名字在列表栏里怎么收，只有图上看得出来。
-     */
-    @Test
-    fun `把预置页画成图片`() = render(
-        "build/probe/settings-presets.png",
-        presets = listOf(
-            PromptPreset(
-                name = "写测试",
-                content = "给这段代码补单测。\n要求：\n- 覆盖边界与失败路径\n- 用项目里既有的测试风格\n- 别改产品代码",
-            ),
-            PromptPreset(
-                name = "解释这段报错，尽量说人话",
-                content = "解释这段报错：先给结论，再说为什么。\n不要复述代码。",
-            ),
-        ),
-        clicking = "写测试",
-        page = "settings.page.presets",
-    )
-
-    /**
-     * MCP 页。**故意让左右两栏对不齐**：文件里有两条，会话里有三条
-     * （其中一条是用户全局配的、根本不在这个文件里）。
-     * 这正是这一页最需要让人看懂的事 —— 对不齐是正常的。
+     * MCP 页（2026-09-30 改版后）：**一台 server 一张卡**。
+     *
+     * 一张图里要能同时看到四件：卡头的形状与状态、失败原因摊在卡上、
+     * 变量只列键名（`GITHUB_TOKEN` 在、它的值不在）、
+     * 以及"文件里有三条 / 会话里有三条，但两边不是同一批"——
+     * 最后一条正是这一页最需要让人看懂的事。
      */
     @Test
     fun `把 MCP 页画成图片`() = render(
@@ -528,8 +511,13 @@ class SettingsDialogProbe {
         mcpFile = """
             {
               "mcpServers": {
-                "codegraph": { "command": "npx", "args": ["-y", "codegraph"] },
-                "项目内的": { "type": "sse", "url": "https://example.com/sse" }
+                "codegraph": {
+                  "command": "npx",
+                  "args": ["-y", "codegraph"],
+                  "env": { "GITHUB_TOKEN": "ghp_不该画到卡片上" }
+                },
+                "项目内的": { "type": "sse", "url": "https://example.com/sse" },
+                "internal-sdk-proxy": { "type": "sdk", "name": "插件不认识的形状" }
               }
             }
         """.trimIndent(),
@@ -538,8 +526,50 @@ class SettingsDialogProbe {
             McpServerStatus("项目内的", "pending", "project", null, emptyList()),
             McpServerStatus("我自己全局配的", "connected", "user", null, listOf("t1", "t2", "t3")),
         ),
-        clicking = "codegraph",
     )
+
+    /**
+     * 新增 / 编辑那张弹窗的**正文**（框本身要窗口，探针画它的内容）。
+     *
+     * 两张：填好的一条（预览里就是会写进文件的那段 —— 空字段不写也看得见）、
+     * 以及重名的那一帧（校验红字 + 那颗按钮该是灰的）。
+     */
+    @Test
+    fun `把新增 MCP server 的框画成图片`() {
+        val shots = listOf(
+            Triple(
+                "build/probe/mcp-dialog.png",
+                McpServer(
+                    name = "codegraph",
+                    command = "npx",
+                    args = mutableListOf("-y", "codegraph"),
+                ),
+                emptyList<String>(),
+            ),
+            Triple(
+                "build/probe/mcp-dialog-taken.png",
+                McpServer(name = "codegraph", command = "npx"),
+                listOf("codegraph"),
+            ),
+        )
+        for ((path, initial, others) in shots) {
+            IdeLaf.withRealLaf {
+                SwingUtilities.invokeAndWait {
+                    val form = McpServerForm(initial, others)
+                    form.showError(form.error())
+                    form.refreshPreview()
+                    val panel = form.component()
+                    val w = 600
+                    panel.setSize(w, Int.MAX_VALUE)
+                    layoutAll(panel)
+                    val h = panel.preferredSize.height
+                    panel.setSize(w, h)
+                    layoutAll(panel)
+                    writePng(panel, w, h, path)
+                }
+            }
+        }
+    }
 
     /**
      * hooks 页。文件里**两种都有**：归这个面板管的（能编辑），
@@ -592,7 +622,6 @@ class SettingsDialogProbe {
          * 默认是「模型」那一页 —— 齿轮点开就落在那儿。
          */
         page: String = "settings.page.models",
-        presets: List<PromptPreset> = emptyList(),
         /** 写进临时项目根的 `.mcp.json`。null = 那份文件不存在。 */
         mcpFile: String? = null,
         /** 会话里的实时状态。空 = 还没拿到过。 */
@@ -649,7 +678,6 @@ class SettingsDialogProbe {
                 fakeProject(),
                 settings,
                 service,
-                PromptPresets().apply { presets.forEach { upsert(it) } },
                 mcpStatus,
                 deps,
                 UiLanguageSettings(),
@@ -751,7 +779,7 @@ class SettingsDialogSaveTest {
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
             dialog = SettingsDialog(
-                fakeProject(), settingsWith(), service, PromptPresets(), McpStatus(), depsService(),
+                fakeProject(), settingsWith(), service, McpStatus(), depsService(),
                 UiLanguageSettings(), UiPreferences(), SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             clickOn(listRowFor(dialog, profiles.first().displayName()))

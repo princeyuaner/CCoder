@@ -172,4 +172,35 @@ class McpConfigTest {
         assertEquals("A=1\nB=2", textOfPairs(pairs))
         assertEquals(pairs, pairsOf(textOfPairs(pairs)))
     }
+
+    // ---- 改名（2026-09-30：弹窗里改名那条路）----
+
+    @Test
+    fun `改名占着原来的位置，不跑到末尾`() {
+        // 不给 renames 的话，一条改名在写回这一步眼里就是"删一条 + 末尾加一条"，
+        // 文件里白多一片挪动 —— 而"改一条不该让它在文件里挪位置"是这一层的老规矩
+        val renamed = withMcpServers(
+            foreignFile(),
+            mcpServersOf(foreignFile()).servers.map { if (it.name == "remote") it.copy(name = "remote2") else it },
+            mcpServersOf(foreignFile()).preserved,
+            renames = mapOf("remote" to "remote2"),
+        )
+
+        assertEquals(
+            listOf("codegraph", "remote2", "weird"),
+            renamed.getAsJsonObject("mcpServers").keySet().toList(),
+        )
+    }
+
+    @Test
+    fun `真新加的那条还是排最后`() {
+        val servers = mcpServersOf(foreignFile()).servers + McpServer(name = "新的", command = "x")
+
+        val written = withMcpServers(foreignFile(), servers, mcpServersOf(foreignFile()).preserved)
+
+        assertEquals(
+            listOf("codegraph", "remote", "weird", "新的"),
+            written.getAsJsonObject("mcpServers").keySet().toList(),
+        )
+    }
 }

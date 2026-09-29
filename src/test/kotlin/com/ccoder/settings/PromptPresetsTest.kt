@@ -8,6 +8,17 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+/**
+ * 预置 prompt 的**服务**（不是页面）。
+ *
+ * 2026-09-30 用户把设置里那一页签删了，那一页的用例（`PromptPresetsPageTest`）跟着走。
+ * 这一份**与页面无关**，所以留着 —— 而且现在更该留着：没有界面之后，服务这条读的路
+ * （输入框 `/` 菜单）是唯一还在用的东西，它出错就没人看得见。
+ *
+ * `upsert` / `remove` 暂时**没有调用方**了（没有界面能新增/编辑预置）。留着是因为
+ * 数据还在、读的那条路还在，删掉只会让"以后把入口挪到别处"变难 —— 这条注释就是
+ * 那件事的记录。
+ */
 class PromptPresetsTest {
 
     /**
@@ -115,5 +126,18 @@ class PromptPresetsTest {
         val stored = p.presets().first()
         assertEquals("留白", stored.name)
         assertEquals("内容", stored.content)
+    }
+
+    @Test
+    fun `快照是副本 —— 读的那条路不该看见正在被改写的列表`() {
+        // 补全弹层在**输入框的文档监听**里读它，而改的那一边（从前是设置页）在 EDT 上写；
+        // 读到半截的症状不是崩溃，是"补全里少一条"这类最难查的形态
+        val p = PromptPresets()
+        p.upsert(PromptPreset(name = "A", content = "x"))
+
+        val snapshot = p.presets()
+        p.upsert(PromptPreset(name = "B", content = "y"))
+
+        assertEquals(1, snapshot.size, "拿到的快照跟着变了")
     }
 }

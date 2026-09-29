@@ -2,10 +2,12 @@ package com.ccoder.settings
 
 import com.ccoder.sync.SyncSettings
 import com.ccoder.sync.SyncStatus
+import com.ccoder.text.CcoderText
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBLabel
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -144,7 +146,6 @@ class SettingsDialogLayoutTest {
                 layoutProbeProject(),
                 ClaudeSettings(),
                 ModelProfiles(emptyStore()),
-                PromptPresets(),
                 McpStatus(),
                 // 假服务：用例不真跑 `node --version` / `claude --version`
                 depsService(), UiLanguageSettings(), UiPreferences(),
@@ -162,6 +163,27 @@ class SettingsDialogLayoutTest {
     private fun columns(dialog: SettingsDialog): List<JComponent> {
         val page = dialog.pageHost.components.filterIsInstance<JComponent>().single()
         return page.components.filterIsInstance<JComponent>()
+    }
+
+    /**
+     * 页脚那句「我改的东西什么时候生效」**跟着页走**。
+     *
+     * 别处七页都是"点一下就落库"，只有 MCP 页 2026-09-30 起走弹窗 ——
+     * 那一页还挂着「改动即时保存」就是假话（用户敲完字会以为已经生效）。
+     */
+    @Test
+    fun `页脚那句话跟着页走 —— MCP 页不是即时保存`() {
+        val dialog = open()
+
+        assertNotNull(findLabel(dialog.contentPanel, FOOTER_HINT), "模型页该是那句即时保存")
+
+        clickOn(findLabel(dialog.contentPanel, "MCP")!!)
+
+        assertNull(findLabel(dialog.contentPanel, FOOTER_HINT), "MCP 页还挂着\"改动即时保存\"那句假话")
+        assertNotNull(
+            findLabel(dialog.contentPanel, CcoderText.text("settings.mcp.footerHint")),
+            "MCP 页的页脚没改口",
+        )
     }
 
     @Test
@@ -282,7 +304,7 @@ class SettingsPagesTest {
         lateinit var dialog: SettingsDialog
         SwingUtilities.invokeAndWait {
             dialog = SettingsDialog(
-                layoutProbeProject(), settings, ModelProfiles(emptyStore()), PromptPresets(), McpStatus(),
+                layoutProbeProject(), settings, ModelProfiles(emptyStore()), McpStatus(),
                 depsService(), UiLanguageSettings(), prefs, SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             layoutAll(dialog.contentPane)

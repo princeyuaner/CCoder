@@ -43,8 +43,13 @@ import javax.swing.JPanel
  * 两处的 `mouseClicked` 不会各响一次。
  */
 
-/** 左栏那八枚。与页一一对应。 */
-internal enum class NavIcon { Models, Presets, General, Permission, Environment, Mcp, Hooks, Sync }
+/**
+ * 左栏那七枚。与页一一对应。
+ *
+ * 2026-09-30 用户："预置这个页签不要了" —— 于是 `Presets` 连它的书签字形一起没了
+ * （预置**功能**还在：输入框 `/` 菜单里那个分组照旧，只是没有界面能新增/编辑了）。
+ */
+internal enum class NavIcon { Models, General, Permission, Environment, Mcp, Hooks, Sync }
 
 /** 图标边长（dp）。 */
 internal const val NAV_ICON_SIDE = 16
@@ -94,14 +99,6 @@ private fun glyph(g: Graphics2D, kind: NavIcon) = when (kind) {
         pins.moveTo(11.8, 6.2); pins.lineTo(14.2, 6.2)
         pins.moveTo(11.8, 9.8); pins.lineTo(14.2, 9.8)
         g.draw(pins)
-    }
-
-    // 预置：一枚书签
-    NavIcon.Presets -> {
-        val p = Path2D.Double()
-        p.moveTo(4.0, 1.9); p.lineTo(12.0, 1.9); p.lineTo(12.0, 14.1)
-        p.lineTo(8.0, 11.2); p.lineTo(4.0, 14.1); p.closePath()
-        g.draw(p)
     }
 
     // 通用：两根滑杆
