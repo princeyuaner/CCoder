@@ -304,6 +304,43 @@ const VARIANTS = {
     `,
   },
 
+  // ---- 第三轮（2026-09-29 晚）：格线**看不见** ----
+  //
+  // 用户的一句话报障："现在就是看不见"。量出来不是错觉：
+  // 格线用的是注入的 `--border`（Darcula 下 #393b40），格子底是 `--surface`
+  // （#2b2d30）—— **1.23:1**（浅色主题 1.53:1）。1px、1.2:1 的线，看不见。
+  // WCAG 对非文本对比的要求是 3:1，下面按"往 --text 方向混多少"排开量。
+  //
+  // 这里用 `color-mix` 而不是在 Kotlin 侧新算一个颜色：混的方向两套主题都对
+  // （深色往浅混、浅色往深混），且不必再多一个注入变量。
+  line25: {
+    note: '⑬ 格线往 --text 混 25%（≈2.3～2.7:1，仍然很轻）',
+    css: `.bubble__text th, .bubble__text td { border-color: color-mix(in srgb, var(--border) 75%, var(--text) 25%); }`,
+  },
+
+  line35: {
+    note: '⑭ 格线往 --text 混 35%（≈3:1，WCAG 非文本门槛）',
+    css: `.bubble__text th, .bubble__text td { border-color: color-mix(in srgb, var(--border) 65%, var(--text) 35%); }`,
+  },
+
+  line45: {
+    note: '⑮ 格线往 --text 混 45%（≈3.6～4.7:1，重格线）',
+    css: `.bubble__text th, .bubble__text td { border-color: color-mix(in srgb, var(--border) 55%, var(--text) 45%); }`,
+  },
+
+  line35fr: {
+    note: '⑭ + 外框更重（表格自己也描一圈 45%）',
+    css: `
+      .bubble__text th, .bubble__text td { border-color: color-mix(in srgb, var(--border) 65%, var(--text) 35%); }
+      .bubble__text table { border: 1px solid color-mix(in srgb, var(--border) 55%, var(--text) 45%); }
+    `,
+  },
+
+  dimline: {
+    note: '⑯ 格线直接用 --text-dim（4.1 / 4.0:1，最省事的一条）',
+    css: `.bubble__text th, .bubble__text td { border-color: var(--text-dim); }`,
+  },
+
   // ⑫ —— ⑪ 只能降到 470（正好等于栏宽，**余量还是 0**，见 min/max 那两个数），
   // 因为 col2 里还留着一截 376px 的不可断段（不是那串代码，是别的）。
   // 索性给**所有格子**放开断行：下限一路降到 1 个字，表的 min 远小于栏宽，
@@ -362,7 +399,11 @@ function buildPage(variantKey) {
   // 栏宽：默认 860（宽窗口，看横排比例）；--narrow 420（**贴近真实工具窗口** ——
   // "一列一个字"那种极端是窄栏里才现形的，宽窗口下只表现为"窄一点"）
   const stackW = NARROW ? 420 : 860
-  return `<!doctype html>
+  // **必须 String.raw**：这段页面脚本里有正则（反斜杠加括号、反斜杠加 s 那种），
+  // 而普通模板字符串会把反斜杠当转义吃掉 —— 发到页面上的正则就变了形
+  // （2026-09-29 量对比度时栽的第三回：前两回是注释里的反引号）。
+  // String.raw 照样能做字符串插值，只是反斜杠原样保留。
+  return String.raw`<!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="file:///${cssPath.replace(/\\/g, '/')}">
 <style>
@@ -461,6 +502,69 @@ ${variant.css ? `<style>\n${variant.css}\n</style>` : ''}
         return w
       })
     })(),
+    // 格线**看不看得见**：算 WCAG 对比度（格线色 vs 格子真正压着的那层底色）。
+    // 2026-09-29 晚加的 —— "看不见"这种报障必须落成一个数，不然只能靠眼睛争。
+    lines: (() => {
+      const t = tables[1]
+      const r = t && t.tBodies[0] && t.tBodies[0].rows[0]
+      const th = t && t.tHead && t.tHead.rows[0]
+      if (!r) return null
+      const srgb = (c) => {
+        c /= 255
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+      }
+      // 颜色解析要认**三种**写法，少一种就会量出 null（2026-09-29 栽了两回）：
+      //   #rrggbb           —— 计算值里的老写法
+      //   rgb(a, b, c)      —— 同上
+      //   color(srgb r g b) —— **color-mix 算出来的就是这个**，分量是 0~1
+      // 注意：这一段在模板字符串里，注释里不能出现反引号（会把外层提前闭合）。
+      const parse = (css) => {
+        if (!css) return null
+        const s = String(css).trim()
+        if (s[0] === '#') {
+          return { v: [1, 3, 5].map((i) => parseInt(s.substr(i, 2), 16)), a: 1 }
+        }
+        let m = s.match(/^rgba?\(([^)]+)\)/)
+        if (m) {
+          const p = m[1].split(/[,\s/]+/).filter(Boolean).map(Number)
+          return { v: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }
+        }
+        m = s.match(/^color\(srgb\s+([^)]+)\)/)
+        if (m) {
+          const p = m[1].split(/[\s/]+/).filter(Boolean).map(Number)
+          return { v: p.slice(0, 3).map((x) => x * 255), a: p.length > 3 ? p[3] : 1 }
+        }
+        return null
+      }
+      // 往上找第一层不透明的底色 —— 格子自己通常是 transparent
+      const bgOf = (el) => {
+        let e = el
+        while (e) {
+          const c = parse(getComputedStyle(e).backgroundColor)
+          if (c && c.a > 0) return c
+          e = e.parentElement
+        }
+        return { v: [255, 255, 255], a: 1 }
+      }
+      const ratio = (a, b) => {
+        const L = (c) => 0.2126 * srgb(c.v[0]) + 0.7152 * srgb(c.v[1]) + 0.0722 * srgb(c.v[2])
+        const la = L(a), lb = L(b)
+        const hi = Math.max(la, lb), lo = Math.min(la, lb)
+        return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100
+      }
+      const cell = r.cells[0]
+      const cs = getComputedStyle(cell)
+      const borderColor = parse(cs.borderTopColor)
+      const cellBg = bgOf(cell)
+      const headCell = th ? th.cells[0] : null
+      const hcs = headCell ? getComputedStyle(headCell) : null
+      return {
+        line: cs.borderTopColor,
+        bg: 'rgb(' + cellBg.v.join(', ') + ')',
+        body: borderColor ? ratio(borderColor, cellBg) : null,
+        head: hcs ? ratio(parse(hcs.borderTopColor) || borderColor, bgOf(headCell)) : null,
+      }
+    })(),
     tableA: measureTable(tables[0]),
     tableB: measureTable(tables[1]),
   }
@@ -525,6 +629,13 @@ console.log(`  宿主  ${m.host}`)
 console.log(`  表A（A 档 4 列，回归样本）  ${report('', m.tableA)}`)
 console.log(`  表B（报表 3 列，本次报障）  ${report('', m.tableB)}`)
 if (m.cellMins) console.log(`  表B 第一行各格的最小内容宽  ${JSON.stringify(m.cellMins)}`)
+if (m.lines) {
+  console.log(
+    `  格线 ${m.lines.line} 压在 ${m.lines.bg} 上：` +
+      `正文格 ${m.lines.body}:1 · 表头格 ${m.lines.head}:1` +
+      `（"看不见"= 1.2:1 左右；看得见的门槛 3:1）`,
+  )
+}
 console.log()
 
 if (process.argv.includes('--open')) {

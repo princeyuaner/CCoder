@@ -370,6 +370,59 @@ function buildPage(scenario) {
     })(),
     numRects: numRects,
     cellStyle: cellStyle,
+    // 格线对比度（2026-09-29 晚）：1px 的线看不看得见，靠的是**对比度**，不是颜色
+    // 叫什么。用户报障原话"现在就是看不见"—— 于是把它算成一个数。
+    // 注意：这一段在**普通模板字符串**里，不能出现反斜杠（会被当转义吃掉）与反引号
+    //（会把外层闭合），所以下面全用 indexOf/slice 解析，一个正则都不写。
+    cellLineContrast: (() => {
+      if (!numCell) return -1
+      const parse = (css) => {
+        if (!css) return null
+        const s = String(css).trim()
+        if (s[0] === '#') return [1, 3, 5].map((i) => parseInt(s.substr(i, 2), 16))
+        const open = s.indexOf('(')
+        const close = s.lastIndexOf(')')
+        if (open < 0 || close < 0) return null
+        const head = s.slice(0, open).trim()
+        const parts = s.slice(open + 1, close).replace(/,/g, ' ').split(' ').filter(Boolean)
+        const nums = parts.filter((x) => x !== 'srgb' && x !== '/').map(Number)
+        // color(srgb ...) 的分量是 0~1；rgb() 的是 0~255
+        const scale = head === 'color' ? 255 : 1
+        return nums.slice(0, 3).map((x) => x * scale)
+      }
+      const alphaOf = (css) => {
+        const s = String(css)
+        if (s === 'transparent') return 0
+        const open = s.indexOf('(')
+        const close = s.lastIndexOf(')')
+        if (open < 0 || close < 0) return 1
+        const parts = s.slice(open + 1, close).replace(/,/g, ' ').split(' ').filter(Boolean)
+        return parts.length > 3 ? Number(parts[3]) : 1
+      }
+      // 往上找第一层不透明的底色：格子自己一般是 transparent
+      const bgOf = (el) => {
+        let e = el
+        while (e) {
+          const raw = getComputedStyle(e).backgroundColor
+          if (alphaOf(raw) > 0) {
+            const c = parse(raw)
+            if (c) return c
+          }
+          e = e.parentElement
+        }
+        return [255, 255, 255]
+      }
+      const srgb = (v) => {
+        const c = v / 255
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+      }
+      const lum = (c) => 0.2126 * srgb(c[0]) + 0.7152 * srgb(c[1]) + 0.0722 * srgb(c[2])
+      const line = parse(getComputedStyle(numCell).borderTopColor)
+      if (!line) return -1
+      const la = lum(line)
+      const lb = lum(bgOf(numCell))
+      return Math.round(((Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)) * 100) / 100
+    })(),
     // 列宽地板（2026-09-29）：没有它，overflow-wrap: anywhere 会把任意一列
     // 的最小内容宽算成 1 个字
     numMinWidth: (() => {
@@ -534,6 +587,15 @@ for (const scenario of SCENARIOS) {
       '地板的 min-width 掉了？',
     )
   }
+  // 格线得看得见（2026-09-29 晚）。旧的 --border 压在气泡底上只有 1.23:1 ——
+  // 用户的原话是"现在就是看不见"。3:1 是 WCAG 对非文本对比的门槛，留点余量取 2.5。
+  if (m.cellLineContrast < 2.5) {
+    problems.push(
+      `表格格线的对比度只有 ${m.cellLineContrast}:1（要 ≥ 2.5:1）—— ` +
+      '1px 的线低于这个数就是看不见（旧 --border 只有 1.23:1，用户 2026-09-29 报的就是它）。' +
+      '见 styles.css 单元格那段里的 color-mix',
+    )
+  }
   // 中文长首列不能被第二列的"不可断长串"挤瘪（2026-09-29 用户截图那条）
   if (m.reportCol0 < 1) {
     problems.push('报障那张表没量到（DOM 结构改了吗？）')
@@ -576,6 +638,7 @@ for (const scenario of SCENARIOS) {
     ` bubbleW=${m.bubbleW}/${m.rowW} userW=${m.userW}` +
     ` thumbW=${m.thumbW} imagesOverflow=${m.imagesOverflow}` +
     ` numRects=${m.numRects} cell=[${m.cellStyle}] cellFont=${m.cellFontSize}/${m.bubbleFontSize}` +
+    ` 格线=${m.cellLineContrast}:1 地板=${m.numMinWidth}px 报障首列=${m.reportCol0}px` +
     ` scrollH=${m.scrollH} clientH=${m.clientH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)

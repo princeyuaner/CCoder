@@ -189,11 +189,13 @@ body {
 .bubble--assistant {
   background: var(--surface, #2b2d30);
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
 }
 
 .bubble--error {
   background: var(--error-bg, #4a1f1f);
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
 }
 
 .bubble__text {
@@ -237,6 +239,7 @@ body {
 .bubble__image {
   padding: 0;
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   border-radius: 5px;
   overflow: hidden;
   background: none;
@@ -282,6 +285,7 @@ body {
   max-width: 100%;
   max-height: calc(100% - 40px);
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   border-radius: 6px;
   /* 点图不该关掉浮层（见 ImageLightbox），但拖选也不该选中它 */
   user-select: none;
@@ -377,6 +381,7 @@ body {
 
 .tool {
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   border-radius: 7px;
   background: var(--surface, #2b2d30);
   overflow: hidden;
@@ -461,6 +466,7 @@ body {
   height: 15px;
   border-radius: 4px;
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   background: var(--code-bg, #191a1c);
   font-family: var(--font-mono, monospace);
   font-size: calc(9px * var(--fs-scale, 1));
@@ -740,6 +746,7 @@ body {
 /* diff 不换行：对齐一破就看不出改的是哪一段 */
 .tool__diff {
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   border-radius: 6px;
   overflow: hidden;
   font-family: var(--font-mono, monospace);
@@ -773,6 +780,7 @@ body {
   margin: 0;
   padding: 5px 8px;
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   border-radius: 6px;
   font-family: var(--font-mono, monospace);
   font-size: calc(11px * var(--fs-scale, 1));
@@ -1083,6 +1091,21 @@ body {
 .bubble__text th,
 .bubble__text td {
   border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
+  /* ---- 2026-09-29 晚：格线**看不见** ----
+   *
+   * 用户一句话报障："现在就是看不见"。量出来不是错觉：`--border` 在 Darcula 下是
+   * #393b40，格子底是 `--surface` #2b2d30 —— **1.23:1**（浅色主题 1.53:1）。
+   * 1px、1.2:1 的线，肉眼就是看不见；WCAG 对非文本对比的门槛是 3:1。
+   *
+   * 不去 Kotlin 侧新算一个颜色：往 `--text` 方向混 35%，两套主题**方向都对**
+   * （深色往浅混、浅色往深混），量出来：
+   *
+   *   深色 2.93:1（表头格 3.69:1）· 浅色 3.54:1（表头格 3.17:1）
+   *
+   * 即刚好压在 3:1 上下 —— 看得见，但还不是重格线（混 45% 会到 3.7~4.6:1）。
+   * 数字来自 tools/table-style-probe.mjs（它会当场把对比度打出来），
+   * 回归断言在 tools/layout-probe.mjs（低于 2.5:1 就红）。 */
   padding: 5px 10px;
   line-height: 1.5;
   white-space: normal;
