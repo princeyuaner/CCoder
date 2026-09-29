@@ -172,17 +172,34 @@
     <change-notes><![CDATA[
     <h3>0.2.30</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against 0.2.29 (see the
-          publish spec, section 8). Do not copy the previous version's list &mdash; it is in
-          git (tag v0.2.29 &rarr; 6aaa2c8). 0.2.29 was checked on 2026-09-28 and is
-          already listed, so nothing has to be carried over.</li>
+      <li><b>The task card now says how it ended</b> &mdash; it used to answer only "who is
+          running right now", and a task simply vanished the moment it finished. It is now
+          three sections: <i>running</i> / <i>paused</i> / <i>just finished</i>. Rows that
+          finished keep their outcome (done / failed / stopped), how long they took, how
+          many tool calls they made &mdash; and the reason, when they failed.</li>
+      <li><b>Read a finished task's output</b> &mdash; the last 200 lines in a dialog, with a
+          button that opens the whole file in the editor (search, folding and large files
+          come for free there). If the output file is gone &mdash; temporary directories do
+          get cleaned up &mdash; it says so instead of showing an empty box.</li>
+      <li><b>Right-click a folder in the project view to add it to the chat</b> &mdash; that
+          menu item used to be greyed out for folders. It now inserts an <code>@</code>
+          reference just like a file (<code>@src/</code>), and the CLI expands it into the
+          listing of that folder &mdash; so a folder costs one line rather than the whole
+          tree, and files and folders can be picked in the same go.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对 0.2.29 的增量（见发布设计稿 §八）。别照抄上一版的清单 —— 它在
-          git 里（tag v0.2.29 &rarr; 6aaa2c8）。0.2.29 已复核过审上架（2026-09-28），
-          没有要并进来的旧条目。</li>
+      <li><b>任务卡现在会说"成了没有"</b> &mdash; 从前它只回答"眼下有谁在跑"，任务一结束
+          那一行就凭空消失。现在分三段：<i>在跑</i> / <i>暂停</i> / <i>刚结束</i>；刚结束
+          的那些留着结局（成了 / 失败 / 被停掉）、耗时、调了多少次工具，失败的话还有原因。</li>
+      <li><b>看一个已结束任务的输出</b> &mdash; 一屏给最后 200 行，旁边一颗按钮把完整那份在
+          编辑器里打开（搜索、折叠、大文件都现成）。输出文件不在了（临时目录会被清掉）会
+          <b>明说</b>，而不是给一个空框。</li>
+      <li><b>项目树里右键文件夹也能加进聊天框</b> &mdash; 从前对着文件夹那一项是<b>灰的</b>。
+          现在和文件一样插一条 <code>@</code> 引用（<code>@src/</code>），CLI 会把它展开成
+          那个文件夹的文件列表 &mdash; 所以它只占一行、不会把整棵树塞进去；文件与文件夹
+          可以一次混着选。</li>
     </ul>
     ]]></change-notes>
 
