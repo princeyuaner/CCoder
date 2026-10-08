@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 技能页提案 · 三个界面</title>
+<style>
+/* ============================================================
+   页面外壳 —— 展示用，不是产品的一部分。
+   产品配色取自 PyCharm New UI 的真实主题变量，与
+   mcp-page / background-tasks / sync-bubble 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#1e1f22;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --track:#2b2d30;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --track:#e8eaed;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s ease, color .2s ease;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding: 56px 32px 130px; }
+
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap;
+  padding-bottom: 22px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 38px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 84ch; margin: 0; font-size: 14.5px; }
+.lede b { color: var(--page-fg); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 14px; }
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 8px 14px; border:0; background:transparent; color: var(--page-dim); cursor:pointer; }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+.intro { margin: 40px 0 8px; display:grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); gap: 16px; }
+.card { background: var(--page-card); border:1px solid var(--page-line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 8px; font-size: 13px; font-family: var(--mono); letter-spacing:.06em; color: var(--page-dim); text-transform:uppercase; }
+.card p { margin: 0; font-size: 13.5px; color: var(--page-dim); }
+.card p + p { margin-top: 8px; }
+.card p b { color: var(--page-fg); }
+.card code, .note code, .spec code, td code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+
+.variant { margin: 72px 0 0; padding-top: 34px; border-top: 1px solid var(--page-line); }
+.vhead { display:flex; align-items:baseline; gap: 14px; flex-wrap:wrap; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.1em; text-transform:uppercase; padding: 4px 9px; border-radius: 5px;
+  border:1px solid var(--page-line); color: var(--page-dim); background: var(--page-card); }
+.tag.pick { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.tag.todo { background: var(--warn); color:#1b1c1e; border-color: transparent; }
+h2 { font-size: 22px; margin: 0; font-weight: 600; }
+.vsub { color: var(--page-dim); font-size: 13.5px; margin: 8px 0 0; max-width: 88ch; }
+.split { display:grid; grid-template-columns: 856px minmax(240px,1fr); gap: 34px; margin-top: 26px; align-items:start; }
+@media (max-width: 1240px) { .split { grid-template-columns: 1fr; } }
+
+/* ---- 设置对话框（856 × 559 是探针里那个真实尺寸）---- */
+.dlg { width: 856px; border:1px solid var(--border); border-radius: 8px; overflow:hidden; background: var(--panel);
+  box-shadow: 0 18px 44px rgba(0,0,0,.28); }
+.dlg-head { display:flex; align-items:center; gap:8px; padding: 9px 12px; border-bottom: 1px solid var(--border-soft);
+  font-size: 12.5px; color: var(--dim); }
+.dlg-head .t { color: var(--text); font-weight: 600; }
+.dlg-body { display:grid; grid-template-columns: 132px 1fr; min-height: 430px; }
+.snav { border-right: 1px solid var(--border-soft); padding: 10px 8px; }
+.snav a { display:flex; align-items:center; gap:8px; padding: 5px 9px; border-radius: 6px; font-size: 12.5px;
+  color: var(--text); text-decoration:none; }
+.snav a .ic { font-size: 11px; opacity:.8; }
+.snav a.on { background: var(--accent); color: var(--accent-fg); }
+.spane { padding: 12px 14px; min-width: 0; }
+
+/* ---- 页头：一行说明 + 工具条 ---- */
+.ph { display:flex; align-items:center; gap:8px; margin-bottom: 10px; }
+.ph .hint { font-size: 11.5px; color: var(--dim); }
+.ph .sp { margin-left:auto; }
+.search { display:flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius: 6px;
+  background: var(--editor); padding: 3px 8px; font-size: 12px; color: var(--dim); min-width: 150px; }
+.ghost { border:1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);
+  font-size: 11.5px; padding: 3px 9px; font-family: var(--ui); }
+.ghost.link { border:0; background:transparent; color: var(--dim); padding: 2px 4px; }
+.ghost.link:hover { color: var(--text); }
+
+/* ---- 分组 ---- */
+.grp { display:flex; align-items:baseline; gap:8px; margin: 14px 0 6px; }
+.grp:first-of-type { margin-top: 2px; }
+.grp .gt { font-family: var(--mono); font-size: 11px; letter-spacing:.08em; color: var(--dim); }
+.grp .gc { font-family: var(--mono); font-size: 10.5px; color: var(--dim); opacity:.75; }
+.grp .gd { font-size: 11px; color: var(--dim); opacity:.75; margin-left:auto; }
+
+/* ============ 方案一 / 三 共用：行 ============ */
+.rows { border:1px solid var(--border); border-radius: 8px; background: var(--surface); overflow:hidden; }
+.row { display:flex; align-items:center; gap:10px; padding: 7px 10px; }
+.row + .row { border-top: 1px solid var(--border-soft); }
+.row:hover { background: var(--hover); }
+.row.off { opacity:.55; }
+.row .nm { font-size: 12.5px; color: var(--text); font-weight: 600; white-space:nowrap; }
+.row .ds { font-size: 11.5px; color: var(--dim); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row .tk { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space:nowrap; width: 52px; text-align:right; }
+.row .lk { font-size: 10.5px; color: var(--dim); white-space:nowrap; border:1px dashed var(--border); border-radius: 4px; padding: 0 5px; }
+.row .more { font-family: var(--mono); font-size: 13px; color: var(--dim); padding: 0 4px; }
+
+/* ---- 开关（两档：on ↔ off）---- */
+.sw { width: 30px; height: 17px; border-radius: 9px; background: var(--track); border:1px solid var(--border);
+  position:relative; flex:none; }
+.sw i { position:absolute; top:1.5px; left:2px; width: 12px; height: 12px; border-radius: 50%; background: var(--dim); }
+.sw.on { background: var(--accent-soft); border-color: var(--accent); }
+.sw.on i { left:auto; right:2px; background: var(--accent); }
+.sw.lock { opacity:.45; }
+
+/* ---- 四档分段控件（方案二的行内版）---- */
+.seg { display:inline-flex; border:1px solid var(--border); border-radius: 6px; overflow:hidden; flex:none; }
+.seg span { font-size: 10.5px; padding: 2px 7px; color: var(--dim); border-right:1px solid var(--border-soft); white-space:nowrap; }
+.seg span:last-child { border-right:0; }
+.seg span.on { background: var(--accent); color: var(--accent-fg); }
+.seg span.lock { opacity:.45; }
+
+/* ---- 状态词（只读展示用）---- */
+.stw { font-family: var(--mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; border:1px solid var(--border); color: var(--dim); white-space:nowrap; }
+.stw.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); }
+
+/* ============ 方案二：左列表 + 右详情 ============ */
+.md { display:grid; grid-template-columns: 236px 1fr; gap: 0; border:1px solid var(--border); border-radius: 8px; overflow:hidden; }
+.md .lst { border-right:1px solid var(--border-soft); background: var(--surface); }
+.md .lst .it { padding: 6px 10px; display:flex; align-items:center; gap:7px; font-size: 12px; color: var(--text); }
+.md .lst .it.sel { background: var(--accent-soft); }
+.md .lst .it .dot { width:7px; height:7px; border-radius:50%; background: var(--ok); flex:none; }
+.md .lst .it .dot.warn { background: var(--warn); }
+.md .lst .it .dot.off { background: var(--dim); }
+.md .lst .it .src { margin-left:auto; font-family: var(--mono); font-size: 9.5px; color: var(--dim); }
+.md .det { padding: 12px 14px; background: var(--panel); }
+.md .det h4 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+.md .det .path { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-bottom: 10px; word-break: break-all; }
+.md .det .desc { font-size: 12.5px; color: var(--text); background: var(--editor); border:1px solid var(--border-soft);
+  border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; }
+.md .det .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing:.06em; color: var(--dim); text-transform:uppercase; margin: 0 0 5px; }
+.opt { display:flex; gap:9px; padding: 6px 8px; border-radius: 6px; align-items:flex-start; }
+.opt.sel { background: var(--accent-soft); }
+.opt .rad { width: 13px; height: 13px; border-radius:50%; border:1px solid var(--border); margin-top: 3px; flex:none; }
+.opt.sel .rad { border:4px solid var(--accent); }
+.opt .ot { font-size: 12.5px; color: var(--text); }
+.opt .oh { font-size: 11px; color: var(--dim); }
+.opt.lock { opacity:.45; }
+.md .acts { display:flex; gap:8px; margin-top: 12px; padding-top: 10px; border-top:1px solid var(--border-soft); }
+
+/* ============ 方案三：卡片流 ============ */
+.flow { display:grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 900px) { .flow { grid-template-columns: 1fr; } }
+.sc { border:1px solid var(--border); border-radius: 8px; background: var(--surface); overflow:hidden; }
+.sc .sh { display:flex; align-items:center; gap:8px; padding: 7px 10px; border-bottom:1px solid var(--border-soft); }
+.sc .sh .nm { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.sc .sh .src { font-family: var(--mono); font-size: 9.5px; color: var(--dim); border:1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.sc .sh .st { margin-left:auto; }
+.sc .sb { padding: 8px 10px; font-size: 11.5px; color: var(--dim); line-height:1.55; }
+.sc .sf { display:flex; align-items:center; gap:8px; padding: 6px 8px; border-top:1px solid var(--border-soft); }
+.sc .sf .sp { margin-left:auto; }
+.sc.lock { opacity:.7; }
+
+/* ---- 「更多」菜单的放大图 ---- */
+.menu { border:1px solid var(--border); border-radius: 7px; background: var(--surface); padding: 4px; width: 262px;
+  box-shadow: 0 10px 26px rgba(0,0,0,.32); }
+.menu .mi { display:flex; align-items:baseline; gap:8px; padding: 5px 8px; border-radius: 6px; font-size: 12px; color: var(--text); }
+.menu .mi.hi { background: var(--accent); color: var(--accent-fg); }
+.menu .mi .mh { margin-left:auto; font-size: 10.5px; color: var(--dim); }
+.menu .mi.hi .mh { color: var(--accent-fg); opacity:.8; }
+.menu .sep { height:1px; background: var(--border-soft); margin: 4px 2px; }
+
+/* ---- 侧注 / 对照表 ---- */
+.side { font-size: 12.5px; color: var(--page-dim); }
+.side h4 { font-size: 12px; font-family: var(--mono); letter-spacing:.06em; text-transform:uppercase; color: var(--page-dim); margin: 0 0 8px; }
+.side ul { margin: 0; padding-left: 18px; }
+.side li { margin-bottom: 6px; }
+.side li b { color: var(--page-fg); }
+.pro { color: var(--ok); } .con { color: var(--warn); }
+table { border-collapse: collapse; width: 100%; margin-top: 22px; font-size: 13px; }
+th, td { border:1px solid var(--page-line); padding: 8px 10px; text-align:left; vertical-align: top; }
+th { background: var(--page-card); font-family: var(--mono); font-size: 11px; letter-spacing:.06em; text-transform:uppercase; color: var(--page-dim); }
+.note { margin-top: 20px; border-left: 3px solid var(--accent); background: var(--page-card); padding: 12px 16px; border-radius: 0 8px 8px 0; }
+.note.warn-note { border-left-color: var(--warn); }
+.note h4 { margin: 0 0 6px; font-size: 13px; }
+.note p, .note ul { margin: 0 0 6px; font-size: 13px; color: var(--page-dim); }
+.note ul { padding-left: 18px; }
+.note b { color: var(--page-fg); }
+.legend { display:flex; gap:16px; flex-wrap:wrap; margin-top: 10px; font-size: 12px; color: var(--page-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="masthead">
+  <div>
+    <p class="eyebrow">CCoder · 设置页提案 · 2026-09-30</p>
+    <h1>技能（Skills）页 —— 三个界面</h1>
+    <p class="lede">在设置里加一页，把 Claude 能用的技能列出来，能<b>禁用</b>、能<b>更新</b>、能<b>打开文件看内容</b>。
+      这一页不比 MCP 那页 —— 技能条数多、每条短、最主要的动作是"这一条我要不要它"，所以下面三个方案的差别全在
+      <b>信息密度</b>与<b>开关放在哪</b>。</p>
+  </div>
+  <div class="toggle" role="group" aria-label="主题">
+    <button type="button" data-t="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-t="light" aria-pressed="false">Light</button>
+  </div>
+</div>
+
+<div class="intro">
+  <div class="card">
+    <h3>禁用是 CLI 自己的能力，四档</h3>
+    <p><code>~/.claude/settings.json</code> 或项目里的 <code>settings.local.json</code> 有一个
+      <code>skillOverrides</code> 键，值是四档之一 —— 这不是我们发明的开关：</p>
+    <p><b>正常</b>（描述进上下文、模型能用、<code>/名字</code> 也能用）·
+      <b>只列名字</b>（描述不进上下文，省 token，模型仍可调用）·
+      <b>只我能用</b>（模型看不到，<code>/名字</code> 仍可用）·
+      <b>关掉</b>（两边都看不到）。</p>
+    <p>多层设置之间<b>更严的赢</b>（本机 &gt; 项目/用户），有些来源根本不许覆盖（见下）。</p>
+  </div>
+  <div class="card">
+    <h3>写盘走 CLI 自己的写手</h3>
+    <p>改状态不用我们拼 JSON：<code>claude edit-skill-overrides --json</code>，
+      喂 <code>{"name":"…","state":"off"}</code> 给它，它写进<b>项目本地</b>的
+      <code>.claude/settings.local.json</code> 并回执 <code>{ok,written,changed}</code>。</p>
+    <p>这是 VS Code 扩展用的同一条路（子命令藏在 <code>--help</code> 里，写着 "used by the VS Code extension"）。</p>
+  </div>
+  <div class="card">
+    <h3>哪些能关、哪些关不了（已实测）</h3>
+    <p><b>我的 / 本项目 / 内置</b> —— 能关。</p>
+    <p><b>插件带进来的</b>（<code>frontend-design</code> 那类）—— <b>关不掉</b>。实测：给
+      <code>code-review:code-review</code> 写 <code>off</code>，CLI 照写不误（回执 <code>changed:true</code>），
+      新会话里它<b>照样在</b>。所以这不是"界面上拦一下"，是根本不该给这颗开关 —— 要停只能停整个插件。</p>
+  </div>
+  <div class="card">
+    <h3>更新 = 三件不同的事</h3>
+    <p><b>刷新清单</b>（重扫磁盘，秒级）·<b>更新插件</b>（marketplace 拉新版，<code>claude plugin update</code>，重启会话才生效）·
+      <b>改技能内容</b>（其实就是在编辑器里改那个 <code>SKILL.md</code>）。</p>
+    <p>三个方案里都在，只是摆在不同的位置。</p>
+  </div>
+  <div class="card" style="border-color:var(--warn); grid-column: 1 / -1;">
+    <h3>两个必须知道的实测结果</h3>
+    <p><b>① 改完要下次开会话才生效。</b>同一个会话里写 <code>off</code> 之后再调一次
+      <code>reloadSkills()</code>，清单纹丝不动（23 条还是 23 条）；<b>新</b>会话里那条才消失（23 → 22）。</p>
+    <p><b>② 关掉的技能从 CLI 的清单里整个消失</b>（<code>totalSkills</code> 一起变）。
+      所以这页的列表 = CLI 给的清单 <b>＋ 设置里记着的名字</b> —— 少了后半截，用户关掉一条之后
+      再也看不见它、也就开不回来。</p>
+  </div>
+</div>
+
+<!-- ============================ 方案一 ============================ -->
+<div class="variant">
+  <div class="vhead">
+    <span class="tag pick">推荐</span>
+    <h2>方案一 · 分组表格：一屏看全，开关就在行上</h2>
+  </div>
+  <p class="vsub">按来源分四组，每组一个灰标题；每行 = 开关 + 名字 + 描述（一行省略号）+ token + 「⋯」。
+    一眼能看完 20 多条，扫起来像看一张清单 —— 技能本来就是"清单型"的东西。</p>
+  <div class="split">
+    <div class="dlg">
+      <div class="dlg-head"><span class="t">CCoder 设置</span><span>·</span><span>技能</span></div>
+      <div class="dlg-body">
+        <nav class="snav">
+          <a href="#"><span class="ic">◍</span>模型</a>
+          <a href="#"><span class="ic">⚙</span>通用</a>
+          <a href="#"><span class="ic">🛡</span>权限</a>
+          <a href="#"><span class="ic">⌘</span>环境</a>
+          <a href="#" class="on"><span class="ic">✦</span>技能</a>
+          <a href="#"><span class="ic">⬡</span>MCP</a>
+          <a href="#"><span class="ic">⇥</span>hooks</a>
+          <a href="#"><span class="ic">⇄</span>同步</a>
+        </nav>
+        <div class="spane">
+          <div class="ph">
+            <span class="hint">25 个技能 · 7 个已关掉</span>
+            <span class="sp"></span>
+            <span class="search">⌕ 搜索技能…</span>
+            <button class="ghost">刷新</button>
+            <button class="ghost">全部更新</button>
+          </div>
+
+          <div class="grp"><span class="gt">我的</span><span class="gc">7</span>
+            <span class="gd">~/.claude/skills · 本机所有项目都能用</span></div>
+          <div class="rows">
+            <div class="row"><span class="sw on"><i></i></span><span class="nm">caveman</span>
+              <span class="ds">Keep technical substance. Remove communication waste…</span>
+              <span class="tk">28t</span><span class="more">⋯</span></div>
+            <div class="row"><span class="sw on"><i></i></span><span class="nm">debug-issue</span>
+              <span class="ds">Systematically debug issues using graph-powered code navigation</span>
+              <span class="tk">26t</span><span class="more">⋯</span></div>
+            <div class="row off"><span class="sw"><i></i></span><span class="nm">lazy-senior-dev</span>
+              <span class="ds">已关闭 · CLI 的清单里已经没有它了 —— 这一行是从设置里补出来的</span>
+              <span class="tk">—</span><span class="more">⋯</span></div>
+            <div class="row"><span class="sw on"><i></i></span><span class="nm">react-doctor</span>
+              <span class="ds">Use when finishing a feature, fixing a bug, before committing React code…</span>
+              <span class="tk">110t</span><span class="more">⋯</span></div>
+          </div>
+
+          <div class="grp"><span class="gt">本项目</span><span class="gc">0</span>
+            <span class="gd">&lt;项目&gt;/.claude/skills · 只在这个项目里生效</span></div>
+          <div class="rows">
+            <div class="row" style="color:var(--dim)">
+              <span class="sw lock"><i></i></span>
+              <span class="ds" style="font-style:italic">这个项目还没有自己的技能 —— 放一个 SKILL.md 到
+                .claude/skills/&lt;名字&gt;/ 就会出现在这里</span></div>
+          </div>
+
+          <div class="grp"><span class="gt">插件</span><span class="gc">3</span>
+            <span class="gd">随插件来 · 本地覆盖不了它</span></div>
+          <div class="rows">
+            <div class="row"><span class="lk">由插件决定</span><span class="nm">frontend-design</span>
+              <span class="ds">Create distinctive, production-grade frontend interfaces…</span>
+              <span class="tk">—</span><span class="more">⋯</span></div>
+            <div class="row"><span class="lk">由插件决定</span><span class="nm">code-review</span>
+              <span class="ds">Review a pull request</span>
+              <span class="tk">—</span><span class="more">⋯</span></div>
+          </div>
+
+          <div class="grp"><span class="gt">▸ 内置</span><span class="gc">12</span>
+            <span class="gd">随 Claude Code 来 · 可单独关 · <b>这一组默认折起来</b>（一次都没动过的 12 条最吵）</span></div>
+          <div class="rows">
+            <div class="row"><span class="sw on"><i></i></span><span class="nm">dataviz</span>
+              <span class="ds">Use this skill whenever you are about to create ANY chart…</span>
+              <span class="tk">—</span><span class="more">⋯</span></div>
+            <div class="row"><span class="sw on"><i></i></span><span class="nm">security-review</span>
+              <span class="ds">Complete a security review of the pending changes…</span>
+              <span class="tk">—</span><span class="more">⋯</span></div>
+          </div>
+
+          <div class="legend">
+            <span>改完 <b>下次开会话</b>生效（量过了）</span>
+            <span>token 数是真机量到的：23 条合计 <b>2,351t</b>；插件与内置那 16 条没逐条抄进这张图</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <h4>为什么推荐它</h4>
+      <ul>
+        <li><b>一屏 20+ 条</b>：技能是清单，不是卡片。MCP 那页之所以用卡片，是因为一台 server 要交代命令/参数/状态；
+          技能每条的"独有信息"只有一句描述。</li>
+        <li><b>开关在行上</b>：禁用是这页最高频的动作，点一下就该完事，不该开弹窗。</li>
+        <li><b>分组的顺序就是重要性的顺序</b>：我的 → 本项目 → 插件 → 内置。用户能改的排前面。</li>
+        <li>与「模型」页的"列表卡"同一族：左栏 + 分组 + 行，设置里已经有这个先例。</li>
+      </ul>
+      <h4 style="margin-top:16px">代价</h4>
+      <ul>
+        <li class="con">描述只能给一行（省略号）。想看全文要点名字展开或走「⋯ → 打开文件」。</li>
+        <li class="con">四档里的另外两档藏在「⋯」里 —— 常用两档（开/关）够，冷门两档要多点一下。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 方案二 ============================ -->
+<div class="variant">
+  <div class="vhead">
+    <span class="tag">四档一眼看全</span>
+    <h2>方案二 · 左列表 + 右详情：把四档摊开讲清楚</h2>
+  </div>
+  <p class="vsub">左边一列窄的（名字 + 状态点 + 来源），右边是选中那条的详情：完整描述、文件路径、
+    四档<b>带解释的单选</b>、以及动作。适合"我先看懂这条技能到底干嘛，再决定关不关"。</p>
+  <div class="split">
+    <div class="dlg">
+      <div class="dlg-head"><span class="t">CCoder 设置</span><span>·</span><span>技能</span></div>
+      <div class="dlg-body">
+        <nav class="snav">
+          <a href="#"><span class="ic">◍</span>模型</a>
+          <a href="#"><span class="ic">⚙</span>通用</a>
+          <a href="#"><span class="ic">🛡</span>权限</a>
+          <a href="#"><span class="ic">⌘</span>环境</a>
+          <a href="#" class="on"><span class="ic">✦</span>技能</a>
+          <a href="#"><span class="ic">⬡</span>MCP</a>
+          <a href="#"><span class="ic">⇥</span>hooks</a>
+          <a href="#"><span class="ic">⇄</span>同步</a>
+        </nav>
+        <div class="spane">
+          <div class="ph">
+            <span class="search">⌕ 搜索技能…</span>
+            <span class="sp"></span>
+            <button class="ghost">刷新</button>
+          </div>
+          <div class="md">
+            <div class="lst">
+              <div class="it"><span class="dot"></span>caveman<span class="src">我的</span></div>
+              <div class="it"><span class="dot"></span>dataviz<span class="src">内置</span></div>
+              <div class="it"><span class="dot off"></span>lazy-senior-dev<span class="src">我的</span></div>
+              <div class="it sel"><span class="dot"></span>react-doctor<span class="src">我的</span></div>
+              <div class="it"><span class="dot warn"></span>frontend-design<span class="src">插件</span></div>
+              <div class="it"><span class="dot"></span>security-review<span class="src">内置</span></div>
+            </div>
+            <div class="det">
+              <h4>react-doctor</h4>
+              <div class="path">~/.claude/skills/react-doctor/SKILL.md · 我的</div>
+              <div class="desc">Use when finishing a feature, fixing a bug, before committing React code,
+                or when the user types <code>/doctor</code>, asks to scan, triage, or clean up React diagnostics…</div>
+              <p class="lbl">这条技能怎么参与</p>
+              <div class="opt"><span class="rad"></span><div><div class="ot">正常</div>
+                <div class="oh">描述和正文都随上下文走，模型自己会挑它用</div></div></div>
+              <div class="opt"><span class="rad"></span><div><div class="ot">只列名字</div>
+                <div class="oh">只把名字放进清单，描述不进上下文 —— 省 token，模型仍可调用</div></div></div>
+              <div class="opt"><span class="rad"></span><div><div class="ot">只我能用</div>
+                <div class="oh">模型看不到它；我敲 <code>/react-doctor</code> 时它才醒</div></div></div>
+              <div class="opt sel"><span class="rad"></span><div><div class="ot">关掉</div>
+                <div class="oh">两边都看不到，等于没装</div></div></div>
+              <div class="acts">
+                <button class="ghost">打开 SKILL.md</button>
+                <button class="ghost">在文件管理器中显示</button>
+                <span class="sp" style="margin-left:auto"></span>
+                <span class="stw">占 110t · 下次开会话生效</span>
+              </div>
+            </div>
+          </div>
+          <div class="legend"><span>左栏 6 条是折叠的 —— 实际按来源分组、可滚动</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <h4>长处</h4>
+      <ul>
+        <li><b>四档不用藏</b>：每档都有一句人话解释（"只列名字"这种档，光看名字没人猜得出是省描述）。</li>
+        <li>描述、路径、token 摆得下 —— 想认真判断一条技能该不该留，这页最够用。</li>
+        <li>动作有地方放：打开文件、在文件管理器里显示、以后加的"删除/复制"。</li>
+      </ul>
+      <h4 style="margin-top:16px">代价</h4>
+      <ul>
+        <li class="con"><b>一屏只看得见 6 条</b>，25 条要滚很久 —— 而多数时候用户只是想快速关掉一条。</li>
+        <li class="con">比方案一多一次点击：先选中，再改。</li>
+        <li class="con">这是模型页那套（列表 + 表单）的样子，不是 MCP 那套（卡片流），设置里会出现第三种"页型"。</li>
+      </ul>
+      <h4 style="margin-top:16px">什么情况下选它</h4>
+      <ul><li>如果你觉得"技能"这件事<b>值得慢慢看</b>（比如常写技能、常调它们的描述），选这个。</li></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 方案三 ============================ -->
+<div class="variant">
+  <div class="vhead">
+    <span class="tag">与 MCP 页同一张脸</span>
+    <h2>方案三 · 卡片流：一条技能一张卡</h2>
+  </div>
+  <p class="vsub">与刚定下来的 MCP 页完全同族：一卡一条，卡头名字 + 来源标签 + 开关，卡身一句描述，
+    卡脚是动作。网格两列，25 条排下来会比较长，所以要靠搜索与分组收着。</p>
+  <div class="split">
+    <div class="dlg">
+      <div class="dlg-head"><span class="t">CCoder 设置</span><span>·</span><span>技能</span></div>
+      <div class="dlg-body">
+        <nav class="snav">
+          <a href="#"><span class="ic">◍</span>模型</a>
+          <a href="#"><span class="ic">⚙</span>通用</a>
+          <a href="#"><span class="ic">🛡</span>权限</a>
+          <a href="#"><span class="ic">⌘</span>环境</a>
+          <a href="#" class="on"><span class="ic">✦</span>技能</a>
+          <a href="#"><span class="ic">⬡</span>MCP</a>
+          <a href="#"><span class="ic">⇥</span>hooks</a>
+          <a href="#"><span class="ic">⇄</span>同步</a>
+        </nav>
+        <div class="spane">
+          <div class="ph">
+            <span class="hint">25 个 · 7 个已关</span>
+            <span class="sp"></span>
+            <span class="search">⌕ 搜索…</span>
+            <button class="ghost">刷新</button>
+          </div>
+          <div class="grp"><span class="gt">我的</span><span class="gc">7</span></div>
+          <div class="flow">
+            <div class="sc">
+              <div class="sh"><span class="nm">caveman</span><span class="src">我的</span>
+                <span class="st"><span class="sw on"><i></i></span></span></div>
+              <div class="sb">Keep technical substance. Remove communication waste. Default to concise, direct answers…</div>
+              <div class="sf"><span class="tk" style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">28t</span>
+                <span class="sp"></span><button class="ghost link">打开</button><button class="ghost link">⋯</button></div>
+            </div>
+            <div class="sc lock">
+              <div class="sh"><span class="nm">frontend-design</span><span class="src">插件</span>
+                <span class="st"><span class="lk">由插件决定</span></span></div>
+              <div class="sb">Create distinctive, production-grade frontend interfaces with high design quality…</div>
+              <div class="sf"><span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">—</span>
+                <span class="sp"></span><button class="ghost link">停用整个插件</button></div>
+            </div>
+            <div class="sc">
+              <div class="sh"><span class="nm">dataviz</span><span class="src">内置</span>
+                <span class="st"><span class="sw on"><i></i></span></span></div>
+              <div class="sb">Use this skill whenever you are about to create ANY chart, graph, plot, dashboard…</div>
+              <div class="sf"><span style="font-family:var(--mono);font-size:10.5px;color:var(--dim)">—</span>
+                <span class="sp"></span><button class="ghost link">打开</button><button class="ghost link">⋯</button></div>
+            </div>
+            <div class="sc">
+              <div class="sh"><span class="nm">lazy-senior-dev</span><span class="src">我的</span>
+                <span class="st"><span class="sw"><i></i></span></span></div>
+              <div class="sb" style="text-decoration:line-through;opacity:.7">已关闭</div>
+              <div class="sf"><span class="sp"></span><button class="ghost link">打开</button><button class="ghost link">⋯</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <h4>长处</h4>
+      <ul>
+        <li>与 MCP 页<b>一张脸</b>：用户在设置里学一次就够。</li>
+        <li>描述能给两行，比方案一多。</li>
+      </ul>
+      <h4 style="margin-top:16px">代价</h4>
+      <ul>
+        <li class="con"><b>很长</b>：一条卡 ~110px 高、两列，25 条要滚四屏以上。方案一同样 25 条只要一屏半。</li>
+        <li class="con">卡片的"独有信息"撑不满：MCP 卡片要装命令/环境变量/状态，技能只有一句描述，
+          卡片会显得空 —— 空卡片比密列表更难扫。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 共用控件 ============================ -->
+<div class="variant">
+  <div class="vhead"><span class="tag">三个方案共用</span><h2>两个控件的放大图</h2></div>
+  <p class="vsub">不管选哪个方案，这两块都要定下来：<b>开关</b>（常用两档）与<b>「⋯」菜单</b>（冷门两档 + 动作）。</p>
+
+  <div class="split" style="grid-template-columns: 1fr 1fr;">
+    <div>
+      <p class="lbl" style="font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em">开关：开 / 关</p>
+      <div class="rows" style="max-width:420px">
+        <div class="row"><span class="sw on"><i></i></span><span class="nm">dataviz</span>
+          <span class="ds">正常 · 描述随上下文走</span></div>
+        <div class="row off"><span class="sw"><i></i></span><span class="nm">dataviz</span>
+          <span class="ds">已关闭 · 不再占上下文</span></div>
+        <div class="row"><span class="lk">由插件决定</span><span class="nm">frontend-design</span>
+          <span class="ds">本地覆盖不了 —— 要停就停整个插件</span></div>
+      </div>
+      <p class="side" style="margin-top:10px">关掉的行整行压暗（55%），描述换成"已关闭"——
+        因为"这条还在清单里但已经不参与"比"它还在"更容易被误解。</p>
+    </div>
+    <div>
+      <p class="lbl" style="font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em">「⋯」菜单</p>
+      <div class="menu">
+        <div class="mi">只列名字<span class="mh">省描述 token</span></div>
+        <div class="mi">只我能用<span class="mh">模型看不到</span></div>
+        <div class="sep"></div>
+        <div class="mi">打开 SKILL.md</div>
+        <div class="mi">在文件管理器中显示</div>
+        <div class="mi">更新这个技能<span class="mh">来自插件时</span></div>
+        <div class="sep"></div>
+        <div class="mi">停用整个插件<span class="mh">frontend-design</span></div>
+      </div>
+      <p class="side" style="margin-top:10px">白名单式：<b>只有真做得到的动作才出现</b>。
+        我的技能没有"更新"这一项（它就是本地一个文件），插件技能才有。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 对照 ============================ -->
+<div class="variant">
+  <div class="vhead"><span class="tag">怎么选</span><h2>一张表</h2></div>
+  <table>
+    <tr><th>　</th><th>方案一 · 分组表格</th><th>方案二 · 左列表右详情</th><th>方案三 · 卡片流</th></tr>
+    <tr><td>一屏条数</td><td><b>20+</b></td><td>6</td><td>4～6</td></tr>
+    <tr><td>禁用要点几下</td><td><b>1 下</b>（行上的开关）</td><td>2 下（先选、再改）</td><td>1 下</td></tr>
+    <tr><td>四档</td><td>两档在行上，两档在「⋯」</td><td><b>四档全摊开，带解释</b></td><td>两档在卡头，「⋯」里两档</td></tr>
+    <tr><td>描述</td><td>一行省略</td><td><b>完整</b></td><td>两行</td></tr>
+    <tr><td>与设置里其它页</td><td>像「模型」页的列表卡</td><td>像「模型」页的列表 + 表单</td><td>像刚定下来的 MCP 页</td></tr>
+    <tr><td>最适合</td><td><b>日常"关掉某一条"</b></td><td>写技能 / 调描述的人</td><td>一致性优先</td></tr>
+    <tr><td>风险</td><td>描述看不全</td><td>25 条滚到烦</td><td>卡片偏空、整页偏长</td></tr>
+  </table>
+
+  <div class="note">
+    <h4>我建议：方案一，把方案二的"四档解释"借过来</h4>
+    <p>日常动作是"这条技能别来烦我" —— 一屏看全 + 行上开关最顺手。方案二那四条带解释的档位是这一页唯一
+      必须保留的"教育性"内容，可以做成「⋯」菜单里 hover 的一行小字，或者方案一里点名字展开时露出来。
+      如果你更看重"和 MCP 页长一样"，那就选方案三 —— 代价是这一页会有四屏长。</p>
+  </div>
+</div>
+
+<!-- ============================ 落地/待量 ============================ -->
+<div class="variant">
+  <div class="vhead"><span class="tag pick">量过了</span><h2>这张图下面的四条实测（<code>sidecar/tools/probe-skills.mjs</code>）</h2></div>
+  <table>
+    <tr><th>问题</th><th>答案</th></tr>
+    <tr><td>列表从哪来</td>
+      <td><code>reloadSkills()</code>（活会话里问一次，23 条）+ <code>getContextUsage()</code> 里的
+        <code>skills.skillFrontmatter</code> —— <b><code>detail:'summary'</code> 就给全</b>（与 full 一字不差），
+        每条带 name / source / tokens。</td></tr>
+    <tr><td>来源都有哪些</td>
+      <td>真机上量到四种：<code>userSettings</code>(7) · <code>projectSettings</code>(1) · <code>plugin</code>(3) ·
+        <code>built-in</code>(12)。左边那三组的标题就是照这四个词写的。</td></tr>
+    <tr><td>改完什么时候生效</td>
+      <td><b>下次开会话。</b>同一会话里写 off 之后再调 <code>reloadSkills()</code>：23 条还是 23 条；
+        新会话：23 → 22，总量 2,351t → 2,323t。</td></tr>
+    <tr><td>插件技能能关吗</td>
+      <td><b>关不掉。</b>写 <code>off</code> 照样回 <code>changed:true</code>（设置文件里也真写进去了），
+        新会话里它<b>照样在</b> —— CLI 对 plugin 来源直接判 "on"。所以界面上不给开关，只给"停用整个插件"。</td></tr>
+  </table>
+
+  <div class="note warn-note">
+    <h4>探针顺手撞出来的三个坑（实现前必须知道）</h4>
+    <ul>
+      <li><b>关掉的技能从 CLI 的清单里整个消失</b>（不是标成"已关"，是 <code>totalSkills</code> 一起少一条）。
+        所以列表必须 = CLI 给的清单 <b>∪ 设置里记着的名字</b> —— 少了后半截，用户关掉就再也开不回来。
+        图上那些"已关闭"的灰行就是这么来的（它们没有描述与 token，只能显示名字）。</li>
+      <li><b>写盘用设置键，不是显示名。</b><code>reloadSkills()</code> 给的是显示名（"Debug Issue"、"Refactor Safely"），
+        而 CLI 的 <code>skillOverrides</code> 认的是设置键（目录名，插件技能是 <code>plugin:skill</code>）。
+        拿显示名去写，最坏情况是"回执说改了、实际什么都没有" —— 这一条<b>还没实测</b>，
+        实现第一步就该验（写显示名 → 新会话看它还不在）。</li>
+      <li><b>描述不一定是描述。</b>7 个用户技能里 4 个的 SKILL.md 没写 YAML frontmatter，
+        <code>reloadSkills()</code> 就把文件<b>第一行</b>当描述给了 —— 界面上显示成
+        <code>&lt;!-- Upstream: https://github.com/… --&gt;</code>。要么原样显示（丑但真），
+        要么认出来给一句"这条技能没写描述"。我倾向后者。</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <h4>顺带一个诚实的判断：这页的价值不是省 token</h4>
+    <p>23 条技能全开，整份清单 <b>2,351 token</b>；单条 26～110。关掉一条省不到 100t —— 拿它当卖点是自欺。
+      这页真正解决的是<b>"我不想让模型在这件事上用那个技能"</b>：技能是行为指令，
+      关掉是为了<b>别让 Claude 走偏</b>（比如不想要它的语气、不想让它在你没要求时跑一整套流程），
+      顺带才是那点上下文。</p>
+  </div>
+
+  <div class="note">
+    <h4>这一版我建议做 / 不做</h4>
+    <p><b>做</b>：列表（分组 + 搜索）· 四档状态（开关 + 「⋯」里的另外两档）· 刷新 · 打开 SKILL.md ·
+      插件技能的"更新"与"停用整个插件" · 从设置补出来的"已关闭"行。</p>
+    <p><b>不做</b>：新建技能（那是 <code>claude plugin init</code>，是另一个故事）· 删除技能（删目录，太狠，真要删让用户在编辑器里删）·
+      技能内容的编辑（那是编辑器的事，我们只负责跳到文件）· 用户级的覆盖（CLI 的写手只写项目本地；
+      要写用户级就得我们自己去动 <code>~/.claude/settings.json</code>，那是另一个决定）。</p>
+  </div>
+</div>
+
+<!-- ============================ 落地记录 ============================ -->
+<div class="variant">
+  <div class="vhead"><span class="tag pick">已按方案一落地</span><h2>2026-09-30 实现记录</h2></div>
+  <p class="vsub">设置里第 8 个页签「技能」。出图：<code>build/probe/settings-skills.png</code>（离屏渲染，数据是这台机器上量到的那份）。</p>
+
+  <div class="note">
+    <h4>和这张图的三处偏离（都是出图/写码时才发现该改的）</h4>
+    <ul>
+      <li><b>插件行那枚标记从「由插件决定」缩成「插件」</b>：整句要 74px，会把名字那一栏顶到
+        250px、把描述挤掉 40px。整句改挂在悬停上（tooltip），而行上那句"本地覆盖不了它"
+        分组标题右边本来就写着一次。</li>
+      <li><b>名字那一栏定宽 215px</b>：不定宽的话描述会各自从名字右边开始，一列字参差不齐。
+        定宽之后先按 190 试，`code-review:code-review` 被<strong>裁掉半截</strong>——这类"不量不知道"的事
+        只能靠出图。</li>
+      <li><b>描述与 token 之间补了 10px</b>：描述长的时候会一直写到自己右沿，和 token 贴在一起。</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <h4>实现时定下的两条，比图上多</h4>
+    <ul>
+      <li><b>清单来自一个现起的、不落盘的一次性会话</b>（<code>sidecar/skills-once.js</code>，
+        <code>persistSession:false</code>），不是借正在跑的那个会话。理由是语义：
+        这页要答的是"<b>新</b>会话会看到什么"，而实测里旧会话改完纹丝不动 ——
+        借它去读，读到的正是这页要帮用户改掉的那份。另外不落盘是硬要求：插件自己的会话列表
+        就是扫 <code>~/.claude/projects/</code> 出来的，每开一次设置多一条"用户没开过"的会话
+        比慢几秒严重。</li>
+      <li><b>写完立刻重新枚举、核对那条变了没有</b>。没变就在页面上报红：
+        「写进设置了，但清单里没变 —— 这个名字可能不是它的设置键」。
+        这是唯一能挡住"回执说成功、实际没生效"的办法，而那个坑是实测过的。</li>
+    </ul>
+  </div>
+
+  <div class="note warn-note">
+    <h4>落地时逮到的两个 bug（都不是观感问题）</h4>
+    <ul>
+      <li><b>第一次打开永远不会自动去问</b>：我把"还没问过"和"问完但为空"合成了同一个
+        <code>Ready</code>，页面用 <code>state is Ready</code> 判"要不要去问" → 永远是 true。
+        用例逮住的。</li>
+      <li><b><code>"skills": null</code> 会让解析器抛 ClassCastException</b>：那是 sidecar
+        真会发出来的形状（问不到用量时就是它），而 Gson 的 <code>getAsJsonObject</code>
+        撞上 JsonNull 直接抛 —— 说好的"不抛"没做到。用例逮住的。</li>
+    </ul>
+  </div>
+
+  <div class="note warn-note">
+    <h4>真机逮到的第三个 bug：<code>spawn EINVAL</code></h4>
+    <p>第一版在真机上一打开就一行红字：「问不到技能清单：spawn EINVAL」。链条是：
+      检测到的 claude 路径是 npm 的 <code>claude.cmd</code> 垫片（这台机器上 <code>%APPDATA%\npm</code>
+      只有 <code>.cmd</code> / <code>.ps1</code> / 无扩展名三个垫片，没有 <code>.exe</code>），而
+      <code>skills-once.js</code> 把它<b>原样</b>交给了 SDK —— SDK 内部用 spawn 调起 CLI，
+      CVE-2024-27980 之后 Node 拒绝直接 spawn 批处理，<b>同步</b>抛 <code>spawn EINVAL</code>
+      （同步，所以连"40 秒没就绪"都没等到；message 里没有路径，所以那一行毫无指向性）。
+      主会话从不出这个问题，因为 <code>index.js</code> 把路径过了 <code>claude-path.js</code> 的垫片解析
+      —— 那个文件里 <code>accept()</code> 的注释就写着"返回它只会让问题推迟到 SDK 内部炸成 EINVAL"。</p>
+    <p>修法：<code>skills-once.js</code> 对 <code>--claude</code> 调<b>同一个</b>
+      <code>resolveClaudePath</code>（垫片解析只此一份，两处各写各的迟早"聊天能跑、这页说找不到"）。
+      复现：<code>node sidecar/skills-once.js --cwd . --claude %APPDATA%\npm\claude.cmd</code>
+      —— 修前 <code>{"ok":false,"error":"spawn EINVAL"}</code>，修后正常列出 22 条。
+      用例 <code>sidecar/test/skills-once.test.js</code> 钉住这个边界。</p>
+    <p>顺带：失败态顶部还顶着工具行那句「还没有问过技能清单」，和下面「问不到技能清单：…」
+      自相矛盾（<b>问过了，失败了</b>）—— 真机截图里两条并排出现。现在加载中与失败态
+      都不再显示那句，只在<b>真的没问过</b>时出现。</p>
+  </div>
+
+  <div class="note">
+    <h4>这一版没做</h4>
+    <p>新建技能（那是 <code>claude plugin init</code>）· 删除技能（删目录太狠，让用户在编辑器里删）·
+      技能内容编辑（跳到文件就够了）· <b>用户级的覆盖</b>（CLI 的写手只写项目本地
+      <code>.claude/settings.local.json</code>；要写 <code>~/.claude/settings.json</code>
+      得我们自己去动那份带密钥的文件，是另一个决定）。</p>
+  </div>
+</div>
+
+<script>
+for (const b of document.querySelectorAll('.toggle button')) {
+  b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.t;
+    for (const o of document.querySelectorAll('.toggle button')) o.setAttribute('aria-pressed', String(o === b));
+  });
+}
+</script>
+</body>
+</html>

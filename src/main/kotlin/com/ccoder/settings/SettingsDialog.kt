@@ -54,13 +54,14 @@ fun showSettingsDialog(project: Project) {
         prefs = UiPreferences.getInstance(),
         syncSettings = SyncSettings.getInstance(project),
         syncStatus = SyncStatus.getInstance(project),
+        skills = SkillsCatalog.getInstance(project),
     ).show()
 }
 
 /**
  * 设置对话框（骨架是 2026-09-15 的方案 C；2026-09-20 按用户选的**方案 B** 改版：
  * 左栏带图标与胶囊选中态、页里改成卡片分区 —— 选型图在 `docs/design/settings-v3.html`）。
- * 七页签：模型 / 通用 / 权限 / 环境 / MCP / hooks / 同步。
+ * 八页签：模型 / 通用 / 权限 / 环境 / 技能 / MCP / hooks / 同步。
  *（2026-09-30 用户「预置这个页签不要了」—— 那一页连它的图标一起删了；
  * 预置功能本身还在，输入框 `/` 里那个分组照旧。）
  *
@@ -130,10 +131,17 @@ internal class SettingsDialog(
      * 什么都返回 null 的代理，不给这一项就画不出"能编辑"的那一屏。
      */
     private val baseDir: Path? = project?.basePath?.let { Path.of(it) },
+    /**
+     * 技能页那份清单。
+     *
+     * **排在最后、带默认值**：渲染探针那几处是按位置传参的，插在中间会把它们
+     * 全打歪（那几行编译得过、图却画错页）。探针自己造一个注入了假枚举的实例。
+     */
+    private val skills: SkillsCatalog? = null,
 ) : DialogWrapper(project) {
 
     /**
-     * 七页，连同左栏那枚图标。**页序 = 导航序** —— 图标与页成对写在一处，
+     * 八页，连同左栏那枚图标。**页序 = 导航序** —— 图标与页成对写在一处，
      * 免得日后插一页时导航上的小图整体错位一格（那只是"图标配错了"，不报错）。
      *
      * `internal val pages` 是给用例逐页点的（页多了漏挂监听器就看不出来）。
@@ -148,6 +156,9 @@ internal class SettingsDialog(
             // 不然"刚加完键、切过去却没提示"看起来就像那个提示坏了
             EnvironmentSettingsPage(project, settings, deps, depsUi) { models.refreshConflictWarning() } to
                 NavIcon.Environment,
+            // 技能页（2026-09-30 晚，方案一）排在 MCP 前面：两者都是"给 Claude 装能力"，
+            // 而技能是 Claude 自带的、MCP 是外接的 —— 从内到外。
+            SkillsSettingsPage(project, skills) to NavIcon.Skills,
             // 项目根给 MCP 页写 `.mcp.json` 用；拿不到就只读（不猜一个路径去写）
             McpSettingsPage(baseDir, mcpStatus) to NavIcon.Mcp,
             HooksSettingsPage(baseDir) to NavIcon.Hooks,

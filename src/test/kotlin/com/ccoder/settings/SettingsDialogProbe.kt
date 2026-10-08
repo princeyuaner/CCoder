@@ -14,6 +14,9 @@ import com.ccoder.sidecar.McpServerStatus
 import com.ccoder.sidecar.Os
 import com.ccoder.sidecar.RunEvent
 import com.ccoder.sidecar.RuntimeDep
+import com.ccoder.sidecar.SkillCommand
+import com.ccoder.sidecar.SkillUsageLine
+import com.ccoder.sidecar.SkillsOnceReply
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBPasswordField
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -529,6 +532,44 @@ class SettingsDialogProbe {
     )
 
     /**
+     * 技能页（2026-09-30 晚，方案一：**分组表格 + 行上开关**）。
+     *
+     * 这张图要同时说清四件事，四件都是量出来的：
+     *  - 显示名与设置键可以不同名（`Debug Issue` ↔ `debug-issue`）——
+     *    名单上写的是前者，写盘用的是后者；
+     *  - **插件来的本地关不掉**，所以它那一行没有开关、只有一句「由插件决定」；
+     *  - 内置那 12 条默认**折起来**（一次都没动过的那些最吵），组标题上那个 ▸ 就是它；
+     *  - 已经关掉的那条**不在 CLI 的清单里**（`lazy-senior-dev` 只出现在设置文件里），
+     *    这一行是从设置补出来的 —— 少了它，用户关掉一条就再也开不回来。
+     */
+    @Test
+    fun `把技能页画成图片`() = render(
+        "build/probe/settings-skills.png",
+        page = "settings.page.skills",
+        skillsReply = SkillsOnceReply.Ok(
+            commands = listOf(
+                SkillCommand("caveman", "Keep technical substance. Remove communication waste.", false),
+                SkillCommand("Debug Issue", "Systematically debug issues using graph-powered code navigation", false),
+                SkillCommand("react-doctor", "Use when finishing a feature, fixing a bug, or before committing React code", false),
+                SkillCommand("probe-demo", "探针用的项目级技能，只为看列表长什么样。", false),
+                SkillCommand("frontend-design", "Create distinctive, production-grade frontend interfaces", false),
+                SkillCommand("code-review:code-review", "Review a pull request", false),
+                SkillCommand("dataviz", "Use this skill whenever you are about to create ANY chart", true),
+            ),
+            usage = listOf(
+                SkillUsageLine("caveman", "userSettings", 28),
+                SkillUsageLine("Debug Issue", "userSettings", 26),
+                SkillUsageLine("react-doctor", "userSettings", 110),
+                SkillUsageLine("probe-demo", "projectSettings", 24),
+                SkillUsageLine("frontend-design", "plugin", 90),
+                SkillUsageLine("code-review:code-review", "plugin", 62),
+                SkillUsageLine("dataviz", "built-in", 310),
+            ),
+        ),
+        skillsLocalFile = """{"skillOverrides":{"lazy-senior-dev":"off"}}""",
+    )
+
+    /**
      * 新增 / 编辑那张弹窗的**正文**（框本身要窗口，探针画它的内容）。
      *
      * 两张：填好的一条（预览里就是会写进文件的那段 —— 空字段不写也看得见）、
@@ -639,6 +680,10 @@ class SettingsDialogProbe {
         syncConfig: SyncConfig? = null,
         /** 同步页左栏那份状态快照。null = 画「刚打开还没有一轮跑完」那一屏。 */
         syncSnapshot: SyncSnapshot? = null,
+        /** 技能页要画的清单。null = 画「一条技能都没有」那一屏。 */
+        skillsReply: SkillsOnceReply? = null,
+        /** 写进临时项目根的 `.claude/settings.local.json`（技能页的 `skillOverrides` 就住这儿）。 */
+        skillsLocalFile: String? = null,
     ) {
         SwingUtilities.invokeAndWait {
             val store = MemoryStore(secrets)
@@ -657,6 +702,32 @@ class SettingsDialogProbe {
                 Files.writeString(base.resolve(".claude").resolve("settings.json"), it)
             }
             val mcpStatus = McpStatus().apply { if (mcpServers.isNotEmpty()) set(mcpServers) }
+
+            // 技能页：清单来自一个**注入了假枚举**的目录服务（探针不真起 CLI —— 那要 3～5 秒
+            // 一个进程，而且画出来的东西会随这台机器上装了什么而变）。
+            // home 指到一个空目录：否则它会扫到真实的 `~/.claude/skills`，图就不确定了。
+            skillsLocalFile?.let {
+                Files.createDirectories(base.resolve(".claude"))
+                Files.writeString(base.resolve(".claude").resolve("settings.local.json"), it)
+            }
+            val skillsHome = Files.createTempDirectory("ccoder-skills-probe-home")
+            // 给"我的"那条关掉的技能放一个真目录：真机上它就是 `~/.claude/skills/<目录>/SKILL.md`，
+            // 没有它的话那条会落到「其他」里 —— 那是探针的失真，不是页面的行为
+            Files.createDirectories(skillsHome.resolve(".claude").resolve("skills").resolve("lazy-senior-dev"))
+            Files.writeString(
+                skillsHome.resolve(".claude").resolve("skills").resolve("lazy-senior-dev").resolve("SKILL.md"),
+                "---\nname: lazy-senior-dev\ndescription: 能少写就少写\n---\n正文\n",
+            )
+            val skillsCatalog = SkillsCatalog(
+                baseDir = { base },
+                home = { skillsHome },
+                enumerate = { skillsReply ?: SkillsOnceReply.Ok(emptyList(), emptyList()) },
+                edit = { _, _, _ -> ProcessOutcome(0, """{"ok":true,"changed":true}""", "") },
+                pluginCommand = { _, _, _ -> ProcessOutcome(0, "ok", "") },
+                // 同步执行：探针里没有第二个线程，也不该有（否则图的时序不确定）
+                post = { it() },
+                runAsync = { it() },
+            ).apply { refresh() }
 
             // 「运行依赖」：假服务 + 假执行器，探针不真跑 `claude --version`，也不真装任何东西
             var fakeRun: FakeRun? = null
@@ -693,6 +764,7 @@ class SettingsDialogProbe {
                 SyncStatus().apply { syncSnapshot?.let { set(it) } },
                 DepsUi(os = Os.WINDOWS, tools = { tools }),
                 base,
+                skills = skillsCatalog,
             )
 
             // 切页走的是真的监听器（页签上挂的那个），不是直接调 select()

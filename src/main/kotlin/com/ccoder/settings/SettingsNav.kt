@@ -44,12 +44,13 @@ import javax.swing.JPanel
  */
 
 /**
- * 左栏那七枚。与页一一对应。
+ * 左栏那八枚。与页一一对应。
  *
  * 2026-09-30 用户："预置这个页签不要了" —— 于是 `Presets` 连它的书签字形一起没了
  * （预置**功能**还在：输入框 `/` 菜单里那个分组照旧，只是没有界面能新增/编辑了）。
+ * 同一天晚上补的 `Skills`：设置里多一页「技能」。
  */
-internal enum class NavIcon { Models, General, Permission, Environment, Mcp, Hooks, Sync }
+internal enum class NavIcon { Models, General, Permission, Environment, Mcp, Hooks, Sync, Skills }
 
 /** 图标边长（dp）。 */
 internal const val NAV_ICON_SIDE = 16
@@ -164,6 +165,18 @@ private fun glyph(g: Graphics2D, kind: NavIcon) = when (kind) {
         val bottomHead = Path2D.Double()
         bottomHead.moveTo(5.1, 8.4); bottomHead.lineTo(2.8, 9.9); bottomHead.lineTo(5.2, 11.4)
         g.draw(bottomHead)
+    }
+
+    // 技能：一颗四角星（"能力/闪光"那个通用意象；不要用书签 —— 那是删掉的预置页）
+    NavIcon.Skills -> {
+        val p = Path2D.Double()
+        p.moveTo(8.0, 1.9)
+        p.quadTo(8.9, 7.1, 14.1, 8.0)
+        p.quadTo(8.9, 8.9, 8.0, 14.1)
+        p.quadTo(7.1, 8.9, 1.9, 8.0)
+        p.quadTo(7.1, 7.1, 8.0, 1.9)
+        p.closePath()
+        g.draw(p)
     }
 }
 
