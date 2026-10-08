@@ -197,6 +197,27 @@ JBCefApp.getNativeBundleVersionString()`（`JcefBrokenAdvice` 里取 JCEF 版本
 （EAP）验证目标本地挂住的问题 —— 跑到 "Finished 2 of 3" 之后就再也不写日志了
 （261/262 都正常报 Compatible），现在接上会把发版本身卡死。见 0.2.28 开版挂账 2。
 
+**2026-10-08 更正（0.2.31 发版时量到的）**：那个"第三个卡死"今天没有复现 ——
+11:42:09 报完 `Finished 2 of 3` 之后同样长时间不出日志、进程 CPU 采样也纹丝不动
+（41.79s → 41.79s），差点按挂账把它毙了；结果 11:43:51 它自己完成：
+`Finished 3 of 3: PY-263.6259.38: Compatible`。静止的那段是**在下载插件依赖**
+（日志尾部记着 "Total time spent downloading plugins and their dependencies:
+1 m 19 s"；期间 CPU 空转、没有大文件落盘，看起来与挂住一模一样）。整条
+`verifyPlugin` 全长 6 分 07 秒。所以挂账 2 的前提要重新量：若"本地挂住"就只是
+这一段下载，"接成 publishPlugin 前置依赖"也许已经可行 —— 但再遇到"挂住"先等足
+十分钟再下结论。
+
+0.2.31 这版的发布链与绿数（照 §五 的顺序）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin | **2053 条全绿** |
+| sidecar | **216 条全绿**（含新用例 skills-once.test.js） |
+| web | **316 条全绿**（21 个文件） |
+| `buildPlugin` | zip 9,075,408 字节；打包校验 `[verify] OK: manifest 5005 entries`；jar 里 plugin.xml 已是 0.2.31 且**不含**占位字样 |
+| `verifyPlugin` | PY-261 / PY-262 / PY-263 **三份都 Compatible**，只有 deprecated / scheduled-for-removal / experimental 用法，无 internal API 违规 |
+| `publishPlugin` | BUILD SUCCESSFUL（`signPlugin SKIPPED`，照旧没证书） |
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
