@@ -161,10 +161,10 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-09-29 复核：**0.2.30 已上架**（`api/plugins/34281/updates?version=0.2.30`：
-         id 1182241，`approve`/`listed` 都是 true）。开版那一刻它还在审，写 change-notes
-         之前又复核了一次才落定 —— 所以本版**只写相对 0.2.30 的增量**，
-         "没过审就得把上一版并进来"那套（0.2.26→0.2.27 用过，见发布设计稿 §八）用不上。
+         2026-10-08 复核：**0.2.30 已过审上架**
+         （`api/plugins/34281/updates?version=0.2.30`：id 1182241，`approve`/`listed`
+         都是 true）—— 于是本版是相对 0.2.30 的真增量，"并上一版"的应急方案用不上
+         （0.2.26→0.2.27 用过，见发布设计稿 §八）。
          0.2.30 那三条在 tag `v0.2.30` → 87a0db5 那棵树的 plugin.xml 里，可对照措辞。
          复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
@@ -172,18 +172,39 @@
     <change-notes><![CDATA[
     <h3>0.2.31</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version &mdash; check whether 0.2.30 has been approved first (see the comment
-          above; as of 2026-09-29 it was still in review). If it has not, merge 0.2.30's
-          three items in as well. The previous list lives in git (tag v0.2.30 &rarr;
-          87a0db5); do not copy it blindly.</li>
+      <li><b>Skills in Settings</b> &mdash; a new tab lists every skill the CLI knows about
+          (yours, the project's, plugins', built-in), grouped by where they come from and
+          searchable. A switch on each row turns a skill off; the two softer modes (list the
+          name only / keep it to your own <code>/</code> commands) sit in the row's &#8943;
+          menu, next to "open SKILL.md". Plugin skills cannot be overridden one by one, so
+          they offer updating or disabling the whole plugin instead. Changes go through the
+          CLI's own writer, are re-checked against a fresh session right away, and take
+          effect in your <b>next</b> session.</li>
+      <li><b>The MCP page is one card per server now</b> &mdash; name, kind and live status
+          in the card header; command or URL, variable key names and the failure reason in
+          the body; edit and delete in the footer. Adding or editing opens a dialog that will
+          not save until the fields validate; the project's servers and your global ones are
+          kept apart, and the global list stays read-only.</li>
+      <li><b>The "Presets" tab is gone</b> &mdash; presets themselves stay: they still show
+          up in the <code>/</code> list. There is no screen to add or edit them any more; the
+          ones you have keep working.</li>
+      <li><b>Markdown tables read properly</b> &mdash; a Chinese first column is no longer
+          squeezed to one character per line, and the cell borders are visible again.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.30
-          过审没有（上面那条注释；2026-09-29 开版时还在审）—— 没过审就得把 0.2.30 那三条
-          一并并进来。上一版的清单在 git 里（tag v0.2.30 &rarr; 87a0db5），别照抄。</li>
+      <li><b>设置里多了「技能」页</b> &mdash; CLI 认识的每条技能（我的 / 本项目的 / 插件的 /
+          内置）分组列出、可搜索。行上一颗开关就能关掉；另外两档（只列名字 / 只我能用）在
+          行右端的 &#8943; 里，旁边就是「打开 SKILL.md」。插件的技能没法逐条覆盖 &mdash;
+          那几行给的是「更新整个插件」「停用整个插件」。改动走 CLI 自己的写手，写完立刻
+          重新核对，<b>下次开会话</b>生效。</li>
+      <li><b>MCP 页改成"一台 server 一张卡片"</b> &mdash; 卡头是名字、形状与实时状态；
+          卡体是命令或 URL、变量键名、失败原因；卡脚是编辑与删除。新增 / 编辑走弹窗，
+          校验不过存不了；项目里的与全局的分开列，全局那份只读。</li>
+      <li><b>「预置」页签删了</b> &mdash; 预置功能本身还在：输入 <code>/</code> 时照旧出现在
+          列表里。只是从此没有界面能新增 / 编辑它们；已有的照旧可用。</li>
+      <li><b>Markdown 表格能看了</b> &mdash; 中文首列不再被长串挤成一列一个字；格线也回来了。</li>
     </ul>
     ]]></change-notes>
 
@@ -207,8 +228,10 @@
         <!--
           设置**没有**注册在这里，是刻意的（2026-09-15 删掉了那个 projectConfigurable）。
           全部设置都在工具窗口右上角那个齿轮里（`com.ccoder.settings.SettingsDialog`，
-          七个页签：模型 / 通用 / 权限 / 环境 / MCP / hooks / 同步 —— 预置那一页
-          2026-09-30 按用户要求删了，预置功能本身还在（输入框 `/` 里那个分组））—— 从前这里有一页 IDE 设置，
+          八个页签：模型 / 通用 / 权限 / 环境 / 技能 / MCP / hooks / 同步 —— 预置那一页
+          2026-09-30 按用户要求删了（技能页同天加进来，排在 MCP 前：都是"给 Claude 装
+          能力"，技能是自带的、MCP 是外接的，从内到外），预置功能本身还在（输入框 `/`
+          里那个分组））—— 从前这里有一页 IDE 设置，
           与对话框各管一半字段，用户得记"哪项在哪儿"。
 
           代价知道：IDE Settings 的搜索框里再也搜不到 CCoder。而齿轮**不随忙闲置灰**，
