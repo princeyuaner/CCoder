@@ -217,6 +217,12 @@ JBCefApp.getNativeBundleVersionString()`（`JcefBrokenAdvice` 里取 JCEF 版本
 | `buildPlugin` | zip 9,075,408 字节；打包校验 `[verify] OK: manifest 5005 entries`；jar 里 plugin.xml 已是 0.2.31 且**不含**占位字样 |
 | `verifyPlugin` | PY-261 / PY-262 / PY-263 **三份都 Compatible**，只有 deprecated / scheduled-for-removal / experimental 用法，无 internal API 违规 |
 | `publishPlugin` | BUILD SUCCESSFUL（`signPlugin SKIPPED`，照旧没证书） |
+| GitHub release | `gh release create v0.2.31 --verify-tag --title "CCoder 0.2.31" --notes-file docs/releases/0.2.31.md build/distributions/CCoder-0.2.31.zip`，一次成功、自动成为 Latest；附件 9,075,408 字节（与 marketplace 那份同 sha） |
+
+2026-10-08 补记：**gh 早就装着且登录着**（2.101.0，princeyuaner，repo scope；
+0.2.25 起就是用它建的）—— 早先"建 release 要认证、别去翻 token"那条是更早的挂账，
+已作废。正文口径核对：release 里存的与 `docs/releases/<版本>.md` **只差一个尾行的
+空行**（0.2.30 对照出来的），所以 `--notes-file docs/releases/<版本>.md` 就是标准做法。
 
 ## 八、What's New 写哪几版（2026-09-16 补）
 
