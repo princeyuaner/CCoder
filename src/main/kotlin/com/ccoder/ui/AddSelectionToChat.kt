@@ -208,5 +208,21 @@ internal fun mentionPathOf(
 ): String {
     if (absolutePath == null) return UNKNOWN_PATH
     val base = project.basePath ?: return absolutePath
-    return FileUtil.getRelativePath(base, absolutePath, '/') ?: absolutePath
+    return relativePathWithin(base, absolutePath) ?: absolutePath
 }
+
+/**
+ * 项目内、说得出口的相对路径；说不出口（项目外、不同盘）返回 null。
+ *
+ * **`..` 链不算"说得出口"**（2026-10-09 真机逮到）：`FileUtil.getRelativePath`
+ * 对**同一个盘、但在项目外**的路径**不返回 null**，而是造一条 `..` 链 ——
+ * base `C:/a/b/c/d/e/f` 与文件 `C:/Users/CY/…` 之间算出来是六个 `..` 再加一截
+ * 路径，真机上就看见输入框里躺着一个 `@../../../../../../…`。而引用只要两种形状：
+ * 项目内相对、项目外绝对（[mentionPathOf]）—— `..` 链既丑又脆：CLI 在工作目录下
+ * 展开，链上再掺上别的盘符就彻底解不开。所以带 `..` 的一律不认。
+ *
+ * 抽出来共用：[mentionPathOf]（`@` 引用）与 `SymbolLookup`（`#` 符号那条）
+ * 都要这同一个判据，两处各写一遍迟早一处松一处紧。
+ */
+internal fun relativePathWithin(base: String, absolutePath: String): String? =
+    FileUtil.getRelativePath(base, absolutePath, '/')?.takeUnless { it.split('/').contains("..") }

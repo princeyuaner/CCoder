@@ -7,7 +7,6 @@ import com.intellij.navigation.NavigationItem
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.io.FileUtil
 import com.intellij.psi.PsiElement
 import com.intellij.util.Processor
 import com.intellij.util.indexing.FindSymbolParameters
@@ -216,9 +215,11 @@ private fun resolve(
         val file = element.containingFile ?: return@Processor true
         val virtualFile = file.virtualFile ?: return@Processor true
         // 只要**项目内、能按相对路径说出来**的文件：记号最后要写进消息里，
-        // 库里的符号（site-packages）说不出口，也就没法内联
+        // 库里的符号（site-packages）说不出口，也就没法内联。
+        // **"带 `..` 的不算"是必需的**：`getRelativePath` 对同盘的项目外路径不返回
+        // null，而是造一条 `..` 链（2026-10-09 实测，同 `relativePathWithin`）
         if (virtualFile.isDirectory || !params.searchScope.contains(virtualFile)) return@Processor true
-        val relative = FileUtil.getRelativePath(base, virtualFile.path, '/') ?: return@Processor true
+        val relative = relativePathWithin(base, virtualFile.path) ?: return@Processor true
 
         val text = file.text
         val lines = selectionLineRange(text, element.textRange.startOffset, element.textRange.endOffset)
