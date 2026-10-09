@@ -532,6 +532,39 @@ class SettingsDialogProbe {
     )
 
     /**
+     * MCP 页的**会话动作**与失败提示（2026-09-28 接上、2026-10-09 回接到卡片页）。
+     *
+     * 画的是"有会话接得住、而且刚失败过一次"那一屏 —— 那几颗动作只有这样的一屏里
+     * 才画。三种形态各一张卡：失败的（重连 + 停用）、已经停用的（只给启用）、
+     * 全局的（只读却也有会话动作）；最上面是那句失败。要能一眼看出"哪几颗会画、
+     * 画在哪、失败那句长什么样"。
+     */
+    @Test
+    fun `把 MCP 页的动作与失败提示画成图片`() = render(
+        "build/probe/settings-mcp-actions.png",
+        page = "MCP",
+        mcpFile = """
+            {
+              "mcpServers": {
+                "codegraph": {
+                  "command": "npx",
+                  "args": ["-y", "codegraph"],
+                  "env": { "GITHUB_TOKEN": "ghp_不该画到卡片上" }
+                },
+                "已经停掉的那个": { "command": "npx", "args": ["-y", "别的"] }
+              }
+            }
+        """.trimIndent(),
+        mcpArmed = true,
+        mcpFailure = McpControl.Action.Reconnect("codegraph") to "MCP error -32000: Connection closed",
+        mcpServers = listOf(
+            McpServerStatus("codegraph", "failed", "user", "MCP error -32000: Connection closed", emptyList()),
+            McpServerStatus("已经停掉的那个", "disabled", "project", null, emptyList()),
+            McpServerStatus("我自己全局配的", "connected", "user", null, listOf("t1", "t2", "t3")),
+        ),
+    )
+
+    /**
      * 技能页（2026-09-30 晚，方案一：**分组表格 + 行上开关**）。
      *
      * 这张图要同时说清四件事，四件都是量出来的：
@@ -667,6 +700,10 @@ class SettingsDialogProbe {
         mcpFile: String? = null,
         /** 会话里的实时状态。空 = 还没拿到过。 */
         mcpServers: List<McpServerStatus> = emptyList(),
+        /** 有活着的会话接得住动作吗（false = 那几颗会话动作一颗都不画）。 */
+        mcpArmed: Boolean = false,
+        /** 上一次动作的失败：动作 + CLI 给的原因。画的是"点失败了"那一屏。 */
+        mcpFailure: Pair<McpControl.Action, String>? = null,
         /** 写进临时项目根的 `.claude/settings.json`。null = 那份文件不存在。 */
         hooksFile: String? = null,
         /** 「运行依赖」两行的状态。默认两个都缺 —— 那是最该看的一屏。 */
@@ -702,6 +739,12 @@ class SettingsDialogProbe {
                 Files.writeString(base.resolve(".claude").resolve("settings.json"), it)
             }
             val mcpStatus = McpStatus().apply { if (mcpServers.isNotEmpty()) set(mcpServers) }
+            // 动作那条线：探针要画"有会话接得住"那一屏（那几颗动作只有那时才画）。
+            // 处理器是个空壳 —— 出图不真发请求
+            val mcpControl = McpControl().apply {
+                if (mcpArmed) attach("探针") { true }
+                mcpFailure?.let { report(it.first, it.second) }
+            }
 
             // 技能页：清单来自一个**注入了假枚举**的目录服务（探针不真起 CLI —— 那要 3～5 秒
             // 一个进程，而且画出来的东西会随这台机器上装了什么而变）。
@@ -750,6 +793,7 @@ class SettingsDialogProbe {
                 settings,
                 service,
                 mcpStatus,
+                mcpControl,
                 deps,
                 UiLanguageSettings(),
                 // 界面偏好照 `reload()` 那条路勾上 —— 与"手动反悔一次"的 uncheckOptIn
@@ -851,7 +895,7 @@ class SettingsDialogSaveTest {
         SwingUtilities.invokeAndWait {
             service = ModelProfiles(store).apply { profiles.forEach { upsert(it) } }
             dialog = SettingsDialog(
-                fakeProject(), settingsWith(), service, McpStatus(), depsService(),
+                fakeProject(), settingsWith(), service, McpStatus(), McpControl(), depsService(),
                 UiLanguageSettings(), UiPreferences(), SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             clickOn(listRowFor(dialog, profiles.first().displayName()))

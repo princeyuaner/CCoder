@@ -680,3 +680,42 @@ test('没有 mcpServerStatus 时抛错，不静默成功', async () => {
 
   await assert.rejects(() => s.mcpServerStatus(), /不支持查询 MCP 连接状态/);
 });
+
+// ---- MCP 动作（reconnectMcpServer / toggleMcpServer）----
+
+test('reconnectMcpServer 把 server 名转给 CLI', async () => {
+  const seen = [];
+  const q = fakeQuery([], {
+    reconnectMcpServer: async (name) => { seen.push(name); },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await s.reconnectMcpServer('codegraph');
+  assert.deepEqual(seen, ['codegraph']);
+});
+
+test('toggleMcpServer 把 enabled 原样转给 CLI', async () => {
+  // false 是"停用"这个正经营生，不能在传递路上被当成"没设置"吞掉
+  const seen = [];
+  const q = fakeQuery([], {
+    toggleMcpServer: async (name, enabled) => { seen.push([name, enabled]); },
+  });
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  await new Promise((r) => setImmediate(r));
+
+  await s.toggleMcpServer('proj', false);
+  assert.deepEqual(seen, [['proj', false]]);
+});
+
+test('没有这两个方法时抛错，不静默成功', async () => {
+  // 同 mcpServerStatus 那条：可选链会让"点了重连"显示成"已重连"，
+  // 而 CLI 那边什么都没发生
+  const s = createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: fakeQuery().fn,
+  });
+  await new Promise((r) => setImmediate(r));
+
+  await assert.rejects(() => s.reconnectMcpServer('x'), /不支持重连 MCP 服务器/);
+  await assert.rejects(() => s.toggleMcpServer('x', true), /不支持启停 MCP 服务器/);
+});

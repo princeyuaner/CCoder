@@ -44,6 +44,12 @@ internal fun failureHintText(code: String?, message: String): String = when (cod
     // 原样推出来，用户不知道去哪儿装。现在指到环境页那块上
     "CLAUDE_NOT_FOUND" -> message + "\n\n" + CcoderText.text("failure.claudeNotFound.body")
 
+    // 2026-09-28 补：MCP 的两颗动作（重连 / 启用停用）。失败最要紧的是别让用户
+    // 以为"重连"能修好一条本来就坏的配置 —— 它只负责再试一次；真起不来的话
+    // 要去改的是那条命令本身。两个码共用一段：要说的话一模一样
+    "MCP_RECONNECT_FAILED", "MCP_TOGGLE_FAILED" ->
+        message + "\n\n" + CcoderText.text("failure.mcpControl.body")
+
     else -> message
 }
 

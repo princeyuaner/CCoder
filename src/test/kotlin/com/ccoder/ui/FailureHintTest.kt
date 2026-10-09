@@ -70,4 +70,29 @@ class FailureHintTest {
         assertEquals(raw, failureHintText(null, raw))
         assertEquals("", failureHintText(null, ""))
     }
+
+    /**
+     * 2026-09-28 新加的那条：MCP 的两颗动作（重连 / 启用停用）。
+     *
+     * 最要紧的是**别让用户以为"重连"能修好一条本来就坏的配置** —— 它只负责
+     * 再试一次，真起不来的话要去改的是那条命令本身。
+     */
+    @Test
+    fun `MCP 动作失败时说清它只负责再试一次，并指到改哪儿`() {
+        val got = failureHintText("MCP_RECONNECT_FAILED", "Connection closed")
+
+        assertTrue(got.startsWith("Connection closed"), "原文必须在最前面（它是唯一的事实）：$got")
+        assertTrue(got.contains("再连一次"), "得说清这一颗做了什么（没做什么）：$got")
+        assertTrue(got.contains("MCP"), "得指到改命令的那一页：$got")
+    }
+
+    @Test
+    fun `启用停用失败与重连失败共用同一段说明`() {
+        // 两者要说的话一模一样（都是"只再试一次，改命令去 MCP 页"），
+        // 一个码一段只会多一份要维护的散文
+        assertEquals(
+            failureHintText("MCP_RECONNECT_FAILED", "boom"),
+            failureHintText("MCP_TOGGLE_FAILED", "boom"),
+        )
+    }
 }

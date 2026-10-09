@@ -21,6 +21,7 @@ import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.settings.ClaudeSettings
 import com.ccoder.settings.EffortSetting
+import com.ccoder.settings.McpControl
 import com.ccoder.settings.McpStatus
 import com.ccoder.settings.ModelProfile
 import com.ccoder.settings.ModelProfiles
@@ -998,6 +999,8 @@ class ClaudePanel(
             // 切到这个标签（或者它刚建出来）：把**本会话**的 MCP 状态重新发布 ——
             // 设置页右栏读的是那个单槽服务，不发布的话它显示的是上一个标签的
             publishMcpStatus()
+            // 反向那条线同理（设置页那两颗按钮发过来的动作，得有人接）
+            attachMcpControl()
         }
     }
 
@@ -1168,6 +1171,62 @@ class ClaudePanel(
         val servers = lastMcpServers
         if (servers == null) McpStatus.getInstance(project).clear()
         else McpStatus.getInstance(project).set(servers)
+    }
+
+    /**
+     * 把设置页那两颗 MCP 按钮接过来（见 [McpControl]）。
+     *
+     * 与 [publishMcpStatus] 同一处、同一条件：**只有当前选中的标签**才挂 ——
+     * 后台标签挂上去会把前台刚接的那条线顶掉。摘的那两处在 `Exit` 与 `dispose`
+     * （同样是"只有自己是被选中的那个标签时才摘"）。
+     */
+    private fun attachMcpControl() {
+        if (!SessionTabs.getInstance(project).isSelected(this)) return
+        McpControl.getInstance(project).attach(this) { action -> requestMcpControl(action) }
+    }
+
+    /**
+     * 执行一个 MCP 动作（重连 / 启用停用），把结果写回服务。
+     *
+     * **成功也问一次新状态**：动作的产物是"连接换了一条"，而那一栏读的是状态 ——
+     * 不问的话，用户点了重连，看到的那行纹丝不动（`disabled → pending → connected`
+     * 这种过渡只有问才知道）。失败也不亏：状态没变，画出来还是原样。
+     *
+     * 失败**不在这里往转写区插错误**：sidecar 已经把一条 broadcast 写进聊天留痕了，
+     * 这里要做的只有一件 —— 把话落到 [McpControl.failure] 上。发起动作的设置框是
+     * **模态**的，聊天被挡在后面，用户在框里看不到任何反馈。
+     *
+     * 返回 false = 这条动作没送出去（会话已经断了），界面据此把按钮收掉。
+     */
+    private fun requestMcpControl(action: McpControl.Action): Boolean {
+        val c = client ?: return false
+        val reqId = nextId()
+        val line = when (action) {
+            is McpControl.Action.Reconnect -> Protocol.encodeMcpReconnect(reqId, action.serverName)
+            is McpControl.Action.Toggle -> Protocol.encodeMcpToggle(reqId, action.serverName, action.enabled)
+        }
+        c.request(reqId, line) { outcome ->
+            // 回调在读取线程上，碰服务虽不碰 Swing，但下面会触发监听器去改界面
+            ApplicationManager.getApplication().invokeLater {
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val ack = outcome.message as? SidecarMessage.McpControlled
+                        // 认不出的回执按**失败**说，不按成功：那颗按钮动的是连接，
+                        // 宁可说"这次不知道成没成"，也不能让用户以为已经生效了
+                        val message = ack?.error
+                            ?: if (ack == null) CcoderText.text("settings.mcp.controlUnknown") else null
+                        McpControl.getInstance(project).report(action, message)
+                        requestMcpStatus()
+                    }
+
+                    is RequestOutcome.Failed -> {
+                        // 超时 / 通道断了。回执没回来，但"没成"这件事是确定的
+                        McpControl.getInstance(project).report(action, outcome.reason)
+                    }
+                }
+            }
+        }
+        return true
     }
 
     /** 唯一的连接状态写入口。状态变了，卡上的点与色跟着变。 */
@@ -3176,6 +3235,10 @@ class ClaudePanel(
         // 状态栏那份记账也要摘干净：留着的 restoreAsk 会让人点一下"回到提问"，
         // 而那个框属于一个已经销毁的面板（点下去什么都不发生，或者更糟）
         PendingPermissionCount.getInstance(project).clear(this)
+        // MCP 动作那条线同理：留着的处理器攥着一个已经销毁的面板，于是设置页
+        // 那两颗按钮一直画着（`armed` 还是 true）、点下去石沉大海。
+        // 认主人摘，不必问标签选没选中（dispose 这刻多半已经问不准了）
+        McpControl.getInstance(project).detach(this)
         // 同步那条订阅同理：`SyncStatus` 攥着监听器，不摘的话每关一条标签就漏一个，
         // 而它们捕获着这个面板（下一轮同步跑完就会去刷一个已经没了的界面）
         syncStatus?.removeListener(syncListener)
@@ -3204,6 +3267,10 @@ class ClaudePanel(
                     // MCP 状态也问一次：设置页右栏读的是 McpStatus 服务，
                     // 不先给个底的话，用户点开设置看到的永远是"还没拿到"
                     requestMcpStatus()
+                    // 反向那条线也重新挂一次。上面那条"送不出去就把线放掉"的规矩
+                    // 有一个前提：会话再起来时会有人把它挂回去 —— 而重启会话
+                    // **不经过切标签**（addNotify 不会再响），所以这里必须挂一次
+                    attachMcpControl()
 
                     val resuming = resumeTargetId
                     if (resuming != null) {
@@ -3460,6 +3527,7 @@ class ClaudePanel(
                 is SidecarMessage.Subagents,
                 is SidecarMessage.SubagentMessages,
                 is SidecarMessage.McpServers,
+                is SidecarMessage.McpControlled,
                 -> Unit
 
                 is SidecarMessage.Exit -> {
@@ -3475,6 +3543,10 @@ class ClaudePanel(
                     if (SessionTabs.getInstance(project).isSelected(this)) {
                         McpStatus.getInstance(project).clear()
                     }
+                    // 反向那条线一样（会话没了就没人接动作了），但**不套上面那个
+                    // 选中判断**：detach 认主人，不是自己挂的它自己会跳过 ——
+                    // 后台标签的 Exit 不该把前台刚挂上的那条线抹掉
+                    McpControl.getInstance(project).detach(this)
                     setBusy(false)
                     refreshMainButton()
                 }

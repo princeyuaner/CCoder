@@ -169,6 +169,31 @@ export function createDispatcher({
   }
 
   /**
+   * MCP 动作的回执。**成功与失败都发**，形状一样 —— 只是 `error` 有没有值。
+   *
+   * 与别的控制请求不同：那边失败只有一条 `error` 广播（**不带 id**，收端靠超时
+   * 收场）。这两个动作不行 —— 发起它的地方是**设置框**，而设置框是模态的
+   * （`DialogWrapper.show()`），弹着的时候聊天被挡在后面：一条用户看不见的
+   * 广播等于没报。所以这里两条都发，各有一个去处：
+   *
+   *   - `fail()` 那条进聊天，事后能查"刚才为什么没连上"；
+   *   - 这条回执进设置框，当场把话说清。
+   *
+   * `enabled` / `error` 用 `?? null` 补齐而不是省掉键：收端只认一个形状，
+   * 不必为"这条可能没有那个键"多写一层防御（同 mcpServerStatus 那条）。
+   */
+  function mcpControlled(id, action, serverName, enabled, error) {
+    out({
+      type: 'mcpControlled',
+      id,
+      action,
+      serverName: serverName ?? null,
+      enabled: enabled ?? null,
+      error: error ?? null,
+    });
+  }
+
+  /**
    * 分发一条消息。
    * @returns 分发后的当前 session（供测试断言；生产路径忽略返回值）
    */
@@ -666,6 +691,58 @@ export function createDispatcher({
             })),
           }))
           .catch((err) => fail('MCP_STATUS_FAILED', String(err?.message ?? err), false));
+        return session;
+      }
+
+      // 两条 MCP 动作请求（2026-09-28）。与 stopTask 的差别是**成功也要回执**：
+      // stopTask 的反馈是那一行自己消失（CLI 会发 task_notification），而这两个
+      // 动作之后没有任何东西会自己送上门 —— 调用方得知道"成了"，才好去问一次
+      // 新状态（重连可能要好几秒，没回执就只能瞎猜什么时候问）。
+      //
+      // 失败走 bail()：广播 + 回执**都发**，理由见 mcpControlled 的注释。
+      case 'mcpReconnect': {
+        const { serverName } = params;
+        const bail = (message) => {
+          fail('MCP_RECONNECT_FAILED', message, false);
+          mcpControlled(msg.id, 'reconnect', serverName, null, message);
+          return session;
+        };
+        if (typeof serverName !== 'string' || serverName === '') {
+          return bail(t('error.missingMcpServerName'));
+        }
+        const call = session?.reconnectMcpServer;
+        if (typeof call !== 'function') {
+          return bail(t('error.sessionNotStarted'));
+        }
+        Promise.resolve(call.call(session, serverName))
+          // reconnect 没有 enabled 这一档，写 null（见 mcpControlled）
+          .then(() => mcpControlled(msg.id, 'reconnect', serverName, null, null))
+          .catch((err) => bail(String(err?.message ?? err)));
+        return session;
+      }
+
+      case 'mcpToggle': {
+        const { serverName, enabled } = params;
+        const bail = (message) => {
+          fail('MCP_TOGGLE_FAILED', message, false);
+          mcpControlled(msg.id, 'toggle', serverName, enabled, message);
+          return session;
+        };
+        if (typeof serverName !== 'string' || serverName === '') {
+          return bail(t('error.missingMcpServerName'));
+        }
+        // 判 **boolean** 而不是真假：`enabled: false` 是"停用"这个正经营生，
+        // 写成 `!enabled` 或 `params.enabled ?? false` 都会把「缺字段」读成「停用」
+        if (typeof enabled !== 'boolean') {
+          return bail(t('error.mcpToggleMissingEnabled'));
+        }
+        const call = session?.toggleMcpServer;
+        if (typeof call !== 'function') {
+          return bail(t('error.sessionNotStarted'));
+        }
+        Promise.resolve(call.call(session, serverName, enabled))
+          .then(() => mcpControlled(msg.id, 'toggle', serverName, enabled, null))
+          .catch((err) => bail(String(err?.message ?? err)));
         return session;
       }
 

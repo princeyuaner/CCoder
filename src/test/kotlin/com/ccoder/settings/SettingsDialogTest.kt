@@ -147,6 +147,9 @@ class SettingsDialogLayoutTest {
                 ClaudeSettings(),
                 ModelProfiles(emptyStore()),
                 McpStatus(),
+                // 动作那条线也是普通类，直接造。缺省**没人接**（armed=false），
+                // 于是 MCP 页那几颗会话动作一个都不画 —— 与加这条线之前同貌
+                McpControl(),
                 // 假服务：用例不真跑 `node --version` / `claude --version`
                 depsService(), UiLanguageSettings(), UiPreferences(),
                 // 同步那两个也是普通类，直接造（注解只对平台的注册有意义）
@@ -304,7 +307,7 @@ class SettingsPagesTest {
         lateinit var dialog: SettingsDialog
         SwingUtilities.invokeAndWait {
             dialog = SettingsDialog(
-                layoutProbeProject(), settings, ModelProfiles(emptyStore()), McpStatus(),
+                layoutProbeProject(), settings, ModelProfiles(emptyStore()), McpStatus(), McpControl(),
                 depsService(), UiLanguageSettings(), prefs, SyncSettings(), SyncStatus(), TEST_DEPS_UI,
             )
             layoutAll(dialog.contentPane)

@@ -1,10 +1,12 @@
 package com.ccoder.settings
 
 import com.ccoder.sidecar.McpServerStatus
+import com.ccoder.text.CcoderText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -65,15 +67,33 @@ class McpSettingsPageTest {
 
     private class Fixture(val root: JComponent, val page: McpSettingsPage, val editor: Editor)
 
-    private fun open(baseDir: Path?, status: McpStatus = McpStatus()): Fixture {
+    private fun open(
+        baseDir: Path?,
+        status: McpStatus = McpStatus(),
+        // 缺省**没人接**（`armed` 是 false）：那几颗会话动作一颗都不该画 ——
+        // 于是绝大多数用例看到的界面与加这条线之前一模一样
+        control: McpControl = McpControl(),
+    ): Fixture {
         val editor = Editor()
-        val page = McpSettingsPage(baseDir, status, null, editor::open)
+        val page = McpSettingsPage(baseDir, status, control, null, editor::open)
         lateinit var root: JComponent
         onEdt { root = page.component() }
         return Fixture(root, page, editor)
     }
 
     private fun serversIn(dir: Path) = mcpServersOf(ProjectJson.read(mcpJsonPath(dir)))
+
+    /** 一个接了动作的 `McpControl`：收到的动作记进 [seen]，收不收下由 [answer] 定。 */
+    private fun armed(seen: MutableList<McpControl.Action>, answer: Boolean = true): McpControl =
+        McpControl().apply {
+            attach("测试") { action ->
+                seen += action
+                answer
+            }
+        }
+
+    private fun statusOf(vararg servers: McpServerStatus): McpStatus =
+        McpStatus().apply { set(servers.toList()) }
 
     private fun clickLabel(root: Container, text: String) {
         val label = findLabel(root, text) ?: error("找不到「$text」")
@@ -355,5 +375,215 @@ class McpSettingsPageTest {
         onEdt { status.set(listOf(McpServerStatus("推的", "connected", "user", null, emptyList()))) }
 
         assertEquals(1, status.servers.size, "服务本身照常记录")
+    }
+
+    // ---- 卡脚那几颗会话动作（重连 / 启用停用，2026-10-09 回接到卡片页）----
+
+    /** 这一页上叫这个名字的标签有几个（`findLabel` 只回第一个，数不出来）。 */
+    private fun countLabels(root: Container, text: String): Int {
+        var n = 0
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is JLabel && child.text == text) n++
+                if (child is Container) walk(child)
+            }
+        }
+        walk(root)
+        return n
+    }
+
+    @Test
+    fun `没有会话接动作时，一颗按钮都不画`(@TempDir dir: Path) {
+        // 画一颗点了没反应的按钮，正是这个仓库最不肯做的事（CardAction 那条）
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val f = open(dir, statusOf(McpServerStatus("a", "connected", "project", null, emptyList())))
+
+        assertNull(findLabel(f.root, "重连"), "没人接的时候不该有「重连」")
+        assertNull(findLabel(f.root, "停用"), "没人接的时候不该有「停用」")
+    }
+
+    @Test
+    fun `有会话时，文件里的卡给重连与停用`(@TempDir dir: Path) {
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val f = open(
+            dir,
+            statusOf(McpServerStatus("a", "failed", "project", "连不上", emptyList())),
+            armed(mutableListOf()),
+        )
+
+        assertNotNull(findLabel(f.root, "重连"), "失败中的 server 最需要重连")
+        assertNotNull(findLabel(f.root, "停用"))
+    }
+
+    @Test
+    fun `点停用，交出去的是 Toggle(name, false)`(@TempDir dir: Path) {
+        // false 是"停用"这个正经营生：一路上被当成"没设置"吞掉的话，
+        // 用户点了停用而 server 还在跑
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val seen = mutableListOf<McpControl.Action>()
+        val f = open(dir, statusOf(McpServerStatus("a", "connected", "project", null, emptyList())), armed(seen))
+
+        onEdt { clickLabel(f.root, "停用") }
+
+        assertEquals(listOf<McpControl.Action>(McpControl.Action.Toggle("a", false)), seen)
+    }
+
+    @Test
+    fun `点重连，交出去的是 Reconnect(name)`(@TempDir dir: Path) {
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val seen = mutableListOf<McpControl.Action>()
+        val f = open(dir, statusOf(McpServerStatus("a", "failed", "project", "连不上", emptyList())), armed(seen))
+
+        onEdt { clickLabel(f.root, "重连") }
+
+        assertEquals(listOf<McpControl.Action>(McpControl.Action.Reconnect("a")), seen)
+    }
+
+    @Test
+    fun `已经停用的那条只给启用 —— 再给一颗停用是废话`(@TempDir dir: Path) {
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val f = open(
+            dir,
+            statusOf(McpServerStatus("a", "disabled", "project", null, emptyList())),
+            armed(mutableListOf()),
+        )
+
+        assertNotNull(findLabel(f.root, "启用"))
+        assertNull(findLabel(f.root, "停用"), "它本来就是停着的")
+        assertNull(findLabel(f.root, "重连"), "停用的 server 重连什么")
+    }
+
+    @Test
+    fun `会话里还没有这个 server 的卡不给动作 —— 发出去只会拿"没有这个 server"撞回来`(@TempDir dir: Path) {
+        // .mcp.json 改了要等新会话：文件里新加的那条会话还不知道。
+        // 数一数：两张卡里只有会话认得的 "a" 那张有动作（findLabel 只回第一个，数不出来）
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" }, "b": { "command": "b" } } }""")
+        val f = open(
+            dir,
+            statusOf(McpServerStatus("a", "connected", "project", null, emptyList())),
+            armed(mutableListOf()),
+        )
+
+        assertNotNull(findLabel(f.root, "b"), "前提：b 那张卡在")
+        assertEquals(1, countLabels(f.root, "重连"), "有动作的该只有会话里认得的那张卡")
+        assertEquals(1, countLabels(f.root, "停用"))
+    }
+
+    @Test
+    fun `全局那张卡也给会话动作 —— 它动的就是这个会话`(@TempDir dir: Path) {
+        // 全局的那些在这页上不能改不能删（插件只写项目里的 .mcp.json），
+        // 但"死了重连一下"恰恰是它们最需要的
+        val seen = mutableListOf<McpControl.Action>()
+        val f = open(dir, statusOf(McpServerStatus("global-one", "failed", "user", "掉了", emptyList())), armed(seen))
+
+        assertNotNull(findLabel(f.root, "重连"), "全局 server 没有会话动作，那颗按钮在这页上就无处可点")
+        onEdt { clickLabel(f.root, "重连") }
+
+        assertEquals(listOf<McpControl.Action>(McpControl.Action.Reconnect("global-one")), seen)
+    }
+
+    /**
+     * 那句失败这会儿露着吗。
+     *
+     * **它不是标签**（要折行，标签不折 —— 一行的标签在这栏里必然被裁掉），
+     * 所以 `findLabel` 够不着；它藏在一个整块显示/藏起来的容器里，
+     * 问那个容器（"在树上"与"看得见"是两件事，藏起来时组件还在树上）。
+     */
+    private fun failureShown(root: Container, page: McpSettingsPage): Boolean {
+        var found = false
+        fun walk(c: Component) {
+            if (c === page.failureHolder) found = true
+            if (c is Container) c.components.forEach(::walk)
+        }
+        walk(root)
+        return found && page.failureHolder.isVisible
+    }
+
+    @Test
+    fun `失败那句话显示在最上面，按点的哪一颗挑措辞`(@TempDir dir: Path) {
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val control = armed(mutableListOf())
+        val f = open(dir, statusOf(McpServerStatus("a", "failed", "project", null, emptyList())), control)
+
+        onEdt { control.report(McpControl.Action.Reconnect("a"), "Connection closed") }
+
+        assertTrue(failureShown(f.root, f.page), "重连失败得在框里说得出来 —— 聊天被这个模态框挡着")
+        assertEquals(
+            CcoderText.text("settings.mcp.reconnectFailed", "a", "Connection closed"),
+            f.page.failureArea.text,
+        )
+        // "最上面"不是措辞：这一块就是列里第一个子件，卡都在它下面
+        assertSame(f.page.failureHolder, (f.page.failureHolder.parent as Container).getComponent(0))
+    }
+
+    @Test
+    fun `停用失败说的是停用，不是重连`(@TempDir dir: Path) {
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val control = armed(mutableListOf())
+        val f = open(dir, statusOf(McpServerStatus("a", "connected", "project", null, emptyList())), control)
+
+        onEdt { control.report(McpControl.Action.Toggle("a", false), "没有了") }
+
+        assertTrue(failureShown(f.root, f.page))
+        assertEquals(
+            CcoderText.text("settings.mcp.disableFailed", "a", "没有了"),
+            f.page.failureArea.text,
+            "点的是停用，说的却是重连 —— 用户会以为点错了按钮",
+        )
+    }
+
+    @Test
+    fun `接着点一次，上一次的报错先消失`(@TempDir dir: Path) {
+        // 留着的话：用户刚点了重连，却在读上一次的报错，会以为这次也失败了
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val control = armed(mutableListOf())
+        val f = open(dir, statusOf(McpServerStatus("a", "failed", "project", null, emptyList())), control)
+        onEdt { control.report(McpControl.Action.Reconnect("a"), "Connection closed") }
+        assertTrue(failureShown(f.root, f.page), "前提：这会儿它是在的")
+
+        onEdt { clickLabel(f.root, "重连") }
+
+        assertFalse(failureShown(f.root, f.page), "刚点了重连却在读上一次的报错，会以为这次也失败了")
+    }
+
+    @Test
+    fun `会话断了之后按钮跟着消失`(@TempDir dir: Path) {
+        // armed 变了没人通知的话，用户看到的是几颗永远点不动的按钮
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val control = armed(mutableListOf())
+        val f = open(dir, statusOf(McpServerStatus("a", "connected", "project", null, emptyList())), control)
+        assertNotNull(findLabel(f.root, "重连"))
+
+        onEdt { control.detach("测试") }
+
+        assertNull(findLabel(f.root, "重连"), "没人接了，那颗按钮该跟着消失")
+    }
+
+    @Test
+    fun `收不下的那一下会把这条线放掉，按钮跟着消失`(@TempDir dir: Path) {
+        // 会话在"画按钮"和"点下去"之间断了：这一下没送出去。若服务还攥着那个
+        // 处理器，这几颗按钮会一直画着、点一次石沉大海一次
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val control = armed(mutableListOf(), answer = false)
+        val f = open(dir, statusOf(McpServerStatus("a", "connected", "project", null, emptyList())), control)
+
+        onEdt { clickLabel(f.root, "停用") }
+
+        assertFalse(control.armed, "收不下就该把线放掉，别攥着一个没会话的处理器")
+        assertNull(findLabel(f.root, "停用"), "按钮该跟着消失")
+    }
+
+    @Test
+    fun `dispose 之后不再跟着动作那条线动`(@TempDir dir: Path) {
+        Files.writeString(mcpJsonPath(dir), """{ "mcpServers": { "a": { "command": "a" } } }""")
+        val control = armed(mutableListOf())
+        val f = open(dir, statusOf(McpServerStatus("a", "failed", "project", null, emptyList())), control)
+
+        onEdt { f.page.dispose() }
+
+        // 退订之后再报一次失败：不该抛，也不该还挂在那儿
+        onEdt { control.report(McpControl.Action.Reconnect("a"), "晚了") }
+
+        assertFalse(failureShown(f.root, f.page), "退了订还在跟着画，就是每开一次设置漏一个监听器")
     }
 }
