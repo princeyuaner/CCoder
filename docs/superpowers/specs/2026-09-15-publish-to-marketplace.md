@@ -224,6 +224,22 @@ JBCefApp.getNativeBundleVersionString()`（`JcefBrokenAdvice` 里取 JCEF 版本
 已作废。正文口径核对：release 里存的与 `docs/releases/<版本>.md` **只差一个尾行的
 空行**（0.2.30 对照出来的），所以 `--notes-file docs/releases/<版本>.md` 就是标准做法。
 
+0.2.32 这版的发布链与绿数（照 §五 的顺序，2026-10-09）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin | **2089 条全绿**（`test --rerun` 强制真跑；上一次真实执行是 3dae420 那棵树） |
+| sidecar | **225 条全绿**（含 MCP 两条控制请求带来的 9 条新用例） |
+| web | **316 条全绿**（21 个文件） |
+| `buildPlugin` | zip 9,201,350 字节；打包校验 `[verify] OK: manifest 5005 entries`；jar 里 plugin.xml 已是 0.2.32 且**不含**占位字样 |
+| `verifyPlugin` | PY-261 / PY-262 / PY-263 **三份全 Compatible**；internal API **0 条**（只有 1 条 deprecated + 19 条 experimental，与 0.2.31 同型） |
+| `publishPlugin` | BUILD SUCCESSFUL（`signPlugin SKIPPED`）；回读 `updates?version=0.2.32` → id 1190346，当天审核中（approve/listed=false，属正常 —— 写 0.2.33 的 change-notes 之前复核它） |
+| GitHub release | `gh release create v0.2.32 --verify-tag …`，一次成功、自动 Latest；附件 9,201,350 字节；正文与 `docs/releases/0.2.32.md` 尾空白归一后一致 |
+
+tag 照例打在含 change-notes 的那棵树（`v0.2.32` → c011f7f），release 正文那笔
+（8b646d0）在 tag 之外。zip 的 sha256（marketplace 与 GitHub 同一份）：
+`caa8babb730f22cdbf293ec270f70377c5af76db52b20a7456b074240842447e`。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
