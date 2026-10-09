@@ -83,6 +83,11 @@ internal fun normalizeImage(raw: ByteArray, hintMediaType: String): ImageAttachm
 | 拖拽文件 | `TransferHandler` | 接 `javaFileListFlavor`（按扩展名过滤）+ `imageFlavor` |
 | 工具栏按钮 | `FileChooser` 多选 | 接在 `buildStatusRow(model, mode)`（`ComposerToolbar.kt:148`）左侧 |
 
+> **2026-10-09 更新**：拖拽那条后来不是"按扩展名过滤"就完 —— 文件清单（粘贴与拖拽）
+> 统一走附件按钮那套分流：图进附件带、**其余变成 `@` 引用**（拖拽从前把非图片文件
+> 交回默认处理器，落成一段路径文本）。"有图优先"也只对**位图**成立：粘贴是文字优先、
+> 拖拽才是图优先（见 `ImagePaste.kt` 的 `attachImagesWanted`）。
+
 **剪贴板同时有图又有文本时，有图优先。** 截图工具（Win+Shift+S、Snipaste、微信）基本只放图，所以这条在实际使用中很少触发；代价是「从 Excel 复制表格」会粘成一张图而不是文本，需要手动删一下。
 
 ### 4.1 附件条

@@ -21,8 +21,9 @@ import javax.imageio.ImageIO
  * 目录跳过。
  *
  * 真机那条路（真剪贴板、真 IDE）测不了 —— `CopyPasteManager` 要 Application。
- * 所以判据都在纯函数里，这里直接喂数据；`pasteFilesWanted` 的 `isDrop` 单测里
- * 设不了，只能喂标志位（同 `attachImagesWanted` 那条注释）。
+ * 所以判据都在纯函数里，这里直接喂数据；`TransferSupport.isDrop` 单测里设不了
+ * （包内可见，只有 AWT 自己能设），凡是分拖/粘的判定都抽成纯函数喂标志位
+ * （同 `attachImagesWanted` 那条注释）。
  */
 class FilePasteTest {
 
@@ -46,23 +47,26 @@ class FilePasteTest {
     // ---- 判据（纯函数）----
 
     @Test
-    fun `粘贴一批文件就接下 —— 哪怕它还带着一份路径文本`() {
-        assertTrue(pasteFilesWanted(listOf(DataFlavor.javaFileListFlavor), isDrop = false))
+    fun `文件清单就接下 —— 哪怕它还带着一份路径文本`() {
+        assertTrue(routeFilesWanted(listOf(DataFlavor.javaFileListFlavor)))
 
         // 复制文件时 transferable 本来就会回答 stringFlavor（内容是路径清单），
         // 所以"有文字就让路"那条规矩在这条路上等于永不触发（见 FilePaste.kt 头注）
         assertTrue(
-            pasteFilesWanted(listOf(DataFlavor.javaFileListFlavor, DataFlavor.stringFlavor), isDrop = false),
+            routeFilesWanted(listOf(DataFlavor.javaFileListFlavor, DataFlavor.stringFlavor)),
             "复制文件带的那份文字是路径清单，不是用户要粘的内容",
         )
 
-        assertFalse(pasteFilesWanted(listOf(DataFlavor.stringFlavor), isDrop = false), "一段纯文本不该被接管")
-        assertFalse(pasteFilesWanted(emptyList(), isDrop = false))
+        assertFalse(routeFilesWanted(listOf(DataFlavor.stringFlavor)), "一段纯文本不该被接管")
+        assertFalse(routeFilesWanted(emptyList()))
     }
 
     @Test
-    fun `拖拽那条线不动 —— 非图片文件维持老路（插路径）`() {
-        assertFalse(pasteFilesWanted(listOf(DataFlavor.javaFileListFlavor), isDrop = true))
+    fun `拖拽的文件清单也走分流 —— 非图片文件不再插一段路径文本`() {
+        // 2026-10-09：这条原来钉的是相反的事 —— "拖拽不接，非图片文件维持老路
+        // （插路径）"。现在文件清单不分拖/粘：拖一个 .kt 进来与粘贴它一样变 @ 引用。
+        // 函数的签名里**没有 isDrop**，正是这条规矩本身
+        assertTrue(routeFilesWanted(listOf(DataFlavor.javaFileListFlavor, DataFlavor.stringFlavor)))
     }
 
     // ---- 分流（与附件按钮同一套）----

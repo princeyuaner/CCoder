@@ -36,11 +36,13 @@ internal data class IncomingImage(
  * - **粘（paste）时文字优先**：剪贴板里同时有文字和位图时（从网页上复制一段带图的内容
  *   就是这样），用户十有八九要的是文字。粘一段代码结果多出一张图，是帮倒忙。
  * - **拖（drop）时图优先**：从项目树/资源管理器拖一张 `.png` 进来，想要的就是那张图，
- *   而不是它的路径被当文本插进来。非图片文件仍然走老路（插路径）。
+ *   而不是它的路径被当文本插进来。
  *
- * **"有文件"那一半不归这条管**（2026-09-24）：粘贴一批文件走的是 [pasteFilesWanted]
- * → [routeIncomingFiles]，那里的判据是"有文件就接下"（复制文件时本来就会带一份
- * 路径文本，按"文字优先"判等于永不触发）。拖拽那条线没动，仍是老路。
+ * **"文件清单"先由 [routeFilesWanted] 判**（粘贴与拖拽都算，2026-10-09 起）：
+ * 命中就走 [routeIncomingFiles] 分流，轮不到这条；那里是"有文件就接下"（复制文件时
+ * 本来就会带一份路径文本，按"文字优先"判等于永不触发）。这条管的是**位图本身**
+ * （截图、从浏览器里拖出来的图）—— 判定里那个 `hasFiles` 是**第二次机会**：
+ * 文件清单那边一个能用的都没读出来时，这里还会再试一次"清单里的图片文件"。
  *
  * 抽成纯函数是为了可测：拖与粘的分支在真机上很难手动覆盖（要真的去拖），
  * 而"文字优先"这条规则一旦写反，用户每次粘代码都会多出一张图。
@@ -54,8 +56,9 @@ internal fun attachImagesWanted(flavors: Collection<DataFlavor>, isDrop: Boolean
 }
 
 /**
- * 给输入框装上"粘贴能收东西"：**图**（截图）进附件带，**文件**（复制来的）
- * 走附件按钮那套分流（2026-09-24 加了后者，见 `FilePaste.kt`）。
+ * 给输入框装上"粘贴/拖拽能收东西"：**图**（截图、拖进来的图片文件）进附件带，
+ * **文件清单**（复制来的、拖进来的）走附件按钮那套分流（粘贴 2026-09-24 加、
+ * 拖拽 2026-10-09 加，见 `FilePaste.kt`）。
  *
  * **必须留着原来的处理器**：`JTextComponent` 只有一个 `transferHandler`，换掉之后
  * 文字粘贴（Ctrl+V 一段代码）就得我们自己实现一遍 —— 而它比看上去麻烦得多
@@ -111,7 +114,7 @@ private class ImagePasteHandler(
         val flavors = imageSource(support)?.transferDataFlavors?.toList() ?: emptyList()
         // 文件那条与图那条是**两条**判定，不能合成一个"要不要"：粘贴一批文件时
         // 可能也带位图，而那时该走文件那条（分流更全，见 FilePaste.kt）
-        val want = pasteFilesWanted(flavors, support.isDrop) || attachImagesWanted(flavors, support.isDrop)
+        val want = routeFilesWanted(flavors) || attachImagesWanted(flavors, support.isDrop)
         // 拖拽时这个方法会被调很多次，只记"要接"和"粘贴"这两种有信息量的
         if (want || !support.isDrop) {
             LOG.info("粘贴判定：isDrop=${support.isDrop} → ${if (want) "接下" else "交回默认"}（$flavors）")
@@ -122,15 +125,15 @@ private class ImagePasteHandler(
     override fun importData(support: TransferSupport): Boolean {
         val source = imageSource(support)
         val flavors = source?.transferDataFlavors?.toList() ?: emptyList()
-        // 粘贴 + 有一批文件：走附件按钮那套分流（图进附件带，其余变 @ 引用）
-        if (pasteFilesWanted(flavors, support.isDrop)) {
+        // 有一批文件（粘的、拖的，一律）：走附件按钮那套分流（图进附件带，其余变 @ 引用）
+        if (routeFilesWanted(flavors)) {
             val paths = source?.let(::filePathsFrom) ?: emptyList()
             if (paths.isNotEmpty()) {
-                LOG.info("粘贴：读到 ${paths.size} 个文件")
+                LOG.info("文件清单：读到 ${paths.size} 个（isDrop=${support.isDrop}）")
                 routeIncomingFiles(paths, onImages, onMentions)
                 return true
             }
-            LOG.warn("粘贴：判定该接文件却一个都没读到 —— 交回默认处理器")
+            LOG.warn("文件清单：判定该接却一个都没读到（isDrop=${support.isDrop}）—— 交回默认处理器")
         }
         if (attachImagesWanted(flavors, support.isDrop)) {
             val images = source?.let { readFromTransferable(it) } ?: emptyList()
@@ -141,8 +144,9 @@ private class ImagePasteHandler(
             }
             LOG.warn("贴图：判定该接图却一张都没读到 —— 交回默认处理器")
         }
-        // 认得出是文件但解不出图（.psd、坏文件）也走这里 —— 与"不是图片"一个待遇：
-        // 让默认行为去处理，用户至少能看到路径进来了
+        // 走到这里的是"清单里一个能引用的都没有"（比如全是目录 —— filePathsFrom
+        // 跳过它们）或两边都读不出来：交给默认处理器，别静默吞掉。
+        // （.psd、坏图那些 2026-10-09 起由分流退成 @ 引用，不再落在这儿）
         return fallback.importData(support)
     }
 }

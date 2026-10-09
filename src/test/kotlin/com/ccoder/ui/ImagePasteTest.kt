@@ -22,7 +22,7 @@ import javax.swing.TransferHandler
  *
  * **拖那半边在这里测不到**：`TransferSupport.setDrop` 是包内可见，只有 AWT 自己在
  * 拖拽时才会设 —— 所以凡是构造出来的 `TransferSupport` 都是**粘贴**，两条路的分支
- * 判据（[attachImagesWanted] / [pasteFilesWanted]）都抽成了纯函数，直接喂标志位。
+ * 判据（[attachImagesWanted] / [routeFilesWanted]）都抽成了纯函数，直接喂标志位。
  * 剩下的传输路径用构造出来的 `TransferSupport` 走（它的公开构造器就是给测试用的）。
  */
 class ImagePasteTest {
@@ -142,9 +142,9 @@ class ImagePasteTest {
     @Test
     fun `粘贴一个 md 文件：变成 @ 引用，不走默认处理器`() {
         // 2026-09-24：粘贴文件从"插一段路径文本"改成 `@` 引用（同附件按钮）。
-        // **拖拽**那条线没动 —— 但这里造出来的 TransferSupport 永远是粘贴
-        // （`isDrop` 是包内可见，只有 AWT 自己能设），拖拽那条规则钉在
-        // [pasteFilesWanted] 的纯函数用例里。
+        // 这里造出来的 TransferSupport 永远是粘贴（`isDrop` 是包内可见，只有 AWT
+        // 自己能设）；而分流那条规矩**不分拖/粘**（2026-10-09 起拖拽也走它）——
+        // 判断入口钉在 [routeFilesWanted] 的纯函数用例里。
         val recorder = RecordingHandler()
         val area = JBTextArea().apply { transferHandler = recorder }
         var images = 0

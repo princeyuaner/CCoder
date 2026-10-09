@@ -8,7 +8,9 @@ import java.awt.datatransfer.Transferable
 import java.io.File
 
 /**
- * 剪贴板里的**文件**：复制一个文件、在输入框里粘贴 → 变成 `@` 引用（2026-09-24）。
+ * 剪贴板里、拖拽里的**文件**：复制一个文件、在输入框里粘贴，或把它直接拖进来 →
+ * 变成 `@` 引用（粘贴 2026-09-24 起，拖拽 2026-10-09 起 —— 拖拽从前落成一段
+ * 路径文本，见 [routeFilesWanted]）。
  *
  * 与左下角那颗附件按钮**同一套分流**（[routeIncomingFiles] 直接复用
  * [splitChosenFiles]）：图片进附件带，其余变成 `@相对路径`，内容由 CLI 自己展开
@@ -219,13 +221,16 @@ internal fun routeIncomingFiles(
 }
 
 /**
- * Swing 那条路（`TransferHandler`）的判定：**这次粘贴是不是"复制了一批文件"**。
+ * Swing 那条路（`TransferHandler`）的判定：**这次传输是不是"一批文件"**。
  *
- * 抽成纯函数只为可测（同 [attachImagesWanted]）：`TransferSupport.isDrop` 在单测里
- * 设不了，只能喂标志位。
+ * 命中就走 [routeIncomingFiles] 那套分流（图进附件带、其余变 `@` 引用）——
+ * 与附件按钮、与粘贴都是同一套（[splitChosenFiles]）。
  *
- * **只管粘贴，不管拖拽**：拖进来的非图片文件维持老路（插一段路径文本）——
- * 那是拖拽那条线既有的行为，本次没动它。
+ * 抽成纯函数只为可测（同 [attachImagesWanted]）。**签名里没有 `isDrop`**，
+ * 因为这条规矩不看拖还是粘：2026-09-24 它只管粘贴（拖进来的非图片文件交给
+ * 默认处理器，落成一段路径文本）；2026-10-09 起拖拽也走这条。
+ *
+ * 目录仍不来这条路（[filePathsFrom] 会跳过它们）—— 拖一个文件夹进来还是老样子。
  */
-internal fun pasteFilesWanted(flavors: Collection<DataFlavor>, isDrop: Boolean): Boolean =
-    !isDrop && flavors.any { it == DataFlavor.javaFileListFlavor }
+internal fun routeFilesWanted(flavors: Collection<DataFlavor>): Boolean =
+    flavors.any { it == DataFlavor.javaFileListFlavor }
