@@ -626,4 +626,49 @@ describe('Transcript 滚动跟随', () => {
 
     expect(m.top()).toBe(300)
   })
+
+  // ---- 方向门（2026-10-09）----
+  //
+  // 用户实测：「还是要滚三次才能往上走」，随后定位到「思考展开的情况下滚动很
+  // 顺畅，折叠情况下很困难」。折叠态的思考正文被卸载（Collapsible），内容不长 ——
+  // 上滚一格的位移若不到 32px 阈值，旧规则（距底 ≤ 阈值即恢复）会把这一格当场
+  // 写回去。恢复从此要求读数**在向下移**；下面两条钉住两种"假到底"读数不能
+  // 回开跟随。（真实 JCEF 里一格的位移没有量过，所以这里就按"小于阈值"排。）
+
+  it('上滚一格的位移不足阈值（距底 20px）：跟随不得被这条读数回开', () => {
+    const { view, el, m } = setup(first)
+
+    // 应用先写一拍（回声盾置起），再用一条回声把盾销掉 —— 本用例要验的不是盾，
+    // 是盾销掉之后那条"位置落在到底区、但没有向下移"的读数
+    m.growTo(1200)
+    view.rerender(<Transcript state={state(first, second)} />)
+    fireEvent.scroll(el) // 回声：销盾；此时仍在跟随
+
+    fireEvent.wheel(el, { deltaY: -100 }) // 上滚一格 → 暂停
+    m.setTop(1180) // 这一格的真实位移：距底 20px（≤ 阈值）
+    fireEvent.scroll(el)
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    // 旧规则在这里读"距底 20px ≤ 32" → 恢复跟随 → 写到 1400，这一格被吃。
+    expect(m.top()).toBe(1180)
+    expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+  })
+
+  it('无位移的"到底"读数（第二条回声/杂散事件）也不能回开跟随', () => {
+    const { view, el, m } = setup(first)
+
+    m.growTo(1200)
+    view.rerender(<Transcript state={state(first, second)} />)
+    fireEvent.scroll(el) // 销盾（第一条回声）
+
+    fireEvent.wheel(el, { deltaY: -100 }) // 暂停
+    fireEvent.scroll(el) // 位置没动、仍报"到底"：不能当"用户回来了"
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(1200)
+  })
 })

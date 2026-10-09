@@ -246,6 +246,8 @@ export function Transcript({ state }: { state: TranscriptState }) {
   const programmaticRef = useRef(false)
   // 我们那一笔写入的回声防护（见 handleScroll）。写入时置起，被读到一次就销。
   const echoShieldRef = useRef(false)
+  // 上一条 scroll 事件读到的位置 —— 判断"这一拍是不是在向下移动"（方向门，见 handleScroll）。
+  const lastTopRef = useRef<number | null>(null)
 
   const [stick, setStick] = useState(true)
   const [hasNewWhilePaused, setHasNewWhilePaused] = useState(false)
@@ -340,23 +342,50 @@ export function Transcript({ state }: { state: TranscriptState }) {
   const handleScroll = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
+    const top = el.scrollTop
+    const prev = lastTopRef.current
+    lastTopRef.current = top
+
     if (programmaticRef.current) {
       // 动画结束的判据是"真正到达底部"，而不是某个时间点 —— 用时间猜会在
       // 慢机器上提前放行，把动画中间位置误读成用户上滚。
       if (isAtBottom(el)) programmaticRef.current = false
       return
     }
-    const atBottom = isAtBottom(el)
+
     // 回声防护：这一条很可能是**我们自己那笔写入**派发的（位置 = 刚写下的底部），
     // 不是用户的动作。挡的只有"恢复"一种：暂停是滚轮意图登记的，任何位置读数
-    // 都不该撤销它。盾读到一次就销 —— 一条写入最多对应一条回声；此后无论用户
-    // 真的滚回底部（位置连续变化，早就销掉了）还是拖动到底，恢复判据照常生效。
+    // 都不该撤销它。盾读到一次就销 —— 一条写入最多对应一条回声。
     const shielded = echoShieldRef.current
     echoShieldRef.current = false
-    if (atBottom && shielded) return
-    stickRef.current = atBottom
-    setStick(atBottom)
-    if (atBottom) setHasNewWhilePaused(false)
+
+    if (!isAtBottom(el)) {
+      // 离开底部：跟随照旧关掉（位置判据没变）
+      if (stickRef.current) {
+        stickRef.current = false
+        setStick(false)
+      }
+      return
+    }
+    // 到底了。但"到底"本身**不再是**恢复跟随的充分条件 —— 见下面的方向门。
+    if (shielded) return
+
+    // 方向门（2026-10-09）。用户实测：「思考如果展开的情况下滚动很顺畅，在折叠
+    // 情况下很困难」，此前还有一句"要滚三次才能往上走"。机制：折叠态的思考块
+    // 不占高度（Collapsible 收起时把正文卸掉），思考全程内容不长 —— 上滚一格的
+    // 位移若本身不足 [STICK_THRESHOLD_PX]，这一格读完位置**立刻又落在"到底区"**，
+    // 旧规则（距底 ≤ 阈值即恢复）当场把跟随回开、下一拍把它写回底部：一格被吃，
+    // 再滚再吃。展开态里正文每帧在长，距底很快顶出阈值，所以那半边一直看着正常。
+    //
+    // 恢复因此再要求**读数确实在向下移**（本拍 top 比上一拍大）：停在原地、回声、
+    // 还在上移的读数都不能回开跟随；拖滚动条回到底、键盘 PageDown 这类每拍都在
+    // 向下的真实逼近照旧恢复。
+    const movedDown = prev !== null && top > prev
+    if (stickRef.current || movedDown) {
+      stickRef.current = true
+      setStick(true)
+      setHasNewWhilePaused(false)
+    }
   }, [])
 
   const jumpToBottom = useCallback(() => {
