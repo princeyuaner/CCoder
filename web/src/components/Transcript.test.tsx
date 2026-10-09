@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Transcript } from './Transcript'
 import { setLang } from '../i18n'
+import { applyPrefs } from '../prefs'
 import type { TranscriptItem } from '../types'
 
 /**
@@ -295,6 +296,31 @@ describe('进行中的思考', () => {
   })
 })
 
+/**
+ * 界面偏好（思考折叠）穿到历史条目里 —— 这条守的是 `Item` 那层 memo。
+ *
+ * 两个思考块**各自**订阅偏好（见 prefs.ts），不从 Transcript 透传：透传要新建节点，
+ * `Item` 的 memo 当场失效（那笔 48ms/帧的账 2026-09-14 算过）。这条用例证明那条路
+ * 真的通到了**已经画在屏幕上**的块上。
+ */
+describe('思考折叠穿到历史条目', () => {
+  afterEach(() => {
+    // 偏好的 store 是模块级的：同文件内会串（见 prefs.test.ts）
+    act(() => applyPrefs(undefined))
+    delete window.ccoderPrefs
+  })
+
+  it('偏好一变，历史里已有的思考块也跟着收 —— memo 不该把它挡住', () => {
+    render(<Transcript state={state({ kind: 'thinking', id: 't1', ts, text: '让我想想' })} />)
+    expect(screen.getByText('让我想想')).toBeInTheDocument()
+
+    act(() => applyPrefs({ collapseThinking: true }))
+
+    expect(screen.queryByText('让我想想')).not.toBeInTheDocument()
+    expect(screen.getByText('思考过程')).toBeInTheDocument()
+  })
+})
+
 // 设计稿 docs/design/tool-progress.html：卡片的"进行中 / 完成 / 已中断"是前端推出来的 ——
 // 结果没到就是还在跑；回合已经结束了还没等到结果，就是被中断（否则它会永远转圈）。
 describe('工具卡片的状态收尾', () => {
@@ -486,5 +512,118 @@ describe('Transcript 滚动跟随', () => {
     view.rerender(<Transcript state={state(first, second, third)} />)
 
     expect(m.top()).toBe(1600)
+  })
+
+  // ---- 滚轮意图（2026-09-21）----
+  //
+  // 用户报"思考输出的时候，转写区往上滚动的时候，会自动弹回来"。病根不是"卡"：
+  // 跟随是每帧一次 `scrollTop = scrollHeight` 的**绝对写入**，而它总排在**同一帧的
+  // scroll steps 之前**，于是处理器读到的位置永远是"已经被我们自己写回去"的那一个 ——
+  // 用户上滚这件事从位置读数里看不出来。判据因此换成滚轮事件自带的**方向**。
+  //
+  // 真实浏览器里的时序（写入先落地、事件后派发）在 jsdom 里没有，所以这里显式
+  // 排出来：**用户那一次位移不发 scroll 事件**（最坏顺序下它与我们那次写入合并成
+  // 一条、报的是写入后的位置），随后那条才是"我们自己的回声"。
+  // 端到端的时序由 `npm run probe:scroll` 在真实 Chromium 里守着。
+
+  it('滚轮上滚立刻暂停：紧跟其后那条"已到底"的回声不能把跟随打开', () => {
+    const { view, el, m } = setup(first)
+
+    // 先来一拍内容（应用写一次 → 回声盾置起）
+    m.growTo(1100)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    m.setTop(400) // 用户把视口拉上去（距底 300px）
+    fireEvent.wheel(el, { deltaY: -100 })
+
+    // 我们自己那笔写入的回声：位置报的正是底部（距底 0）。**这一笔会把用户那 400
+    // 盖掉**（最坏顺序就是如此），所以本用例盯的不是"用户的位置还在"，而是
+    // **跟随没有被回声打开** —— 证据是接下来这次内容增长没有把它写到新的底部。
+    m.setTop(700)
+    fireEvent.scroll(el)
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(700) // 没被写到新的底部（1400）
+    expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+  })
+
+  it('滚轮上滚时人就停在底部也照样暂停（意图优先于位置）', () => {
+    const { view, el, m } = setup(first)
+
+    // 让应用自己写一次，把"人在底部"摆出来（度量在 render 之后才装上，
+    // 挂载那一次的写入落不进来 —— 与既有用例同一个前提）
+    m.growTo(1200)
+    view.rerender(<Transcript state={state(first, second)} />)
+    expect(m.top()).toBe(1200) // 跟随把它写到的新底部
+
+    fireEvent.wheel(el, { deltaY: -100 })
+    expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+
+    m.growTo(1500)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(1200) // 停在原地：意图说"别动"，位置读数没有发言权
+  })
+
+  it('贴着顶再上滚不暂停 —— 转写区根本没得向上滚', () => {
+    const { view, el, m } = setup(first)
+
+    m.setTop(0)
+    fireEvent.wheel(el, { deltaY: -100 })
+
+    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(1400) // 跟随没被误关
+  })
+
+  it('暂停后滚轮向下、且已在底部：跟随恢复', () => {
+    const { view, el, m } = setup(first)
+
+    m.setTop(300)
+    fireEvent.wheel(el, { deltaY: -100 })
+    expect(screen.getByTestId('jump-to-bottom')).toBeInTheDocument()
+
+    m.setTop(600) // 滚回底部（距底 0）
+    fireEvent.wheel(el, { deltaY: 100 })
+
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    expect(m.top()).toBe(1400)
+    expect(screen.queryByTestId('jump-to-bottom')).not.toBeInTheDocument()
+  })
+
+  it('平滑动画被滚轮接管：那条动画标记不再卡住，之后的位置事件照常生效', async () => {
+    const user = userEvent.setup()
+    const { view, el, m } = setup(first)
+    // 用来"再长一点内容"的那条**不能是新用户消息** —— 那会触发"自己发一条 →
+    // 强制回到底部"（§4.5 的追加条），把本用例要验的东西盖掉
+    const grew: TranscriptItem = { kind: 'assistant', id: 'a2', ts: ts + 2, text: '三' }
+
+    m.setTop(200)
+    fireEvent.scroll(el)
+    m.growTo(1400)
+    view.rerender(<Transcript state={state(first, second)} />)
+
+    Object.defineProperty(el, 'scrollTo', { configurable: true, value: vi.fn() })
+    await user.click(screen.getByTestId('jump-to-bottom')) // 平滑动画开始，标记置起
+
+    // 动画途中用户上滚：位置 + 意图。标记必须随之作废 —— 动画被打断后
+    // 再也读不到"已到底"，卡着的标记会把之后所有 scroll 事件吞掉
+    m.setTop(200)
+    fireEvent.wheel(el, { deltaY: -100 })
+
+    m.setTop(300) // 之后一条普通的用户位移
+    fireEvent.scroll(el)
+
+    m.growTo(1600)
+    view.rerender(<Transcript state={state(first, second, grew)} />)
+
+    expect(m.top()).toBe(300)
   })
 })
