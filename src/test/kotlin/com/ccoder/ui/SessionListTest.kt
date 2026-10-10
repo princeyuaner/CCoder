@@ -11,11 +11,13 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
+import java.awt.Font
 import java.awt.Component
 import java.awt.Container
 import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import javax.swing.JButton
+import javax.swing.UIManager
 import javax.swing.JTextField
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -329,34 +331,120 @@ class SessionListTest {
     }
 
     /**
-     * 2026-09-17 用户报的「删除按钮轮廓不对，太矮了」。
+     * 2026-09-17 用户报的「删除按钮轮廓不对，太矮了」→ 2026-10-10 再修一次。
      *
      * 悬停到按钮上时平台会画出一个按钮框（`isBorderPainted`），而那个框**画在
-     * 按钮自己的边界里**。槽高原先写的是字号（实测 12），按钮的首选高却是 22
-     * （字高 16 ＋ 平台边框上下各 3）—— 于是框被压成一条横线，正好横穿
-     * 「删除」两个字，看着像被划掉。
+     * 按钮自己的边界里**。槽高最早写的是字号（实测 12），框被压成一条横线，
+     * 正好横穿「删除」两个字 —— 所以当时改成"整个照抄按钮的首选尺寸"。
      *
-     * 这条钉死的是**槽 = 按钮自己的首选尺寸，一个数都不改**：宽和高都只能
-     * 来自 `preferredSize`。谁再往这儿写一个"看着差不多"的数，这条会红。
+     * 但**抄**在中文 UI 字体下会从另一头出事（2026-10-10 用户报的「改名删除
+     * 有点偏下」）：按钮首选高比卡片内高还大时，行尾整串会被拖着下坠、框也伸
+     * 出卡片。所以现在钉的是**卡片内高**：宽照抄按钮（横向的事），高由我们自己
+     * 定（纵向的线）。两条约束一起守：高 ≥ 字高 + 6（框不横穿字形，2026-09-17）
+     * 且高 == 卡片内高（不拖着行尾走，2026-10-10）。
      */
     @Test
-    fun `删除按钮按自己的首选尺寸摆，不被压扁`() {
+    fun `删除按钮的槽：宽照抄按钮，高钉成卡片内高`() {
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
         val button = deleteButtonOf(list, 0)
         val slot = button.parent as JComponent
 
         assertEquals(button.preferredSize.width, slot.preferredSize.width, "槽宽不等于按钮的首选宽")
-        assertEquals(
-            button.preferredSize.height,
-            slot.preferredSize.height,
-            "槽把按钮压扁了 —— 悬停时那个按钮框会横穿字形（用户报的「轮廓太矮」）",
-        )
-        // 反过来说：首选高必须**高于**字号，那多出来的正是平台边框。
-        // 哪天它俩相等了，说明这个平台版本不再给按钮留边框，上面两条也就没意义了
+
+        val innerHeight = innerHeightOfRow(list)
+        assertEquals(innerHeight, slot.preferredSize.height, "槽高不再是卡片内高 —— 行尾那一串会跟着平台按钮的度量飘")
+        val textHeight = button.getFontMetrics(button.font).height
         assertTrue(
-            button.preferredSize.height > button.font.size,
-            "按钮首选高只等于字号（${button.font.size}），平台边框没算进去",
+            slot.preferredSize.height >= textHeight + 6,
+            "槽比「字高 + 上下各 3」还矮（${slot.preferredSize.height} vs 字高 $textHeight）—— 框会横穿字形",
         )
+    }
+
+    /**
+     * 卡片的内高：行组件的高度减去它自己的上下内边距。
+     *
+     * 从**排出来的行**上量，而不是把 [CARD_H] 那些私有常数抄进测试 ——
+     * 这个数是"行里内容能用的高度"，卡片一变它就该跟着变。
+     */
+    private fun innerHeightOfRow(list: JComponent): Int {
+        val row = sessionRows(list)[0] as JComponent
+        val insets = row.insets
+        return row.preferredSize.height - insets.top - insets.bottom
+    }
+
+    /**
+     * 2026-10-10 用户实机报的「会话列表里的改名删除没有上下居中，有点偏下」。
+     *
+     * 复现条件是**按钮的首选高 > 卡片内高**：用户那台的中文 UI 字体给出的按钮盒
+     * 比 30 高（实机截图量出来下坠 ~2px）。这里的测试 JVM 里两者恰好都是 30，
+     * 所以要把字体调大一号（按钮首选跟着涨到 33）才能把这条台阶摆出来。
+     *
+     * 量的是**排完版之后的中线**：标题那一列与行尾那一串（时间 / 改名 / 删除）
+     * 必须落在同一条上。修之前，行尾整串会按按钮的高（33）居中、而卡片只给
+     * 得起 30 —— 整串比标题低 (33−30)/2。
+     */
+    @Test
+    fun `行尾那一串和标题是同一条中线 —— 平台按钮再高也不许把整串压下去`() {
+        val big = Font("Microsoft YaHei UI", Font.PLAIN, 20)
+        IdeLaf.withRealLaf {
+            val prevLabel = UIManager.get("Label.font")
+            val prevButton = UIManager.get("Button.font")
+            UIManager.put("Label.font", big)
+            UIManager.put("Button.font", big)
+            try {
+                val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
+                val row = sessionRows(list)[0]
+
+                // 先把条件摆出来：按钮的首选高**确实**大过卡片内高，否则这条用例
+                // 名不副实（哪天平台按钮度量变小，这里会红 —— 那时该顺势删掉它）
+                val button = renameButtonOf(list, 0)
+                assertTrue(
+                    button.preferredSize.height > innerHeightOfRow(list),
+                    "按钮首选高 ${button.preferredSize.height} 没超过内高 ${innerHeightOfRow(list)}，复现条件没摆成",
+                )
+
+                // 真排一次版。这里**不能用 [layoutDeep]**：它会把每个容器都压回
+                // 自己的首选高，把布局刚分配好的尺寸冲掉 —— 量"中线"就被冲歪了
+                // （那个 helper 是给"宽度够不够"用的，宽度不受影响）。
+                // 这条用的是探针那套递归 doLayout：谁给谁多少全按布局管理器来。
+                list.setSize(JBUI.scale(SESSION_LIST_WIDTH) - JBUI.scale(8), list.preferredSize.height)
+                fun lay(c: Container) {
+                    c.doLayout()
+                    for (child in c.components) if (child is Container) lay(child)
+                }
+                lay(list)
+
+                // 同一条中线上的四方：标题、时间标签、改名按钮、删除按钮。
+                // 时间标签**按结构找**（行尾那一串里的第二个标签：[0] 是标签 chip），
+                // 不按文案找 —— 时间那一格的文案随 relativeTime 飘
+                val flow = button.parent.parent as Container
+                val time = flow.components.filterIsInstance<JLabel>()[1]
+                val title = textsAndComponents(row as Container).first { it.text == "还可以做什么功能" }
+                val mids = mapOf(
+                    "标题" to centerYIn(title, row),
+                    "时间" to centerYIn(time, row),
+                    "改名" to centerYIn(button, row),
+                    "删除" to centerYIn(deleteButtonOf(list, 0), row),
+                )
+                for ((name, mid) in mids) {
+                    // 中线**带半像素**比（2y+h 那个整数）：整除会把 1.5px 的台阶
+                    // 抹成 1px —— 抹完的差 ≤1，这条用例就永远抓不住它了（踩过一次）
+                    assertTrue(
+                        kotlin.math.abs(mid - mids.getValue("标题")) <= 2,
+                        "$name 的中线（${mid / 2.0}）和标题（${mids.getValue("标题") / 2.0}）不是同一条：$mids",
+                    )
+                }
+            } finally {
+                UIManager.put("Label.font", prevLabel)
+                UIManager.put("Button.font", prevButton)
+            }
+        }
+    }
+
+    /** 某个部件在自己的行里的中线（行坐标系），**两倍**（整数，不丢那半个像素）。 */
+    private fun centerYIn(c: Component, row: Container): Int {
+        val r = javax.swing.SwingUtilities.convertRectangle(c.parent, c.bounds, row)
+        return r.y * 2 + r.height
     }
 
     @Test
@@ -649,14 +737,14 @@ class SessionListTest {
     }
 
     @Test
-    fun `改名按钮的槽也照抄首选尺寸`() {
-        // 同删除那颗（2026-09-17 用户报的「轮廓太矮」）：槽把按钮压扁的话，
-        // 悬停长出来的那个框会横穿字形
+    fun `改名按钮的槽：宽照抄按钮，高钉成卡片内高`() {
+        // 同删除那颗（2026-09-17「轮廓太矮」+ 2026-10-10「偏下」两条合起来的那条规矩）
         val list = buildSessionList(twoSessions, currentSessionId = null, block = SwitchBlock.None)
         val button = renameButtonOf(list, 0)
         val slot = button.parent as JComponent
 
-        assertEquals(button.preferredSize, slot.preferredSize, "槽与按钮的首选尺寸必须一模一样")
+        assertEquals(button.preferredSize.width, slot.preferredSize.width, "槽宽不等于按钮的首选宽")
+        assertEquals(innerHeightOfRow(list), slot.preferredSize.height, "槽高不再是卡片内高")
     }
 
     @Test

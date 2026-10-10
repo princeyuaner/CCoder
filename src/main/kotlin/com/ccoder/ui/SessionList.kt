@@ -151,6 +151,33 @@ private const val CARD_H = 32
  */
 private const val CARD_GAP = 4
 
+/** 卡片上下内边距（[SessionCard] 的边框与 [ACTION_SLOT_HEIGHT] 共用这一个数）。 */
+private const val CARD_PAD_Y = 3
+
+/**
+ * 会话行里那两颗「文字按钮」（改名 / 删除）外面那层槽的高度。
+ *
+ * **钉成卡片的内高，而不是照抄按钮自己的首选高** —— 2026-10-10 用户报的
+ * 「改名删除没有上下居中，有点偏下」就是抄出来的。平台给的按钮首选高随环境变：
+ * 这个测试 JVM 里是 30，中文 UI 字体再大一点就 33 往上（用户那台实机就是）。
+ * 而卡片的内高是我们自己的数：[CARD_H] + [CARD_GAP] − 上下内边距各 [CARD_PAD_Y]。
+ * 按钮的首选一旦大过它，行尾那一串（标签 / 时间 / 改名 / 删除）会整体下坠
+ * (按钮首选高 − 内高) / 2：
+ *
+ * 1. 槽先被外层压回内高，而 `FlowLayout` 摆内容用的是**按钮的高度**
+ *    （它按子件的首选算 rowh）—— 里面按 33 居中，外面只有 30，于是整串偏低，
+ *    标题（横幅拉满、径直居中）不动：用户看到的就是那条往右下斜的台阶；
+ * 2. 悬停时那颗按钮长出来的框会伸出卡片的下内边距（框画在按钮自己的边界里）。
+ *
+ * 钉成内高之后这一串与平台按钮度量**无关**，右边永远和标题落在同一条中线上；
+ * 框沿字形上下仍留得下几个像素，不会横穿字形（2026-09-17「轮廓太矮」那条约束
+ * 由用例继续钉着）。**宽度**仍照抄按钮的首选宽 —— 那是横向的事，与行高无关。
+ *
+ * 顶部那行「清空全部」**不用这个数**：那一行是自由高度的工具栏（不像卡片被
+ * [CARD_H] 钉死），钉了会让"正常态 ↔ 确认态"两个高度打架 —— 见 clearAllRow。
+ */
+private val ACTION_SLOT_HEIGHT = JBUI.scale(CARD_H + CARD_GAP - CARD_PAD_Y * 2)
+
 /**
  * 被占着的那张卡降多少透明度（见 [SessionCard.paint]）。
  *
@@ -405,7 +432,9 @@ private fun clearAllRow(
     val kept = sessions.count { it.sessionId in takenIds || it.sessionId == currentSessionId }
 
     val action = textAction(CLEAR_ALL_TEXT, CcoderText.text("session.list.clearAllTip"), base)
-    // 槽照抄按钮的首选尺寸，一个数都不改（同 deleteSlot 那条：压扁了框会横穿字形）。
+    // 槽整个照抄按钮的首选尺寸 —— **这一行不钉高**，与行内那两颗不同（[ACTION_SLOT_HEIGHT]）：
+    // 它是自由高度的工具栏，按钮多高、行就多高，没有第二条要对的线；钉了反而会让
+    // 「正常态（钉）↔ 确认态（放两颗平台按钮，不钉）」两个高度打架 —— 切换时会跳一下。
     // 不用 hover 整行提亮那一档：这一行除了它没有别的可点动作，
     // 两档（安静 ↔ 指针停在按钮上）就够了
     val actionSlot = JPanel(BorderLayout()).apply {
@@ -565,9 +594,9 @@ internal class SessionCard(
 
     init {
         isOpaque = false
-        // 上 3 下 3：内容最高的那件（删除按钮 22）撑出 28，剩下的由钉高居中吸收。
+        // 上 3 下 3：内高 = 36 − 6 = 30，行尾的槽就按它钉（见 [ACTION_SLOT_HEIGHT]）。
         // 右边 6、左边 8：左边那 4px 是留给强调条的（它在 x=4..6）
-        border = JBUI.Borders.empty(3, 8, 3, 6)
+        border = JBUI.Borders.empty(CARD_PAD_Y, 8, CARD_PAD_Y, 6)
     }
 
     /** 实际画出来的高度（下面的 [CARD_GAP] 那一条缝不画东西）。 */
@@ -752,20 +781,14 @@ private fun sessionRow(
 
     val deleteSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
-        // 尺寸**整个照抄按钮自己的首选尺寸**，一个数都不改。
-        //
-        // 宽度按按钮量：文字比 `✕` 宽（26 对 16）——写死一个数的话，
+        // 宽度照抄按钮的首选宽：文字比 `✕` 宽（26 对 16）——写死一个数的话，
         // 换字体/换语言时又会对不上，而这槽的意义就是"勾/按钮怎么变，时间都不跳"。
         //
-        // 高度也必须按按钮量。2026-09-17 之前这里写的是**字号**（`base.size`，
-        // 实测 12），而按钮首选高是 22（字高 16 + 平台边框上下各 3）——
-        // 于是按钮被压成 12px 高，悬停时那个"长出按钮框"的强调就画在一个
-        // 12px 的盒子里：**上下边框正好横穿这两个字**，看着像划掉，
-        // 左右也贴着字形。用户的原话是"轮廓不对，太矮了"。
-        //
-        // 这个框的尺寸只由这里决定，所以它同时也是"行高"的决定者（见下面那条
-        // "行高按排出来的那一行量"）—— 按钮不再压扁之后，行高仍是 22，没有变。
-        preferredSize = deleteButton.preferredSize
+        // 高度**不抄按钮**，钉成卡片内高（[ACTION_SLOT_HEIGHT] 里是整段原委）：
+        // 抄的版本在按钮首选高 > 内高的环境里会让整串下坠，框也会伸出卡片。
+        // 2026-09-17「轮廓太矮」那条约束（框不能横穿字形）仍然满足 —— 30 比
+        // 字高 + 6 宽裕。
+        preferredSize = Dimension(deleteButton.preferredSize.width, ACTION_SLOT_HEIGHT)
         add(deleteButton, BorderLayout.WEST)
     }
 
@@ -788,10 +811,10 @@ private fun sessionRow(
         }
     )
 
-    /** 同上：槽照抄按钮自己的首选尺寸，压扁了那个框会横穿字形（deleteSlot 那条的老账）。 */
+    /** 同上：宽照抄按钮、高钉成卡片内高 —— 压扁了那个框会横穿字形（deleteSlot 那条的老账）。 */
     val renameSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
-        preferredSize = renameButton.preferredSize
+        preferredSize = Dimension(renameButton.preferredSize.width, ACTION_SLOT_HEIGHT)
         add(renameButton, BorderLayout.WEST)
     }
 
