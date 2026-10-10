@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCoder 空会话待机页 · 设计稿</title>
+<style>
+/* ============================================================
+   页面外壳 —— 这一层是"展示用"，不是产品的一部分。
+   产品配色严格取自 PyCharm 2025.3 New UI 的真实主题变量。
+   与 status-cards.html / session-manage.html 同一套。
+   ============================================================ */
+:root {
+  --ui: -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace;
+  --serif: Georgia, "Songti SC", "Noto Serif SC", "SimSun", serif;
+}
+[data-theme="dark"] {
+  --page-bg:#161719; --page-fg:#e8eaed; --page-dim:#8b8f97;
+  --page-line:#26282c; --page-card:#1c1e21;
+  --panel:#2b2d30; --editor:#1e1f22; --surface:#2b2d30;
+  --text:#dfe1e5; --dim:#8b8f97;
+  --border:#393b40; --border-soft:#303236;
+  --accent:#548af7; --accent-soft:#25324d; --accent-fg:#ffffff;
+  --hover:#2b2d30; --code:#2b2d30;
+  --ok:#5fad65; --warn:#d9a343; --danger:#db5c5c;
+  --brand:#F0883E; --watermark-op:.07;
+}
+[data-theme="light"] {
+  --page-bg:#f4f5f7; --page-fg:#1e1f22; --page-dim:#6c707e;
+  --page-line:#e0e2e7; --page-card:#ffffff;
+  --panel:#f7f8fa; --editor:#ffffff; --surface:#ffffff;
+  --text:#1e1f22; --dim:#6c707e;
+  --border:#d1d3d9; --border-soft:#e8eaed;
+  --accent:#3574f0; --accent-soft:#dbe6ff; --accent-fg:#ffffff;
+  --hover:#eef0f4; --code:#f2f3f5;
+  --ok:#3d8b43; --warn:#b07d1a; --danger:#c0392b;
+  --brand:#E8702A; --watermark-op:.06;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page-bg); color: var(--page-fg);
+  font-family: var(--ui); font-size: 14px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 900px; margin: 0 auto; padding: 48px 32px 90px; }
+
+/* ---- 页头 ---- */
+.masthead { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; padding-bottom: 20px; border-bottom: 1px solid var(--page-line); }
+h1 { font-family: var(--serif); font-size: 36px; font-weight: 600; letter-spacing:-.01em; margin: 0 0 10px; line-height:1.15; }
+.lede { color: var(--page-dim); max-width: 68ch; margin: 0; font-size: 14px; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing:.14em; text-transform: uppercase; color: var(--page-dim); margin: 0 0 12px; }
+
+.toggle { display:inline-flex; border:1px solid var(--page-line); border-radius: 8px; overflow:hidden; background: var(--page-card); }
+.toggle button {
+  font-family: var(--mono); font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+  padding: 8px 14px; border:0; background:transparent; color: var(--page-dim); cursor:pointer;
+}
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
+/* ---- 前提说明 ---- */
+.brief {
+  margin-top: 26px; padding: 18px 22px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0;
+  background: var(--page-card);
+}
+.brief h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.brief p { margin: 0 0 8px; color: var(--page-dim); font-size: 13px; }
+.brief p:last-child { margin-bottom: 0; }
+.brief code { font-family: var(--mono); font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.brief b { color: var(--page-fg); }
+.brief ul { margin: 6px 0 0; padding-left: 20px; color: var(--page-dim); font-size: 13px; }
+.brief li { margin-bottom: 3px; }
+
+/* 选定记录：这份稿子不再是"四选一"，选过之后写清楚选了什么、改了什么 */
+.decided {
+  margin-top: 18px; padding: 13px 18px; border:1px solid var(--page-line);
+  border-left: 3px solid var(--ok); border-radius: 0 10px 10px 0;
+  background: var(--page-card); font-size: 13px; color: var(--page-dim);
+}
+.decided b { color: var(--page-fg); }
+
+/* ---- 方案区 ---- */
+.opt { margin-top: 54px; }
+.tag { font-family: var(--mono); font-size: 11px; letter-spacing:.16em; color: var(--accent); text-transform:uppercase; }
+.opt h2 { font-family: var(--serif); font-size: 23px; font-weight: 600; margin: 7px 0 7px; letter-spacing:-.005em; }
+.thesis { color: var(--page-dim); font-size: 13px; margin: 0 0 6px; max-width: 78ch; }
+.thesis b { color: var(--page-fg); }
+.props { font-family: var(--mono); font-size: 11px; color: var(--page-dim); letter-spacing:.02em; margin: 0 0 16px; }
+.props span { margin-right: 14px; }
+.props i { font-style: normal; color: var(--page-fg); }
+
+/* ============================================================
+   模拟工具窗口 —— 751px 宽，与用户截图里的真实面板一致。
+   还原：顶部会话条（新会话胶囊 + ＋）、转写区、底部输入卡。
+   ============================================================ */
+.tw {
+  position: relative;
+  width: 751px; max-width: 100%;
+  background: var(--editor);
+  border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.tw-tabs {
+  display:flex; align-items:center; gap:4px; padding: 7px 8px;
+  background: var(--panel); border-bottom: 1px solid var(--border-soft);
+}
+.tab {
+  display:flex; align-items:center; gap:6px; padding: 3px 12px;
+  border:1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--text); font-size: 12px;
+}
+.tab .dot { width:7px; height:7px; border-radius:50%; background: var(--dim); opacity:.55; }
+.plus { color: var(--dim); font-size: 16px; line-height: 1; padding: 0 6px; }
+
+/* 转写区：产品里是 var(--bg) */
+.tr { background: var(--editor); display:flex; flex-direction:column; }
+.tr-main { height: 470px; padding: 8px; }
+.tr-narrow { height: 300px; padding: 8px; }
+
+/* 底部输入卡（示意，不是本次设计对象） */
+.cmp { padding: 8px 10px 10px; background: var(--panel); border-top: 1px solid var(--border-soft); }
+.cmp-box {
+  position: relative; min-height: 46px; padding: 8px 10px;
+  border:1px solid var(--border); border-radius: 8px; background: var(--surface);
+}
+.cmp-ph { font-size: 12px; color: var(--dim); opacity:.8; }
+.cmp-send {
+  position:absolute; right: 8px; bottom: 8px; width: 20px; height: 20px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%; background: var(--accent); color: var(--accent-fg); font-size: 12px;
+}
+
+/* ---- 空态公共件 ---- */
+.es-mark { color: var(--brand); display:block; }
+.kbd {
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.5;
+  padding: 1px 5px; border:1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--code); color: var(--text); white-space: nowrap;
+}
+.es-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
+
+/* ---- 方案甲 · 静默信标 ---- */
+.es-a { margin:auto; display:flex; flex-direction:column; align-items:center; text-align:center; }
+.es-a__title { margin-top: 14px; font-size: 15px; color: var(--text); }
+.es-a__note { margin-top: 7px; font-size: 11.5px; color: var(--dim); }
+
+/* ---- 方案乙 · 上手卡 ---- */
+.es-b { margin:auto; }
+.es-card {
+  width: 352px; max-width: 100%;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px 12px; display:flex; flex-direction:column; gap: 9px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.16);
+}
+.es-card__head { display:flex; align-items:center; gap:8px; font-size: 13.5px; color: var(--text); }
+.es-row { display:flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--dim); }
+.es-row .kbd { flex: 0 0 auto; }
+.es-row code { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+.es-card__foot { border-top: 1px solid var(--border-soft); margin-top: 2px; padding-top: 8px; font-size: 11.5px; color: var(--dim); }
+
+/* ---- 方案丙 · 示例卡 ---- */
+.es-c { margin:auto; display:flex; flex-direction:column; align-items:center; text-align:center; }
+.es-c__title { font-size: 15px; color: var(--text); margin-bottom: 14px; }
+.es-c__chips { display:flex; flex-direction:column; gap: 8px; width: 384px; max-width: 100%; }
+.chip {
+  font: inherit; font-size: 12.5px; text-align: left; color: var(--text);
+  padding: 8px 12px; border:1px solid var(--border); border-radius: 8px;
+  background: var(--surface); cursor:pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.es-c__foot { margin-top: 12px; font-size: 11.5px; color: var(--dim); }
+
+/* ---- 方案丁 · 底纹水印 ---- */
+.es-d { position:relative; height:100%; }
+.es-d__note { text-align:center; font-size: 11px; color: var(--dim); padding: 18px 0 0; }
+.es-d__mark {
+  position:absolute; left:50%; top:50%; width: 330px; height: 330px;
+  transform: translate(-50%, -50%); color: var(--text); opacity: var(--watermark-op);
+}
+
+/* ---- 窄栏复核 ---- */
+.narrow-title { margin: 64px 0 6px; font-family: var(--serif); font-size: 23px; font-weight: 600; }
+.narrow-sub { color: var(--page-dim); font-size: 13px; margin: 0 0 22px; }
+.narrow-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.narrow-grid .tw { width: 420px; }
+.narrow-grid .es-card { width: 100%; }
+.narrow-grid .es-c__chips { width: 100%; padding: 0 6px; }
+.narrow-cap { font-family: var(--mono); font-size: 11px; color: var(--page-dim); margin: 6px 2px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · 转写区空态</p>
+      <h1>空会话时，那块地方放什么</h1>
+      <p class="lede">四个方向：两个"说话"的（信标 / 示例），一个"教用法"的（上手卡），一个只做装饰的（水印）。下面每张都按真实面板尺寸摆好，请看形状和气质，文案只是占位。</p>
+    </div>
+    <div class="toggle" role="group" aria-label="主题">
+      <button type="button" data-theme-btn="dark" aria-pressed="true">Dark</button>
+      <button type="button" data-theme-btn="light" aria-pressed="false">Light</button>
+    </div>
+  </header>
+
+  <div class="decided">
+    <b>2026-10-10 选定：方案乙。</b>实装时卡片上<b>没有</b>"Enter 发送 · Shift+Enter 换行"那行 ——
+    输入框的占位符里已经写着它（而且它跟着设置里的发送约定走，见 <code>Composer.kt</code>），
+    卡上再印一份迟早会说岔。实装见 <code>web/src/components/EmptyState.tsx</code>；
+    空态的开关是 Kotlin 推来的 <code>fresh</code> 标记（不是"items 为空"——
+    切换会话的回放真空期会因此闪卡，见 <code>Transcript.tsx</code> 的判据注释）。
+  </div>
+
+  <div class="brief">
+    <h3>现状与共同前提</h3>
+    <p><b>现状：</b>新会话时转写区只有一条居中的「会话已就绪」系统提示，其余整块背景空着（见用户截图）。</p>
+    <ul>
+      <li><b>只在没有任何内容项时出现</b> —— 新会话、<code>/clear</code> 之后；来了第一条消息就整体消失，不留在时间线里。</li>
+      <li>「会话已就绪」的去向：<b>甲 / 乙 / 丙</b> 把它折进空态（顺带修掉"第一条消息上方永远挂着一条系统提示"）；<b>丁</b> 保留原样。</li>
+      <li>恢复的历史会话有内容，不走这条路径。</li>
+      <li>文案全部进 <code>CcoderBundle</code> 中英双语；420px 与 751px 两档宽度都成立（页尾有窄栏复核）。</li>
+      <li>实现代价：甲 / 乙 / 丁是纯网页层的一条渲染分支；<b>丙多一条桥接操作</b>（点按 → 填入 Swing 输入框）。</li>
+    </ul>
+  </div>
+
+  <!-- ============ 方案甲 ============ -->
+  <section class="opt" id="opt1">
+    <div class="tag">方案甲 · 静默信标</div>
+    <h2>一枚信标，把视线收回中间</h2>
+    <p class="thesis">品牌标记 + 一句招呼，垂直居中。安静、克制，一眼就知道"这里可以开始"。<b>代价</b>：不提任何用法，纯氛围。</p>
+    <p class="props"><span>信息量 · <i>低</i></span><span>交互 · <i>无</i></span><span>实现 · <i>纯前端</i></span></p>
+    <div class="tw">
+      <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+      <div class="tr tr-main">
+        <div class="es-a">
+          <svg class="es-mark" viewBox="0 0 40 40" width="38" height="38" aria-hidden="true">
+            <path d="M29.63 10.70 A13.384615384615385 13.384615384615385 0 1 0 29.63 29.30" fill="none" stroke="currentColor" stroke-width="7.38" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M24.21 15.94 A5.846153846153846 5.846153846153846 0 1 0 24.21 24.06" fill="none" stroke="currentColor" stroke-width="4.92" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="es-a__title">有什么可以帮你的？</div>
+          <div class="es-a__note"><span class="es-dot"></span>会话已就绪</div>
+        </div>
+      </div>
+      <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+    </div>
+  </section>
+
+  <!-- ============ 方案乙 ============ -->
+  <section class="opt" id="opt2">
+    <div class="tag">方案乙 · 上手卡</div>
+    <h2>一张小卡片，把三件事说清</h2>
+    <p class="thesis">招呼 + 三条最值得知道的用法（引用 / 命令 / 贴图）+ 键位。首次使用者最受益。<b>代价</b>：比另几个"重"，卡片消失后这几条提示也就不在别处了。</p>
+    <p class="props"><span>信息量 · <i>高</i></span><span>交互 · <i>无</i></span><span>实现 · <i>纯前端</i></span></p>
+    <div class="tw">
+      <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+      <div class="tr tr-main">
+        <div class="es-b">
+          <div class="es-card">
+            <div class="es-card__head">
+              <svg class="es-mark" viewBox="0 0 40 40" width="16" height="16" aria-hidden="true">
+                <path d="M29.63 10.70 A13.384615384615385 13.384615384615385 0 1 0 29.63 29.30" fill="none" stroke="currentColor" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M24.21 15.94 A5.846153846153846 5.846153846153846 0 1 0 24.21 24.06" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>有什么可以帮你的？</span>
+            </div>
+            <div class="es-row"><span class="kbd">@</span><span class="kbd">#</span><span>引用文件与符号，会随消息一起发出</span></div>
+            <div class="es-row"><span class="kbd">/</span><span>唤起命令，如 <code>/clear</code>、<code>/compact</code></span></div>
+            <div class="es-row"><span class="kbd">Ctrl+V</span><span>截图直接粘进对话</span></div>
+            <div class="es-card__foot"><span class="kbd">Enter</span> 发送 · <span class="kbd">Shift+Enter</span> 换行</div>
+          </div>
+        </div>
+      </div>
+      <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+    </div>
+  </section>
+
+  <!-- ============ 方案丙 ============ -->
+  <section class="opt" id="opt3">
+    <div class="tag">方案丙 · 示例任务</div>
+    <h2>三个示例，一点就填</h2>
+    <p class="thesis">招呼 + 三条可点的示例任务，点击后<b>填入输入框</b>（可改完再发）。对"不知道从哪问起"的人最友好。<b>代价</b>：多一条网页 → 输入框的桥接操作，示例文案要随产品能力维护。</p>
+    <p class="props"><span>信息量 · <i>中</i></span><span>交互 · <i>点填</i></span><span>实现 · <i>需桥接</i></span></p>
+    <div class="tw">
+      <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+      <div class="tr tr-main">
+        <div class="es-c">
+          <div class="es-c__title">有什么可以帮你的？</div>
+          <div class="es-c__chips">
+            <button type="button" class="chip">这个项目是做什么的？先帮我梳理一下结构</button>
+            <button type="button" class="chip">看看我最近改动的文件，有没有问题</button>
+            <button type="button" class="chip">帮我把刚说的那段逻辑写成测试</button>
+          </div>
+          <div class="es-c__foot">点一下填入输入框，可以改完再发</div>
+        </div>
+      </div>
+      <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+    </div>
+  </section>
+
+  <!-- ============ 方案丁 ============ -->
+  <section class="opt" id="opt4">
+    <div class="tag">方案丁 · 底纹水印</div>
+    <h2>不添一句话，只给背景一点纹理</h2>
+    <p class="thesis">一枚超大、极淡的品牌水印居中铺底，「会话已就绪」原样留在时间线上。<b>零新增文案、零交互、零维护</b>，纯粹解决"空得难看"。<b>代价</b>：装饰上限低，不承担任何引导。</p>
+    <p class="props"><span>信息量 · <i>无</i></span><span>交互 · <i>无</i></span><span>实现 · <i>纯前端</i></span></p>
+    <div class="tw">
+      <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+      <div class="tr tr-main">
+        <div class="es-d">
+          <div class="es-d__note">会话已就绪</div>
+          <svg class="es-d__mark" viewBox="0 0 40 40" aria-hidden="true">
+            <path d="M29.63 10.70 A13.38 13.38 0 1 0 29.63 29.30" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            <path d="M24.21 15.94 A5.85 5.85 0 1 0 24.21 24.06" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+      <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+    </div>
+  </section>
+
+  <!-- ============ 窄栏复核 ============ -->
+  <h2 class="narrow-title">窄栏复核（420px）</h2>
+  <p class="narrow-sub">面板拖窄时同样的四个方案 —— 真跑起来面板经常只有这么宽。</p>
+  <div class="narrow-grid">
+
+    <div>
+      <div class="tw">
+        <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+        <div class="tr tr-narrow">
+          <div class="es-a">
+            <svg class="es-mark" viewBox="0 0 40 40" width="34" height="34" aria-hidden="true">
+              <path d="M29.63 10.70 A13.384615384615385 13.384615384615385 0 1 0 29.63 29.30" fill="none" stroke="currentColor" stroke-width="7.38" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M24.21 15.94 A5.846153846153846 5.846153846153846 0 1 0 24.21 24.06" fill="none" stroke="currentColor" stroke-width="4.92" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="es-a__title">有什么可以帮你的？</div>
+            <div class="es-a__note"><span class="es-dot"></span>会话已就绪</div>
+          </div>
+        </div>
+        <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+      </div>
+      <p class="narrow-cap">甲 · 静默信标</p>
+    </div>
+
+    <div>
+      <div class="tw">
+        <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+        <div class="tr tr-narrow">
+          <div class="es-b">
+            <div class="es-card">
+              <div class="es-card__head">
+                <svg class="es-mark" viewBox="0 0 40 40" width="16" height="16" aria-hidden="true">
+                  <path d="M29.63 10.70 A13.384615384615385 13.384615384615385 0 1 0 29.63 29.30" fill="none" stroke="currentColor" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M24.21 15.94 A5.846153846153846 5.846153846153846 0 1 0 24.21 24.06" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>有什么可以帮你的？</span>
+              </div>
+              <div class="es-row"><span class="kbd">@</span><span class="kbd">#</span><span>引用文件与符号，会随消息一起发出</span></div>
+              <div class="es-row"><span class="kbd">/</span><span>唤起命令，如 <code>/clear</code>、<code>/compact</code></span></div>
+              <div class="es-row"><span class="kbd">Ctrl+V</span><span>截图直接粘进对话</span></div>
+              <div class="es-card__foot"><span class="kbd">Enter</span> 发送 · <span class="kbd">Shift+Enter</span> 换行</div>
+            </div>
+          </div>
+        </div>
+        <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+      </div>
+      <p class="narrow-cap">乙 · 上手卡</p>
+    </div>
+
+    <div>
+      <div class="tw">
+        <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+        <div class="tr tr-narrow">
+          <div class="es-c">
+            <div class="es-c__title">有什么可以帮你的？</div>
+            <div class="es-c__chips">
+              <button type="button" class="chip">这个项目是做什么的？先帮我梳理一下结构</button>
+              <button type="button" class="chip">看看我最近改动的文件，有没有问题</button>
+              <button type="button" class="chip">帮我把刚说的那段逻辑写成测试</button>
+            </div>
+            <div class="es-c__foot">点一下填入输入框，可以改完再发</div>
+          </div>
+        </div>
+        <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+      </div>
+      <p class="narrow-cap">丙 · 示例任务</p>
+    </div>
+
+    <div>
+      <div class="tw">
+        <div class="tw-tabs"><div class="tab"><span class="dot"></span>新会话</div><div class="plus">＋</div></div>
+        <div class="tr tr-narrow">
+          <div class="es-d">
+            <div class="es-d__note">会话已就绪</div>
+            <svg class="es-d__mark" viewBox="0 0 40 40" style="width:200px;height:200px" aria-hidden="true">
+              <path d="M29.63 10.70 A13.38 13.38 0 1 0 29.63 29.30" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M24.21 15.94 A5.85 5.85 0 1 0 24.21 24.06" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+        <div class="cmp"><div class="cmp-box"><div class="cmp-ph">@ 文件 · # 符号 · / 命令</div><div class="cmp-send">↑</div></div></div>
+      </div>
+      <p class="narrow-cap">丁 · 底纹水印</p>
+    </div>
+
+  </div>
+
+</div>
+<div id="__h" data-h=""></div>
+<script>
+  const root = document.documentElement;
+  function setTheme(t) {
+    root.dataset.theme = t;
+    for (const b of document.querySelectorAll('[data-theme-btn]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.themeBtn === t));
+    }
+  }
+  for (const b of document.querySelectorAll('[data-theme-btn]')) {
+    b.addEventListener('click', () => setTheme(b.dataset.themeBtn));
+  }
+  if (location.hash === '#light') setTheme('light');
+  // 细节截图用：file:///...#at-2 滚到第 2 个方案的模拟面板
+  const at = location.hash.match(/^#at-(\d)$/);
+  if (at) {
+    const sec = document.getElementById('opt' + at[1]);
+    const panel = sec && sec.querySelector('.tw');
+    if (panel) panel.scrollIntoView({ block: 'center' });
+  }
+  document.getElementById('__h').dataset.h = document.documentElement.scrollHeight + '|' + window.scrollY + '|' + window.innerHeight;
+</script>
+</body>
+</html>
