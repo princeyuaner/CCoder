@@ -219,9 +219,11 @@
           所以"启动失败时进不去改 claudePath"这条链没断（见 ClaudePanel.settingsButton）。
         -->
 
-        <!-- 图标是自己的（2026-09-15）：小 C 套大 C，与插件图标
-             （META-INF/pluginIcon.svg）同一张脸。13px 那份不带方块底、
-             内圈与外壳同色，理由见 icons/ccoderToolWindow.svg 的注释。
+        <!-- 图标是自己的（2026-09-15）：双 C（外大内小），三处 —— 侧边栏 / 右键菜单 /
+             插件列表 —— 同一张脸，40px 那份（META-INF/pluginIcon.svg）就是 13px 的
+             等比放大。**2026-10-10**：40px 原带的"橙底 + 白 C"被用户要求换回这张
+             一致的脸（原委写在 pluginIcon.svg 注释里）。不带方块底、内圈与外壳同色，
+             理由见 icons/ccoderToolWindow.svg 的注释。
              深色主题那份走 _dark 后缀，平台自己按主题挑。 -->
         <!-- canCloseContents **刻意保持 false**（2026-09-16）：
              标签条与关闭叉改由面板自己画（`SessionChips` 那排胶囊），平台的

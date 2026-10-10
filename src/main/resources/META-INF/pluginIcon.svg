@@ -1,13 +1,15 @@
 <!--
   插件图标（40×40，JetBrains 要求 40×40）。
-  方案「甲」：小 C 套大 C，只是这里带了**方块底** —— 插件列表里一排图标，
-  没有底的字母会显得轻，方块才有"这是一个产品"的分量（侧边栏那份不带底，
-  理由见 icons/ccoderToolWindow.svg）。
+  方案「甲」：**与侧边栏 / 菜单同一张脸** —— 13px 那份（icons/ccoderToolWindow.svg）
+  的**等比放大**（×40/13），内圈与外壳同色、不带方块底。
 
-  内圈画成方块色（镂空），外圈是白色。外圈笔画 6.0、内圈 4.0 ——
-  再粗一档里面那个小 C 就被吃掉了。
+  2026-10-10 换回原稿：2026-09-15 实装时它被加了**橙底 + 白 C**（旧注释的理由是
+  "插件列表里一排图标，没有底的字母会显得轻"），用户看过实机之后要求换成一致的
+  —— 三处现在就是同一个形状的三个尺寸。
+  原稿（选型页上挑的那份）：docs/design/icons/jia-40-o.svg。
+
+  配色：浅色 #E8702A / 深色 #F0883E（深色那份提亮一档）。
 -->
 <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-  <rect width="40" height="40" rx="9" fill="#E8702A"/>
-  <path d="M28.89 10.79 A12.8 12.8 0 1 0 28.89 29.21" fill="none" stroke="#FFFFFF" stroke-width="6.0" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.89 15.97 A5.6 5.6 0 1 0 23.89 24.03" fill="none" stroke="#E8702A" stroke-width="4.00" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M29.63 10.70 A13.384615384615385 13.384615384615385 0 1 0 29.63 29.30" fill="none" stroke="#E8702A" stroke-width="7.38" stroke-linecap="round" stroke-linejoin="round"/><path d="M24.21 15.94 A5.846153846153846 5.846153846153846 0 1 0 24.21 24.06" fill="none" stroke="#E8702A" stroke-width="4.92" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
