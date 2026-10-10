@@ -161,12 +161,10 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-09 开版：**0.2.32 当天已上传、审核中**
-         （`api/plugins/34281`：`hasUnapprovedUpdate: true`；
-         `updates?version=0.2.32`：id 1190346，`approve`/`listed` 都是 false）。
-         写 change-notes 之前先复核（`api/plugins/34281/updates?version=0.2.32`）
-         —— 没过审就得把 0.2.32 那两条一并并进来，应急做法见发布设计稿 §八
-         （0.2.26→0.2.27 用过）。
+         2026-10-10 复核：**0.2.32 已过审上架**
+         （`api/plugins/34281/updates?version=0.2.32`：id 1190346，`approve`/`listed`
+         都是 true）—— 于是本版**只写相对 0.2.32 的增量**，"没过审就得把上一版
+         并进来"那套（0.2.26→0.2.27 用过，见发布设计稿 §八）用不上。
          0.2.32 那两条在 tag `v0.2.32` → c011f7f 那棵树的 plugin.xml 里，可对照措辞。
          复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
@@ -174,18 +172,33 @@
     <change-notes><![CDATA[
     <h3>0.2.33</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version &mdash; check whether 0.2.32 has been approved first (see the comment
-          above; as of 2026-10-09 it was still in review). If it has not, merge 0.2.32's
-          two items in as well. The previous list lives in git (tag v0.2.32 &rarr;
-          c011f7f); do not copy it blindly.</li>
+      <li><b>Token usage statistics: a daily / weekly / monthly dashboard</b> &mdash;
+          a slim <b>Usage</b> strip above the input box shows today's tokens and an
+          estimated cost; click it for the dashboard: today / this week / this month
+          tiles, a per-model stacked bar chart over the last 30 days (switchable to
+          12 weeks or 12 months), and a per-model breakdown table. Costs are estimated
+          from API price tables &mdash; not a bill. History is back-filled from your
+          local Claude Code session files; the first scan takes a few seconds, and it
+          updates incrementally after that.</li>
+      <li><b>Scrolling up while a reply streams works again</b> &mdash; the transcript
+          no longer snaps back to the bottom while you read earlier output; one wheel
+          notch up is enough, and following resumes only when you scroll back down.</li>
+      <li><b><code>/clear</code> also empties the task list card now</b> &mdash; the
+          tasks panel used to keep the previous run's counts until the next session
+          boundary.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.32
-          过审没有（上面那条注释；2026-10-09 开版时还在审）—— 没过审就得把 0.2.32 那两条
-          一并并进来。上一版的清单在 git 里（tag v0.2.32 &rarr; c011f7f），别照抄。</li>
+      <li><b>Token 使用量统计：日 / 周 / 月仪表盘</b> &mdash; 输入框上方多了一条
+          「使用量」常驻条，显示今日 token 与估算成本；点开是仪表盘：今日 / 本周 /
+          本月三块砖、近 30 天的按模型堆叠柱（可切近 12 周 / 近 12 个月）、按模型
+          的分解表。成本按 API 单价估算，不是账单。历史数据从本机 Claude Code
+          会话文件回填 &mdash; 首扫几秒，之后增量更新。</li>
+      <li><b>流式回复期间向上滚动恢复正常</b> &mdash; 往回读的时候不再被拽回底部；
+          滚轮上滚一格就够，滚回底部（或自己发一条）才恢复跟随。</li>
+      <li><b><code>/clear</code> 现在也会把任务清单卡清空</b> &mdash; 以前清单会
+          挂着上一段的计数，直到下一个会话边界。</li>
     </ul>
     ]]></change-notes>
 
