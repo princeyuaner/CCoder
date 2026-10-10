@@ -672,3 +672,47 @@ describe('Transcript 滚动跟随', () => {
     expect(m.top()).toBe(1200)
   })
 })
+
+// ---- 空会话的引导卡（设计稿 docs/design/empty-session.html 方案乙，2026-10-10）----
+//
+// 判据是**两半**：Kotlin 推来的 fresh 标记 + 没有任何内容项。少了任何一半，
+// 都会错在"该出的时候不出"或"不该出的时候闪"（见 Transcript.tsx 的注释）。
+describe('空会话的引导卡', () => {
+  function freshState(...items: TranscriptItem[]) {
+    return { items, live: {}, fresh: true }
+  }
+
+  it('新会话里出现，带三条用法', () => {
+    render(<Transcript state={freshState()} />)
+    const card = screen.getByTestId('empty-state')
+    expect(card).toHaveTextContent('有什么可以帮你的？')
+    expect(card).toHaveTextContent('引用文件与符号，会随消息一起发出')
+    expect(card).toHaveTextContent('唤起命令，如 /clear、/compact')
+    expect(card).toHaveTextContent('截图直接粘进对话')
+  })
+
+  it('只剩系统提示时也在（/clear 之后那条提示不算内容项）', () => {
+    render(
+      <Transcript
+        state={freshState({ kind: 'systemNote', id: 's', ts, text: '上下文已清空，这是一条新会话' })}
+      />,
+    )
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+    expect(screen.getByText('上下文已清空，这是一条新会话')).toBeInTheDocument()
+  })
+
+  it('来了第一条消息就消失 —— 且不留在时间线里', () => {
+    render(<Transcript state={freshState({ kind: 'user', id: 'u', ts, text: '你好' })} />)
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument()
+  })
+
+  it('没有 fresh 标记时不出（切换会话的真空期不该闪出来）', () => {
+    render(<Transcript state={state()} />)
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument()
+  })
+
+  it('流式正文一出现就收（items 还空的那一帧）', () => {
+    render(<Transcript state={{ items: [], live: { assistant: '正在想' }, fresh: true }} />)
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument()
+  })
+})

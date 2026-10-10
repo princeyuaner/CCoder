@@ -85,6 +85,14 @@ export type TranscriptItem =
 
 export type TranscriptOp =
   | { op: 'reset' }
+  /**
+   * **新会话就绪**。空转写区的标记，见 [TranscriptState.fresh]。
+   *
+   * 从前这件事由一条「会话已就绪」的系统提示承担，而那条提示会永远留在
+   * 时间线里（第一条消息上方一直挂着它）；改成标记之后，空态由引导卡表达，
+   * 来了内容它就自然消失（2026-10-10，设计稿 empty-session.html 方案乙）。
+   */
+  | { op: 'fresh' }
   | { op: 'append'; item: TranscriptItem }
   | { op: 'appendDelta'; target: string; text: string }
   | { op: 'finalizeDelta'; target: string; text: string }
@@ -94,6 +102,18 @@ export interface TranscriptState {
   items: TranscriptItem[]
   /** 进行中的流式气泡，按 target 分。当前只有 'assistant'。 */
   live: Record<string, string>
+  /**
+   * 「这是一条新会话，还没有任何内容」—— 由 Kotlin 在会话就绪时推来（`fresh` op），
+   * 随 Reset 清掉。
+   *
+   * 这是空态引导卡的**唯一开关**，别拿"items 是否为空"来替代：切换会话时
+   * Kotlin 先 Reset 再从磁盘回放历史，中间有一段真空期 —— 只看"空"的话，
+   * 引导卡会在真空期里闪一下再被历史顶掉（回放包含图片时能到几百毫秒）。
+   *
+   * 缺省 = 不是新会话。老版本 Kotlin 不推这个 op，那条路一字不差（没有卡，
+   * 空转写区就是干净的空）。
+   */
+  fresh?: boolean
 }
 
 /**

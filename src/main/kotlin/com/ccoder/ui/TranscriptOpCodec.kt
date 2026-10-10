@@ -79,6 +79,7 @@ object TranscriptOpCodec {
     /** 单条 op 的 JSON 体积估算（比真实编码略偏大，宁可多切几片）。 */
     private fun estimateChars(op: TranscriptOp): Int = when (op) {
         is TranscriptOp.Reset -> 20
+        is TranscriptOp.Fresh -> 20
         is TranscriptOp.AppendDelta -> op.text.length + 60
         is TranscriptOp.FinalizeDelta -> op.text.length + 70
         is TranscriptOp.ClearDelta -> 40
@@ -158,6 +159,8 @@ object TranscriptOpCodec {
             addProperty("op", "clearDelta")
             addProperty("target", op.target)
         }
+
+        is TranscriptOp.Fresh -> JsonObject().apply { addProperty("op", "fresh") }
     }
 
     private fun encodeItem(item: TranscriptItem): JsonObject {

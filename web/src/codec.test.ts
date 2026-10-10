@@ -30,10 +30,13 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    // 18 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条（2026-09-22 补）
-    expect(ops).toHaveLength(18)
+    // 19 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条
+    // （2026-09-22 补）+ 末尾的 fresh 标记（2026-10-10 补）
+    expect(ops).toHaveLength(19)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
+    // fresh 在**末尾**：前面全是按下标钉住的断言，插在中间会把它们全部挪位
+    expect(ops[18].op).toBe('fresh')
   })
 
   it('fixture 能被完整应用到状态上而不丢内容', () => {
@@ -41,11 +44,13 @@ describe('契约 fixture', () => {
     const state = applyOps(emptyState(), ops)
     // fixture 里有 13 条 append/finalize 产生的消息（含工具调用与它的结果）。
     //
-    // **13 这个数是合并规则的守门员，别改成 14**：夹具里 18 条 op、其中 14 条 append，
+    // **13 这个数是合并规则的守门员，别改成 14**：夹具里 19 条 op、其中 14 条 append，
     // 之所以只落下 13 条项，正是因为同一次调用那两条 toolUse（m3s + m3）合成了一张卡。
     // 谁把合并删了，这一条立刻变红。
     expect(state.items).toHaveLength(13)
     expect(state.live.assistant).toBeUndefined()
+    // 末尾那条 fresh 落成状态里的新会话标记（空态引导卡的开关）
+    expect(state.fresh).toBe(true)
   })
 
   it('工具调用带着配对的 toolUseId 过来', () => {
@@ -209,6 +214,32 @@ describe('applyOps', () => {
     expect(state.live).toEqual({})
   })
 
+  it('fresh 置起新会话标记；reset 把它清掉（回放真空期不闪卡的依据）', () => {
+    const marked = applyOps(emptyState(), [{ op: 'fresh' }])
+    expect(marked.fresh).toBe(true)
+
+    // 切换会话 = Reset + 回放：标记必须随 Reset 清掉，否则回放的真空期里
+    // 空态引导卡会闪出来再被历史顶掉（见 Transcript.tsx 的空态判据）
+    expect(applyOps(marked, [{ op: 'reset' }]).fresh).toBeUndefined()
+  })
+
+  it('fresh 是锁存的：后续 append 不动它（卡由"有没有内容"盖住，不靠清标记）', () => {
+    const marked = applyOps(emptyState(), [{ op: 'fresh' }])
+    const after = applyOps(marked, [
+      { op: 'append', item: { kind: 'user', id: 'x', ts: 1, text: '你好' } },
+    ])
+    expect(after.fresh).toBe(true)
+    expect(after.items).toHaveLength(1)
+  })
+
+  it('没有 fresh 时不会凭空多出这个字段（老版本 Kotlin 那条报文一字不差）', () => {
+    const state = applyOps(emptyState(), [
+      { op: 'append', item: { kind: 'user', id: 'x', ts: 1, text: '你好' } },
+    ])
+    // 字段缺省即"不是新会话"——带上 `fresh: false` 会让逐字段比对的用例白白多一个键
+    expect('fresh' in state).toBe(false)
+  })
+
   it('append 追加消息', () => {
     const state = applyOps(emptyState(), [
       { op: 'append', item: { kind: 'user', id: 'm0', ts: 1, text: '你好' } },
@@ -352,6 +383,10 @@ describe('applyOps', () => {
 })
 
 describe('parseOps 的容错', () => {
+  it('fresh op 原样解析', () => {
+    expect(parseOps([{ op: 'fresh' }])).toEqual([{ op: 'fresh' }])
+  })
+
   it('丢弃未知 op 而不是崩溃', () => {
     // 对应设计文档 §3.3 的"未知即忽略"——Kotlin 侧新增 op 时
     // 旧版本前端不该白屏

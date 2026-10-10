@@ -63,7 +63,19 @@ class TranscriptOpCodecTest {
         val subText = itemAt(17)
         assertEquals("toolu_task", subText.get("parent").asString)
 
-        assertEquals(18, kinds.size)
+        assertEquals(19, kinds.size)
+        // 末尾是 fresh 标记（2026-10-10 补）：新会话就绪，网页侧据此显示空态引导卡。
+        // 它放在**最后一条**而不是 reset 后面：上面全是按下标钉住的断言，
+        // 插在中间会把它们全部挪位，而挪位后的断言照样"绿"（只是钉错了东西）
+        assertEquals("fresh", kinds[18])
+    }
+
+    @Test
+    fun `fresh 编码为仅有 op 字段`() {
+        val obj = JsonParser.parseString(TranscriptOpCodec.encodeBatch(listOf(TranscriptOp.Fresh)))
+            .asJsonArray[0].asJsonObject
+        assertEquals("fresh", obj.get("op").asString)
+        assertEquals(1, obj.size(), "fresh 不应携带额外字段")
     }
 
     @Test

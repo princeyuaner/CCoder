@@ -3,6 +3,7 @@ import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
 import { t, useLang } from '../i18n'
 import { nestByParent, type NestedItem } from '../nesting'
 import { AssistantBubble } from './AssistantBubble'
+import { EmptyState } from './EmptyState'
 import { ErrorBubble } from './ErrorBubble'
 import { Markdown } from './Markdown'
 import { ResultLine } from './ResultLine'
@@ -204,6 +205,25 @@ export function Transcript({ state }: { state: TranscriptState }) {
   const liveText = state.live.assistant
   // 进行中的思考。空串按"没有"处理：Kotlin 侧会把空增量过滤掉，这里的判断是兜底
   const liveThinking = state.live.thinking !== '' ? state.live.thinking : undefined
+
+  /**
+   * 空会话的引导卡（设计稿 empty-session.html 方案乙）。
+   *
+   * **判据是两半，缺一不可**：
+   *
+   *  - `fresh` 标记（Kotlin 在会话就绪时推来，Reset 清掉）—— 它说的是
+   *    "这是一条真新会话"。**不能只看 items 空**：切换会话时 Kotlin 先 Reset
+   *    再从磁盘回放历史，中间有一段真空期（回放图片时实测能到几百毫秒），
+   *    只看"空"的话卡会在真空期里闪一下再被历史顶掉。
+   *  - 没有任何内容项，也没有正在进行中的流。系统提示**不算内容** ——
+   *    `/clear` 之后只剩一条「上下文已清空」的提示，那时照样是空会话，
+   *    卡该和提示并排待着。
+   */
+  const empty =
+    state.fresh === true &&
+    liveText === undefined &&
+    liveThinking === undefined &&
+    !state.items.some((it) => it.kind !== 'systemNote')
 
   // 工具结果与工具调用在协议里是**两条独立的消息**（结果是后到的那条），
   // 这里按 toolUseId 配好再往下传 —— 配对只此一处，卡片自己不得到处找
@@ -451,6 +471,9 @@ export function Transcript({ state }: { state: TranscriptState }) {
             nested={nestedBlocks.get(node.item.id)}
           />
         ))}
+        {/* 空态放在时间线条目**之后**：`/clear` 那条「上下文已清空」的提示
+            在顶上，卡在剩下的空间里居中（见 .empty 的 margin: auto） */}
+        {empty && <EmptyState />}
         {/* 思考在正文之前 —— 与 SDK 给的块顺序一致 */}
         {liveThinking !== undefined && <LiveThinkingBlock text={liveThinking} />}
         {liveText !== undefined && (

@@ -24,6 +24,10 @@ export function parseOps(raw: unknown): TranscriptOp[] {
         out.push({ op: 'reset' })
         break
 
+      case 'fresh':
+        out.push({ op: 'fresh' })
+        break
+
       case 'append': {
         const item = parseItem(op.item)
         if (item) out.push({ op: 'append', item })
@@ -157,6 +161,10 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
   let live = state.live
   let itemsCloned = false
   let liveCloned = false
+  // 「新会话」标记。读取口径与写入一致：只认 `true`（缺省/坏值 = 不是新会话）。
+  // 它是**锁存**的：置起后一直留到下一次 Reset —— 内容一到，界面那一侧靠
+  // "有没有内容项"把它盖住（见 Transcript.tsx 的空态判据），这里不逐条清。
+  let fresh = state.fresh === true
 
   const mutateItems = (): TranscriptItem[] => {
     if (!itemsCloned) {
@@ -222,6 +230,13 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
         live = {}
         itemsCloned = true
         liveCloned = true
+        // 下一次 `fresh` 到来之前都不是新会话。切换会话/回放走的就是这条 ——
+        // 标记必须随 Reset 清掉，否则回放的真空期会把引导卡闪出来
+        fresh = false
+        break
+
+      case 'fresh':
+        fresh = true
         break
 
       case 'append': {
@@ -302,5 +317,7 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
     }
   }
 
-  return { items, live }
+  // `fresh` 只在置起时写进新对象：它缺省即"不是新会话"，而带上 `fresh: false`
+  // 会让所有别处构造状态、逐字段比对的用例凭空多出一个键。
+  return fresh ? { items, live, fresh } : { items, live }
 }

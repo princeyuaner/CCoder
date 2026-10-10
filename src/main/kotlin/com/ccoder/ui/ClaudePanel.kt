@@ -3454,7 +3454,13 @@ class ClaudePanel(
                         currentSessionId = resuming
                         beginReplay(resuming)
                     } else {
-                        pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.sessionReady")))
+                        // 全新会话：推一条**标记**而不是「会话已就绪」的系统提示。
+                        // 那条提示从前会永远留在时间线里（第一条消息上方一直挂着
+                        // 它）；标记则由网页侧的空态引导卡表达，内容一到自然消失
+                        // （2026-10-10，设计稿 empty-session.html 方案乙）。
+                        // 恢复路径（上面那支）**不推** —— 回放有自己的内容，
+                        // 网页侧靠"有没有这个标记"把真新会话与回放真空期分开
+                        pushOp(TranscriptOp.Fresh)
                         // 全新会话：没有标题可显示，标签是斜体的「新会话」
                         currentSessionTitle = null
                         refreshSessionLabel(enabled = true)
@@ -3563,6 +3569,10 @@ class ClaudePanel(
                                 // 已经不在上下文里的历史，正是 §7.5 反对的
                                 // 那种"看着还在、其实没了"
                                 clearForNewSession()
+                                // 清空之后又是一条空会话：换上引导卡（同 Ready 那支
+                                // 的理由）。提示在卡之上 —— 系统提示不算内容项，
+                                // 两者并存是故意的
+                                pushOp(TranscriptOp.Fresh)
                                 refreshSessionList()
                                 pushItem(RenderItem.SystemNote(CcoderText.text("chat.note.contextCleared")))
                             }

@@ -112,4 +112,17 @@ sealed interface TranscriptOp {
     data class ClearDelta(val target: String) : TranscriptOp
 
     data object Reset : TranscriptOp
+
+    /**
+     * **新会话就绪**：这条转写属于一条刚建立、还没有任何内容的会话。
+     *
+     * 从前这件事由一条「会话已就绪」的系统提示承担，而那条提示会永远留在
+     * 时间线里（第一条消息上方一直挂着它）。换成标记之后，空态由网页侧的
+     * 引导卡表达，内容一到卡自然消失，时间线里不留痕（2026-10-10，设计稿
+     * `docs/design/empty-session.html` 方案乙）。
+     *
+     * 只在**新会话**（含 /clear 之后）推；恢复/切换会话走 Reset + 回放，
+     * 绝不推它 —— 网页侧的空态判据靠这个区分"真新会话"与"回放真空期"。
+     */
+    data object Fresh : TranscriptOp
 }

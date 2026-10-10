@@ -16,5 +16,6 @@
   {"op":"append","item":{"kind":"user","id":"m7","ts":1726050007000,"text":"看这张","images":["data:image/jpeg;base64,AAAA","data:image/jpeg;base64,BBBB"]}},
   {"op":"append","item":{"kind":"toolUse","id":"m8","ts":1726050008000,"toolUseId":"toolu_task","name":"Task","input":"{}"}},
   {"op":"append","item":{"kind":"toolUse","id":"m9","ts":1726050008500,"toolUseId":"toolu_sub","name":"Grep","input":"{}","parent":"toolu_task"}},
-  {"op":"append","item":{"kind":"assistant","id":"m10","ts":1726050009000,"text":"找到了三处","parent":"toolu_task"}}
+  {"op":"append","item":{"kind":"assistant","id":"m10","ts":1726050009000,"text":"找到了三处","parent":"toolu_task"}},
+  {"op":"fresh"}
 ]
