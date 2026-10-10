@@ -554,6 +554,15 @@ class ClaudePanel(
      */
     private var lastMcpServers: List<McpServerStatus>? = null
 
+    /** 「连接中」的续问表（见 [McpSettleWatch]）。 */
+    private val mcpSettle = McpSettleWatch()
+
+    /**
+     * 续问的定时器。**一次性**的：每一跳由上一份读数亲自排（见 [askAgainIfStillSettling]），
+     * 落定即停、问满即停。
+     */
+    private var mcpSettleTimer: javax.swing.Timer? = null
+
     /** 打开着的详情浮层。用它实现"再点一次收起"。 */
     private var runDetailPopup: JBPopup? = null
 
@@ -1246,9 +1255,10 @@ class ClaudePanel(
      * 与 [requestContextUsage] 同一条：失败**不往转写区插错误** —— 读不到状态
      * 不值得打断用户，但要留痕，否则"面板那一栏一直空着"无从查起。
      *
-     * 它是**本地控制请求**（不产生模型调用），所以开会话时问一次、打开设置前
-     * 再问一次都不心疼。问两次是因为侧重点不同：开会话那次给页面一个底，
-     * 打开设置那次保证用户看到的是"此刻"。
+     * 它是**本地控制请求**（不产生模型调用），所以问勤一点不心疼：开会话时问一次
+     * （给页面一个底）、打开设置前再问一次（保证用户看到的是"此刻"），还有读数里
+     * 带着 `pending` 时的**续问**（见 [askAgainIfStillSettling] —— 那是"连接中"
+     * 这行字能自己变好的前提，2026-10-10 用户报的就是它不变）。
      */
     private fun requestMcpStatus() {
         val c = client ?: return
@@ -1265,6 +1275,10 @@ class ClaudePanel(
                             // 先记本地：切标签回来时要拿它重新发布（见 [publishMcpStatus]）
                             lastMcpServers = report.servers
                             publishMcpStatus()
+                            // 还在连的就隔一会儿再问：SDK 后台连的 MCP，第一份读数
+                            // 多半是 pending，落定晚一拍才到 —— 不续问，设置页那行字
+                            // 要等用户重开一次才肯变（[McpSettleWatch] 开头有原委）
+                            askAgainIfStillSettling(report.servers)
                         }
                     }
 
@@ -1272,6 +1286,32 @@ class ClaudePanel(
                 }
             }
         }
+    }
+
+    /**
+     * 读数还在游走（还有 server 是 `pending`）就排一次续问。
+     *
+     * 单发定时器 + [McpSettleWatch] 的牌数：每一跳都以上一份读数为准 —— 落定即停、
+     * 问满即停、通道断了（没回执）自然停。定时器**用到才建**（同 [startWaitingTicker]
+     * 的懒建法），且一律 `restart`：同一场 pending 有两份读数几乎同时回来时，
+     * 也只有一跳在排队。
+     */
+    private fun askAgainIfStillSettling(servers: List<McpServerStatus>) {
+        if (!mcpSettle.nextAskWanted(servers)) return
+        val timer = mcpSettleTimer
+            ?: javax.swing.Timer(McpSettleWatch.INTERVAL_MS.toInt()) { requestMcpStatus() }.also {
+                it.isRepeats = false
+                mcpSettleTimer = it
+            }
+        timer.restart()
+    }
+
+    /**
+     * 停表 + 还牌。会话没了、用户催过（重连/启用停用、打开设置框）、新会话起来时调。
+     */
+    private fun resetMcpSettle() {
+        mcpSettle.reset()
+        mcpSettleTimer?.stop()
     }
 
     /**
@@ -1331,6 +1371,9 @@ class ClaudePanel(
                         val message = ack?.error
                             ?: if (ack == null) CcoderText.text("settings.mcp.controlUnknown") else null
                         McpControl.getInstance(project).report(action, message)
+                        // 用户刚催过（重连/启用停用）：续问的牌还满，
+                        // 这场新的 pending 从头跟起
+                        resetMcpSettle()
                         requestMcpStatus()
                     }
 
@@ -2033,7 +2076,10 @@ class ClaudePanel(
      * 就是同一份注入，见 `ThemeInjector`）。
      */
     private fun openModelSettings() {
-        // 先把 MCP 状态问一遍：右栏读的是 McpStatus 服务，不先问就显示上一次的
+        // 先把 MCP 状态问一遍：右栏读的是 McpStatus 服务，不先问就显示上一次的。
+        // 续问的牌一并还满（[McpSettleWatch.reset]）：用户这就盯着看了，
+        // 这一场"连接中"从头跟起，不再受上一场问满封顶的连累
+        resetMcpSettle()
         requestMcpStatus()
         showSettingsDialog(project)
         // 关框那一刻推一次：已经画在屏幕上的思考块跟着收/展、字体与字号当场换
@@ -3006,6 +3052,8 @@ class ClaudePanel(
         lastUsage = null
         lastContextDetail = null
         refreshStatusCards()
+        // MCP 续问表同理：新会话起手，"连接中"从头跟一场（上一场的牌作废）
+        resetMcpSettle()
 
         // 标题由 [switchToSession] 在切之前就设好了（列表里现成的）；
         // 全新会话这里是 null，标签显示斜体的「新会话」
@@ -3353,6 +3401,8 @@ class ClaudePanel(
         // 秒表捕获着这个面板：不摘的话它会把面板钉在事件队列上，一秒一跳地
         // 刷一个已经没了的组件
         stopWaitingTicker()
+        // 续问的定时器同理（它也捕获着面板 —— [resetMcpSettle] 顺手把表停了）
+        resetMcpSettle()
         // 标签容器那边的订阅同理 —— 摘晚一步它就会去碰一个已经销毁的按钮
         SessionTabs.getInstance(project).removeTabsListener(tabsListener)
         // 状态栏那份记账也要摘干净：留着的 restoreAsk 会让人点一下"回到提问"，
@@ -3681,6 +3731,8 @@ class ClaudePanel(
                     if (SessionTabs.getInstance(project).isSelected(this)) {
                         McpStatus.getInstance(project).clear()
                     }
+                    // 续问也停：会话没了，再问回去也只是失败；下个会话起手会重开表
+                    resetMcpSettle()
                     // 反向那条线一样（会话没了就没人接动作了），但**不套上面那个
                     // 选中判断**：detach 认主人，不是自己挂的它自己会跳过 ——
                     // 后台标签的 Exit 不该把前台刚挂上的那条线抹掉
