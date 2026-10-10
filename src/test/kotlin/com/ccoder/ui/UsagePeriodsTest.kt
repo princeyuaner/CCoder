@@ -240,4 +240,16 @@ class UsagePeriodsTest {
         assertEquals(Color(0xff, 0xff, 0xff), light.surface)
         assertEquals(Color(0xd1, 0xd1, 0xd1), light.border)
     }
+
+    @Test
+    fun `项目键比对：反斜杠与正斜杠是同一个项目 —— tick 不能被丢`() {
+        // 2026-10-10 实机：会话启动参数里的 cwd 是 Windows 反斜杠形
+        // （absolutePathString），面板手里的 basePath 是正斜杠形 —— 直接 ==
+        // 会把每一条 usageTick 都丢掉（账在记、条不动，重启 IDE 才更新）。
+        assertTrue(usageSameProject("C:\\Users\\CY\\Desktop\\zhixin", "C:/Users/CY/Desktop/zhixin"))
+        assertTrue(usageSameProject("C:/proj/", "C:/proj"))
+        assertTrue(!usageSameProject("C:/proj", "C:/other"))
+        assertTrue(!usageSameProject("", "C:/proj"))
+        assertTrue(!usageSameProject(null, "C:/proj"))
+    }
 }

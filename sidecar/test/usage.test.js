@@ -259,12 +259,14 @@ test('项目口径把路径分隔符归一：会话文件里的反斜杠与 Kotl
   try {
     const store = createUsageStore({ root: t.root, projectsRoot: t.projectsRoot, now: () => NOW });
     await prime(store, 'C:/proj');
-    store.recordResult({ sid: 's1', cwd: 'C:\\proj', resume: false }, mu({ m1: [5, 0, 0, 0] }));
+    const tick = store.recordResult({ sid: 's1', cwd: 'C:\\proj', resume: false }, mu({ m1: [5, 0, 0, 0] }));
+    assert.equal(tick.project, 'C:/proj', 'tick 回的项目键是规范形 —— 面板拿它和 IDE 的 basePath 比（0.2.34 前是原始形，整条被丢）');
     const rep = await store.report({ scope: 'project', project: 'C:/proj' });
     assert.equal(rep.rows.length, 1);
     assert.equal(rep.rows[0].m.m1.i, 5);
     assert.equal(store.tickFor('C:/proj').today.t, 5);
     assert.equal(store.tickFor('C:\\proj').today.t, 5, '反斜杠传进来也认得');
+    assert.equal(store.tickFor('C:\\proj').project, 'C:/proj', '回出去的项目键同样是规范形');
     // 另一个项目不会被误收
     const other = await store.report({ scope: 'project', project: 'C:/other' });
     assert.equal(other.rows.length, 0);

@@ -369,7 +369,10 @@ export function createUsageStore({
     const spark = [];
     for (let k = 13; k >= 0; k--) spark.push(projectDayTotals(localDay(now() - k * 86400000), want).tokens);
     const t = projectDayTotals(today, want);
-    return { project, today: { t: t.tokens, cost: round4(t.cost) }, spark };
+    // project 回**规范形**（与账本里存的同一个形）。回原始形的话，Windows 上
+    // cwd（Path.absolutePathString 的反斜杠）与面板手里的 basePath（正斜杠）
+    // 对不上 —— 面板会把这**每一条 tick** 都丢掉（2026-10-10 用户实机按出）
+    return { project: want, today: { t: t.tokens, cost: round4(t.cost) }, spark };
   }
 
   return { recordResult, report, ensureBackfill, tickFor };

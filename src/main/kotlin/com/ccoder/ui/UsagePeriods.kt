@@ -215,6 +215,23 @@ internal fun formatUsageCost(v: Double): String =
     if (v < 1000) String.format(Locale.ROOT, "%.1f", v) else Math.round(v).toString()
 
 /**
+ * 项目键比对：`\` → `/`、去尾斜杠（与 sidecar 的 `normalizeProj` 同一条规矩）。
+ *
+ * 为什么不能直接 `==`：`usageTick` 的 project 来自会话启动参数
+ * （`Path.absolutePathString()` 在 Windows 上是**反斜杠**形），而面板手里的
+ * basePath 是**正斜杠**形 —— 直接比，每一条 tick 都会被丢掉。症状是"账在记、
+ * 条不动：只有新会话 / 重启 / 开统计框（那些走 report 的时机）才更新"
+ *（2026-10-10 用户实机按出来的）。sidecar 那边 0.2.34 起也回规范形 ——
+ * 这里再归一次是纵深防御。
+ */
+internal fun usageSameProject(a: String?, b: String?): Boolean {
+    fun norm(s: String?): String? = s?.replace('\\', '/')?.trimEnd('/')
+    val x = norm(a)
+    val y = norm(b)
+    return x != null && x.isNotEmpty() && x == y
+}
+
+/**
  * 「复制 CSV」的内容。表头**走词表**（复制出去的东西同样是界面文案，同
  * ContextDetail 的 Markdown）；行按日期升序、模型降序 —— 与屏幕上的顺序一致。
  */

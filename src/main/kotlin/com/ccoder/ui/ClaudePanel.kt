@@ -3415,11 +3415,13 @@ class ClaudePanel(
                     }
                 }
 
-                // 使用量推送（每回合一条）：常驻条跟着更新。project 对不上就忽略
-                // —— 多标签/多窗口下会收到别的项目的 tick
+                // 使用量推送（每回合一条）：常驻条跟着更新。项目对不上就忽略
+                // —— 多标签/多窗口下会收到别的项目的 tick。比对必须走
+                // [usageSameProject]：tick 里的 project 是反斜杠形、basePath 是
+                // 正斜杠形，直接 == 每一条都丢（2026-10-10 实机按出）
                 is SidecarMessage.UsageTick -> {
                     val base = project.basePath
-                    if (base != null && msg.project == base) {
+                    if (base != null && usageSameProject(msg.project, base)) {
                         usageStrip.submit(UsageStripData(msg.todayTokens, msg.todayCost, msg.spark))
                     }
                 }
