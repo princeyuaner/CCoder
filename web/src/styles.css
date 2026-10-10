@@ -855,6 +855,78 @@ body {
   user-select: text;
 }
 
+/* ---- 空会话的引导卡（设计稿 empty-session.html 方案乙，2026-10-10）----
+ *
+ * 只在**真新会话**里出现（判据在 Transcript.tsx：`fresh` 标记 + 没有任何
+ * 内容项）。靠 margin: auto 在剩下的空间里居中 —— 时间线条目（比如
+ * /clear 之后那条提示）留在顶上，卡在下面那块空地里。
+ *
+ * `flex-shrink: 0` 是必需的，同 .tool 那条账：.transcript 是高度受限的
+ * flex 列，默认允许压缩，面板拖矮或条目多起来时卡会被压扁。
+ */
+.empty {
+  margin: auto;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.empty__card {
+  width: 352px;
+  max-width: 100%;
+  background: var(--surface, #2b2d30);
+  border: 1px solid var(--border, #393b40);
+  border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
+  border-radius: 10px;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  /* 卡片浮在空落落的背景上，比普通气泡多一层影，像"摆在中间" */
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.16);
+}
+
+.empty__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(13.5px * var(--fs-scale, 1));
+  color: var(--text, #dcdcdc);
+}
+
+/* 品牌橙走 --brand（ThemeInjector 按主题明暗挑的那两档，与图标同色）。
+ * 兜底值是深色档 —— 没注入时页面本来就按深色兜底。 */
+.empty__mark {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--brand, #f0883e);
+}
+
+.empty__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: calc(12px * var(--fs-scale, 1));
+  color: var(--text-dim, #8c8c8c);
+}
+
+/* 键位小帽：等宽、下边框厚一档，像一颗键 */
+.empty__key {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: calc(10.5px * var(--fs-scale, 1));
+  line-height: 1.5;
+  padding: 1px 5px;
+  border: 1px solid var(--border, #393b40);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--code-bg, #191a1c);
+  color: var(--text, #dcdcdc);
+  white-space: nowrap;
+}
+
 /* ---- 动效（设计文档 §4.4）---- */
 
 @keyframes fade-in {

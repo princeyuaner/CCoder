@@ -37,6 +37,15 @@ const en = {
   'transcript.backToBottom': 'Jump to bottom',
   /** 离开底部期间又来了新内容时的无障碍名（按钮上同时多一个小圆点） */
   'transcript.backToBottomNew': 'Jump to bottom (new content)',
+  /** 空会话引导卡的招呼（EmptyState.tsx）。卡只在真新会话里出现，见那边的判据 */
+  'transcript.empty.title': 'What can I help you with?',
+  /**
+   * 卡上三条提示。说的都是**光看输入框看不出来**的事（输入框那行占位符只列
+   * 符号本身）；发送键位不在卡上重复 —— 它跟着设置走，印在输入框里。
+   */
+  'transcript.empty.refs': 'Reference files and symbols — they are sent with your message',
+  'transcript.empty.commands': 'Bring up commands, like /clear or /compact',
+  'transcript.empty.images': 'Paste a screenshot straight into the conversation',
 
   // ---- 工具卡片（ToolCallBlock.tsx / tools.ts）----
   /** 结果到了、但一个字符都没有。说的就是"这次调用确实没吐东西"，不是"还在跑" */
@@ -103,6 +112,10 @@ const zh: Record<Key, string> = {
   'transcript.subagent.toolCalls': '{0} 次工具调用',
   'transcript.backToBottom': '回到底部',
   'transcript.backToBottomNew': '回到底部（有新内容）',
+  'transcript.empty.title': '有什么可以帮你的？',
+  'transcript.empty.refs': '引用文件与符号，会随消息一起发出',
+  'transcript.empty.commands': '唤起命令，如 /clear、/compact',
+  'transcript.empty.images': '截图直接粘进对话',
 
   'tool.noOutput': '（无输出）',
   'tool.failed': '失败',
