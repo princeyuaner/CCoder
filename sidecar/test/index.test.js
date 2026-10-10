@@ -1700,3 +1700,85 @@ test('MCP 动作：没有会话时回错误，不静默', async () => {
     ['MCP_RECONNECT_FAILED', 'MCP_TOGGLE_FAILED'],
   );
 });
+
+// ---- 使用量统计（usageReport / usageTick，2026-10-10）----
+
+test('usageReport 不需要活会话：把账本按行回报，带 id 与 scope', async () => {
+  // 与 listSessions 同一条设计：账本是磁盘上的文件，面板一打开就能看
+  const out = [];
+  const calls = [];
+  const usageStore = {
+    report: async (params) => {
+      calls.push(params);
+      return { scope: 'project', rows: [{ d: '2026-10-10', m: { m1: { i: 1, o: 2, r: 3, c: 4, cost: 0.01 } } }] };
+    },
+  };
+  const d = createDispatcher({ sessionFactory: fakeSessionFactory().factory, out: (m) => out.push(m), usageStore });
+
+  d.handle({ id: '31', method: 'usageReport', params: { scope: 'project', project: '/tmp' } });
+  await tick();
+
+  assert.deepEqual(calls, [{ scope: 'project', project: '/tmp' }]);
+  const ack = out.find((m) => m.type === 'usage');
+  assert.ok(ack, '没有应答，统计页就打不开');
+  assert.equal(ack.id, '31');
+  assert.equal(ack.scope, 'project');
+  assert.equal(ack.rows.length, 1);
+});
+
+test('usageReport 失败：USAGE_FAILED 广播（界面靠它记日志）', async () => {
+  const out = [];
+  const usageStore = { report: async () => { throw new Error('boom'); } };
+  const d = createDispatcher({ sessionFactory: fakeSessionFactory().factory, out: (m) => out.push(m), usageStore });
+
+  d.handle({ id: '32', method: 'usageReport', params: {} });
+  await tick();
+
+  const err = out.find((m) => m.type === 'error');
+  assert.equal(err.code, 'USAGE_FAILED');
+  assert.equal(err.fatal, false);
+});
+
+test('没有账本（缺省 null）时 usageReport 明着失败，不静默', async () => {
+  // 缺省 null 是防呆：单测的默认路径绝不能碰用户真实的 ~/.ccoder/usage
+  const out = [];
+  const d = createDispatcher({ sessionFactory: fakeSessionFactory().factory, out: (m) => out.push(m) });
+  d.handle({ id: '33', method: 'usageReport', params: {} });
+  assert.equal(out.find((m) => m.type === 'error').code, 'USAGE_FAILED');
+});
+
+test('result 事件记账并把 usageTick 推出去；记账抛错绝不影响事件转发', async () => {
+  const out = [];
+  const seen = [];
+  const usageStore = {
+    recordResult: (ctx, mu) => {
+      seen.push({ ctx: { ...ctx }, mu });
+      return { project: '/tmp', today: { t: 5, cost: 0.1 }, spark: [0] };
+    },
+  };
+  const sf = fakeSessionFactory();
+  const d = createDispatcher({ sessionFactory: sf.factory, out: (m) => out.push(m), usageStore });
+  const s = d.handle(START);
+
+  s._emit({ type: 'result', session_id: 'sess-1', modelUsage: { m1: { inputTokens: 1 } } });
+
+  assert.ok(out.some((m) => m.type === 'event'), '事件照样转发');
+  const tickMsg = out.find((m) => m.type === 'usageTick');
+  assert.ok(tickMsg, 'tick 必须推出去');
+  assert.equal(tickMsg.today.t, 5);
+  assert.equal(seen[0].ctx.sid, 'sess-1', 'sid 以事件里的为准');
+  assert.equal(seen[0].ctx.resume, false);
+
+  // 记账炸了：事件照旧、不推 tick、不影响聊天
+  const out2 = [];
+  const sf2 = fakeSessionFactory();
+  const d2 = createDispatcher({
+    sessionFactory: sf2.factory,
+    out: (m) => out2.push(m),
+    usageStore: { recordResult: () => { throw new Error('boom'); } },
+  });
+  const s2 = d2.handle(START);
+  s2._emit({ type: 'result' });
+  assert.ok(out2.some((m) => m.type === 'event'));
+  assert.ok(!out2.some((m) => m.type === 'usageTick'));
+});

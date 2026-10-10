@@ -19,6 +19,7 @@ import com.ccoder.sidecar.SubagentInfo
 import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
+import com.ccoder.sidecar.UsageDay
 import com.ccoder.settings.ClaudeSettings
 import com.ccoder.settings.EffortSetting
 import com.ccoder.settings.McpControl
@@ -77,6 +78,7 @@ import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.io.File
 import java.nio.file.Path
+import java.time.LocalDate
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -193,6 +195,23 @@ class ClaudePanel(
         // 同步那颗**不是**一条命令：它拨的是 `SyncConfig.enabled`（见 [toggleSync]）
         onToggleSync = { toggleSync() },
     )
+
+    /**
+     * 「使用量」常驻条（E1，2026-10-10 用户从选型台选的）。点开 → [UsageDialog]。
+     *
+     * 数据两条路进来：[Ready] 后问一次（[requestUsageStrip]）与每回合的
+     * usageTick 推送（[onMessage] 里那条分支）。第一次收到数据之前整条不可见。
+     */
+    private val usageStrip = UsageStrip(onOpen = { openUsageDialog() })
+
+    /** 最近一次"本项目"口径的账 —— 打开对话框时先拿它垫上（点开是瞬间的）。 */
+    private var lastUsageRows: List<UsageDay> = emptyList()
+
+    /** 开着的统计框。关掉时由 onClosed 清回 null（晚到的响应靠这个判"还要不要"）。 */
+    private var usageDialog: UsageDialog? = null
+
+    /** 统计框当前口径（"project"/"all"）—— 再点常驻条时按它去要最新数据。 */
+    private var usageDialogScope: String = "project"
 
     /**
      * 同步状态（项目级，见 `SyncStatus`）。
@@ -912,6 +931,13 @@ class ClaudePanel(
                     .apply { alignmentX = LEFT_ALIGNMENT }
             )
             add(statusCards)
+            // 使用量常驻条（2026-10-10）：五张卡之下、输入卡之上。第一次收到
+            // 数据之前它整条不可见 —— BoxLayout 会跳过不可见子项，不占高度
+            add(
+                (Box.createVerticalStrut(JBUI.scale(5)) as JComponent)
+                    .apply { alignmentX = LEFT_ALIGNMENT }
+            )
+            add(usageStrip.apply { alignmentX = LEFT_ALIGNMENT })
             // 卡片与输入框之间留一口气。紧贴着看时，五张卡像是输入框的一部分
             // （而且状态卡是"常驻控件"，不是输入区里的一行）。strut 宽 0，
             // 不参与对齐的加权平均，不必管它
@@ -1120,6 +1146,95 @@ class ClaudePanel(
                     }
 
                     is RequestOutcome.Failed -> LOG.warn("读取上下文用量失败：${outcome.reason}")
+                }
+            }
+        }
+    }
+
+    /**
+     * 问一次"本项目"的用量账，喂给常驻条。
+     *
+     * 与 requestContextUsage 的两点差别：**不需要活会话**（账本是 sidecar 磁盘上
+     * 的文件），而这条请求重得多 —— 首次要全量回填历史，超时按分钟给（见
+     * [SidecarClient.SCAN_REQUEST_TIMEOUT_MS]）。失败只落日志：常驻条保持现状，
+     * 不打断聊天（同 contextUsage 那条"读不到不往转写区插错误"）。
+     */
+    private fun requestUsageStrip() {
+        val c = client ?: return
+        val base = project.basePath ?: return
+        val reqId = nextId()
+        c.request(
+            reqId,
+            Protocol.encodeUsageReport(reqId, "project", base),
+            timeoutMs = SidecarClient.SCAN_REQUEST_TIMEOUT_MS,
+        ) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val report = outcome.message as? SidecarMessage.UsageReport
+                        if (report == null) {
+                            LOG.warn("使用量返回了意外的消息")
+                        } else {
+                            lastUsageRows = report.rows
+                            usageStrip.submit(stripDataOf(report.rows, LocalDate.now()))
+                        }
+                    }
+
+                    is RequestOutcome.Failed -> LOG.warn("读取使用量失败：${outcome.reason}")
+                }
+            }
+        }
+    }
+
+    /** 常驻条点开：先拿手里那份把框摆上（瞬间可见），再向 sidecar 要最新的一份。 */
+    private fun openUsageDialog() {
+        val existing = usageDialog
+        if (existing != null) {
+            existing.window?.toFront()
+            requestUsageForDialog(usageDialogScope)
+            return
+        }
+        val dialog = UsageDialog(
+            project = project,
+            initialScope = "project",
+            initialRows = lastUsageRows,
+            onScopeChange = { scope ->
+                usageDialogScope = scope
+                requestUsageForDialog(scope)
+            },
+            onClosed = { usageDialog = null },
+        )
+        usageDialog = dialog
+        usageDialogScope = "project"
+        // **先发请求、再 show**：show() 是模态的（阻塞到关闭），放它后面等于
+        // 关掉之后才去要数据
+        requestUsageForDialog(usageDialogScope)
+        dialog.show()
+    }
+
+    /**
+     * 给开着的统计框要一份 [scope] 口径的账。对话框中途关了就丢 —— 与子代理
+     * 那次「响应回来时把用户已经放弃的浮层弹出来」是同一个教训。
+     */
+    private fun requestUsageForDialog(scope: String) {
+        val c = client ?: return
+        val base = project.basePath ?: return
+        val reqId = nextId()
+        c.request(
+            reqId,
+            Protocol.encodeUsageReport(reqId, scope, base),
+            timeoutMs = SidecarClient.SCAN_REQUEST_TIMEOUT_MS,
+        ) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                val dialog = usageDialog ?: return@invokeLater
+                when (outcome) {
+                    is RequestOutcome.Answered -> {
+                        val report = outcome.message as? SidecarMessage.UsageReport ?: return@invokeLater
+                        if (report.scope == "project") lastUsageRows = report.rows
+                        dialog.updateRows(report.scope, report.rows)
+                    }
+
+                    is RequestOutcome.Failed -> LOG.warn("读取使用量失败：${outcome.reason}")
                 }
             }
         }
@@ -3272,6 +3387,9 @@ class ClaudePanel(
                     // 用量也问一次：恢复的会话在这里就能拿到真数（含分母），
                     // 新会话则拿到"0 + 窗口"，卡片不用先显示一轮的空白
                     requestContextUsage()
+                    // 使用量统计的常驻条也问一次：账本在磁盘上、与会话无关，
+                    // 起手就该有数（此刻侧车那边多半已完成历史回填的预热）
+                    requestUsageStrip()
                     // MCP 状态也问一次：设置页右栏读的是 McpStatus 服务，
                     // 不先给个底的话，用户点开设置看到的永远是"还没拿到"
                     requestMcpStatus()
@@ -3294,6 +3412,15 @@ class ClaudePanel(
                         // 补发窗口就绪前暂存的首条消息。气泡还在（submit 推过、中间
                         // 没有任何东西清过），所以不必重新推
                         flushPendingFirstMessage(repushBubble = false)
+                    }
+                }
+
+                // 使用量推送（每回合一条）：常驻条跟着更新。project 对不上就忽略
+                // —— 多标签/多窗口下会收到别的项目的 tick
+                is SidecarMessage.UsageTick -> {
+                    val base = project.basePath
+                    if (base != null && msg.project == base) {
+                        usageStrip.submit(UsageStripData(msg.todayTokens, msg.todayCost, msg.spark))
                     }
                 }
 
@@ -3530,6 +3657,7 @@ class ClaudePanel(
                 // 请求-响应式的应答本该由 SidecarClient 的待决表按 id 截走，
                 // 到不了这里 —— 列出来只为穷尽性
                 is SidecarMessage.ContextUsageReport,
+                is SidecarMessage.UsageReport,
                 is SidecarMessage.SessionRenamed,
                 is SidecarMessage.SessionTagged,
                 is SidecarMessage.Subagents,

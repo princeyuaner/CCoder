@@ -152,12 +152,20 @@ class SidecarClient(
      *
      * 回调在**读取线程**上执行。调用方要碰 Swing 得自己 invokeLater。
      */
-    fun request(id: String, json: String, callback: (RequestOutcome) -> Unit) {
+    fun request(
+        id: String,
+        json: String,
+        // **加在 callback 之前**：尾随 lambda 会绑到最后一个参数上 ——
+        // 放在后面的话，全仓所有 `request(id, json) { … }` 都会把它绑成超时值
+        //（这个坑本仓踩过两次，见 StatusCardsRow 的注释）
+        timeoutMs: Long = requestTimeoutMs,
+        callback: (RequestOutcome) -> Unit,
+    ) {
         if (closed.get()) {
             callback(RequestOutcome.Failed(CcoderText.text("chat.error.channelClosed")))
             return
         }
-        registerAndSchedule(id, callback)
+        registerAndSchedule(id, callback, timeoutMs)
         sendLine(json)
     }
 
@@ -174,12 +182,12 @@ class SidecarClient(
      * 两个方向都得堵，所以合成一个原子操作。
      */
     @Synchronized
-    private fun registerAndSchedule(id: String, callback: (RequestOutcome) -> Unit) {
+    private fun registerAndSchedule(id: String, callback: (RequestOutcome) -> Unit, timeoutMs: Long) {
         val task = object : TimerTask() {
             override fun run() = onTimeout(id)
         }
         pending[id] = Pending(task, callback)
-        timerOrCreate().schedule(task, requestTimeoutMs)
+        timerOrCreate().schedule(task, timeoutMs)
     }
 
     @Synchronized
@@ -223,5 +231,14 @@ class SidecarClient(
     companion object {
         /** 列表与回放都是本地读取，实测 140ms 量级。10 秒是很宽的余量。 */
         const val DEFAULT_REQUEST_TIMEOUT_MS = 10_000L
+
+        /**
+         * 使用量统计那条请求的超时。
+         *
+         * 它比别的重：首跑要**全量回填**（扫本机 ~/.claude/projects，实测 730MB /
+         * 5.5s 量级），此后每次只扫变更过的文件。侧车起进程时已经预热，正常点开
+         * 是毫秒级 —— 这个数只是首跑/慢盘时的余量（见 usage-backfill.js）。
+         */
+        const val SCAN_REQUEST_TIMEOUT_MS = 60_000L
     }
 }

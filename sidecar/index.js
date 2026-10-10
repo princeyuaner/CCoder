@@ -20,6 +20,7 @@ import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
 import { applyProjectKey } from './project-key.js';
 import { makeT, normalizeLang, langFromEnv } from './strings.js';
+import { createUsageStore } from './usage.js';
 
 /**
  * SDK 的 EffortLevel 联合类型（sdk.d.ts:623）。
@@ -157,6 +158,12 @@ export function createDispatcher({
   // 界面语言（Lever A）：插件启动本进程时设的环境变量。做成参数只是为了让
   // 单测能直接钉住，不必去动 process.env；生产路径走默认值。
   lang = langFromEnv(process.env),
+  // 使用量账本（2026-10-10）。
+  //
+  // **缺省是 null（不记账）**，不是 createUsageStore()：单测里到处都在发射
+  // 事件，默认路径绝不能碰用户真实的 ~/.ccoder/usage。生产路径由 main()
+  // 显式建一个真的传进来（并把历史回填预热上）。
+  usageStore = null,
 }) {
   let session = null;
   // 当前取词器。**不是常量**：同一个 node 进程会被复用（新开一个标签并不新起
@@ -217,6 +224,14 @@ export function createDispatcher({
           fail('ALREADY_STARTED', t('error.alreadyStarted'), false);
           return session;
         }
+        // 使用量记账的会话上下文（2026-10-10）。sid 以事件里的为准；resume 只在
+        // **恢复后的第一回合**有意义 —— 没有基线时它决定"当基线用、不记账"
+        //（见 usage.js 的 recordResult）。
+        const usageCtx = {
+          sid: params.sessionId ?? params.resumeSessionId ?? null,
+          cwd: params.cwd ?? null,
+          resume: Boolean(params.resumeSessionId),
+        };
         let created;
         try {
           created = sessionFactory({
@@ -228,6 +243,19 @@ export function createDispatcher({
             t,
             onEvent: (event) => {
               out({ type: 'event', event });
+              // 使用量记账（2026-10-10）：每个回合一条 result，modelUsage 是全量
+              // 累计快照 —— 差分与重置判定都在 usage.js 里。**绝不能影响聊天主路**：
+              // 任何异常只落 stderr；没有账本（单测缺省）时整段跳过。
+              if (usageStore && event?.type === 'result') {
+                try {
+                  if (event.session_id) usageCtx.sid = event.session_id;
+                  const tick = usageStore.recordResult(usageCtx, event.modelUsage);
+                  usageCtx.resume = false;
+                  if (tick) out({ type: 'usageTick', ...tick });
+                } catch (err) {
+                  console.error(`[ccoder] 用量记账失败（不影响会话）：${err?.message ?? err}`);
+                }
+              }
               // 认证失败由 SDK 作为 assistant 事件的 error 字段回传，而非独立错误。
               // 抽成独立的 error 消息，使插件能给出可操作的提示（spec §5.3）。
               if (event?.error === 'authentication_failed') {
@@ -746,6 +774,29 @@ export function createDispatcher({
         return session;
       }
 
+      // 使用量统计（2026-10-10）：日/周/月。**不需要活会话** —— 账本是磁盘上的
+      // 文件（与 listSessions 同一条设计），面板一打开就能看。
+      //
+      // report 里会先跑一遍**增量回填**（历史会话文件 → 账本）：首次全扫几秒
+      // （本机 730MB / 5.5s 量级），之后每次只扫变更过的文件。所以插件侧这条
+      // 请求的超时按分钟给（见 ClaudePanel 的 SCAN_REQUEST_TIMEOUT_MS），并且
+      // main() 起进程时已经在预热 —— 正常点开是毫秒级。
+      case 'usageReport': {
+        if (!usageStore) {
+          // 单测缺省路径：账本没接上（生产不会走到这 —— main() 一定会注入）
+          fail('USAGE_FAILED', t('error.usageReportFailed'), false);
+          return session;
+        }
+        const { scope = 'project', project = null } = params;
+        Promise.resolve(usageStore.report({ scope, project }))
+          .then((report) => out({ type: 'usage', id: msg.id, scope: report.scope, rows: report.rows }))
+          .catch((err) => {
+            console.error(`[ccoder] 使用量汇总失败：${err?.message ?? err}`);
+            fail('USAGE_FAILED', t('error.usageReportFailed'), false);
+          });
+        return session;
+      }
+
       case 'stop':
         // 顺序重要：先清空待决权限，否则工具会挂住。
         // '会话已终止' 同 permissionDecision 那条：协议载荷，**保持中文不翻**
@@ -781,8 +832,15 @@ function isMainModule() {
 /** stdin 主循环。仅在作为程序运行时执行（测试导入模块时不触发）。 */
 function main() {
   const write = (m) => process.stdout.write(encodeNdjson(m));
+  // 使用量账本（2026-10-10）。起进程就把历史回填**预热**上：首次全扫几秒，
+  // 之后增量是毫秒级 —— 等用户点开统计时数据已经在了，不必干等第一次扫描。
+  const usageStore = createUsageStore();
+  usageStore.ensureBackfill().catch((err) => {
+    console.error(`[ccoder] 使用量回填失败（点开统计时会重试）：${err?.message ?? err}`);
+  });
   const dispatcher = createDispatcher({
     out: write,
+    usageStore,
     sessionFactory: (opts) => {
       // 取词器由 dispatcher 传进来（它才知道当前语言）—— claude-path 的报错
       // 发生在会话建起来**之前**，所以不能指望 createSession 那一层

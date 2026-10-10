@@ -93,6 +93,9 @@ export const CATALOGS = Object.freeze({
     'error.setModelNoSession': 'No session yet; the model can be changed once a session is connected.',
     'error.sessionNotStarted': 'No session yet.',
     'error.unknownMethod': 'Unknown method: {0}',
+    // —— usage.js：使用量统计（2026-10-10）。真实原因（哪个文件、什么异常）落
+    //    stderr；给用户看的是"这次点开失败了"，不是内部错误串。
+    'error.usageReportFailed': 'Failed to read usage statistics.',
 
     // —— session.js：CLI 太老。中文那句点出是哪个能力不支持，英文不点 ——
     //    用户刚点的就是那个按钮，上下文不缺；一句 "This needs a newer claude
@@ -150,6 +153,7 @@ export const CATALOGS = Object.freeze({
     'error.setModelNoSession': '会话还没建立，换模型要等连上会话再改',
     'error.sessionNotStarted': '会话尚未建立',
     'error.unknownMethod': '未知方法：{0}',
+    'error.usageReportFailed': '读取使用量失败',
 
     'session.cliTooOldStopTask': '当前 CLI 不支持终止任务，需要更新 claude 可执行文件',
     'session.cliTooOldEffort': '当前 CLI 不支持在会话中途调整思考深度，需要更新 claude 可执行文件',

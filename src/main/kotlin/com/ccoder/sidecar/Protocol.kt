@@ -7,6 +7,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
 import com.ccoder.text.CcoderText
+import java.time.LocalDate
 
 /**
  * sidecar 与插件之间的消息。
@@ -92,6 +93,30 @@ sealed interface SidecarMessage {
          * 界面据此退回"只有三个数"的老样子，而不是画一张空表。
          */
         val detail: ContextDetail? = null,
+    ) : SidecarMessage
+
+    /**
+     * `usageReport` 的应答（2026-10-10）：按天、按模型的用量账。
+     *
+     * [rows] 只含**有数据的天**（空白天由界面补零）；[scope] 回显请求口径
+     *（"project" / "all"）—— 界面靠它把结果放进对应的那一份。
+     */
+    data class UsageReport(
+        val requestId: String,
+        val scope: String,
+        val rows: List<UsageDay>,
+    ) : SidecarMessage
+
+    /**
+     * 使用量实时推送（每回合一条）：某项目"今天 + 近 14 天走势"变了。
+     * **不是应答**（没有 id）—— 由面板的 listener 分支消费；[project] 与
+     * 面板的 basePath 比对（不是本项目的就忽略，多标签/多窗口下会收到别的）。
+     */
+    data class UsageTick(
+        val project: String,
+        val todayTokens: Long,
+        val todayCost: Double?,
+        val spark: List<Long>,
     ) : SidecarMessage
 
     /** 错误。fatal=true 表示会话已终止。 */
@@ -292,6 +317,23 @@ data class ContextRow(
     val tokens: Long,
     val kind: String,
 )
+
+/**
+ * 某天、某个模型的用量（`usage` 应答里的一个格子）。
+ *
+ * [costUsd] 是**侧车按单价表估算**的成本（live/fill 同一公式，不是账单）；
+ * 缺字段的兼容位给 0（旧版本 sidecar 不会发它）。
+ */
+data class UsageModelTokens(
+    val inp: Long,
+    val out: Long,
+    val cacheRead: Long,
+    val cacheWrite: Long,
+    val costUsd: Double,
+)
+
+/** 一天的全部模型用量。只含**有数据的天** —— 空洞由界面补零（画图、周/月分桶都靠它）。 */
+data class UsageDay(val date: LocalDate, val models: Map<String, UsageModelTokens>)
 
 data class McpServerStatus(
     val name: String,
@@ -586,6 +628,26 @@ object Protocol {
                 )
             }
 
+            // 使用量统计（2026-10-10）。rows 的容错口径同 contextRows：读不出来的
+            // 行/模型丢掉、不猜；缺 id 则整条丢弃（无从配对）。
+            "usage" -> obj.str("id")?.let { rid ->
+                SidecarMessage.UsageReport(
+                    requestId = rid,
+                    scope = obj.str("scope") ?: "project",
+                    rows = parseUsageDays(obj.arr("rows")),
+                )
+            }
+
+            // 实时推送（没有 id）。project 认不出也收下 —— 面板自己会比对是不是本项目
+            "usageTick" -> SidecarMessage.UsageTick(
+                project = obj.str("project") ?: "",
+                todayTokens = obj.obj("today")?.long("t") ?: 0L,
+                todayCost = obj.obj("today")?.dbl("cost"),
+                spark = obj.arr("spark")?.mapNotNull { el ->
+                    el.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
+                } ?: emptyList(),
+            )
+
             "error" -> SidecarMessage.Failure(
                 message = obj.str("message") ?: CcoderText.text("chat.error.unknown"),
                 code = obj.str("code"),
@@ -679,6 +741,20 @@ object Protocol {
     fun encodeContextUsage(id: String): String = encodeSimple(id, "contextUsage")
 
     /**
+     * 问一次使用量统计（日/周/月）。
+     *
+     * **不需要活会话** —— 账本是侧车磁盘上的文件（同 listSessions 的设计）。
+     * [scope] 取 "project" / "all"；[project] 只在 project 口径下有意义
+     *（null 时侧车当全部项目处理）。这条请求比别的重 —— 首次要全量回填，
+     * 超时用 [SidecarClient.SCAN_REQUEST_TIMEOUT_MS]。
+     */
+    fun encodeUsageReport(id: String, scope: String, project: String?): String =
+        line(id, "usageReport", JsonObject().apply {
+            addProperty("scope", scope)
+            project?.let { addProperty("project", it) }
+        })
+
+    /**
      * 问一次各 MCP server 的实时状态（设置面板右侧那一栏）。
      *
      * 与 `contextUsage` 同一条：它是**会话的属性** —— 没有会话就没得报，
@@ -749,6 +825,7 @@ object Protocol {
         is SidecarMessage.McpServers -> msg.requestId
         is SidecarMessage.McpControlled -> msg.requestId
         is SidecarMessage.ContextUsageReport -> msg.requestId
+        is SidecarMessage.UsageReport -> msg.requestId
         is SidecarMessage.SessionRenamed -> msg.requestId
         is SidecarMessage.SessionTagged -> msg.requestId
         is SidecarMessage.Subagents -> msg.requestId
@@ -1041,5 +1118,34 @@ object Protocol {
             tokens = o.long("tokens") ?: 0L,
             kind = kindKeys.firstNotNullOfOrNull { o.str(it) } ?: "",
         )
+    } ?: emptyList()
+
+    /**
+     * 小数取值。**不能借 [num]**：那个按 Int 读（`1.5` 会变成 `1`）—— 成本是小数，
+     * 走它整列会被悄悄截断（第一次跑用例就抓到 0.12 → 0）。
+     */
+    private fun JsonObject.dbl(key: String): Double? =
+        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble
+
+    /**
+     * usage 应答里的 rows → 类型。容错口径同 [contextRows]：日期/模型读不出来的
+     * 丢掉那一行 —— 少一天是看得见的，整页空着不是。
+     */
+    private fun parseUsageDays(items: JsonArray?): List<UsageDay> = items?.mapNotNull { el ->
+        val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+        val date = o.str("d")?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@mapNotNull null
+        val modelsObj = o.obj("m") ?: return@mapNotNull null
+        val models = LinkedHashMap<String, UsageModelTokens>()
+        for ((name, mv) in modelsObj.entrySet()) {
+            val mo = mv.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+            models[name] = UsageModelTokens(
+                inp = mo.long("i") ?: 0L,
+                out = mo.long("o") ?: 0L,
+                cacheRead = mo.long("r") ?: 0L,
+                cacheWrite = mo.long("c") ?: 0L,
+                costUsd = mo.dbl("cost") ?: 0.0,
+            )
+        }
+        if (models.isEmpty()) null else UsageDay(date, models)
     } ?: emptyList()
 }
