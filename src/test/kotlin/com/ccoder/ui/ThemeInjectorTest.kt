@@ -48,11 +48,21 @@ class ThemeInjectorTest {
             "--bg", "--text", "--text-dim", "--border", "--accent", "--accent-text",
             "--surface", "--code-bg", "--ref-bg", "--error-bg",
             "--diff-add-bg", "--diff-del-bg", "--diff-add-fg", "--diff-del-fg",
-            "--thinking-fg",
+            "--thinking-fg", "--brand",
             "--font-ui", "--font-mono", "--fs-scale",
         )) {
             assertTrue(css.contains("$name:"), "缺少变量 $name")
         }
+    }
+
+    @Test
+    fun `品牌橙随明暗挑 —— 深色提亮、浅色压深（与图标同值）`() {
+        // 固定两档、不读平台：写法同 thinkingFgFor，按面板色的感知亮度判明暗。
+        // 值必须与 icons/ccoderToolWindow 那两份 SVG 一字不差（三处同一张脸）
+        val dark = ThemeInjector.buildCss(sample().copy(bg = Color(0x1E, 0x1F, 0x22)))
+        val light = ThemeInjector.buildCss(sample().copy(bg = Color(0xFF, 0xFF, 0xFF)))
+        assertTrue(dark.contains("--brand: #f0883e;"), "实际：$dark")
+        assertTrue(light.contains("--brand: #e8702a;"), "实际：$light")
     }
 
     @Test

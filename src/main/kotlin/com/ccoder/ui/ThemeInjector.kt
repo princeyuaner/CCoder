@@ -90,6 +90,9 @@ object ThemeInjector {
         append(" --diff-add-fg: ${colors.diffAddFg.hex()};")
         append(" --diff-del-fg: ${colors.diffDelFg.hex()};")
         append(" --thinking-fg: ${colors.thinkingFg.hex()};")
+        // 品牌橙不读平台、随明暗**挑**（见 brandFor）—— 与 thinkingFg 同一个形状：
+        // 写死一档的话，另一套主题里必有一边发暗或发刺
+        append(" --brand: ${brandFor(colors.bg).hex()};")
         append(" --font-ui: ${fonts.ui};")
         append(" --font-mono: ${fonts.mono};")
         append(" --fs-scale: ${fonts.scale};")
@@ -199,6 +202,22 @@ object PlatformTheme {
 
 /** 感知亮度 0..255，只用来判"这是深色主题还是浅色主题"。 */
 internal fun luminance(c: Color): Int = (c.red * 299 + c.green * 587 + c.blue * 114) / 1000
+
+/**
+ * 品牌橙（空会话引导卡上那枚标记用，见 `web/src/components/EmptyState.tsx`）。
+ *
+ * 它**不是从主题读的**，是随明暗挑的固定两档 —— 与侧边栏图标、插件图标同一支
+ * 颜色（`icons/ccoderToolWindow.svg` / `META-INF/pluginIcon*.svg`）：深色提亮一档
+ * （#F0883E），浅色压深一档（#E8702A）。挑法同 [thinkingFgFor] —— 按面板色的
+ * 感知亮度判明暗，不另设开关。三处各写各的值迟早分叉，改的时候一起看一眼。
+ */
+internal fun brandFor(bg: Color): Color = if (luminance(bg) < 128) BRAND_ON_DARK else BRAND_ON_LIGHT
+
+/** 深色主题下的品牌橙 —— 与 `icons/ccoderToolWindow_dark.svg` 同值。 */
+private val BRAND_ON_DARK = Color(0xF0, 0x88, 0x3E)
+
+/** 浅色主题下的品牌橙 —— 与 `icons/ccoderToolWindow.svg` 同值。 */
+private val BRAND_ON_LIGHT = Color(0xE8, 0x70, 0x2A)
 
 /** 把 [fg] 以 [ratio] 的比例混入 [base]，得到低饱和变体。 */
 internal fun mix(base: Color, fg: Color, ratio: Double): Color {
