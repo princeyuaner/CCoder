@@ -258,6 +258,25 @@ tag 照例打在含 change-notes 的那棵树（`v0.2.33` → c1b3395），relea
 增量口径三条：使用量统计（常驻条 + 仪表盘）、流式上滚修复、/clear 清清单 ——
 2026-10-10 复核过 0.2.32 已上架（id 1190346），不并条。
 
+0.2.34 这版的发布链与绿数（照 §五 的顺序，2026-10-11）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin | **2121 条全绿**（`test --rerun` 强制真跑） |
+| sidecar | **250 条全绿** |
+| web | **335 条全绿**（22 个文件） |
+| `buildPlugin` | zip 9,297,597 字节；打包校验 `[verify] OK: manifest 5007 entries`；jar 里 plugin.xml 已是 0.2.34 且**不含**占位字样；包内 web UI 带新引导卡（中英两条都在、旧 `sessionReady` 键已消失） |
+| `verifyPlugin` | PY-261 / PY-262 / PY-263 **三份全 Compatible**；internal API **0 条**（deprecated 16 + scheduled-for-removal 3 + experimental 6 —— 与 0.2.33 同批：ToolWindowFactory 覆写、JBUI.scale(float) 等） |
+| `publishPlugin` | BUILD SUCCESSFUL（`signPlugin SKIPPED`）；回读 `updates?version=0.2.34` → id **1191350**，当天审核中（approve/listed=false，属正常 —— 写 0.2.35 的 change-notes 之前复核它）；`api/plugins/34281` → `hasUnapprovedUpdate: true` |
+| GitHub release | `gh release create v0.2.34 --verify-tag …`，一次成功、自动 Latest；附件 9,297,597 字节（与 marketplace 同一份）；正文与 `docs/releases/0.2.34.md` **逐字一致**（这次连尾行空行都不差） |
+
+tag 照例打在含 change-notes 的那棵树（`v0.2.34` → e396116），release 正文那笔
+（3b43fba）在 tag 之外。zip 的 sha256（marketplace 与 GitHub 同一份）：
+`7e41e8021c3b8b37e03fb59c2997e1a6f0064db76ac83ca032fb5d1959637b48`。
+增量口径五条：空会话引导卡（含「会话已就绪」提示退场）、插件图标回原稿、
+MCP 设置页自刷新、会话列表行尾对齐、使用量常驻条跟走 —— 2026-10-11 复核过
+0.2.33 已上架（id 1190681），不并条。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
