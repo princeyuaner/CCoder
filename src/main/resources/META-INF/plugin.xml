@@ -161,53 +161,31 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-11 复核：**0.2.33 已过审上架**
-         （`api/plugins/34281/updates?version=0.2.33`：id 1190681，`approve`/`listed`
-         都是 true）—— 于是本版**只写相对 0.2.33 的增量**，"没过审就得把上一版
-         并进来"那套（0.2.26→0.2.27 用过，见发布设计稿 §八）用不上。
-         0.2.33 那三条在 tag `v0.2.33` → c1b3395 那棵树的 plugin.xml 里，可对照措辞。
+         2026-10-11 开版：**0.2.34 当天已上传、审核中**
+         （`api/plugins/34281`：`hasUnapprovedUpdate: true`；
+         `updates?version=0.2.34`：id 1191350，`approve`/`listed` 都是 false）。
+         写 change-notes 之前先复核（`api/plugins/34281/updates?version=0.2.34`）
+         —— 没过审就得把 0.2.34 那五条一并并进来，应急做法见发布设计稿 §八
+         （0.2.26→0.2.27 用过）。
+         0.2.34 那五条在 tag `v0.2.34` → e396116 那棵树的 plugin.xml 里，可对照措辞。
          复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.34</h3>
+    <h3>0.2.35</h3>
     <ul>
-      <li><b>A new session no longer opens on an empty background</b> &mdash; a
-          centered guide card asks "What can I help you with?" and shows three ways to
-          start: <code>@</code> / <code>#</code> references sent along with your
-          message, <code>/</code> commands, and pasting a screenshot. The card is there
-          only in genuinely new sessions (including right after <code>/clear</code>);
-          and the old "Session ready" note is gone &mdash; nothing stays pinned above
-          your first message anymore.</li>
-      <li><b>The plugin icon is the original mark again, in all three places</b> &mdash;
-          the large icon in the plugin list had picked up an orange tile behind the
-          letter; it now matches the sidebar and menu icons &mdash; same shape, no
-          tile.</li>
-      <li><b>The MCP settings page updates by itself</b> &mdash; when a server that was
-          still connecting finishes, its status flips on its own; previously you had to
-          reopen the settings dialog to see it.</li>
-      <li><b>Rename / delete no longer sit lower than the title in the session list</b>
-          &mdash; the trailing icons in a row used to sag below the session name; they
-          are lined up with it again.</li>
-      <li><b>The Usage strip keeps up during a session</b> &mdash; today's tokens and
-          estimated cost update as the conversation runs; they used to stay frozen
-          until the IDE was restarted.</li>
+      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
+          version &mdash; check whether 0.2.34 has been approved first (see the comment
+          above; as of 2026-10-11 it was still in review). If it has not, merge 0.2.34's
+          five items in as well. The previous list lives in git (tag v0.2.34 &rarr;
+          e396116); do not copy it blindly.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>新会话不再是一片空白</b> &mdash; 居中一张引导卡：「有什么可以帮你的？」
-          与三条上手提示 &mdash; @ / # 引用（随消息一起发出）、/ 命令、粘贴截图。
-          卡只出现在真新会话里（/clear 之后也算）；同时「会话已就绪」那条系统提示
-          没有了 &mdash; 第一条消息上方不再挂着东西。</li>
-      <li><b>插件图标回到原稿，三处同一张脸</b> &mdash; 插件列表里的大图标曾被垫上
-          橙底方块；现在与侧边栏、菜单里的同形 &mdash; 不带底。</li>
-      <li><b>MCP 设置页会自己刷新</b> &mdash; 还在「连接中」的 server 连上后，状态
-          当场翻过来；以前要重开设置框才看得见。</li>
-      <li><b>会话列表行尾的改名 / 删除不再偏下</b> &mdash; 行尾那串图标以前比标题
-          低一截；现在与标题对齐。</li>
-      <li><b>「使用量」常驻条在会话进行中跟着走</b> &mdash; 今日 token 与估算成本
-          随对话更新；以前会话进行中不动，要重启 IDE 才刷新。</li>
+      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.34
+          过审没有（上面那条注释；2026-10-11 开版时还在审）—— 没过审就得把 0.2.34 那五条
+          一并并进来。上一版的清单在 git 里（tag v0.2.34 &rarr; e396116），别照抄。</li>
     </ul>
     ]]></change-notes>
 
