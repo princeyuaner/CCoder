@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.Locale
 
 /**
@@ -181,6 +182,33 @@ class UsagePeriodsTest {
         } finally {
             CcoderText.setOverride(prev)
         }
+    }
+
+    @Test
+    fun `常驻条那串字：带实扣时追加一段（估算缺席也画）`() {
+        val prev = CcoderText.locale()
+        CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
+        try {
+            assertEquals(
+                "今日 12.4M · ≈$1.2 · 实扣¥8.30",
+                usageStripText(UsageStripData(12_400_000, 1.23, emptyList(), todayBillYuan = 8.3)),
+            )
+            assertEquals(
+                "今日 12.4M · 实扣¥8.30",
+                usageStripText(UsageStripData(12_400_000, null, emptyList(), todayBillYuan = 8.3)),
+            )
+        } finally {
+            CcoderText.setOverride(prev)
+        }
+    }
+
+    @Test
+    fun `实扣格式：两位小数、ROOT locale；更新时间 HH mm`() {
+        assertEquals("¥8.30", formatBillYuan(8.3))
+        assertEquals("¥0.00", formatBillYuan(0.0))
+        assertEquals("¥1234.57", formatBillYuan(1234.567))
+        assertEquals("09:05", formatBillTime(LocalTime.of(9, 5)))
+        assertEquals("14:32", formatBillTime(LocalTime.of(14, 32)))
     }
 
     @Test

@@ -214,6 +214,21 @@ class ClaudePanel(
     private var usageDialogScope: String = "project"
 
     /**
+     * 最近一次成功的 DMXAPI 账单（方案 A）。**token 级数据** —— 与 scope / 项目都无关，
+     * 所以它既不进 sidecar、也不落盘，只在内存里躺着（重启重查）。
+     */
+    private var usageBill: UsageBill? = null
+
+    /** 这份账是替哪条配置查的 —— 换配置先清旧账，不显示另一枚令牌的账。 */
+    private var usageBillProfileId: String? = null
+
+    /** 最近一次**发起**查询的配置（与"账属于谁"不同：失败的尝试也记，免得换配置后干等窗口过完）。 */
+    private var billAttemptProfileId: String? = null
+
+    /** 最近一次交给常驻条的数据 —— 账单晚到时在原样上重提一次（走势不会被重置）。 */
+    private var lastStripData: UsageStripData? = null
+
+    /**
      * 同步状态（项目级，见 `SyncStatus`）。
      *
      * `null` = 取不到（项目已关那一类的路径）—— 那时同步卡照常画，只是永远显示
@@ -1185,7 +1200,8 @@ class ClaudePanel(
                             LOG.warn("使用量返回了意外的消息")
                         } else {
                             lastUsageRows = report.rows
-                            usageStrip.submit(stripDataOf(report.rows, LocalDate.now()))
+                            submitUsageStrip(stripDataOf(report.rows, LocalDate.now()))
+                            refreshUsageBill()
                         }
                     }
 
@@ -1195,22 +1211,82 @@ class ClaudePanel(
         }
     }
 
+    /**
+     * 常驻条的**唯一入口**：把当前账单并进去。两条数据来源（报告 / tick）都走它 ——
+     * 各走各的早晚会把"合并逻辑"分成两份，改一处漏一处。
+     */
+    private fun submitUsageStrip(d: UsageStripData) {
+        lastStripData = d
+        usageStrip.submit(d.copy(todayBillYuan = usageBill?.yuanToday))
+    }
+
+    /**
+     * 查一次供应商账单（方案 A，2026-10-12 用户从选型台选的）。触发：账到了、
+     * 每回合 tick、打开统计框、换模型配置 —— 全部走 [UsageBillGate] 的闸
+     *（限速是 **per-IP** 的，所以闸是应用级、多标签共享）。
+     *
+     * 失败静默：日志一条（不带密钥、不带 URL），界面退回"没有实扣"。
+     * 非 dmx / 没选任何配置：把旧账清掉 —— 换了配置之后，另一枚令牌的账一个像素
+     * 都不该显示。
+     */
+    private fun refreshUsageBill(force: Boolean = false) {
+        val profile = currentModel
+        val endpoint = profile?.let { dmxBillEndpoint(it.baseUrl) }
+        if (profile == null || endpoint == null) {
+            applyUsageBill(null, null)
+            return
+        }
+        if (usageBill != null && usageBillProfileId != profile.id) applyUsageBill(null, null)
+        // 刚换过配置也当强制：新令牌的账值得立刻查一次（旧的 60 秒窗口是给同一枚令牌的）
+        val effectiveForce = force || billAttemptProfileId != profile.id
+        if (!UsageBillGate.tryStart(System.currentTimeMillis(), effectiveForce)) return
+        billAttemptProfileId = profile.id
+        ApplicationManager.getApplication().executeOnPooledThread {
+            // 密钥在池化线程上读：首次会碰一次 PasswordSafe，不堵 EDT
+            val secret = ModelProfiles.getInstance().secretOf(profile.id)
+            if (secret.isBlank()) {
+                // 配置没填密钥（那种配置连会话都起不来）—— 不算失败，不刷日志
+                ApplicationManager.getApplication().invokeLater { UsageBillGate.finish() }
+                return@executeOnPooledThread
+            }
+            val result = runCatching { parseDmxBill(fetchDmxBill(dmxBillUrl(endpoint, secret))) }
+            ApplicationManager.getApplication().invokeLater {
+                UsageBillGate.finish()
+                result
+                    .onSuccess { bill -> applyUsageBill(profile.id, bill) }
+                    .onFailure { LOG.warn("账单查询失败：${it.message}") }
+            }
+        }
+    }
+
+    /** 账单状态落定（有 / 无）：常驻条与开着的统计框都跟着走。状态没变就不重画。 */
+    private fun applyUsageBill(profileId: String?, bill: UsageBill?) {
+        if (usageBill == bill && usageBillProfileId == profileId) return
+        usageBill = bill
+        usageBillProfileId = profileId
+        lastStripData?.let { strip -> usageStrip.submit(strip.copy(todayBillYuan = bill?.yuanToday)) }
+        usageDialog?.updateBill(bill)
+    }
+
     /** 常驻条点开：先拿手里那份把框摆上（瞬间可见），再向 sidecar 要最新的一份。 */
     private fun openUsageDialog() {
         val existing = usageDialog
         if (existing != null) {
             existing.window?.toFront()
             requestUsageForDialog(usageDialogScope)
+            refreshUsageBill()
             return
         }
         val dialog = UsageDialog(
             project = project,
             initialScope = "project",
             initialRows = lastUsageRows,
+            initialBill = usageBill,
             onScopeChange = { scope ->
                 usageDialogScope = scope
                 requestUsageForDialog(scope)
             },
+            onRefreshBill = { refreshUsageBill(force = true) },
             onClosed = { usageDialog = null },
         )
         usageDialog = dialog
@@ -1218,6 +1294,7 @@ class ClaudePanel(
         // **先发请求、再 show**：show() 是模态的（阻塞到关闭），放它后面等于
         // 关掉之后才去要数据
         requestUsageForDialog(usageDialogScope)
+        refreshUsageBill()
         dialog.show()
     }
 
@@ -1585,6 +1662,8 @@ class ClaudePanel(
             fallback = ClaudeSettings.getInstance(project).lastModel(profiles),
         )
         modelLabel.setProfile(currentModel)
+        // 换了配置 = 换了令牌：账单跟着走（同一道闸；非 dmx 会把旧账清掉）
+        refreshUsageBill()
     }
 
     /**
@@ -3478,7 +3557,8 @@ class ClaudePanel(
                 is SidecarMessage.UsageTick -> {
                     val base = project.basePath
                     if (base != null && usageSameProject(msg.project, base)) {
-                        usageStrip.submit(UsageStripData(msg.todayTokens, msg.todayCost, msg.spark))
+                        submitUsageStrip(UsageStripData(msg.todayTokens, msg.todayCost, msg.spark))
+                        refreshUsageBill()
                     }
                 }
 

@@ -11,6 +11,7 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
@@ -54,13 +55,18 @@ internal class UsageDialog(
     project: Project?,
     initialScope: String,
     initialRows: List<UsageDay>,
+    initialBill: UsageBill? = null,
     private val onScopeChange: (String) -> Unit,
+    private val onRefreshBill: () -> Unit = {},
     private val onClosed: () -> Unit = {},
 ) : DialogWrapper(project) {
 
     /** 当前口径（"project"/"all"）。切换即时生效，数据到了再重画。 */
     private var scope: String = initialScope
     private var rows: List<UsageDay> = initialRows
+
+    /** 最近一次账单（方案 A 的对账条）。null = 非 dmx / 还没查到 —— 那条整条不出现。 */
+    private var bill: UsageBill? = initialBill
     private var gran: UsageGran = UsageGran.Day
 
     private val holder = JPanel(BorderLayout()).apply {
@@ -101,6 +107,12 @@ internal class UsageDialog(
     fun updateRows(scope: String, rows: List<UsageDay>) {
         this.scope = scope
         this.rows = rows
+        rebuild()
+    }
+
+    /** 面板拿到新账单（成败都走）后送进来；null = 清掉（非 dmx / 换了配置）。 */
+    fun updateBill(bill: UsageBill?) {
+        this.bill = bill
         rebuild()
     }
 
@@ -165,6 +177,8 @@ internal class UsageDialog(
                     rebuild() // chip 先动（数据还是旧的），新数据到了 updateRows 再画一遍
                     onScopeChange(s)
                 },
+                bill = bill,
+                onRefreshBill = onRefreshBill,
             ),
             BorderLayout.CENTER,
         )
@@ -195,6 +209,9 @@ internal fun buildUsagePanel(
     today: LocalDate,
     onPickGran: (UsageGran) -> Unit,
     onPickScope: (String) -> Unit,
+    /** 方案 A 的账单；null = 非 dmx / 没查到 —— 对账条整条不出现（"退回今天的样子"）。 */
+    bill: UsageBill? = null,
+    onRefreshBill: () -> Unit = {},
 ): JComponent {
     val palette = usagePaletteFor(UIUtil.getPanelBackground())
     val bg = palette.bg
@@ -236,7 +253,7 @@ internal fun buildUsagePanel(
         // 一条数据都没有：照实说，不画一张全零的图（那会被读成"你什么都没用"）
         box.add(hint(CcoderText.text("usage.empty")).stretchWidth())
         box.add(Box.createVerticalStrut(JBUI.scale(8)))
-        box.add(footNote().stretchWidth())
+        box.add(footNote(null).stretchWidth())
         box.preferredSize = Dimension(USAGE_DIALOG_WIDTH, box.preferredSize.height)
         return box
     }
@@ -271,6 +288,12 @@ internal fun buildUsagePanel(
     )
     box.add(tiles.stretchWidth())
     box.add(Box.createVerticalStrut(JBUI.scale(10)))
+
+    // ---- 账单对账条（方案 A）：估算之下并排一行「本令牌」的实扣 ----
+    if (bill != null) {
+        box.add(billPanel(bill, onRefreshBill, palette).stretchWidth())
+        box.add(Box.createVerticalStrut(JBUI.scale(10)))
+    }
 
     // ---- 主序列（图 + 图例 + 表共用同一份顺序与配色）----
     val buckets = usageBuckets(rows, gran, today)
@@ -317,7 +340,7 @@ internal fun buildUsagePanel(
     }
 
     box.add(Box.createVerticalStrut(JBUI.scale(8)))
-    box.add(footNote().stretchWidth())
+    box.add(footNote(bill).stretchWidth())
 
     box.preferredSize = Dimension(USAGE_DIALOG_WIDTH, box.preferredSize.height)
     return box
@@ -345,8 +368,99 @@ private fun dimText(text: String, font: Font = labelFont().deriveFont(labelFont(
         alignmentX = Component.LEFT_ALIGNMENT
     }
 
-private fun footNote(): JComponent =
-    dimText(CcoderText.text("usage.foot"), labelFont().deriveFont(labelFont().size2D - 2f))
+/**
+ * 口径脚注。有账单时换成「实扣为 X 令牌账」那版 —— 两个数并排出现的地方，
+ * 口径就必须写在离数字最近的地方（不是只在选型台上写清）。
+ */
+private fun footNote(bill: UsageBill?): JComponent =
+    dimText(
+        if (bill == null) CcoderText.text("usage.foot")
+        else CcoderText.text("usage.foot.bill", bill.provider),
+        labelFont().deriveFont(labelFont().size2D - 2f),
+    )
+
+/**
+ * 账单对账条（方案 A）。两行：钱那行 + 口径那行；右上角「更新 hh:mm ↻」。
+ * 虚线强调框 —— 就是选型台 A 卡里那条（用户挑中的样子）。
+ */
+private fun billPanel(bill: UsageBill, onRefresh: () -> Unit, palette: UsagePalette): JComponent {
+    val accent = UIUtil.getTreeSelectionBackground(true)
+    val box = DashPanel(mix(palette.bg, accent, 0.09), accent).apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(5, 10, 6, 10)
+    }
+
+    val line1 = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
+        isOpaque = false
+    }
+    val balanceText = bill.balanceYuan
+        ?.let { formatBillYuan(it) }
+        ?: CcoderText.text("usage.bill.unlimited")
+    line1.add(
+        JLabel(CcoderText.text("usage.bill.today", formatBillYuan(bill.yuanToday))).apply { font = labelFont() }
+    )
+    line1.add(dimText(" · "))
+    line1.add(JLabel(CcoderText.text("usage.bill.balance", balanceText)).apply { font = labelFont() })
+    line1.add(Box.createHorizontalGlue())
+    line1.add(dimText(CcoderText.text("usage.bill.updated", formatBillTime(bill.fetchedAt))))
+    line1.add(Box.createHorizontalStrut(JBUI.scale(6)))
+    line1.add(refreshLabel(onRefresh))
+    box.add(line1.stretchWidth())
+
+    val tokens = CcoderText.text(
+        "usage.bill.tokens",
+        formatTokenCount(bill.promptTokens + bill.completionTokens),
+        formatTokenCount(bill.promptTokens),
+        formatTokenCount(bill.completionTokens),
+    )
+    box.add(
+        dimText(
+            CcoderText.text("usage.bill.source", bill.provider) + " · " + tokens,
+            labelFont().deriveFont(labelFont().size2D - 2f),
+        ).stretchWidth()
+    )
+    return box
+}
+
+/** 对账条的底：强调色淡填充 + 虚线圆角描边。纸仍是统计框自己的（[UsagePalette]）。 */
+private class DashPanel(private val fill: Color, private val line: Color) : JPanel() {
+    init {
+        isOpaque = false
+    }
+
+    override fun paintComponent(g: Graphics) {
+        super.paintComponent(g)
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val arc = JBUI.scale(7).toFloat()
+            val shape =
+                RoundRectangle2D.Float(0.75f, 0.75f, (width - 2).toFloat(), (height - 2).toFloat(), arc, arc)
+            g2.color = fill
+            g2.fill(shape)
+            g2.color = line
+            g2.stroke =
+                BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 1f, floatArrayOf(4f, 3f), 0f)
+            g2.draw(shape)
+        } finally {
+            g2.dispose()
+        }
+    }
+}
+
+/** 条上的 ↻：点一下强制重查。**对话框自己不碰网络**（同全框的取舍）—— 走面板的回调。 */
+private fun refreshLabel(onRefresh: () -> Unit): JComponent = JLabel("↻").apply {
+    toolTipText = CcoderText.text("usage.bill.refresh")
+    foreground = UIUtil.getInactiveTextColor()
+    font = labelFont()
+    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    addMouseListener(object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) {
+            if (e.button == MouseEvent.BUTTON1) onRefresh()
+        }
+    })
+}
 
 private fun tileSub(b: UsageBucket, extra: String?): String {
     val cost = CcoderText.text("usage.strip.cost", "$" + formatUsageCost(b.costUsd))

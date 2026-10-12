@@ -12,6 +12,7 @@ import java.awt.Container
 import java.awt.image.BufferedImage
 import java.io.File
 import java.time.LocalDate
+import java.time.LocalTime
 import javax.imageio.ImageIO
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -44,11 +45,29 @@ class UsageRenderProbe {
     @Test
     fun `统计框的空态画成图片`() = renderDialog("build/usage-dialog-probe-empty.png", emptyList())
 
+    /** 带账单那版（方案 A 的对账条）：深浅各一张 —— 虚线框用的是强调色，两套纸下都要看一眼。 */
     @Test
-    fun `常驻条画成图片`() {
+    fun `统计框（带账单）画成图片`() =
+        renderDialog("build/usage-dialog-probe-bill.png", fixture(), bill = billFixture())
+
+    @Test
+    fun `统计框（带账单·深色）画成图片`() =
+        renderDialog("build/usage-dialog-probe-bill-dark.png", fixture(), dark = true, bill = billFixture())
+
+    @Test
+    fun `常驻条画成图片`() = renderStrip("build/usage-strip-probe.png", UsageStripData(12_400_000, 14.9, spark()))
+
+    /** 带实扣那版（方案 A）：条尾多一段「实扣¥8.30」。 */
+    @Test
+    fun `常驻条（带实扣）画成图片`() = renderStrip(
+        "build/usage-strip-probe-bill.png",
+        UsageStripData(12_400_000, 14.9, spark(), todayBillYuan = 8.3),
+    )
+
+    private fun renderStrip(path: String, data: UsageStripData) {
         SwingUtilities.invokeAndWait {
             val strip = UsageStrip(onOpen = {})
-            strip.submit(UsageStripData(12_400_000, 14.9, spark()))
+            strip.submit(data)
             val outer = JPanel(BorderLayout()).apply {
                 isOpaque = true
                 background = UIUtil.getPanelBackground()
@@ -59,13 +78,13 @@ class UsageRenderProbe {
             val h = strip.preferredSize.height + JBUI.scale(12)
             outer.setSize(w, h)
             layoutAll(outer)
-            paint(outer, w, h, "build/usage-strip-probe.png")
+            paint(outer, w, h, path)
         }
     }
 
     // ------------------------------------------------------------------
 
-    private fun renderDialog(path: String, rows: List<UsageDay>, dark: Boolean = false) {
+    private fun renderDialog(path: String, rows: List<UsageDay>, dark: Boolean = false, bill: UsageBill? = null) {
         SwingUtilities.invokeAndWait {
             val restore = pushDarkTheme(dark)
             try {
@@ -76,6 +95,8 @@ class UsageRenderProbe {
                     today = today,
                     onPickGran = {},
                     onPickScope = {},
+                    bill = bill,
+                    onRefreshBill = {},
                 )
                 val outer = JPanel(BorderLayout()).apply {
                     isOpaque = true
@@ -164,4 +185,14 @@ class UsageRenderProbe {
     }
 
     private fun spark(): List<Long> = (13 downTo 0).map { 2_000_000L + (it * 1_100_000L) % 9_000_000L }
+
+    /** 账单示意（方案 A 的对账条）：数字形状照站点 —— 实扣与余额都是「两位小数」的元。 */
+    private fun billFixture(): UsageBill = UsageBill(
+        provider = DMX_PROVIDER_NAME,
+        yuanToday = 8.5,
+        promptTokens = 12_340_000,
+        completionTokens = 380_000,
+        balanceYuan = 123.4,
+        fetchedAt = LocalTime.of(14, 32),
+    )
 }

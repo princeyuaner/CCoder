@@ -6,6 +6,7 @@ import com.ccoder.text.CcoderText
 import java.awt.Color
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.Locale
 
 /**
@@ -45,6 +46,13 @@ internal data class UsageStripData(
     val todayCost: Double?,
     /** 近 14 天（含今天）的每日总量，最右是今天。 */
     val spark: List<Long>,
+    /**
+     * 今日实扣（[UsageBill.yuanToday]，元）。null = 没配 DMXAPI / 没查到 —— 条上不出现那段。
+     *
+     * **与 todayTokens / todayCost 不是一回事**：那两个是"本项目 · 这台机器"的估算，
+     * 这个是"本令牌 · 全来源"的账 —— 界面上并排放是为了对账，别把两个数并成一个。
+     */
+    val todayBillYuan: Double? = null,
 )
 
 internal fun UsageModelTokens.total(): Long = inp + out + cacheRead + cacheWrite
@@ -213,6 +221,13 @@ internal fun isDarkTheme(bg: Color): Boolean = luminance(bg) < 128
 /** 成本数字（不含 `$`）：<1000 一位小数，再大取整。Locale.ROOT 防小数点变逗号。 */
 internal fun formatUsageCost(v: Double): String =
     if (v < 1000) String.format(Locale.ROOT, "%.1f", v) else Math.round(v).toString()
+
+/** 真实金额（元）：两位小数、ROOT locale —— 站点自己也这么显（`toFixed(2)`）。 */
+internal fun formatBillYuan(v: Double): String = "¥" + String.format(Locale.ROOT, "%.2f", v)
+
+/** 账单更新时间（HH:mm），对账条右上角那颗「更新 …」用。 */
+internal fun formatBillTime(t: LocalTime): String =
+    String.format(Locale.ROOT, "%02d:%02d", t.hour, t.minute)
 
 /**
  * 项目键比对：`\` → `/`、去尾斜杠（与 sidecar 的 `normalizeProj` 同一条规矩）。

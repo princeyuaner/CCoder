@@ -23,7 +23,7 @@ private val STRIP_HEIGHT = JBUI.scale(28)
 /**
  * 「使用量」常驻条（E1，2026-10-10 用户从选型台选的）。
  *
- * 一条 28px 的矮行：左「使用量」，中「今日 123M · ≈$12.4」，右 14 天走势，
+ * 一条 28px 的矮行：左「使用量」，中「今日 123M · ≈$12.4 · 实扣¥8.30」，右 14 天走势，
  * 点整条开统计框。**自绘** —— 它比 JLabel 多三件事（圆角描边、走势条、悬停
  * 底色），而三个 JLabel 拼的内边距在这个高度里挤不下（同 ChipView 的理由）。
  *
@@ -130,10 +130,13 @@ internal class UsageStrip(private val onOpen: () -> Unit) : JComponent() {
     }
 }
 
-/** 常驻条中间那串字："今日 123M · ≈$12.4"（没有成本数据时省掉后半截）。 */
+/**
+ * 常驻条中间那串字："今日 123M · ≈$12.4 · 实扣¥8.30"。
+ * 估算与实扣**各自缺席时省掉自己那截**（没成本数据 = 今天没会话；没账单 = 非 dmx / 没查到）。
+ */
 internal fun usageStripText(d: UsageStripData): String {
-    val today = CcoderText.text("usage.strip.today", formatTokenCount(d.todayTokens))
-    val cost = d.todayCost
-    return if (cost == null) today
-    else "$today · " + CcoderText.text("usage.strip.cost", "$" + formatUsageCost(cost))
+    val parts = mutableListOf(CcoderText.text("usage.strip.today", formatTokenCount(d.todayTokens)))
+    d.todayCost?.let { parts += CcoderText.text("usage.strip.cost", "$" + formatUsageCost(it)) }
+    d.todayBillYuan?.let { parts += CcoderText.text("usage.strip.bill", formatBillYuan(it)) }
+    return parts.joinToString(" · ")
 }
