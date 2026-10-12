@@ -161,12 +161,10 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-11 开版：**0.2.34 当天已上传、审核中**
-         （`api/plugins/34281`：`hasUnapprovedUpdate: true`；
-         `updates?version=0.2.34`：id 1191350，`approve`/`listed` 都是 false）。
-         写 change-notes 之前先复核（`api/plugins/34281/updates?version=0.2.34`）
-         —— 没过审就得把 0.2.34 那五条一并并进来，应急做法见发布设计稿 §八
-         （0.2.26→0.2.27 用过）。
+         2026-10-12 复核：**0.2.34 已过审上架**
+         （`api/plugins/34281/updates?version=0.2.34`：id 1191350，`approve`/`listed`
+         都是 true）—— 于是本版**只写相对 0.2.34 的增量**，"没过审就得把上一版
+         并进来"那套（0.2.26→0.2.27 用过，见发布设计稿 §八）用不上。
          0.2.34 那五条在 tag `v0.2.34` → e396116 那棵树的 plugin.xml 里，可对照措辞。
          复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
@@ -174,18 +172,22 @@
     <change-notes><![CDATA[
     <h3>0.2.35</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version &mdash; check whether 0.2.34 has been approved first (see the comment
-          above; as of 2026-10-11 it was still in review). If it has not, merge 0.2.34's
-          five items in as well. The previous list lives in git (tag v0.2.34 &rarr;
-          e396116); do not copy it blindly.</li>
+      <li><b>See what you were actually charged, next to the estimate</b> — when the
+          selected model config is a DMXAPI one, the Usage strip gains a
+          <code>charged ¥8.30</code> segment and the usage dialog a reconciliation bar
+          under the three tiles: charged today, token balance, bill tokens, and when the
+          figure was last refreshed (↻ refetches it). The number comes from the DMXAPI
+          token ledger — "this token · today" — so it will not match the project-scoped
+          estimate beside it, by design. Any other provider: nothing changes.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.34
-          过审没有（上面那条注释；2026-10-11 开版时还在审）—— 没过审就得把 0.2.34 那五条
-          一并并进来。上一版的清单在 git 里（tag v0.2.34 &rarr; e396116），别照抄。</li>
+      <li><b>「使用量」现在能显示真实扣费</b> — 选中的模型配置是 DMXAPI 时，常驻条尾
+          多一段「实扣¥8.30」，统计框三块砖下面多一条对账条：今日实扣、令牌余额、
+          账单 tok、更新时间（点 ↻ 重查）。数来自 DMXAPI 令牌账，口径是
+          「本令牌 · 今天」—— 与旁边按项目估算的数对不上是正常的（口径不同），
+          不是 bug。其他供应商：一切照旧。</li>
     </ul>
     ]]></change-notes>
 
