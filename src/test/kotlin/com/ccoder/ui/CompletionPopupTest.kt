@@ -2,6 +2,7 @@ package com.ccoder.ui
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
@@ -252,6 +253,27 @@ class CompletionPopupTest {
         assertEquals(2, rows.size, "两条候选各一行")
         assertTrue(rows[0].isOpaque, "选中行要有底色")
         assertFalse(rows[1].isOpaque, "没选中的不该有底色")
+    }
+
+    /**
+     * 上下键换选中是**就地翻面**：行对象一个不换，只把底色从这一行挪到那一行。
+     *
+     * 换掉行对象等于重建了一屏 —— 而每次按键走重建那条路（hide + 重开窗）时，
+     * 屏幕上看到的就是"闪一下"（用户 2026-10-12 报的）。
+     */
+    @Test
+    fun `上下键换选中是就地翻面 —— 行对象一个都不换`() {
+        val list = buildCompletionList(listOf(builtin, skill), selected = 0)
+        val before = rowsOf(list)
+
+        list.setSelected(1)
+        val after = rowsOf(list)
+
+        assertEquals(2, after.size)
+        assertSame(before[0], after[0], "行对象换了就是重建了一屏 —— 屏幕上会闪")
+        assertSame(before[1], after[1], "行对象换了就是重建了一屏 —— 屏幕上会闪")
+        assertFalse(before[0].isOpaque, "旧选中行的底色要收掉")
+        assertTrue(before[1].isOpaque, "新选中行的底色要亮起")
     }
 
     // ---- 位置 ----

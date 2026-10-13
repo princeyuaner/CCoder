@@ -163,17 +163,24 @@ private fun symbolRowText(
  *
  * 分组标题只在**换组时**插一条，不是每行都挂 —— 45 条命令每行前面顶一个
  * 「内置」，读起来全是重复。
+ *
+ * 造出来之后**只改不换**：弹层开着时上下键换选中走 [CompletionListPanel.setSelected]，
+ * 就地翻两行的底色，不重建任何东西。
  */
 internal fun buildCompletionList(
     items: List<CompletionItem>,
     selected: Int,
     status: String? = null,
-): JComponent {
+): CompletionListPanel {
     val column = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
         border = JBUI.Borders.empty(4, 0)
     }
+
+    // 候选行按画出来的顺序留一份 —— 上下键"换选中"只动这里面的两行
+    // （见 [CompletionListPanel.setSelected]），不重建内容、更不重开窗
+    val rows = ArrayList<CompletionRow>(items.size)
 
     // 一行候选都没有时才挂状态行（符号那条：正在搜 / 搜不成）。
     // **它不是候选**：不进 completionItems，所以高亮恒为 0、上下键与回车都不接管 ——
@@ -186,10 +193,12 @@ internal fun buildCompletionList(
             column.add(groupHeader(item.group))
             lastGroup = item.group
         }
-        column.add(row(item, index == selected))
+        val rowLabel = row(item, index == selected)
+        rows.add(rowLabel)
+        column.add(rowLabel)
     }
 
-    return JPanel(BorderLayout()).apply {
+    return CompletionListPanel(rows).apply {
         isOpaque = false
         // **显式**不可聚焦。不写这一句的话 `Container.isFocusable()` 会把子树
         // 扫一遍再回报，于是"能不能抢焦点"取决于子组件 —— 而这条路必须由
@@ -200,6 +209,27 @@ internal fun buildCompletionList(
         // 和字体的实际行高，末一行被容器裁掉 —— 探针图里踩到过（第二版图里
         // 最末那行 `brainstorming` 整个不见了）
         preferredSize = Dimension(JBUI.scale(COMPLETION_WIDTH), column.preferredSize.height)
+    }
+}
+
+/**
+ * 弹层内容：一屏候选行加上它们的框。
+ *
+ * 它是"选中就地翻面"的落点 —— 弹层开着时按上下键，只走 [setSelected]，
+ * 不重建内容、更不重开窗。**重开窗就是"闪一下"**：从前每次按键都
+ * `hide()` + 重造一屏再新建弹窗，与 [ClaudePanel.refreshRunningPopup]
+ * 2026-09-24 修的"闪来闪去"是同一种病。
+ *
+ * @param rows 候选行，按画出来的顺序。分组标题与状态行**不是候选**，不在里面 ——
+ *   高亮挪不到它们头上。
+ */
+internal class CompletionListPanel(
+    private val rows: List<CompletionRow>,
+) : JPanel(BorderLayout()) {
+
+    /** 把高亮挪到第 [selected] 条。只翻动过的那两行，别的什么都不碰。 */
+    fun setSelected(selected: Int) {
+        rows.forEachIndexed { index, row -> row.selected = index == selected }
     }
 }
 
@@ -252,24 +282,41 @@ internal fun highlightedRowText(text: String, item: CompletionItem): String {
     return sb.append("</html>").toString()
 }
 
-private fun row(item: CompletionItem, selected: Boolean): JComponent {
-    val label = JLabel()
+/**
+ * 一条候选行。
+ *
+ * **只有候选行是这个类** —— 分组标题与状态行是普通 `JLabel`：它们没有"可选"
+ * 这回事（[CompletionListPanel] 也只收这个类，高亮挪不到别处）。
+ *
+ * [selected] 是**就地**翻的：切不透明、换底色、只重画这一行 —— 所以弹层开着时
+ * 上下键不需要重建任何东西。底色就是"选中"的全部视觉信号，单测只能断言它有没有，
+ * 好不好看见探针。
+ */
+internal class CompletionRow : JLabel() {
+    var selected: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            isOpaque = value
+            if (value) background = selectionColor()
+            repaint()
+        }
+}
+
+private fun row(item: CompletionItem, selected: Boolean): CompletionRow {
+    val label = CompletionRow()
     // 可用宽度 = 弹层定宽 - 这一行的左右内边距。字体要从**标签自己**身上取：
     // 它才是最终画字的那份（LaF / 缩放都会影响它），见 [rowTextFor]
     label.text = highlightedRowText(
         rowTextFor(item, label.getFontMetrics(label.font), JBUI.scale(COMPLETION_WIDTH - ROW_PADDING)),
         item,
     )
-
-    return label.apply {
-        // 底色就是"选中"的全部视觉信号 —— 单测只能断言它有没有，好不好看见探针
-        isOpaque = selected
-        if (selected) background = selectionColor()
-        border = JBUI.Borders.empty(2, 12, 2, 8)
-        alignmentX = Component.LEFT_ALIGNMENT
-        // BoxLayout 下不压住最大高度的话，行会被拉高，行数一多就溢出弹层
-        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(ROW_HEIGHT))
-    }
+    label.border = JBUI.Borders.empty(2, 12, 2, 8)
+    label.alignmentX = Component.LEFT_ALIGNMENT
+    // BoxLayout 下不压住最大高度的话，行会被拉高，行数一多就溢出弹层
+    label.maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(ROW_HEIGHT))
+    label.selected = selected
+    return label
 }
 
 /**
@@ -307,10 +354,16 @@ internal fun completionPopupY(
  *
  * `setCancelKeyEnabled(false)`：不让弹层注册全局 Esc —— 那个键要留给输入框，
  * 由 [completionKey] 判成 [CompletionKey.Dismiss]。
+ *
+ * 两条路分开：**内容变化**走 [show]（重建一屏，必要时重新定位）；
+ * **只换选中**走 [moveSelection]（就地翻面，不碰窗口）。
  */
 internal class CompletionPopup {
 
     private var popup: JBPopup? = null
+
+    /** 当前这一屏的内容。上下键只改它里面的两行 —— 见 [moveSelection]。 */
+    private var content: CompletionListPanel? = null
 
     val isOpen: Boolean get() = popup != null
 
@@ -325,6 +378,7 @@ internal class CompletionPopup {
         if (!anchor.isShowing) return
 
         val content = buildCompletionList(items, selected, status)
+        this.content = content
         val at = anchor.locationOnScreen
         val screen = anchor.graphicsConfiguration?.bounds ?: Rectangle(0, 0, 1920, 1080)
         val height = popupHeightOf(null, content.preferredSize)
@@ -350,9 +404,26 @@ internal class CompletionPopup {
             .also { it.showInScreenCoordinates(anchor, Point(at.x + caret.x, y)) }
     }
 
+    /**
+     * 上下键换选中：**只挪高亮，不拆窗**。
+     *
+     * [show] 那条路对"内容一个字没变、只有选中换了一行"的移动也会 `hide()` +
+     * 重造一屏 + 重开窗 —— 屏幕上就是每次按键闪一下。这里改成就地翻面：
+     * 只动两行 `JLabel` 的底色，连内容都不重建。
+     *
+     * 弹层不在（正常碰不到：调用方只在 [isOpen] 时才走这条路）时返回 false，
+     * 让调用方退回完整的 [show]。
+     */
+    fun moveSelection(selected: Int): Boolean {
+        val shown = content ?: return false
+        shown.setSelected(selected)
+        return true
+    }
+
     fun hide() {
         popup?.cancel()
         popup = null
+        content = null
     }
 }
 

@@ -4395,7 +4395,11 @@ class ClaudePanel(
 
     private fun moveCompletion(delta: Int) {
         completionIndex = nextHighlight(completionIndex, delta, completionItems.size)
-        showCompletion()
+        // **只挪高亮**：就地翻面，不拆窗重建 —— 每次上下键 hide + 重造一屏
+        // 再重开窗的话，屏幕上就是"闪一下"（同 refreshRunningPopup 那条，
+        // 2026-09-24 修的是同一种病）。`moveSelection` 返回 false 正常碰不到，
+        // 真出了岔子就退回完整的重建，至少按键有反应
+        if (!completion.moveSelection(completionIndex)) showCompletion()
     }
 
     private fun acceptCompletion() {
