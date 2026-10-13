@@ -142,27 +142,34 @@ internal fun modelLabelText(profile: ModelProfile?): String {
 private const val MAX_LABEL_CHARS = 24
 
 /**
- * 切换弹层的内容。**一条配置一张卡**：卡头写"这是哪条、打哪台机器"，
- * 卡里每个模型一行。
+ * 切换弹层的内容：**左栏配置、右栏模型**（2026-10-13 用户从选型台选的 C 案，
+ * 选型台 `web/tools/model-popup-height-view.mjs`）。
  *
- * 分组而不是平铺，是因为一次点击的后果分两类，而这两类正好按组分开：
- * **当前组是热切换**（会话与上下文都留着），**别的组多半要重开会话**
- * （端点或凭证变了，`options.env` 烤在子进程里）。卡头右侧因此挂一个
- * 〔会重开会话〕，把这件事在点之前就说清楚。
+ * 改版前是一条配置一张卡、全部平铺 —— 四条配置十个模型就要 518px 高，一直
+ * 顶到屏幕上沿（弹层内容**没有上限也没有滚动**，见 `popupHeightOf`）。两栏
+ * 把"看哪条"与"选哪个"分开：左栏一列配置名，右栏只有**浏览中那条**的模型；
+ * 高度掉到约 170，而且不再随模型总数增长。
  *
- * **卡而不是一条灰字组头**（2026-09-21 改，设计稿 `docs/design/model-picker.html`
- * 的 B 案）：组头原先是 12px 的灰字，跟下面的模型行同色同重，三条配置摆在一起
- * 只能靠"哪一行短"去猜边界。卡有圆角、有边、卡片之间留 8px，边界不用猜。
+ * ## 浏览 ≠ 切换
  *
- * 卡与行本身住在 [PickerList] —— 权限模式与思考深度那两个弹层是同一套东西，
- * 样式只写一遍。
+ * 点左栏只换右栏看什么（[onSelectProfile]），**不动**选中的模型；真正的切换
+ * 还是点右栏的模型行（[onPick]）。所以开着弹层时有两件"当前"：左栏的**浏览位**
+ * （底色那行）与真正在用的那条（行尾的小圆点）——分开是为了防误触：只想看看
+ * 别条有什么模型，不该顺手把会话换了。
  *
- * 后果的判定走 [effectOf]，与 [ClaudePanel.switchModel] 是**同一个函数** ——
- * 各判各的就会漂移，而漂移的后果是弹层说"秒切"、实际把上下文丢了。
+ * 换浏览走的是"重开一次弹层"而不是就地换内容：弹层尺寸按内容撑，换一条高度
+ * 就变一截，而平台弹层没有"改内容再改尺寸"的现成路数 —— 重建是这个代码库
+ * 对动态弹层一贯的做法（同 [ClaudePanel.showDetailPopup]），状态由调用方持有。
  *
- * **只负责"切"，不负责"改"** —— 编辑是设置那一页的事。把表单塞进来会让
- * "点一下切换"变成"点一下进表单"，高频动作被低频动作拖累。要改配置，
- * 出口是最后那行 [MANAGE_LABEL]。
+ * ## 其它
+ *
+ * 一次点击的后果分两类（当前那条是热切换、别的多半要重开会话），〔会重开会话〕
+ * 因此挂在右栏卡头上 —— 只画当前浏览那条的后果，正好。判定走 [effectOf]，
+ * 与 [ClaudePanel.switchModel] 是**同一个函数**：各判各的就会漂移，漂移的
+ * 后果是弹层说"秒切"、实际把上下文丢了。
+ *
+ * **只负责"切"，不负责"改"** —— 编辑是设置那一页的事（出口是 [MANAGE_LABEL]）。
+ * 卡与行本身住在 [PickerList] —— 三个弹层是同一套东西，样式只写一遍。
  */
 internal fun buildModelList(
     profiles: List<ModelProfile>,
@@ -173,8 +180,16 @@ internal fun buildModelList(
      * 弹层上的勾必须跟着**这个标签**，否则会出现"勾在 A 上、这个标签跑的是 B"。
      */
     current: ModelPick?,
+    /**
+     * 左栏此刻停在（浏览）哪条配置上。null = 跟 [current] 那条走，还没有就第一条。
+     *
+     * 由调用方（[ClaudePanel]）持有：点左栏 = 重开一次弹层，状态不能只活在
+     * 这一份会被重建的内容里。
+     */
+    browsedProfileId: String?,
     effectOf: (ModelProfile) -> PickEffect,
     onPick: (ModelPick) -> Unit,
+    onSelectProfile: (String) -> Unit,
     onManage: () -> Unit,
 ): JComponent = cardColumn().apply {
     if (profiles.isEmpty()) {
@@ -186,9 +201,20 @@ internal fun buildModelList(
         )
         addLeftAligned(gap(ACTION_GAP))
     } else {
-        profiles.forEach { p ->
-            addCard(profileCard(p, effectOf(p), current, onPick))
-        }
+        val browsed = profiles.firstOrNull { it.id == browsedProfileId }
+            ?: profiles.firstOrNull { it.id == current?.profileId }
+            ?: profiles.first()
+        addLeftAligned(
+            profileColumns(
+                profiles = profiles,
+                browsed = browsed,
+                current = current,
+                effectOf = effectOf,
+                onPick = onPick,
+                onSelectProfile = onSelectProfile,
+            )
+        )
+        addLeftAligned(gap(ACTION_GAP))
     }
 
     addLeftAligned(actionRow(MANAGE_LABEL, onManage))
@@ -209,6 +235,178 @@ private fun profileCard(
     // 所以它也得有一行可以选 —— 只有卡头的话，这条配置就成了纯装饰
     rows = profile.modelIds.ifEmpty { listOf("") }.map { modelRow(profile, it, current, onPick) },
 )
+
+/** 左栏（配置索引）的宽度（未缩放 px）。 */
+private const val PROFILE_COLUMN_WIDTH = 108
+
+/** 左栏一行的行高（未缩放 px）。比模型行的 30 矮一档 —— 它是索引，不是主体。 */
+private const val PROFILE_ROW_HEIGHT = 26
+
+/** 两栏之间那道缝（未缩放 px）。 */
+private const val COLUMN_GAP = 6
+
+/**
+ * 左栏配置名最多画到这（未缩放 px）。
+ *
+ * 从 [PROFILE_COLUMN_WIDTH] 里扣：边框 2 + 卡内衬 4 + 行内衬 12 + 行尾圆点 12，
+ * 再留 2 的余量，剩 76。按**像素**截而不是按字数 —— 名字里中英混着
+ * （「公司tokenhub」），一个字宽与一个字母宽差一倍，按字数截必然一边浪费
+ * 一边溢出。真机数字由渲染探针复核。
+ */
+private const val PROFILE_NAME_MAX_PX = 76
+
+/**
+ * 两栏本体：左栏配置索引 + 右栏浏览中那条的模型卡。
+ *
+ * 两个"对齐陷阱"在这里处理掉：左右两栏各按内容高站（`BorderLayout` 默认把
+ * WEST/CENTER 拉到整行高），左栏宽度钉死在常量上（见 [ProfileColumn]）。
+ */
+private fun profileColumns(
+    profiles: List<ModelProfile>,
+    browsed: ModelProfile,
+    current: ModelPick?,
+    effectOf: (ModelProfile) -> PickEffect,
+    onPick: (ModelPick) -> Unit,
+    onSelectProfile: (String) -> Unit,
+): JComponent {
+    val left = ProfileColumn().apply {
+        profiles.forEach { p ->
+            addLeftAligned(
+                profileChoiceRow(
+                    profile = p,
+                    browsed = p.id == browsed.id,
+                    inUse = p.id == current?.profileId,
+                    onClick = { onSelectProfile(p.id) },
+                )
+            )
+        }
+    }
+    val right = profileCard(browsed, effectOf(browsed), current, onPick)
+
+    return JPanel(BorderLayout()).apply {
+        isOpaque = false
+        add(hugTop(left), BorderLayout.WEST)
+        add(
+            hugTop(right).apply { border = JBUI.Borders.emptyLeft(JBUI.scale(COLUMN_GAP)) },
+            BorderLayout.CENTER,
+        )
+    }
+}
+
+/**
+ * 左栏那一列（一张卡）。宽度钉死在 [PROFILE_COLUMN_WIDTH]：
+ * 名字长短只该影响自己被截成几个字，不该让这一栏忽宽忽窄 —— 换浏览对象时
+ * 整块布局会跳。
+ */
+private class ProfileColumn : CardPanel(warn = false) {
+    init {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(2)
+    }
+
+    override fun getPreferredSize(): Dimension =
+        Dimension(JBUI.scale(PROFILE_COLUMN_WIDTH), super.getPreferredSize().height)
+
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    override fun getMaximumSize(): Dimension =
+        Dimension(JBUI.scale(PROFILE_COLUMN_WIDTH), Int.MAX_VALUE)
+}
+
+/** 竖直不拉伸：`BorderLayout` 会把 WEST/CENTER 的子件拉到整行高，这两栏得按自己内容高站。 */
+private fun hugTop(c: JComponent): JComponent = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    add(c, BorderLayout.NORTH)
+}
+
+/**
+ * 左栏一行：配置名，行尾一颗「在用」的点。
+ *
+ * 点它只换右栏看什么（[onSelectProfile] 那条路），**不动**当前选择 —— 想看看
+ * 别条有什么模型，不该顺手把会话换了。所以它跟模型行长得同族、但**不给勾位**：
+ * 勾是"选了"的意思，这里没有那个动作。
+ */
+private fun profileChoiceRow(
+    profile: ModelProfile,
+    browsed: Boolean,
+    inUse: Boolean,
+    onClick: () -> Unit,
+): JComponent {
+    val base = UIUtil.getLabelFont()
+    val row = RoundedRow(selected = browsed, fixedHeight = PROFILE_ROW_HEIGHT).apply {
+        add(
+            JLabel(
+                // 显式取字体（未挂到层级上时 getFont() 可能是 null，optionRow 里同一条）
+                ellipsizeToWidth(profile.displayName(), JBUI.scale(PROFILE_NAME_MAX_PX), base)
+            ).apply {
+                font = base
+                foreground = UIUtil.getLabelForeground()
+            },
+            BorderLayout.CENTER,
+        )
+        if (inUse) {
+            add(InUseDot(), BorderLayout.EAST)
+        }
+    }
+    handlerInto(
+        row,
+        object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                onClick()
+            }
+        },
+    )
+    return row
+}
+
+/**
+ * 「在用」的小圆点：左栏里只有真正在用的那条有它。
+ *
+ * 与**浏览位**（[RoundedRow] 的底色）是两件事：浏览只是"右栏现在画谁"，
+ * 这个点回答"我现在跑在哪条上"。没有它，点到别的配置上之后就找不回来
+ * 当前在哪了。
+ */
+private class InUseDot : JComponent() {
+    init {
+        isOpaque = false
+    }
+
+    override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(12), JBUI.scale(12))
+
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    override fun getMaximumSize(): Dimension = preferredSize
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = accentColor()
+            val d = JBUI.scale(5)
+            g2.fillOval(width - d, (height - d) / 2, d, d)
+        } finally {
+            g2.dispose()
+        }
+    }
+}
+
+/**
+ * 把 [text] 缩到不超过 [maxWidth] 像素：放不下就砍尾巴、补一个 `…`。
+ *
+ * 按**像素**而不是字数（理由见 [PROFILE_NAME_MAX_PX]）。从右边一格格收，
+ * 同 [com.ccoder.ui.CompletionPopup] 的 `shrunkNameText` —— 名字都短，
+ * 不值得二分。
+ */
+internal fun ellipsizeToWidth(text: String, maxWidth: Int, font: Font): String {
+    // 借一个标签量字：FontMetrics 要组件出处，headless 下也一样能用
+    val fm = JLabel().getFontMetrics(font)
+    if (fm.stringWidth(text) <= maxWidth) return text
+    for (kept in text.length - 1 downTo 1) {
+        val cut = text.take(kept).trimEnd() + "…"
+        if (fm.stringWidth(cut) <= maxWidth) return cut
+    }
+    return "…"
+}
 
 /**
  * 卡头：配置名 + 端点主机，右侧在需要时挂〔会重开会话〕。

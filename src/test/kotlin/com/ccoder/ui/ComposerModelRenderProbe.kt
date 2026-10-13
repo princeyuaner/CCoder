@@ -161,7 +161,7 @@ class ComposerModelRenderProbe {
     }
 
     /**
-     * 悬停的那一行。
+     * 悬停的那一行（浏览到 qwen 那条上，右栏才是它的模型行）。
      *
      * 底色是这次新加的（悬停、选中、勾位三样），而"看得出悬停"这件事**只能看** ——
      * 单测钉得住"用的是哪一档颜色"，钉不住"隔着一行看不看得出来"。
@@ -171,8 +171,23 @@ class ComposerModelRenderProbe {
         "build/probe/composer-model-popup-hover.png",
         profiles = listOf(opus, longDetail, qwen, official, bare),
         current = ModelPick("p1", "claude-opus-4-6"),
+        browsedProfileId = "p2",
         effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
         hoverModel = "qwen3-coder-30b",
+    )
+
+    /**
+     * 浏览到另一条上（2026-10-13 两栏版）：左栏底色落在**浏览那条**上，
+     * 「在用」的小圆点留在真正那条（p1）上 —— 两个"当前"分开长什么样、
+     * 会不会互相打架，只有看图才知道。
+     */
+    @Test
+    fun `把两栏弹层的浏览态画成图片`() = renderPopup(
+        "build/probe/composer-model-popup-browse.png",
+        profiles = listOf(opus, longDetail, qwen, official, bare),
+        current = ModelPick("p1", "claude-opus-4-6"),
+        browsedProfileId = "p2",
+        effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
     )
 
     /** 弹层最宽的那一版：模型名与主机名都很长。 */
@@ -245,11 +260,12 @@ class ComposerModelRenderProbe {
         path: String,
         profiles: List<ModelProfile>,
         current: ModelPick?,
+        browsedProfileId: String? = null,
         effectOf: (ModelProfile) -> PickEffect = { PickEffect.Hot },
         hoverModel: String? = null,
     ) {
         SwingUtilities.invokeAndWait {
-            val list = buildModelList(profiles, current, effectOf, {}, {})
+            val list = buildModelList(profiles, current, browsedProfileId, effectOf, {}, {}, {})
             hoverModel?.let { hoverRow(list, it) }
             val pad = JBUI.scale(10)
             val outer = JPanel(BorderLayout()).apply {

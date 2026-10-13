@@ -426,6 +426,15 @@ class ClaudePanel(
     private var modelPopup: JBPopup? = null
 
     /**
+     * 模型弹层左栏此刻停在（浏览）哪条配置上。null = 还没定，跟当前那条走。
+     *
+     * 住在这里而不是弹层内容里：点左栏 = 收起再重开一次弹层（见
+     * [browseModelProfile]），那份内容会被重建，状态得有个活得更久的地方。
+     * 弹层一关就清 —— 下次打开从"当前那条"重新站起。
+     */
+    private var modelPopupBrowsedId: String? = null
+
+    /**
      * 当前生效的思考深度。
      *
      * 与 [currentMode] 同一条规矩：**用户点的那一下不直接改它**，等 sidecar
@@ -2342,20 +2351,47 @@ class ClaudePanel(
             open.cancel()
             return
         }
+        // 开的时候先站到"当前那条"上 —— 多数人来换的就是它
+        modelPopupBrowsedId = currentModel?.id
+        openModelChooser()
+    }
+
+    /** 弹层的公共出口：首次打开与"换浏览对象重开"都走这里。 */
+    private fun openModelChooser() {
         val profiles = ModelProfiles.getInstance()
         modelPopup = showTogglePopup(modelLabel, buildModelList(
             profiles = profiles.profiles(),
             current = currentModel?.let { ModelPick(it.id, it.modelId) },
+            browsedProfileId = modelPopupBrowsedId,
             // 弹层上那句〔会重开会话〕与真正怎么切，走的是**同一个判定**
             effectOf = { p -> effectFor(p, profiles) },
             onPick = { pick -> switchModel(pick) },
+            onSelectProfile = { id -> browseModelProfile(id) },
             onManage = {
                 // 与 [switchModel] 同一条规矩：先收起浮层，别让它挂在模态对话框后面
                 modelPopup?.cancel()
                 modelPopup = null
                 openModelSettings()
             },
-        ), underAnchor = true) { modelPopup = null }
+        ), underAnchor = true) {
+            modelPopup = null
+            modelPopupBrowsedId = null
+        }
+    }
+
+    /**
+     * 点弹层左栏换一条：只换"看哪条"，**不动**当前选择。
+     *
+     * 实现是"收起再原样重开"：弹层尺寸按内容撑，换一条高度就变一截，
+     * 平台弹层没有"改内容再改尺寸"的现成路数（同 [showDetailPopup] 换页即
+     * 重建的做法）。重开必须排在 `cancel()` **之后** —— onClosed 会把浏览位
+     * 清掉，顺序反了它就把刚立的新值又抹了。
+     */
+    private fun browseModelProfile(id: String) {
+        if (id == modelPopupBrowsedId) return
+        modelPopup?.cancel()
+        modelPopupBrowsedId = id
+        openModelChooser()
     }
 
     /**

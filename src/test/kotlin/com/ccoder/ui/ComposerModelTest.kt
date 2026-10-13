@@ -1,6 +1,7 @@
 package com.ccoder.ui
 
 import com.ccoder.settings.ModelProfile
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -126,26 +127,58 @@ class ComposerModelTest {
     // ---- 弹层：分组 ----
 
     /**
-     * 一条配置挂多个模型，所以弹层要**两级**：组头认配置，行认模型。
-     * 光有模型名认不出是哪来的 —— 两条配置完全可以是同一个网关、同一族模型名。
+     * 两栏（2026-10-13）：左栏是**配置索引**（全都列出来），右栏只画
+     * **浏览中那条**的模型。光有模型名认不出是哪来的 —— 两条配置完全可以
+     * 是同一个网关、同一族模型名，所以卡头与左栏都得带着配置的身份。
      */
     @Test
-    fun `按配置分组列出每个模型`() {
+    fun `左栏列配置、右栏只画浏览那条的模型`() {
         val list = buildModelList(
-            listOf(
+            profiles = listOf(
                 ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro")),
                 ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
             ),
-            null,
-            { PickEffect.Hot }, {}, {},
+            current = null,
+            browsedProfileId = "a",
+            effectOf = { PickEffect.Hot },
+            onPick = {},
+            onSelectProfile = {},
+            onManage = {},
         )
         val texts = textsIn(list)
 
-        assertTrue(texts.any { it.contains("中转") }, "少了组头：$texts")
+        assertTrue(texts.any { it.contains("中转") }, "少了浏览那条的配置名：$texts")
+        assertTrue(texts.any { it.contains("本地") }, "左栏漏了别的配置：$texts")
         assertTrue(texts.any { it.contains("flash") }, "少了 flash：$texts")
         assertTrue(texts.any { it.contains("pro") }, "少了 pro：$texts")
-        assertTrue(texts.any { it.contains("本地") }, "少了第二条配置：$texts")
-        assertTrue(texts.any { it.contains("qwen") }, "少了 qwen：$texts")
+        assertTrue(texts.none { it.contains("qwen") }, "没浏览的那条不该画出模型：$texts")
+    }
+
+    /**
+     * 点左栏只换右栏看什么（浏览），**不动**当前选择 —— 想看看别条有什么模型，
+     * 不该顺手把会话换了。切换只有点模型行那一条路。
+     */
+    @Test
+    fun `点左栏只报浏览，不报切换`() {
+        val browsed = mutableListOf<String>()
+        val picked = mutableListOf<ModelPick>()
+        val list = buildModelList(
+            profiles = listOf(
+                ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash")),
+                ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
+            ),
+            current = ModelPick("a", "flash"),
+            browsedProfileId = "a",
+            effectOf = { PickEffect.Hot },
+            onPick = { picked += it },
+            onSelectProfile = { browsed += it },
+            onManage = {},
+        )
+
+        click(labelContaining(list, "本地"))
+
+        assertEquals(listOf("b"), browsed, "点左栏要报出浏览目标")
+        assertTrue(picked.isEmpty(), "点左栏不该切换任何模型：$picked")
     }
 
     /**
@@ -157,12 +190,16 @@ class ComposerModelTest {
     @Test
     fun `当前项只打一个勾`() {
         val list = buildModelList(
-            listOf(
+            profiles = listOf(
                 ModelProfile(id = "a", name = "中转", modelId = "pro", modelIds = mutableListOf("flash", "pro")),
                 ModelProfile(id = "b", name = "本地", modelId = "qwen", modelIds = mutableListOf("qwen")),
             ),
-            ModelPick("a", "pro"),
-            { PickEffect.Hot }, {}, {},
+            current = ModelPick("a", "pro"),
+            browsedProfileId = null,
+            effectOf = { PickEffect.Hot },
+            onPick = {},
+            onSelectProfile = {},
+            onManage = {},
         )
 
         assertEquals(1, textsIn(list).count { it == MARK }, "应当且只应当标一个当前项：${textsIn(list)}")
@@ -182,11 +219,13 @@ class ComposerModelTest {
     fun `没指定模型的配置也有一行可选`() {
         val picked = mutableListOf<ModelPick>()
         val list = buildModelList(
-            listOf(ModelProfile(id = "a", name = "官方")),
-            null,
-            { PickEffect.Hot },
-            { picked += it },
-            {},
+            profiles = listOf(ModelProfile(id = "a", name = "官方")),
+            current = null,
+            browsedProfileId = "a",
+            effectOf = { PickEffect.Hot },
+            onPick = { picked += it },
+            onSelectProfile = {},
+            onManage = {},
         )
 
         assertTrue(textsIn(list).any { it.contains(NO_MODEL_LABEL) }, "少了那一行：${textsIn(list)}")
@@ -198,11 +237,13 @@ class ComposerModelTest {
     fun `点某一行报出配置与模型两级`() {
         val picked = mutableListOf<ModelPick>()
         val list = buildModelList(
-            listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro"))),
-            null,
-            { PickEffect.Hot },
-            { picked += it },
-            {},
+            profiles = listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash", "pro"))),
+            current = null,
+            browsedProfileId = "a",
+            effectOf = { PickEffect.Hot },
+            onPick = { picked += it },
+            onSelectProfile = {},
+            onManage = {},
         )
 
         click(labelContaining(list, "pro"))
@@ -215,21 +256,24 @@ class ComposerModelTest {
     /**
      * 跨配置切换会重开会话（端点或凭证变了），这件事要在**点之前**就说清楚。
      * 今天只在忙的时候弹确认框，空闲时一个字都不说，用户切完才发现上下文没了。
+     *
+     * 两栏版里它跟着**浏览**走：右栏画谁就标谁 —— 你正看着的这条点下去什么
+     * 后果，正好是点之前要知道的那件事。
      */
     @Test
-    fun `会重开会话的组才标出来`() {
-        val list = buildModelList(
-            listOf(
-                ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash")),
-                ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
-            ),
-            null,
-            { p -> if (p.id == "a") PickEffect.Hot else PickEffect.Restart },
-            {}, {},
+    fun `重开标记跟着浏览的那条走`() {
+        val profiles = listOf(
+            ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash")),
+            ModelProfile(id = "b", name = "本地", modelIds = mutableListOf("qwen")),
         )
-        val badges = textsIn(list).filter { it == "会重开会话" }
+        val effectOf: (ModelProfile) -> PickEffect =
+            { p -> if (p.id == "a") PickEffect.Hot else PickEffect.Restart }
 
-        assertEquals(1, badges.size, "应当且只应当标一组：${textsIn(list)}")
+        val onA = textsIn(buildModelList(profiles, null, "a", effectOf, {}, {}, {}))
+        assertEquals(0, onA.count { it == "会重开会话" }, "热切换那条不该标：$onA")
+
+        val onB = textsIn(buildModelList(profiles, null, "b", effectOf, {}, {}, {}))
+        assertEquals(1, onB.count { it == "会重开会话" }, "浏览到会重开的那条要标：$onB")
     }
 
     /** 没有会话时标"会重开会话"是吓唬人 —— 那时根本没有上下文可丢。 */
@@ -244,7 +288,8 @@ class ComposerModelTest {
 
     @Test
     fun `没有配置时列表说明现状`() {
-        val texts = textsIn(buildModelList(emptyList(), null, { PickEffect.Hot }, {}, {})).joinToString("\n")
+        val texts = textsIn(buildModelList(emptyList(), null, null, { PickEffect.Hot }, {}, {}, {}))
+            .joinToString("\n")
 
         assertTrue(texts.contains("还没有配置任何模型"), "实际：$texts")
     }
@@ -253,8 +298,13 @@ class ComposerModelTest {
     fun `列表里有去管理配置的入口`() {
         var managed = 0
         val list = buildModelList(
-            listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
-            null, { PickEffect.Hot }, {}, { managed++ },
+            profiles = listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
+            current = null,
+            browsedProfileId = null,
+            effectOf = { PickEffect.Hot },
+            onPick = {},
+            onSelectProfile = {},
+            onManage = { managed++ },
         )
 
         click(labelContaining(list, MANAGE_LABEL))
@@ -270,8 +320,13 @@ class ComposerModelTest {
     fun `操作行只说管理，不出现编辑表单的字段`() {
         val texts = textsIn(
             buildModelList(
-                listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
-                null, { PickEffect.Hot }, {}, {},
+                profiles = listOf(ModelProfile(id = "a", name = "中转", modelIds = mutableListOf("flash"))),
+                current = null,
+                browsedProfileId = null,
+                effectOf = { PickEffect.Hot },
+                onPick = {},
+                onSelectProfile = {},
+                onManage = {},
             )
         ).joinToString("\n")
 
@@ -281,7 +336,7 @@ class ComposerModelTest {
         }
     }
 
-    // ---- 卡头写什么 ----
+    // ---- 卡头与左栏写什么 ----
 
     @Test
     fun `卡头写配置名与端点主机`() {
@@ -289,10 +344,29 @@ class ComposerModelTest {
         // 2026-09-21 起这两个是**两个标签**（主次不同色），所以断言看渲染出来的文字
         val p = ModelProfile(name = "中转", baseUrl = "https://api.deepseek.com/v1")
 
-        val texts = textsIn(buildModelList(listOf(p), null, { PickEffect.Hot }, {}, {}))
+        val texts = textsIn(buildModelList(listOf(p), null, null, { PickEffect.Hot }, {}, {}, {}))
 
         assertTrue(texts.contains("中转"), "少了配置名：$texts")
         assertTrue(texts.contains("api.deepseek.com"), "少了端点主机：$texts")
+    }
+
+    /**
+     * 左栏名字按**像素**截，不按字数：名字里中英混着（「公司tokenhub」），
+     * 一个汉字宽与一个字母宽差一倍 —— 按字数截必然一边浪费一边溢出。
+     */
+    @Test
+    fun `左栏名字按像素截断`() {
+        val font = UIUtil.getLabelFont()
+        val budget = JBUI.scale(76)
+
+        val cut = ellipsizeToWidth("公司tokenhub极度冗长的名字", budget, font)
+
+        assertTrue(cut.endsWith("…"), "没有截断：$cut")
+        assertTrue(
+            JLabel().getFontMetrics(font).stringWidth(cut) <= budget,
+            "截完还是太宽：$cut",
+        )
+        assertEquals("我的ds", ellipsizeToWidth("我的ds", budget, font), "放得下的名字不该动")
     }
 
     @Test
@@ -309,9 +383,10 @@ class ComposerModelTest {
     }
 
     /**
-     * 弹层的宽度是内容撑开的，而主机名是用户填的 —— 不设上限的话，一条配置
-     * 就能把弹层撑得比工具窗口（420px）还宽。这条钉的是那个上限，
-     * 而且取的是**最宽的那种组合**：长主机名 + 长模型 ID + 重开标记。
+     * 弹层的宽度是内容撑开的，而主机名与配置名是用户填的 —— 不设上限的话，
+     * 一条配置就能把弹层撑得比工具窗口（420px）还宽。两栏版又多了一条左栏，
+     * 这条钉的是**两栏加起来**的上限，取的是最宽的那种组合：长配置名 +
+     * 长主机名 + 长模型 ID + 重开标记 + 左栏最长的名字。
      */
     @Test
     fun `弹层不会比工具窗口宽`() {
@@ -324,10 +399,16 @@ class ComposerModelTest {
         )
 
         val list = buildModelList(
-            listOf(long, ModelProfile(id = "b", name = "本地 Qwen", modelIds = mutableListOf("qwen"))),
-            null,
-            { PickEffect.Restart },
-            {}, {},
+            profiles = listOf(
+                long,
+                ModelProfile(id = "b", name = "公司tokenhub很久", modelIds = mutableListOf("qwen")),
+            ),
+            current = null,
+            browsedProfileId = "a",
+            effectOf = { PickEffect.Restart },
+            onPick = {},
+            onSelectProfile = {},
+            onManage = {},
         )
 
         // 列表自己是 preference 撑开的，父面板的边距不算在内

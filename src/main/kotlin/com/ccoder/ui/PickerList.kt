@@ -256,8 +256,14 @@ internal fun JPanel.addLeftAligned(c: JComponent) {
 internal fun gap(height: Int): JComponent =
     Box.createVerticalStrut(JBUI.scale(height)) as JComponent
 
-/** 一张卡的底与边。 */
-private class CardPanel(private val warn: Boolean) : JPanel() {
+/**
+ * 一张卡的底与边。
+ *
+ * `internal` 而不是 private：模型弹层的左栏（`ComposerModel.ProfileColumn`）
+ * 要拿它当容器 —— 那也是一张"卡"，底和边不该另起一套。`open` 也是为它：
+ * 左栏的宽度钉死在常量上，那需要覆写 `getPreferredSize`。
+ */
+internal open class CardPanel(private val warn: Boolean) : JPanel() {
     init {
         isOpaque = false
     }
