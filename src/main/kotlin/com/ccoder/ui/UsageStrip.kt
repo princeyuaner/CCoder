@@ -1,7 +1,6 @@
 package com.ccoder.ui
 
 import com.ccoder.text.CcoderText
-import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BasicStroke
@@ -29,6 +28,23 @@ private val STRIP_HEIGHT = JBUI.scale(28)
  *
  * 没有数据时**整条不显示**（isVisible=false）：空框比没有更糟；BoxLayout 会
  * 跳过不可见子项，所以它也不占高度（同 queueStrip 那条注释）。
+ *
+ * ## 底 / 边 / 弧与上下两张卡同一套（2026-10-13 用户报「样式和其他的不一样，
+ * 保持统一，四个角的弧度也是一样」）
+ *
+ * 它夹在五张状态卡与输入卡之间，三样各走各的就会露馅：
+ *
+ * - **弧**取 [CARD_CORNER_ARC] —— 与两张邻居卡**共用一个数**。第一版写死 7，
+ *   那个数抄自选型台的 `border-radius: 7px`，但 `RoundRectangle2D` 的 arc 是
+ *   **直径**不是半径（[SessionChips] 里记过同一个坑）：画出来半径只有 3.5，
+ *   比上下两张卡（半径 8）方一倍，一排看过去就它一个尖角。16 = 直径，半径 8。
+ * - **边**取 [lineColor] —— 同 [StatusCardView] 的 [RoundedLineBorder]、同
+ *   [ComposerCard] 的常态描边。第一版用的 `JBColor.border()` 在本机主题里落在
+ *   另一种灰上，左右两条边和工具窗口底色一个色，整条的边比邻居淡一档。
+ * - **底**取 [UIUtil.getPanelBackground] —— 同 [StatusCardView]。
+ *
+ * 悬停换成列表选中色**不在此列**：那是"整条可点"的反馈，与卡片悬停时描边
+ * 变强调色是两种语言，各留各的。
  */
 internal class UsageStrip(private val onOpen: () -> Unit) : JComponent() {
 
@@ -69,13 +85,13 @@ internal class UsageStrip(private val onOpen: () -> Unit) : JComponent() {
         val g2 = g.create() as Graphics2D
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val arc = JBUI.scale(CARD_CORNER_ARC).toFloat()
             val shape = RoundRectangle2D.Float(
-                0f, 0f, (width - 1).toFloat(), (height - 1).toFloat(),
-                JBUI.scale(7).toFloat(), JBUI.scale(7).toFloat(),
+                0f, 0f, (width - 1).toFloat(), (height - 1).toFloat(), arc, arc,
             )
-            g2.color = if (hover) UIUtil.getListSelectionBackground(false) else UIUtil.getTextFieldBackground()
+            g2.color = if (hover) UIUtil.getListSelectionBackground(false) else UIUtil.getPanelBackground()
             g2.fill(shape)
-            g2.color = JBColor.border()
+            g2.color = lineColor()
             g2.stroke = BasicStroke(1f)
             g2.draw(shape)
 
@@ -108,7 +124,11 @@ internal class UsageStrip(private val onOpen: () -> Unit) : JComponent() {
                 if (sparkRight - need > x) {
                     val maxV = spark.max().coerceAtLeast(1L)
                     val baseY = height / 2f + JBUI.scale(8)
-                    val accentText = accentTextFor(UIUtil.getTreeSelectionBackground(true), UIUtil.getTextFieldBackground())
+                    // 对比度按条的底色算 —— 条自己填什么，这里就传什么
+                    val accentText = accentTextFor(
+                        UIUtil.getTreeSelectionBackground(true),
+                        UIUtil.getPanelBackground(),
+                    )
                     var bx = sparkRight - need
                     spark.forEachIndexed { i, v ->
                         val bh = (v.toDouble() / maxV * JBUI.scale(15)).toFloat().coerceAtLeast(1.5f)

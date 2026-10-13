@@ -22,8 +22,13 @@ import javax.swing.SwingUtilities
  * 状态卡也不再是输入卡内部的一行：它们是独立的一排，挂在输入卡**外面**的
  * 上方，所以这一张图里两样都得画出来才看得出关系。
  *
- * 产物在 `build/composer-probe*.png`。改了输入区或状态卡的观感就跑一下看一眼。
- * 绕过权限那张单独出一张，因为警示色只有**看**才知道够不够显眼。
+ * 「使用量」常驻条（2026-10-13 加）：它真实的位置就在状态卡与输入卡**之间**，
+ * 用户报的那条「这个卡片的样式和其他的不一样」正是这三样摆在一起才看得出来的
+ * 事 —— 条不进这张图，圆角/描边一整类毛病就没人看得见（当时是靠真机截图
+ * 才发现的；UsageRenderProbe 只画条自己，对比不出来）。
+ *
+ * 产物在 `build/composer-probe*.png`。改了输入区、状态卡或常驻条的观感就跑一下
+ * 看一眼。绕过权限那张单独出一张，因为警示色只有**看**才知道够不够显眼。
  */
 class ComposerRenderProbe {
 
@@ -129,15 +134,41 @@ class ComposerRenderProbe {
 
             val card = buildComposerCard(inputScroll, toolbar)
 
+            // 「使用量」常驻条，插在状态卡与输入卡之间 —— 真机上就是这么叠的。
+            // 走势的示意数据与 UsageRenderProbe 同一形状（缓存读占大头的 14 天）
+            val usage = UsageStrip(onOpen = {}).apply {
+                submit(
+                    UsageStripData(
+                        todayTokens = 12_400_000,
+                        todayCost = 14.9,
+                        spark = (13 downTo 0).map { 2_000_000L + (it * 1_100_000L) % 9_000_000L },
+                    )
+                )
+            }
+            val header = javax.swing.JPanel().apply {
+                layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                isOpaque = false
+                // 一律左对齐：BoxLayout 摆不拉伸的子项用的是加权平均对齐点
+                // （ClaudePanel 里记过这个坑），探针里同样不能混 0.5
+                cards.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+                add(cards)
+                add(
+                    (javax.swing.Box.createVerticalStrut(com.intellij.util.ui.JBUI.scale(5))
+                        as javax.swing.JComponent).apply { alignmentX = java.awt.Component.LEFT_ALIGNMENT }
+                )
+                usage.alignmentX = java.awt.Component.LEFT_ALIGNMENT
+                add(usage)
+            }
+
             val outer = javax.swing.JPanel(BorderLayout()).apply {
                 border = com.intellij.util.ui.JBUI.Borders.empty(6, 8, 8, 8)
                 background = com.intellij.util.ui.UIUtil.getPanelBackground()
-                add(cards, BorderLayout.NORTH)
+                add(header, BorderLayout.NORTH)
                 add(card, BorderLayout.CENTER)
             }
 
             val w = 430
-            val h = 230
+            val h = 264
             outer.setSize(w, h)
             layoutAll(outer)
 
