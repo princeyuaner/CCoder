@@ -313,6 +313,27 @@ tag 照例打在含 change-notes 的那棵树（`v0.2.36` → cc706b5），relea
 增量口径两条：底部三个弹层改贴各自标签弹出（修「底下这几个弹框全部靠左」）、
 补全弹层上下键换选中就地翻面 —— 2026-10-13 复核过 0.2.35 已上架（id 1192203），不并条。
 
+0.2.38 这版的发布链与绿数（2026-10-13；**按用户指示只发 GitHub release，不推插件
+市场** —— 这是与 0.2.36 全链那次最大的差别）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin | **2151 条全绿**（三侧分别跑的那一轮里 `test` 真跑，2m39s） |
+| sidecar | **274 条全绿** |
+| web | **368 条全绿**（24 个文件） |
+| `buildPlugin` | zip 9,378,190 字节；打包校验 `[verify] OK: manifest 5008 entries`；jar 里 plugin.xml 已是 0.2.38 且**不含**占位字样（`grep -c TODO` = 0） |
+| `verifyPlugin` | PY-261 / PY-262 / PY-263 **三份全 Compatible**（2m03s）；internal API **0 条**（PY-261：deprecated 16 + experimental 6；PY-262/263 另加 scheduled-for-removal 3 —— 与 0.2.36 同批：ToolWindowFactory 覆写、JBUI.scale(float) 等） |
+| `publishPlugin` | **未跑**（用户指示不推市场） |
+| GitHub release | `gh release create v0.2.38 --verify-tag …`，一次成功、自动 Latest；附件 9,378,190 字节；正文与 `docs/releases/0.2.38.md` 复核**一字不差**（API 回读） |
+
+tag 照例打在含 change-notes 的那棵树（`v0.2.38` → f887c3a），release 正文那笔
+（1b54e76）在 tag 之外。zip 的 sha256：
+`c1b849d68e8dcb3d226f662e317335a8e5b397d448e0d75726e9de098f22f1c3`。
+增量口径**三条**（0.2.37 从未上传，这批一并端出，按相对 0.2.36 的增量写）：
+「本轮改动」卡（清单 / 对比 / 回滚）、MCP 未连完提示带（发送前就地确认）、
+使用量常驻条与状态卡样式统一 —— 发版前复核 0.2.36 已上架（id 1192692）、
+`updates?version=0.2.37` 仍为空数组。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
