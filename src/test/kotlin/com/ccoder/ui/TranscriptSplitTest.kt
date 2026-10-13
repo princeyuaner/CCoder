@@ -1,10 +1,15 @@
 package com.ccoder.ui
 
+import com.intellij.openapi.ui.Divider
+import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.awt.Component
+import java.awt.event.MouseEvent
 import javax.swing.JPanel
 
 /**
@@ -38,11 +43,44 @@ class TranscriptSplitTest {
     }
 
     @Test
-    fun `分隔条上不挂多余控件`() {
+    fun `平台的分隔控件保持关闭`() {
         val split = buildTranscriptSplit(comp("a"), comp("b"))
 
+        // 历史结论（实测）：平台那两个开关的小箭头会干扰拖动，一直关着。
+        // 注意与握把区分：握把是我们自绘的常驻记号（下一组用例），不是这两颗。
         assertFalse(split.isShowDividerControls, "分隔条上的小箭头会干扰拖动")
+        assertFalse(split.isShowDividerIcon, "平台的图标同样关着 —— 记号是我们自己画的")
     }
+
+    @Test
+    fun `分隔条中段挂着一颗常驻握把`() {
+        val split = buildTranscriptSplit(comp("a"), comp("b"))
+
+        val divider = split.components.filterIsInstance<Divider>().firstOrNull()
+        assertNotNull(divider, "平台的 Divider 不在 children 里 —— 握把会跟着静默消失")
+        val grip = divider!!.components.filterIsInstance<DividerGripView>().singleOrNull()
+        assertNotNull(grip, "握把没挂到分隔条上")
+        assertEquals(JBUI.scale(32), grip!!.preferredSize.width, "握把宽度（未缩放 32）")
+        assertEquals(JBUI.scale(3), grip.preferredSize.height, "握把高度 —— 与 6px 分隔条成 1:2")
+    }
+
+    @Test
+    fun `指针压上分隔条，握把进悬停态`() {
+        val split = buildTranscriptSplit(comp("a"), comp("b"))
+        val divider = split.components.filterIsInstance<Divider>().first()
+        val grip = divider.components.filterIsInstance<DividerGripView>().first()
+
+        assertFalse(grip.isHotForTest(), "起步该是静止态")
+        divider.dispatchEvent(mouseEvent(divider, MouseEvent.MOUSE_ENTERED))
+        assertTrue(grip.isHotForTest(), "指针进来要变悬停态（否则握把永远不会变色）")
+        divider.dispatchEvent(mouseEvent(divider, MouseEvent.MOUSE_EXITED))
+        assertFalse(grip.isHotForTest(), "离开要回静止态")
+    }
+
+    /** 直接派发进 divider —— 与真实路径一致：握把没有监听器，指针事件本来就落在分隔条身上。 */
+    private fun mouseEvent(target: Component, id: Int) = MouseEvent(
+        target, id, System.currentTimeMillis(), 0, 1, 1, 0, false,
+    )
 
     @Test
     fun `尊重组件最小尺寸，避免把输入区拖没`() {
