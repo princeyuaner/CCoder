@@ -161,31 +161,32 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-13 开版：**0.2.36 当天已上传、审核中**
-         （`api/plugins/34281`：`hasUnapprovedUpdate: true`；
-         `updates?version=0.2.36`：id 1192692，`approve`/`listed` 都是 false）。
-         写 change-notes 之前先复核（`api/plugins/34281/updates?version=0.2.36`）
-         —— 没过审就得把 0.2.36 那两条一并并进来，应急做法见发布设计稿 §八
-         （0.2.26→0.2.27 用过）。
-         0.2.36 那两条在 tag `v0.2.36` → cc706b5 那棵树的 plugin.xml 里，可对照措辞。
+         2026-10-13 开版（0.2.38）：复核结果是 **0.2.36 已过审上架**
+         （`updates?version=0.2.36`：id 1192692，`approve`/`listed` 都是 true）——
+         基线就是它；**0.2.37 从未上传**（同一次复核：`updates?version=0.2.37`
+         是空数组；开版当天明确"只开版本、不推插件"）。
+         写本版 change-notes 之前**先复核 0.2.37 传没传**（`updates?version=0.2.37`）
+         —— 没传过的话，本版就是把 0.2.37 那批改动一起端出去，按相对 0.2.36 的
+         增量写（合并写法见发布设计稿 §八，0.2.26→0.2.27 用过）。
          复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.37</h3>
+    <h3>0.2.38</h3>
     <ul>
       <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version &mdash; check whether 0.2.36 has been approved first (see the comment
-          above; as of 2026-10-13 it was still in review). If it has not, merge 0.2.36's
-          two items in as well. The previous list lives in git (tag v0.2.36 &rarr;
-          cc706b5); do not copy it blindly.</li>
+          version. Check first whether 0.2.37 was ever uploaded (see the comment above;
+          as of 2026-10-13 it had never been pushed) &mdash; if it was not, this note
+          must also cover everything 0.2.37 would have contained. The last listed list
+          lives in git (tag v0.2.36 &rarr; cc706b5); do not copy it blindly.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.36
-          过审没有（上面那条注释；2026-10-13 开版时还在审）—— 没过审就得把 0.2.36 那两条
-          一并并进来。上一版的清单在 git 里（tag v0.2.36 &rarr; cc706b5），别照抄。</li>
+      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.37
+          传没传（上面那条注释；2026-10-13 开版时从未推过）—— 没传过就得把 0.2.37 那批
+          一起写上（按相对 0.2.36 的增量），别只写 0.2.38 之后的。上一份清单在 git 里
+          （tag v0.2.36 &rarr; cc706b5），别照抄。</li>
     </ul>
     ]]></change-notes>
 
