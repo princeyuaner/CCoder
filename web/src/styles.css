@@ -1376,6 +1376,18 @@ body {
   border-top: 1px solid var(--border, #3c3f41);
 }
 
+/* 文件清单的滚动窗：**最多先露 5 行**，再多在这里滚（2026-10-13 用户：
+   "展开后最多显示5个文件，多出的应该使用滚动形式"）。150 ≈ 5 × 30（一行 =
+   上下 padding 10 + 12.5px 字的一行 + 1px 分隔线）。**固定 px、不随 --fs-scale
+   缩** —— 与 .tool__output 的 220px 同一路数：字号档调大时行高会长，这里是
+   "约五行"的上限而不是精确窗（同 MODEL_LIST_MAX_HEIGHT 的「约四行」）。
+   底部的动作条与确认态的说明**不进这个容器**（在 __body 里、它的外面）——
+   滚的是"看什么"，不是"按什么"。滚动条样式吃全局那套 ::-webkit-scrollbar。 */
+.turn-changes__scroll {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
 .turn-row {
   display: flex;
   align-items: center;

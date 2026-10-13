@@ -138,26 +138,30 @@ function TurnChangesCardImpl({ summary, marks, revert }: Props) {
           <span className="turn-changes__count">{t('turn.confirmIrreversible')}</span>
         </div>
         <div className="turn-changes__body">
-          {summary.files
-            .filter((f) => selected.has(f.path))
-            .map((f) => {
-              const mark = markOf(f, marks)
-              const { dir, name } = splitPath(f.path)
-              return (
-                <div className="turn-row" key={f.path} data-testid="turn-confirm-row">
-                  <span className={`turn-mark ${mark === 'new' ? 'turn-mark--del' : 'turn-mark--rec'}`}>
-                    {mark === 'new' ? t('turn.confirmDelete') : t('turn.confirmRestore')}
-                  </span>
-                  <span className="turn-row__path" title={f.path}>
-                    {dir !== '' && <span className="turn-row__dir">{dir}</span>}
-                    <span className="turn-row__name">{name}</span>
-                  </span>
-                  <span className="turn-row__why">
-                    {mark === 'new' ? t('turn.confirmDeleteWhy') : t('turn.confirmRestoreWhy')}
-                  </span>
-                </div>
-              )
-            })}
+          {/* 与展开态同一个滚动规则（见下面那段注释）：后果行也会很多 ——
+              「全部回滚」时有多少文件就有多少行。说明与按钮留在容器外 */}
+          <div className="turn-changes__scroll" data-testid="turn-scroll">
+            {summary.files
+              .filter((f) => selected.has(f.path))
+              .map((f) => {
+                const mark = markOf(f, marks)
+                const { dir, name } = splitPath(f.path)
+                return (
+                  <div className="turn-row" key={f.path} data-testid="turn-confirm-row">
+                    <span className={`turn-mark ${mark === 'new' ? 'turn-mark--del' : 'turn-mark--rec'}`}>
+                      {mark === 'new' ? t('turn.confirmDelete') : t('turn.confirmRestore')}
+                    </span>
+                    <span className="turn-row__path" title={f.path}>
+                      {dir !== '' && <span className="turn-row__dir">{dir}</span>}
+                      <span className="turn-row__name">{name}</span>
+                    </span>
+                    <span className="turn-row__why">
+                      {mark === 'new' ? t('turn.confirmDeleteWhy') : t('turn.confirmRestoreWhy')}
+                    </span>
+                  </div>
+                )
+              })}
+          </div>
           <p className="turn-changes__note">{t('turn.confirmNote')}</p>
           <div className="turn-bar">
             <span className="turn-changes__spacer" />
@@ -178,7 +182,12 @@ function TurnChangesCardImpl({ summary, marks, revert }: Props) {
       {head}
       {open && (
         <div className="turn-changes__body">
-          {summary.files.map((f) => {
+          {/* 清单最多先露几行、再多就在这一层里滚（2026-10-13 用户："展开后最多
+              显示 5 个文件，多出的应该使用滚动形式"）。上限是 CSS 的 max-height
+              —— 行一个不少地留在 DOM 里，滚得到。**动作条不进这个容器**：
+              「回滚所选」正是滚到底之后要按的那个键，跟着滚走就找不到了。 */}
+          <div className="turn-changes__scroll" data-testid="turn-scroll">
+            {summary.files.map((f) => {
             const mark = markOf(f, marks)
             const state = revertStateOf(f.path, revert)
             const reverted = state?.ok === true
@@ -232,8 +241,9 @@ function TurnChangesCardImpl({ summary, marks, revert }: Props) {
                   ↗
                 </button>
               </div>
-            )
-          })}
+              )
+            })}
+          </div>
           {selected.size > 0 && (
             <div className="turn-bar">
               <span>{t('turn.selected', [selected.size])}</span>

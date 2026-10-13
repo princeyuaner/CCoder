@@ -167,6 +167,26 @@ function states() {
       ${head({ open: true }).replace(/<button type="button" class="turn-btn">全部回滚<\/button>/,
         '<button type="button" class="turn-btn" disabled title="回滚要在会话空闲时做">全部回滚</button>')}
     </div>
+
+    <p class="cap">⑦ 文件多时：清单先露 5 行，再多在清单里滚（动作条钉在卡底，不跟着滚）。
+      截图里可能看不到滚动条 —— headless 的 overlay 滑块不画；真机 JCEF 会显示（全局 ::-webkit-scrollbar 那套）</p>
+    <div class="turn-changes">
+      <div class="turn-changes__body">
+        <div class="turn-changes__scroll">
+          ${[
+            ['src/main/kotlin/com/ccoder/ui/', 'ComposerModel.kt', ADD(252) + DEL(54)],
+            ['src/main/kotlin/com/ccoder/ui/', 'PickerList.kt', ADD(15) + DEL(9)],
+            ['src/main/kotlin/com/ccoder/ui/', 'ClaudePanel.kt', ADD(59) + DEL(23)],
+            ['src/test/kotlin/com/ccoder/ui/', 'ComposerModelRenderProbe.kt', ADD(39) + DEL(23)],
+            ['src/test/kotlin/com/ccoder/ui/', 'ComposerModelTest.kt', ADD(242) + DEL(161)],
+            ['src/main/kotlin/com/ccoder/ui/', 'TranscriptSplit.kt', ADD(30) + DEL(5)],
+            ['web/src/components/', 'TurnChangesCard.tsx', ADD(12) + DEL(4)],
+            ['web/src/', 'styles.css', ADD(14) + DEL(2)],
+          ].map(([d, n, delta]) => row({ dir: d, name: n, delta })).join('')}
+        </div>
+        ${bar(2)}
+      </div>
+    </div>
   </div>`
 }
 

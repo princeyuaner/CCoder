@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { setLang } from '../i18n'
 import type { RevertResultWire } from '../types'
@@ -74,6 +74,39 @@ describe('收起与展开（卡片乙）', () => {
       <TurnChangesCard summary={{ files: [], add: 0, del: 0, running: false }} />,
     )
     expect(container.querySelector('.turn-changes')).toBeNull()
+  })
+})
+
+describe('文件多的时候（最多露几行，多出的滚）', () => {
+  /**
+   * 2026-10-13 用户："展开后最多显示 5 个文件，多出的应该使用滚动形式"。
+   *
+   * 这里钉的是**结构**：上限是 CSS 的 max-height（jsdom 不算布局，量不了），
+   * 但"行都在 DOM 里"与"动作条在滚动容器外"两条缺一不可 ——
+   * 少了哪条，滚动条后面要么没东西可滚，要么「回滚所选」跟着滚走。
+   */
+  it('行一个不少，且动作条在滚动容器外', async () => {
+    captureSend()
+    const user = userEvent.setup()
+    const files = Array.from({ length: 8 }, (_, i) => ({
+      path: `src/main/f${i}.kt`,
+      edits: 1,
+      add: 1,
+      del: 0,
+      firstToolUseId: `t${i}`,
+    }))
+    render(<TurnChangesCard summary={summaryOf({ files, add: 8, del: 0 })} />)
+
+    await user.click(screen.getByTestId('turn-expand'))
+
+    const scroll = screen.getByTestId('turn-scroll')
+    expect(within(scroll).getAllByTestId('turn-row')).toHaveLength(8)
+
+    // 勾一个让动作条出现：它必须是滚动容器的**兄弟**而不是孩子
+    await user.click(within(scroll).getAllByRole('checkbox')[0])
+    const bar = screen.getByTestId('turn-revert-selected').closest('.turn-bar')
+    expect(bar).toBeTruthy()
+    expect(scroll.contains(bar)).toBe(false)
   })
 })
 
