@@ -46,6 +46,7 @@ class LocalizedTextScanTest {
         "StatusCards.kt",
         "ComposerEffort.kt",
         "AskRestoreBar.kt",
+        "McpCacheWarnBar.kt",
         "CommandCandidates.kt",
         "PromptCandidates.kt",
         "SymbolLookup.kt",

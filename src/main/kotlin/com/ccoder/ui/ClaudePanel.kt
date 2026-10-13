@@ -588,6 +588,58 @@ class ClaudePanel(
      */
     private var mcpSettleTimer: javax.swing.Timer? = null
 
+    /**
+     * 「MCP 还没连完 · 现在发送会亏缓存」那条带子（2026-10-13）。
+     *
+     * 判据在 `McpCacheWarn` 的两个纯函数里，这里只做三件事：把读数送进去、
+     * 复位的时机、以及发送前那一问（D）。原委见 `McpCacheWarn.kt` 头注的实测。
+     *
+     * 类型**必须显式写**：两个回调里都提到 `mcpCacheWarn` 自己（收回确认条），
+     * 不写的话类型推断会绕进自引用。
+     */
+    private val mcpCacheWarn: McpCacheWarnBar = McpCacheWarnBar(
+        onOpenSettings = { openModelSettings() },
+        onSendAnyway = { mute ->
+            // 「照发」= 立刻按原样发出去。静音勾选在这里才生效（它说的是"以后别再问"，
+            // 不是"这一发别发"）；[cacheWarnBypass] 是给同一发的重入许可
+            if (mute) cacheWarnMuted = true
+            mcpCacheWarn.dismissConfirm()
+            cacheWarnBypass = true
+            sendCurrentInput()
+        },
+        // 「等它」什么都不做：输入框里的原文一个字都没动过（闸提在清空之前）。
+        // 焦点还回输入框 —— 用户是打字打一半按的回车，别让他再点一下才能接着写
+        onWait = {
+            mcpCacheWarn.dismissConfirm()
+            input.requestFocusInWindow()
+        },
+    )
+
+    /** 最近一份 MCP 读数算出的提示状态与"值不值当"（见 `McpCacheWarn` 的两个纯函数）。 */
+    private var cacheWarnState: CacheWarnState? = null
+
+    private var cacheWarnWorth = false
+
+    /**
+     * 本次会话（这条面板这一趟）是**恢复**出来的 —— 提示开口的判据之一，
+     * 在 `Ready` 那条恢复分支里记下（实测那 17 万 token 就发生在这条路上）。
+     */
+    private var sessionWasResumed = false
+
+    /** 「本会话不再问」按过。会话级：新会话起手还回来。 */
+    private var cacheWarnMuted = false
+
+    /** 「照发」那一下的重入许可：确认条按过之后，同一发不再被自己拦住。 */
+    private var cacheWarnBypass = false
+
+    /**
+     * 本会话起手时刻 / "落定已报" —— 给 [logMcpSettledOnce] 与 [logCacheSend]
+     * 那两条对账日志用（原委见 [logMcpSettledOnce] 的注释）。
+     */
+    private var mcpSettleStartMs = 0L
+
+    private var mcpSettleLogged = false
+
     /** 打开着的详情浮层。用它实现"再点一次收起"。 */
     private var runDetailPopup: JBPopup? = null
 
@@ -980,6 +1032,12 @@ class ClaudePanel(
             // **直接挂成子项**，不包一层：实测 BoxLayout 会跳过不可见的子项
             // （空队列时这一行的高度一分不占）
             add(queueStrip)
+            // 「MCP 还没连完 · 现在发送会亏缓存」那条带子（2026-10-13）：排在
+            // 排队条之下 —— 它说的是"此刻这一发"的事，离输入卡越近越好。
+            // 同样直接挂子项：不显示时一分高度不占。
+            // 与输入卡之间的 5px 气口**长在带子自己身上**（2026-10-13 用户报
+            // "和输入框粘在一起"）—— 挂在这儿的话，带子藏起来时那 5px 还占着
+            add(mcpCacheWarn.apply { alignmentX = LEFT_ALIGNMENT })
         }
 
         // 不再单独画顶边线：输入区现在是一张圆角卡片，它自己的上沿
@@ -1362,6 +1420,10 @@ class ClaudePanel(
                             // 先记本地：切标签回来时要拿它重新发布（见 [publishMcpStatus]）
                             lastMcpServers = report.servers
                             publishMcpStatus()
+                            // 输入框上方那条「还没连完」的带子跟着这份读数走
+                            // （2026-10-13）：**由状态驱动、不是事件**，落定/失败
+                            // 都会经由同一次调用收敛，不必各喊一声
+                            updateMcpCacheWarn()
                             // 还在连的就隔一会儿再问：SDK 后台连的 MCP，第一份读数
                             // 多半是 pending，落定晚一拍才到 —— 不续问，设置页那行字
                             // 要等用户重开一次才肯变（[McpSettleWatch] 开头有原委）
@@ -1399,6 +1461,66 @@ class ClaudePanel(
     private fun resetMcpSettle() {
         mcpSettle.reset()
         mcpSettleTimer?.stop()
+    }
+
+    /**
+     * 把最近一份读数送进输入框上方那条带子（2026-10-13）。
+     *
+     * 两件事分开：**是什么状态**由 `cacheWarnStateOf` 算，**值不值当开口**由
+     * `cacheWarnWorthwhile` 判（恢复的会话，或上下文已经长过门槛 —— 用户选定
+     * 「仅恢复/长会话」）。上下文取 [lastUsage] 那一份现成读数，不再单独问一次。
+     *
+     * 没读数时不硬塞：带子自己会退回"没有状态"的隐藏态。
+     */
+    private fun updateMcpCacheWarn() {
+        val servers = lastMcpServers
+        if (servers == null) {
+            cacheWarnState = null
+            cacheWarnWorth = false
+        } else {
+            val state = cacheWarnStateOf(servers)
+            cacheWarnState = state
+            cacheWarnWorth = cacheWarnWorthwhile(state, sessionWasResumed, lastUsage?.usedTokens)
+        }
+        logMcpSettledOnce(cacheWarnState)
+        mcpCacheWarn.setState(cacheWarnState, cacheWarnWorth)
+    }
+
+    /**
+     * 「MCP 落定」记一行 —— **给"重启后前两发全冷"那笔账对时间用的**。
+     *
+     * 原委：`McpCacheWarn.kt` 头注里的实测，以及 `restart-two-cold-sends` 那条记忆
+     * —— 重启/恢复后会话文件里前两发是全价。要验证"等 MCP 落定能不能把两次全冷
+     * 并成一次"，得把**落定时刻**与**每一发出去的时刻**对上。IDE 日志每行自带时刻，
+     * 所以正文不写时间、只写事实；一场只报一次（[mcpSettleLogged]），不刷屏。
+     */
+    private fun logMcpSettledOnce(state: CacheWarnState?) {
+        if (mcpSettleLogged || state == null || state is CacheWarnState.Pending) return
+        mcpSettleLogged = true
+        val start = mcpSettleStartMs
+        val secs = if (start > 0) (System.currentTimeMillis() - start) / 1000.0 else -1.0
+        // 逐台的 status 原样带上（线上字面量，不翻）—— 哪台什么时候落的，事后一眼能看
+        val detail = lastMcpServers?.joinToString("、") { "${it.name}=${it.status}" }.orEmpty()
+        LOG.info("[mcp-cache] MCP 落定 · 会话起手后 ${secs}s · $detail")
+    }
+
+    /**
+     * 每一发**真正走上网络**的消息记一行（与 [logMcpSettledOnce] 配对食用）。
+     *
+     * 点在 [sendNow] 而不是 `sendCurrentInput`：排队那条也经由这里、由队列自己的
+     * 时机发出 —— 只有"网线上真的走了"那一发，才与会话文件里的 usage 对得上。
+     */
+    private fun logCacheSend() {
+        val mcp = when (cacheWarnState) {
+            is CacheWarnState.Pending -> "未落定"
+            null -> "读数未知"
+            else -> "已落定"
+        }
+        LOG.info(
+            "[mcp-cache] 发送 · MCP $mcp" +
+                (if (sessionWasResumed) " · 本会话恢复过" else "") +
+                (if (cacheWarnMuted) " · 本会话已静音" else ""),
+        )
     }
 
     /**
@@ -3151,6 +3273,21 @@ class ClaudePanel(
         refreshStatusCards()
         // MCP 续问表同理：新会话起手，"连接中"从头跟一场（上一场的牌作废）
         resetMcpSettle()
+        // 会话**起手宽限**：SDK 刚起来可能先答一份空表（还没枚举出服务器），
+        // 光靠 pending 驱动会当场停表、整个"连接中 → 连上"窗口被跳过
+        // （见 McpSettleWatch.armStartup）
+        mcpSettle.armStartup()
+        // 「MCP 缓存提示」的会话级状态一并复位：本趟不是恢复来的，静音与
+        // 「照发」许可都不跨会话 —— 判据之一就是"本次是恢复的"
+        sessionWasResumed = false
+        cacheWarnMuted = false
+        cacheWarnBypass = false
+        cacheWarnState = null
+        cacheWarnWorth = false
+        mcpCacheWarn.dismiss()
+        // 对账日志的起手时刻（见 logMcpSettledOnce）：一场一次
+        mcpSettleStartMs = System.currentTimeMillis()
+        mcpSettleLogged = false
 
         // 标题由 [switchToSession] 在切之前就设好了（列表里现成的）；
         // 全新会话这里是 null，标签显示斜体的「新会话」
@@ -3645,6 +3782,10 @@ class ClaudePanel(
                     if (resuming != null) {
                         // 恢复路径：id 构造即知，同时把它记成当前会话
                         currentSessionId = resuming
+                        // 「MCP 缓存提示」的判据之一（2026-10-13）：本趟是恢复出来的。
+                        // 实测那次 17 万 token 全价重算就发生在这条路上 —— 恢复的会话
+                        // 有历史、重算贵，而 CLI 刚起来时工具表还没稳
+                        sessionWasResumed = true
                         beginReplay(resuming)
                     } else {
                         // 全新会话：推一条**标记**而不是「会话已就绪」的系统提示。
@@ -3950,6 +4091,11 @@ class ClaudePanel(
                     }
                     // 续问也停：会话没了，再问回去也只是失败；下个会话起手会重开表
                     resetMcpSettle()
+                    // 那条「还没连完」的带子同理：会话都没了，"现在发送会亏"这话
+                    // 就不成立了 —— 留着它比空着更糟（它看起来是"当前"的）
+                    cacheWarnState = null
+                    cacheWarnWorth = false
+                    mcpCacheWarn.dismiss()
                     // 反向那条线一样（会话没了就没人接动作了），但**不套上面那个
                     // 选中判断**：detach 认主人，不是自己挂的它自己会跳过 ——
                     // 后台标签的 Exit 不该把前台刚挂上的那条线抹掉
@@ -4614,6 +4760,18 @@ class ClaudePanel(
         val images = attachments.images
         if (input.text.isBlank() && images.isEmpty()) return
 
+        // 「MCP 还没连完」那一发先问一句（2026-10-13，D）。**闸必须提在这里** ——
+        // 下面几行一过，输入框与附件就都清空了，那时再拦就得反向还原。
+        //
+        // 「照发」的重入许可只对**这一发**有效：读过即作废，任何一条早退都不会
+        // 把它留到下一发（用户下一次按发送，该问的还是要问）
+        val bypass = cacheWarnBypass
+        cacheWarnBypass = false
+        if (shouldConfirmCacheWarn(cacheWarnState, cacheWarnWorth, cacheWarnMuted, bypass)) {
+            mcpCacheWarn.showConfirm()
+            return
+        }
+
         // 用户敲进去的原样。标题取的是**它**，不是下面展开后的文本 ——
         // 展开会把记号变成一大段代码，拿它当标题就成了「```kotlin …」
         val typed = input.text.trim()
@@ -4744,7 +4902,12 @@ class ClaudePanel(
      */
     private fun sendNow(text: String, typed: String, images: List<AttachedImage> = emptyList()) {
         adoptTitleFrom(typed)
-        client?.sendLine(Protocol.encodeSend(nextId(), text, outgoing(images)))
+        // 日志与真正发出去绑定：通道断了时这一句根本没上网络，记下"发送"会污染对账
+        val c = client
+        if (c != null) {
+            logCacheSend()
+            c.sendLine(Protocol.encodeSend(nextId(), text, outgoing(images)))
+        }
         lastSendWasCommand = text.startsWith("/")
         // 发出后进入"忙"：按钮变"停止"，直到 result 到达
         setBusy(true)

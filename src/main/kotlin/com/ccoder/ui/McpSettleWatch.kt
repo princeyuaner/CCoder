@@ -33,12 +33,25 @@ internal class McpSettleWatch {
     private var asks = 0
 
     /**
+     * 会话起手的宽限跳数：见 [armStartup]。**只有它在"没有 pending"时还能让续问
+     * 继续走下去** —— 这是 2026-10-13 补的那个窗口。
+     */
+    private var grace = 0
+
+    /**
      * 收到一份读数之后问一句：**还要不要再问一次**。
      *
      * true = 消耗一张牌，调用方去排一次续问；读数已落定就把牌还满（下一场从头起算）。
+     *
+     * 2026-10-13：落定这一档多了一层 —— 落在**会话起手宽限**里时，"没有 pending"
+     * 还不足以停表（SDK 刚起来可能先答一份空表，见 [armStartup]）。
      */
     fun nextAskWanted(servers: List<McpServerStatus>): Boolean {
         if (servers.none { it.status == PENDING }) {
+            if (grace > 0) {
+                grace--
+                return true
+            }
             asks = 0
             return false
         }
@@ -47,9 +60,23 @@ internal class McpSettleWatch {
         return true
     }
 
+    /**
+     * 会话起手宽限：接下来 [n] 跳**即使读数说"没有 pending"也照问**。
+     *
+     * 为什么要有它（2026-10-13）：`mcpServerStatus` 在 SDK 刚起来时可能先答一份
+     * **空表**（还没枚举出服务器），而上面那条判据把空表当"落定" —— 续问当场停表，
+     * "连接中 → 连上"整整一个窗口被跳过：输入框旁那条「MCP 还没连完」要么不出现、
+     * 要么永远等不到转绿。宽限只在起手处兑现、耗尽即回到原判据，所以
+     * **真的没有服务器**的项目最多多问 [STARTUP_ASKS] 跳就安静。
+     */
+    fun armStartup(n: Int = STARTUP_ASKS) {
+        grace = n
+    }
+
     /** 用户自己催过一次（重连/启用停用、打开设置、新会话）：牌还满。 */
     fun reset() {
         asks = 0
+        grace = 0
     }
 
     companion object {
@@ -66,5 +93,14 @@ internal class McpSettleWatch {
 
         /** CLI 那档"还在连"的线上字面量（词表映射在 `McpCardText.mcpStatusWordOf`）。 */
         private const val PENDING = "pending"
+
+        /**
+         * 会话起手宽限的跳数（[armStartup] 的默认值）。
+         *
+         * 三跳 ≈ 六秒：SDK 枚举服务器的窗口期量级是**秒**，不是分钟（2026-10-09
+         * 探针量的第一份读数"多半是 pending"）。它只是兜"先答空表"那一手的底，
+         * 不是给慢启动加档 —— 真在 pending 的照样按 [MAX_ASKS] 一路跟到落定。
+         */
+        const val STARTUP_ASKS = 3
     }
 }
