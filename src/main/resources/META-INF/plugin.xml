@@ -161,49 +161,33 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-13 发版复核（0.2.37 开版与发版同一天，仍以发版这一次为准）：
-         **0.2.37 从未上传**（`updates?version=0.2.37` 仍是空数组；开版当天就定
-         "只开版本、不推插件"）—— 所以本版把 0.2.37 那批一起端出去，按**相对
-         0.2.36 的增量**合并写（合并写法见发布设计稿 §八，0.2.26→0.2.27 用过）。
-         基线 **0.2.36 已过审上架**（`updates?version=0.2.36`：id 1192692，
-         `approve`/`listed` 都是 true；那份清单在 tag `v0.2.36` → cc706b5 里，
-         措辞可对照）。复核法见发布设计稿 §五。
-         本次（0.2.38）按用户指示**只发 GitHub release，不推插件市场** ——
-         这条 change-notes 随包进 zip 与 release 正文；市场那一跳等推的时候再说。
+         2026-10-13 开版（0.2.39）：复核结果是 **0.2.36 仍是最近一个已上架版**
+         （`updates?version=0.2.36`：id 1192692，`approve`/`listed` 都是 true）——
+         基线就是它；**0.2.37 与 0.2.38 都没上传**（0.2.37 是空数组；0.2.38 按
+         指示只发了 GitHub release，`updates?version=0.2.38` 同为空数组）。
+         写本版 change-notes 之前**先复核 0.2.38 传没传** —— 没传过的话，本版就把
+         0.2.37 + 0.2.38 那批一起端出去，按相对 **0.2.36** 的增量写：上一份合并
+         清单就在 tag `v0.2.38` → f887c3a 的 plugin.xml 里，接着并即可（0.2.26
+         →0.2.27 的合并写法见发布设计稿 §八）。复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.38</h3>
+    <h3>0.2.39</h3>
     <ul>
-      <li><b>A "this turn's changes" card</b> — everything the last round touched, listed
-          above the input box. Expand it to check files and roll them back in one batch
-          (confirmation happens inside the card); click a row to open a "before &harr; now"
-          diff in the IDE. Rolling back never rewrites the conversation — it appends a
-          note. Toggle in Settings &middot; General ("keep snapshots of this turn's
-          changes", on by default).</li>
-      <li><b>A warning strip while MCP servers are still connecting</b> — right after an
-          IDE restart, the first sends can miss the prompt cache and re-bill ~170k tokens
-          at full price, because the tool list isn't stable yet. A strip above the input
-          box shows the state (connecting / failed / settled); hitting Send too early
-          lets you confirm in place (wait / send anyway / stop asking for this session).</li>
-      <li><b>The usage strip now matches the cards around it</b> — its corners were only
-          half as round as the status cards above and the input card below (its arc was
-          copied from a design's radius), and its outline all but vanished against the
-          background. All three now share one corner radius, one outline color, one fill.</li>
+      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
+          version. Check first whether 0.2.38 was ever uploaded (see the comment above;
+          as of 2026-10-13 it had been released on GitHub only) &mdash; if it was not,
+          this note must also cover everything 0.2.37 and 0.2.38 would have contained.
+          The last merged list lives in git (tag v0.2.38 &rarr; f887c3a); do not copy
+          it blindly.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>多了「本轮改动」卡</b> —— 上一轮动过哪些文件，输入框上方一眼看到。展开勾选
-          可批量回滚（确认在卡内翻）；点一行打开「改动前 ↔ 当前」对比（IDE 原生 Diff）。
-          回滚不动对话一个字，只追加一条提示。开关在 设置 · 通用（「保留本轮改动的存档」，
-          默认开）。</li>
-      <li><b>MCP 还没连完时有条提示带</b> —— 重启 IDE 后头几发可能踩空缓存、十几万 token
-          按全价重算（工具表还没稳定）。输入框上方现在会显示状态（连接中 / 失败 / 已落定）；
-          发早了它会就地拦一下，让你选 等它 / 照发 / 本会话不再问。</li>
-      <li><b>使用量那条与上下两张卡样式统一</b> —— 它的圆角原来只有邻居的一半（抄数时把
-          直径当成了半径），描边也淡到左右两边看不见；现在三张卡一个圆角、一种描边、
-          一样的底。</li>
+      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.38
+          传没传（上面那条注释；2026-10-13 开版时只发了 GitHub）—— 没传过就得把 0.2.37 +
+          0.2.38 那批一起写上（按相对 0.2.36 的增量）。上一份合并清单在 git 里
+          （tag v0.2.38 &rarr; f887c3a），别照抄。</li>
     </ul>
     ]]></change-notes>
 
