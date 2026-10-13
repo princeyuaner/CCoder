@@ -18,9 +18,10 @@ import { NdjsonDecoder, encodeNdjson, parseLine } from './ndjson.js';
 import { capHistoryImages } from './history-images.js';
 import { createSession } from './session.js';
 import { resolveClaudePath, ClaudeNotFoundError } from './claude-path.js';
-import { applyProjectKey } from './project-key.js';
+import { applyProjectKey, literalProjectKey } from './project-key.js';
 import { makeT, normalizeLang, langFromEnv } from './strings.js';
 import { createUsageStore } from './usage.js';
+import { createTurnSnapshots } from './snapshots.js';
 
 /**
  * SDK 的 EffortLevel 联合类型（sdk.d.ts:623）。
@@ -158,6 +159,9 @@ export function createDispatcher({
   // 界面语言（Lever A）：插件启动本进程时设的环境变量。做成参数只是为了让
   // 单测能直接钉住，不必去动 process.env；生产路径走默认值。
   lang = langFromEnv(process.env),
+  // 「本轮改动」快照 store 的工厂。做成可注入出于两条不同的理由：
+  // 单测不该碰真实 ~/.ccoder（假 store 记录调用形状），而生产路径就是默认值
+  snapshotsFactory = createTurnSnapshots,
   // 使用量账本（2026-10-10）。
   //
   // **缺省是 null（不记账）**，不是 createUsageStore()：单测里到处都在发射
@@ -166,6 +170,9 @@ export function createDispatcher({
   usageStore = null,
 }) {
   let session = null;
+  // 「本轮改动」的快照 store（每个会话一个）。start 时建、stop 时清 ——
+  // 磁盘上的那份留着，之后 resume 同一会话会从索引接着用（snapshots.js）
+  let snapshots = null;
   // 当前取词器。**不是常量**：同一个 node 进程会被复用（新开一个标签并不新起
   // 进程），所以 start 可以带 uiLang 来重新定语言（Lever B，见下面的 start）
   let t = makeT(lang);
@@ -232,12 +239,24 @@ export function createDispatcher({
           cwd: params.cwd ?? null,
           resume: Boolean(params.resumeSessionId),
         };
+        // 「本轮改动」的快照 store（2026-10-13）。**缺省开**（用户已定），
+        // 插件在设置里关掉时送 `snapshots: false` —— 那条路与今天一字不差。
+        // 会话 id：新会话建会话那一刻还没有（init 事件才带），resume 的有
+        // resumeSessionId —— 两条都在 store 里兜着（setSid / 构造入参）
+        snapshots = params.snapshots === false ? null : snapshotsFactory({
+          projectKey: literalProjectKey(params.cwd ?? ''),
+          sid: params.sessionId ?? params.resumeSessionId ?? null,
+          cwd: params.cwd ?? null,
+        });
+
         let created;
         try {
           created = sessionFactory({
             ...params,
             cwd: params.cwd,
             permissionMode: params.permissionMode ?? 'default',
+            snapshots,
+            onSnapshot: (e) => out({ type: 'turnSnapshot', ...e }),
             // 会话内部那几条文案（session.js 的"CLI 太老"）跟着这一份走：
             // 它们最终也是从这里 out 出去的，两处语言必须是同一个
             t,
@@ -272,6 +291,7 @@ export function createDispatcher({
         } catch (err) {
           // 建会话失败时不能留下半成品 session，否则后续 send 会打到空对象上
           session = null;
+          snapshots = null;
           if (err instanceof ClaudeNotFoundError || err?.code === 'CLAUDE_NOT_FOUND') {
             fail('CLAUDE_NOT_FOUND', err.message, true);
           } else {
@@ -797,6 +817,43 @@ export function createDispatcher({
         return session;
       }
 
+      // ---- 「本轮改动」快照（2026-10-13）----
+      //
+      // 三条都是**请求-响应式**（带 id）。文件内容走这条线时可能不小（协议本来
+      // 就运整份文件正文，见 toolResult），所以不走"广播 + 超时"那条路。
+      case 'fileSnapshot': {
+        const path = params.path;
+        const snap = session ? session.snapshotOf?.(path) : { kind: 'missing' };
+        out({
+          type: 'fileSnapshot',
+          id: msg.id,
+          path: path ?? null,
+          kind: snap?.kind ?? 'missing',
+          // kind='absent'（本轮新建）与 'missing'（没存档）都没有内容 —— 键给 null
+          content: snap?.content ?? null,
+        });
+        return session;
+      }
+
+      case 'revertFiles': {
+        const paths = Array.isArray(params.paths) ? params.paths : [];
+        // 没有会话（面板已关/还没起）= 一律「无存档」—— 不静默，逐条说原因
+        const results = session
+          ? session.revertFiles?.(paths) ?? []
+          : paths.map((p) => ({ path: p, ok: false, action: 'failed', error: 'no-snapshot' }));
+        out({ type: 'revertFiles', id: msg.id, results });
+        return session;
+      }
+
+      case 'snapshotIndex': {
+        out({
+          type: 'snapshotIndex',
+          id: msg.id,
+          entries: session?.snapshotEntries?.() ?? [],
+        });
+        return session;
+      }
+
       case 'stop':
         // 顺序重要：先清空待决权限，否则工具会挂住。
         // '会话已终止' 同 permissionDecision 那条：协议载荷，**保持中文不翻**
@@ -804,6 +861,7 @@ export function createDispatcher({
         session?.denyAllPending?.('会话已终止');
         session?.stop?.();
         session = null;
+        snapshots = null;
         return session;
 
       default:

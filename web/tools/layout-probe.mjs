@@ -31,6 +31,14 @@
  * 样本是那张表的**真实前两行**（含串不可断的路径与标识符），
  * 断言首列不低于 4em 的地板、且没有把气泡撑破。
  *
+ * 2026-10-13 再追加：**转写区还是不是滚动容器**，以及「本轮改动」卡在不在屏幕里。
+ * 用户报"无法滚动输出区，看不到后面的内容卡死了"：新的卡片层（视口区 + 卡片）
+ * 是按 flex 项写的，而 `.transcript-wrap` 忘了变成 flex 列 —— 两个 `flex` 属性
+ * 静默失效，转写区退化成"内容高"、不再滚动，卡片被推到屏幕外。
+ * 更值得记的是**这个探针当时全绿**：它的骨架还停在"wrap 直接套 transcript"的
+ * 旧 DOM。骨架跟产品结构漂移，探针就会对着一个已经不是产品的东西点头 ——
+ * 所以这次连同骨架一起对齐了（改结构要顺手改这里）。
+ *
  * 用法：
  *   npm run probe:layout
  *   CCoder_CHROMIUM="C:\path\to\msedge.exe" npm run probe:layout
@@ -93,15 +101,34 @@ function buildPage(scenario) {
 <link rel="stylesheet" href="file:///${cssPath.replace(/\\/g, '/')}">
 <style>html, body { height: 100%; }</style>
 </head><body>
-<div class="transcript-wrap">
-  <div class="transcript" id="t"></div>
+<div id="root">
+  <div class="transcript-wrap">
+    <div class="transcript-viewport">
+      <div class="transcript" id="t"></div>
+    </div>
+    <div class="turn-changes" id="turn-card">
+      <div class="turn-changes__head">
+        <span class="turn-changes__title">本轮改动</span>
+        <span class="turn-changes__spacer"></span>
+        <button type="button" class="turn-btn">展开</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div id="measure" style="position:fixed;left:-9999px">PENDING</div>
 <script>
   const t = document.getElementById('t')
   const S = ${JSON.stringify(scenario)}
-  // DOM 结构照抄 Transcript.tsx：文字项有 .entry 包裹（真气泡还多一层 .row，
-  // 见 AssistantBubble.tsx），thinking / toolUse / systemNote 都**没有**
+  // DOM 结构照抄 Transcript.tsx / App.tsx：外面是 #root（html/body/#root 三条
+  // overflow:hidden 在样式表里），转写区收在 .transcript-viewport 里，「本轮
+  // 改动」卡是视口区的**兄弟**（钉在底部、不随内容滚走）。
+  //
+  // 这一层 2026-10-13 才补上 —— 在此之前骨架还停在"wrap 直接套 transcript"，
+  // 于是探针看不见当天那次事故：wrap 漏了 display:flex，两个"flex 项"的孩子
+  // 全静态化，转写区不再是滚动容器（写 scrollTop 无效）、卡片被推到屏幕外。
+  // 骨架跟产品 DOM 不一致时，探针会全绿着放行 —— 改结构要顺手改这里。
+  //
+  // 下面这段是**普通模板字符串**：不能出现反引号与反斜杠（会截断/转义）。
   //
   // 第一条正文必须是**长文本**：短气泡本来就贴着内容（实测 69px），量它
   // 证明不了"铺满"这件事 —— 宽度上限只有文本长到能把行撑满时才看得出来
@@ -262,6 +289,24 @@ function buildPage(scenario) {
   t.appendChild(rep)
 
   t.scrollTop = t.scrollHeight   // 真实页面也会自动滚到底
+  // 2026-10-13：这一写曾经**完全无效** —— 写完还是 0。同一条语句，一次是
+  // "滚到底了"，一次是"压根没在滚"，只有读了 scrollTop 才分得开。
+  const scrolledTo = t.scrollTop
+  const distToBottom = t.scrollHeight - t.clientHeight - scrolledTo
+  // 结构判据：转写区的高度必须**正好**是"视口区顶到卡片顶"这段距离 ——
+  // 也就是它确实被卡片挤住了。高度不受限时（wrap 漏 flex 那次）这个数会
+  // 等于内容高，多出来的部分全在屏幕外
+  const turnCard = document.getElementById('turn-card')
+  const turnCardRect = turnCard.getBoundingClientRect()
+  const tRect = t.getBoundingClientRect()
+  const wrapRect = document.querySelector('.transcript-wrap').getBoundingClientRect()
+  // 转写区**该**有多高：容器里除卡片（含外边距）之外的剩余空间。
+  // 不能拿"卡片顶 - 转写区顶"当参照 —— 塌掉的时候两者被内容一起往下推，
+  // 那个差恒等于 0，正是第一次写这条断言时漏掉的反例
+  const cardCS = getComputedStyle(turnCard)
+  const cardOuterH = turnCardRect.height +
+    (parseFloat(cardCS.marginTop) || 0) + (parseFloat(cardCS.marginBottom) || 0)
+  const spaceForTranscript = wrapRect.bottom - tRect.top - cardOuterH
 
   const h = (sel) => {
     const el = document.querySelector(sel)
@@ -452,6 +497,17 @@ function buildPage(scenario) {
     bubbleWhiteSpace: bubbleWhiteSpace,
     scrollH: t.scrollHeight,
     clientH: t.clientHeight,
+    // ---- 滚动区与卡片（2026-10-13）----
+    // 转写区在不在滚：写入位置 + 距底（内容没溢出时这条不判）
+    scrolledTo: Math.round(scrolledTo),
+    distToBottom: Math.round(distToBottom),
+    // 转写区高度 - (卡片顶 - 转写区顶)：0 = 它正好被挤在卡片上方；
+    // 正数 = 它比可用空间高（多出来的部分在屏幕外，滚不到）
+    blockOverflow: Math.round((t.clientHeight - spaceForTranscript) * 10) / 10,
+    // 卡片在不在屏幕里（顶不被切、底不越出窗口）
+    cardTop: Math.round(turnCardRect.top),
+    cardBottom: Math.round(turnCardRect.bottom),
+    winH: window.innerHeight,
   })
 </script>
 </body></html>`
@@ -509,6 +565,35 @@ for (const scenario of SCENARIOS) {
   if (m.head < MIN_HEAD_H) problems.push(`.tool__head 高度 ${m.head} < ${MIN_HEAD_H}`)
   if (m.entry < MIN_CARD_H) problems.push(`.entry 高度 ${m.entry} < ${MIN_CARD_H}`)
   if (m.clipped) problems.push('卡片内容被裁剪（scrollHeight > clientHeight）')
+  // ---- 滚动区与卡片（2026-10-13 用户报"无法滚动输出区，看不到后面的内容"）----
+  // 结构上：转写区的**可用高度**只该是容器减卡片（含外边距）剩下的那块。
+  // 多出来的部分全在屏幕外、滚不到 —— 那时它已经不是滚动容器了
+  if (m.blockOverflow > 1) {
+    problems.push(
+      `转写区比自己该有的高度多出 ${m.blockOverflow}px（多出来的是内容高，全在屏幕外）` +
+      '—— 它滚不起来了。.transcript-wrap 的 display:flex 掉了吗？',
+    )
+  }
+  if (m.blockOverflow < -1) {
+    problems.push(
+      `转写区比可用空间矮 ${Math.abs(m.blockOverflow)}px —— 卡片把它挤过头了（min-height 没压 0？）`,
+    )
+  }
+  // 行为上：内容溢出时，写 scrollTop 必须真的动、而且瞬时到底
+  if (m.scrollH > m.clientH + 1) {
+    if (m.scrolledTo <= 0) {
+      problems.push('转写区滚不动（内容溢出，但写 scrollTop 无效）—— 它已经不是滚动容器了')
+    } else if (m.distToBottom > 1) {
+      problems.push(`写入 scrollTop 之后距底还有 ${m.distToBottom}px（跟随必须瞬时到底）`)
+    }
+  }
+  // 卡片得在屏幕里：顶不被切、底不越出窗口。它是钉在底部的常驻入口，
+  // 被推出屏幕等于这个功能不存在
+  if (m.cardTop < 0 || m.cardBottom > m.winH + 1) {
+    problems.push(
+      `「本轮改动」卡不在屏幕里（top=${m.cardTop} bottom=${m.cardBottom}，窗口高 ${m.winH}）`,
+    )
+  }
   if (m.headOverflow > 1) {
     problems.push(`.tool__head 比卡片宽 ${m.headOverflow}px（div 化以后漏了 box-sizing: border-box?）`)
   }
@@ -639,7 +724,9 @@ for (const scenario of SCENARIOS) {
     ` thumbW=${m.thumbW} imagesOverflow=${m.imagesOverflow}` +
     ` numRects=${m.numRects} cell=[${m.cellStyle}] cellFont=${m.cellFontSize}/${m.bubbleFontSize}` +
     ` 格线=${m.cellLineContrast}:1 地板=${m.numMinWidth}px 报障首列=${m.reportCol0}px` +
-    ` scrollH=${m.scrollH} clientH=${m.clientH}`,
+    ` scrollH=${m.scrollH} clientH=${m.clientH}` +
+    ` 滚到=${m.scrolledTo} 距底=${m.distToBottom} 块溢出=${m.blockOverflow}` +
+    ` 卡片=${m.cardTop}~${m.cardBottom}/${m.winH}`,
   )
   for (const p of problems) console.log('         ✗ ' + p)
 }

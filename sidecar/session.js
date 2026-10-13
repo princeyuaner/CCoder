@@ -1,6 +1,7 @@
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { buildChildEnv } from './env.js';
 import { defaultT, makeT } from './strings.js';
+import { EDIT_TOOLS } from './snapshots.js';
 
 /**
  * 默认 queryFn。测试通过注入假的 queryFn 绕开真实 SDK。
@@ -32,6 +33,13 @@ export function createSession({
   extraDirs,
   envOverrides,
   resumeSessionId,
+  /**
+   * 「本轮改动」的快照 store（snapshots.js）。**缺省 null = 关闭** ——
+   * 单测与"设置里关了开关"的那条路都不带它，行为与今天一字不差。
+   */
+  snapshots = null,
+  /** 每抓一份快照发一条（给网页标「新 / 无存档」）。 */
+  onSnapshot = () => {},
   onEvent = () => {},
   onPermission = () => {},
   queryFn = defaultQueryFn,
@@ -54,6 +62,12 @@ export function createSession({
   const queue = [];
   let notifyInput = null;   // 唤醒输入流生成器
   let stopped = false;
+
+  /**
+   * 一个回合在跑（send 起、result 落）。回滚要在空闲时做（spec §5）——
+   * 网页的禁用是第一道，这里拒绝是第二道：忙时回滚可能撞上工具正在写文件。
+   */
+  let busy = false;
 
   async function* inputStream() {
     while (!stopped) {
@@ -112,6 +126,39 @@ export function createSession({
     },
   };
 
+  // 「本轮改动」的快照点（机制甲，spec §3）。
+  //
+  // PreToolUse 在**编辑落地之前**被调用（三种权限模式都实测过，探针事实 1）——
+  // 这是唯一能拿到「改动前原样」的时刻。回调里同步读盘（文件小，值得这点停顿），
+  // 返回 `{}` = 不拦、不表态（探针事实 4：零副作用）。
+  //
+  // 抓取失败**绝不能让工具跟着失败**：整段包在 try 里，错了只落 stderr ——
+  // 快照是锦上添花，工具链才是正事。
+  if (snapshots) {
+    options.hooks = {
+      PreToolUse: [{
+        hooks: [async (hookInput) => {
+          try {
+            const tool = hookInput?.tool_name;
+            if (EDIT_TOOLS.has(tool)) {
+              const path = hookInput?.tool_input?.file_path
+                ?? hookInput?.tool_input?.notebook_path;
+              if (typeof path === 'string' && path) {
+                const toolUseId = hookInput?.tool_use_id ?? null;
+                const r = snapshots.capture({ path, toolUseId });
+                // deduped = 本轮已有这份（同文件第二次编辑），不重复发标记
+                if (!r.deduped) onSnapshot({ toolUseId, path, existed: r.existed ?? null });
+              }
+            }
+          } catch (err) {
+            console.error(`[ccoder] 快照抓取失败（不影响工具执行）：${err?.message ?? err}`);
+          }
+          return {};
+        }],
+      }],
+    };
+  }
+
   // 可选参数仅在提供时才传给 SDK —— 传 undefined 与不传的语义不同
   if (model) options.model = model;
   // 思考深度**刻意不在这里**：Options.effort 会被 SDK 翻成 CLI 的 `--effort`
@@ -169,6 +216,19 @@ export function createSession({
     (async () => {
       try {
         for await (const msg of query) {
+          // 快照 store 的两个挂点（都在透传之前，界面看到 result 时账已经记完）：
+          // - init 带会话 id（新会话建会话时还没有 id，这一刻补上）
+          // - result = 回合结束：忙态解除 + 轮末记账（mtime，供 dirty 检测）
+          if (snapshots) {
+            if (msg?.type === 'system' && msg?.subtype === 'init' && msg?.session_id) {
+              snapshots.setSid(msg.session_id);
+            } else if (msg?.type === 'result') {
+              busy = false;
+              try { snapshots.markTurnEnd(); } catch (err) {
+                console.error(`[ccoder] 快照轮末记账失败（不影响会话）：${err?.message ?? err}`);
+              }
+            }
+          }
           onEvent(msg);
         }
       } catch (err) {
@@ -211,6 +271,9 @@ export function createSession({
      */
     send(text, images = []) {
       if (stopped) return;
+      // 一条用户消息出发 = 快照的新一轮（同轮同文件只留第一份的"轮"就是它）
+      snapshots?.beginTurn();
+      busy = true;
       const content = images.length > 0
         ? [
             ...images.map((img) => ({
@@ -258,6 +321,9 @@ export function createSession({
       // 的内容。见 shared/deny-message.json
       this.denyAllPending('已中断');
       await query?.interrupt?.();
+      // 忙态兜底：中断后 CLI 一般会补一条 result（上面那条路会解除），
+      // 万一没有，别让回滚入口永远点不动 —— 用户眼里"停了"就是空闲
+      busy = false;
     },
 
     /**
@@ -438,9 +504,47 @@ export function createSession({
       return await query.getContextUsage({ detail: 'summary' });
     },
 
+    /**
+     * 「改动前」内容（本轮改动卡的对比与回滚都靠它）。
+     *
+     * 没开快照（设置里关了 / 老插件）= 永远 `missing` —— 调用方照「无存档」那条
+     * 路走，不是静默。
+     */
+    snapshotOf(path) {
+      return snapshots ? snapshots.snapshot({ path }) : { kind: 'missing' };
+    },
+
+    /**
+     * 逐文件回滚。**每一条各自成败**（回执见 snapshots.js 的 revert）。
+     *
+     * 忙时整批拒绝（`error: 'busy'`）—— 工具可能正在写这些文件，这时候写回
+     * 是拿用户的代码冒险。网页早就把入口禁掉了，这条是第二道。
+     */
+    revertFiles(paths = []) {
+      if (!snapshots) {
+        return paths.map((p) => ({ path: p, ok: false, action: 'failed', error: 'no-snapshot' }));
+      }
+      if (busy) {
+        return paths.map((p) => ({ path: p, ok: false, action: 'failed', error: 'busy' }));
+      }
+      try {
+        return snapshots.revert({ paths });
+      } catch (err) {
+        return paths.map((p) => ({
+          path: p, ok: false, action: 'failed', error: String(err?.message ?? err),
+        }));
+      }
+    },
+
+    /** 本轮的全部标记（网页标「新 / 无存档」；恢复会话时 ready 那一刻推一次）。 */
+    snapshotEntries() {
+      return snapshots ? snapshots.entries() : [];
+    },
+
     stop() {
       if (stopped) return;
       stopped = true;
+      busy = false;
       // '会话已终止' 同 interrupt 那条：协议载荷，**保持中文不翻**
       //（与 index.js stop 里那句同字），见 shared/deny-message.json
       this.denyAllPending('会话已终止');

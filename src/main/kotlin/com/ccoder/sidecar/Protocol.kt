@@ -205,6 +205,56 @@ sealed interface SidecarMessage {
     ) : SidecarMessage
 
     /**
+     * 抓了一份快照（「本轮改动」，2026-10-13）。**每抓一份推一条**，没有 id。
+     *
+     * [toolUseId] 是配对的凭据 —— 网页按它把「新 / 无存档」标到对应的工具卡行上，
+     * **不信路径字符串**（hook 的路径与转写消息里的路径不保证逐字节一致）。
+     *
+     * [existed] 三值：`true` = 存下了原样（文件当时在）、`false` = **当时不存在**
+     * （回滚即删除）、`null` = 没存下（开关刚关/太大/读失败 —— 界面上标「无存档」）。
+     */
+    data class TurnSnapshot(
+        val toolUseId: String?,
+        val path: String,
+        val existed: Boolean?,
+    ) : SidecarMessage
+
+    /**
+     * `fileSnapshot` 的应答：一个文件的「改动前」。
+     *
+     * [kind] 三值（协议词，原样透传）：`file`（内容在 [content]）/ `absent`
+     * （改动前这个文件不存在 —— 本轮新建）/ `missing`（没有存档）。
+     * 缺 [path] 或 kind 认不出时整条丢弃——无从配对或无从落点。
+     */
+    data class FileSnapshotReport(
+        val requestId: String,
+        val path: String,
+        val kind: String,
+        val content: String?,
+    ) : SidecarMessage
+
+    /**
+     * `revertFiles` 的应答：逐文件回执。
+     *
+     * 每一条各自成败（见 [RevertResult]）—— 一条失败不该让别的文件陪着不恢复。
+     */
+    data class RevertReport(
+        val requestId: String,
+        val results: List<RevertResult>,
+    ) : SidecarMessage
+
+    /**
+     * `snapshotIndex` 的应答：**最新一轮**的全部标记（含 toolUseId）。
+     *
+     * 恢复会话时 ready 那一刻问一次 —— 那一轮的快照是上一个进程抓的，
+     * 没有实时事件可听；不补这一份的话，恢复进来的那轮标不出「新 / 无存档」。
+     */
+    data class SnapshotIndexReport(
+        val requestId: String,
+        val entries: List<SnapshotEntry>,
+    ) : SidecarMessage
+
+    /**
      * `listCommands` 的应答。
      *
      * [commands] 是**显示信息**（名字、描述、参数提示、别名）；
@@ -386,6 +436,34 @@ data class SubagentInfo(
 )
 
 /**
+ * 一个文件的回滚结果（`revertFiles` 的应答里逐条）。
+ *
+ * [action] 三值（协议词）：`restored`（写回了存档）/ `deleted`（本轮新建，删掉）/
+ * `failed`（没成，[error] 里有原因）。[error] 两种形状：`no-snapshot` /
+ * `busy` 是**稳定的码**（网页翻成当前语言）；系统错误原样透传。
+ *
+ * [dirty] = 轮末记过 mtime 且现在对不上 —— **本轮结束后文件又被改过**
+ * （包括用户自己改的），这一条回滚把它一并覆盖了。null = 无从判断（老轮次）。
+ */
+data class RevertResult(
+    val path: String,
+    val ok: Boolean,
+    val action: String,
+    val error: String? = null,
+    val dirty: Boolean? = null,
+)
+
+/**
+ * 快照索引里的一条（[RevertResult] 的同族）。`existed` 的三值语义见
+ * [SidecarMessage.TurnSnapshot] —— **null = 无存档**。
+ */
+data class SnapshotEntry(
+    val toolUseId: String?,
+    val path: String,
+    val existed: Boolean?,
+)
+
+/**
  * 一条可补全的命令。
  *
  * 字段裁自 SDK 的 `SlashCommand`（sdk.d.ts:8843）。**`name` 是显示名，
@@ -416,6 +494,13 @@ data class StartParams(
      * 表现出来就是"设置只生效了一半"（设计稿 §5.1）。
      */
     val uiLang: String? = null,
+    /**
+     * 「本轮改动」的文件快照（2026-10-13）。默认开；设置里关掉 = `false`，
+     * 侧车那条路与今天一字不差（不注册任何 hook）。
+     *
+     * 显式布尔而不是"有值即开"：关掉这件事必须能**发出去**。
+     */
+    val snapshots: Boolean = true,
 )
 
 /**
@@ -638,6 +723,41 @@ object Protocol {
                 )
             }
 
+            // ---- 「本轮改动」快照（2026-10-13）----
+            //
+            // turnSnapshot 缺 path 无落点，丢。existed 的 json null（没存下）
+            // 与"键不在"在 bool() 眼里是同一件事 —— 两者都该归成"无存档"，
+            // 所以这里不必区分（与 effortChanged 那条"必须区分"相反：
+            // 那里 null 是**合法档位**，这里 null 就是"没有"）。
+            "turnSnapshot" -> obj.str("path")?.let { path ->
+                SidecarMessage.TurnSnapshot(
+                    toolUseId = obj.str("toolUseId"),
+                    path = path,
+                    existed = obj.bool("existed"),
+                )
+            }
+
+            // fileSnapshot：缺 path / 认不出 kind 都整条丢（无从落点或无从解释）。
+            // content 只有 kind=file 才有；kind=absent/missing 时键给 null
+            "fileSnapshot" -> {
+                val rid = obj.str("id")
+                val path = obj.str("path")
+                val kind = obj.str("kind")
+                if (rid == null || path == null || kind == null) {
+                    null
+                } else {
+                    SidecarMessage.FileSnapshotReport(rid, path, kind, obj.str("content"))
+                }
+            }
+
+            "revertFiles" -> obj.str("id")?.let { rid ->
+                SidecarMessage.RevertReport(rid, parseRevertResults(obj.arr("results")))
+            }
+
+            "snapshotIndex" -> obj.str("id")?.let { rid ->
+                SidecarMessage.SnapshotIndexReport(rid, parseSnapshotEntries(obj.arr("entries")))
+            }
+
             // 实时推送（没有 id）。project 认不出也收下 —— 面板自己会比对是不是本项目
             "usageTick" -> SidecarMessage.UsageTick(
                 project = obj.str("project") ?: "",
@@ -730,6 +850,28 @@ object Protocol {
         })
 
     fun encodeListCommands(id: String): String = encodeSimple(id, "listCommands")
+
+    /**
+     * 取一个文件的「改动前」内容（本轮改动卡的对比与回滚都靠它）。
+     *
+     * [path] 是**工具卡上那个原样路径** —— 归一化在侧车做（`normalizeTurnPath`），
+     * 这里一个字节都不动（同 `tools.ts` 顶上那条"两处各归一化一次会有两份真相"）。
+     */
+    fun encodeFileSnapshot(id: String, path: String): String =
+        line(id, "fileSnapshot", JsonObject().apply { addProperty("path", path) })
+
+    /**
+     * 回滚一批文件。
+     *
+     * 空数组当参数错误挡在调用方（一条路径都没有的"回滚"没有意义）。
+     */
+    fun encodeRevertFiles(id: String, paths: List<String>): String =
+        line(id, "revertFiles", JsonObject().apply {
+            add("paths", JsonArray().apply { paths.forEach { add(it) } })
+        })
+
+    /** 问一次**最新一轮**的快照标记（恢复会话时 ready 那一刻，见 [SidecarMessage.SnapshotIndexReport]）。 */
+    fun encodeSnapshotIndex(id: String): String = encodeSimple(id, "snapshotIndex")
 
     /**
      * 问一次上下文用量。会话建立后问一次，每轮跑完再问一次。
@@ -830,6 +972,9 @@ object Protocol {
         is SidecarMessage.SessionTagged -> msg.requestId
         is SidecarMessage.Subagents -> msg.requestId
         is SidecarMessage.SubagentMessages -> msg.requestId
+        is SidecarMessage.FileSnapshotReport -> msg.requestId
+        is SidecarMessage.RevertReport -> msg.requestId
+        is SidecarMessage.SnapshotIndexReport -> msg.requestId
         else -> null
     }
 
@@ -850,6 +995,8 @@ object Protocol {
             }
             params.resumeSessionId?.let { addProperty("resumeSessionId", it) }
             params.uiLang?.let { addProperty("uiLang", it) }
+            // 显式布尔，永远带上：关掉快照这件事必须能发出去（见 StartParams.snapshots）
+            addProperty("snapshots", params.snapshots)
         }
         return line(id, "start", p)
     }
@@ -1020,6 +1167,42 @@ object Protocol {
                 tools = o.arr("tools")?.mapNotNull { t ->
                     t.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
                 }.orEmpty(),
+            )
+        }
+    }
+
+    /**
+     * 逐条解析回滚回执。
+     *
+     * 缺 `path` 的条目跳过（同 [parseSessionList]：一条坏数据不该让别的文件
+     * 陪着"结果不明"）；缺 `ok` 当失败——宁可多报一次失败，也别把没成的
+     * 说成成了。
+     */
+    private fun parseRevertResults(arr: JsonArray?): List<RevertResult> {
+        if (arr == null) return emptyList()
+        return arr.mapNotNull { el ->
+            val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val path = o.str("path") ?: return@mapNotNull null
+            RevertResult(
+                path = path,
+                ok = o.bool("ok") ?: false,
+                action = o.str("action") ?: "failed",
+                error = o.str("error"),
+                dirty = o.bool("dirty"),
+            )
+        }
+    }
+
+    /** 逐条解析快照索引（口径同 [parseRevertResults]）。 */
+    private fun parseSnapshotEntries(arr: JsonArray?): List<SnapshotEntry> {
+        if (arr == null) return emptyList()
+        return arr.mapNotNull { el ->
+            val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val path = o.str("path") ?: return@mapNotNull null
+            SnapshotEntry(
+                toolUseId = o.str("toolUseId"),
+                path = path,
+                existed = o.bool("existed"),
             )
         }
     }

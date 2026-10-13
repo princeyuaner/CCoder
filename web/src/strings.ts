@@ -94,6 +94,51 @@ const en = {
   'image.view': 'View image {0}',
   /** 浮层底部的提示。前面还会带上 `2 / 3 · `（数字不进目录） */
   'image.closeHint': 'Esc to close',
+
+  // ---- 本轮改动卡（TurnChangesCard.tsx，2026-10-13）----
+  /** 卡片标题。收起态与展开态都挂着它，收起行连计数一起读：「This turn · 3 files changed」 */
+  'turn.title': 'This turn',
+  /** 计数分单复数两条 —— `1 files changed` 是句病句，而只改一个文件很常见 */
+  'turn.fileCount': '{0} file changed',
+  'turn.fileCounts': '{0} files changed',
+  /** 收起态那颗展开按钮（卡片乙：默认只露一行） */
+  'turn.expand': 'Show files',
+  'turn.collapse': 'Collapse',
+  /** 展开态右上：[在 IDE 查看] = 把这轮所有未回滚文件的对比一次打开 */
+  'turn.review': 'Open in IDE',
+  'turn.revertAll': 'Revert all',
+  /** 悬停在一行上时那颗「在编辑器打开」。点行本身是开对比 */
+  'turn.openFile': 'Open file',
+  'turn.openDiff': 'Open diff',
+  /** 行上的标记 */
+  'turn.tagNew': 'new',
+  'turn.tagNoSnapshot': 'no snapshot',
+  'turn.tagReverted': 'reverted',
+  /** dirty：回滚把它之后的新改动一并覆盖了（回执里带回来的） */
+  'turn.tagDirty': 'also overwrote newer edits',
+  /** 勾选行的无障碍名 */
+  'turn.selectRow': 'Select {0}',
+  /** 底部操作条（复选框批量：勾了才升起） */
+  'turn.selected': '{0} selected',
+  'turn.revertSelected': 'Revert selected',
+  'turn.clearSelection': 'Clear',
+  /** 忙时回滚的悬停说明（design 边界：禁用要配一句解释） */
+  'turn.busy': 'Revert runs when the session is idle — wait for Claude to stop',
+  /** 卡内确认态 */
+  'turn.confirmOne': 'Revert this file?',
+  'turn.confirmMany': 'Revert {0} files?',
+  'turn.confirmIrreversible': 'This cannot be undone',
+  'turn.confirmRestore': 'restore',
+  'turn.confirmRestoreWhy': 'back to before this turn',
+  'turn.confirmDelete': 'delete',
+  'turn.confirmDeleteWhy': 'created this turn',
+  'turn.confirmNote': 'Reverting only touches files — the conversation stays. Any manual edits made after this turn are overwritten too.',
+  'turn.cancel': 'Cancel',
+  'turn.revert': 'Revert',
+  /** 回执里的失败原因。`no-snapshot` / `busy` 是侧车给的**码**，其余原样透传 */
+  'turn.errNoSnapshot': 'no snapshot',
+  'turn.errBusy': 'session was busy',
+  'turn.errOther': 'failed: {0}',
 }
 
 /** 目录的键 —— 从基底目录长出来，别的目录缺一个键就编译不过。 */
@@ -142,6 +187,38 @@ const zh: Record<Key, string> = {
   'image.alt': '图片 {0}',
   'image.view': '查看图片 {0}',
   'image.closeHint': 'Esc 关闭',
+
+  'turn.title': '本轮改动',
+  'turn.fileCount': '{0} 个文件',
+  'turn.fileCounts': '{0} 个文件',
+  'turn.expand': '展开',
+  'turn.collapse': '收起',
+  'turn.review': '在 IDE 查看',
+  'turn.revertAll': '全部回滚',
+  'turn.openFile': '在编辑器打开',
+  'turn.openDiff': '打开对比',
+  'turn.tagNew': '新',
+  'turn.tagNoSnapshot': '无存档',
+  'turn.tagReverted': '已回滚',
+  'turn.tagDirty': '覆盖了之后的新改动',
+  'turn.selectRow': '勾选 {0}',
+  'turn.selected': '已选 {0} 个',
+  'turn.revertSelected': '回滚所选',
+  'turn.clearSelection': '清除',
+  'turn.busy': '回滚要在会话空闲时做 —— 等 Claude 停下来再点',
+  'turn.confirmOne': '回滚这个文件？',
+  'turn.confirmMany': '回滚 {0} 个文件？',
+  'turn.confirmIrreversible': '此操作不可撤销',
+  'turn.confirmRestore': '恢复',
+  'turn.confirmRestoreWhy': '回到本轮改动前',
+  'turn.confirmDelete': '删除',
+  'turn.confirmDeleteWhy': '本轮新建',
+  'turn.confirmNote': '回滚只动文件：对话不变。本轮之后对它们的手动改动也会被一并覆盖。',
+  'turn.cancel': '取消',
+  'turn.revert': '回滚',
+  'turn.errNoSnapshot': '没有存档',
+  'turn.errBusy': '当时会话正忙',
+  'turn.errOther': '失败：{0}',
 }
 
 /**

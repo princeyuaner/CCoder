@@ -1782,3 +1782,137 @@ test('result 事件记账并把 usageTick 推出去；记账抛错绝不影响�
   assert.ok(out2.some((m) => m.type === 'event'));
   assert.ok(!out2.some((m) => m.type === 'usageTick'));
 });
+
+// ---- 「本轮改动」快照（2026-10-13）----
+//
+// 分发层的职责只有一件事：把三条请求路由到会话、把回执带 id 发回去。
+// store 与 session 的行为在各自的 test 里。
+
+/** 最小假会话：只带快照那三条方法 + stop。 */
+function fakeSnapshotSession() {
+  const calls = [];
+  return {
+    calls,
+    factory() {
+      return {
+        send() {},
+        stop() { calls.push(['stop']); },
+        denyAllPending() {},
+        snapshotOf(p) { calls.push(['snapshotOf', p]); return { kind: 'absent' }; },
+        revertFiles(paths) {
+          calls.push(['revertFiles', paths]);
+          return paths.map((p) => ({ path: p, ok: true, action: 'deleted' }));
+        },
+        snapshotEntries() { calls.push(['snapshotEntries']); return [{ toolUseId: 't1', path: '/a', existed: false }]; },
+      };
+    },
+  };
+}
+
+test('start：默认用工厂建 store（键给对），onSnapshot 走出去是一条 turnSnapshot', () => {
+  const out = [];
+  const seen = [];
+  const sf = fakeSnapshotSession();
+  const d = createDispatcher({
+    sessionFactory: sf.factory,
+    out: (m) => out.push(m),
+    snapshotsFactory: (opts) => { seen.push(opts); return { fake: true }; },
+  });
+  d.handle({ id: '1', method: 'start', params: { cwd: 'C:/proj/app', resumeSessionId: 'sid-1' } });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].projectKey, 'C--proj-app', '与会话存储同一套 projectKey');
+  assert.equal(seen[0].sid, 'sid-1');
+  assert.equal(seen[0].cwd, 'C:/proj/app');
+
+  assert.ok(out.find((m) => m.type === 'ready'));
+  d.handle({ id: '2', method: 'stop', params: {} });
+});
+
+test('start：snapshots:false 时不建 store；收到的 opts.snapshots 为 null', () => {
+  const out = [];
+  const seen = [];
+  const optsSeen = [];
+  const d = createDispatcher({
+    sessionFactory: (opts) => { optsSeen.push(opts); return { send() {}, stop() {}, denyAllPending() {} }; },
+    out: (m) => out.push(m),
+    snapshotsFactory: (o) => { seen.push(o); return { fake: true }; },
+  });
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp', snapshots: false } });
+  assert.equal(seen.length, 0, '关了开关就不建');
+  assert.equal(optsSeen[0].snapshots, null);
+  assert.equal(typeof optsSeen[0].onSnapshot, 'function', 'onSnapshot 一直都在（没 store 也不会被调）');
+
+  // 开着的时候：工厂产物就是会话收到的那个 store
+  d.handle({ id: '2', method: 'stop', params: {} });
+  const d2 = createDispatcher({
+    sessionFactory: (opts) => { optsSeen.push(opts); return { send() {}, stop() {}, denyAllPending() {} }; },
+    out: (m) => out.push(m),
+    snapshotsFactory: () => ({ fake: 'store' }),
+  });
+  d2.handle({ id: '3', method: 'start', params: { cwd: '/tmp' } });
+  assert.equal(optsSeen[1].snapshots.fake, 'store');
+  // 出口形状：onSnapshot({toolUseId, path, existed}) → {type:'turnSnapshot', ...}
+  optsSeen[1].onSnapshot({ toolUseId: 't1', path: '/p/a.kt', existed: false });
+  assert.deepEqual(out.at(-1), { type: 'turnSnapshot', toolUseId: 't1', path: '/p/a.kt', existed: false });
+});
+
+test('fileSnapshot / revertFiles / snapshotIndex：路由到会话、回执带 id', () => {
+  const out = [];
+  const sf = fakeSnapshotSession();
+  const d = createDispatcher({
+    sessionFactory: sf.factory,
+    out: (m) => out.push(m),
+    snapshotsFactory: () => ({}),
+  });
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp' } });
+
+  d.handle({ id: 'r1', method: 'fileSnapshot', params: { path: '/p/a.kt' } });
+  const snap = out.find((m) => m.type === 'fileSnapshot');
+  assert.deepEqual(snap, {
+    type: 'fileSnapshot', id: 'r1', path: '/p/a.kt', kind: 'absent', content: null,
+  });
+
+  d.handle({ id: 'r2', method: 'revertFiles', params: { paths: ['/p/a.kt', '/p/b.kt'] } });
+  const rev = out.find((m) => m.type === 'revertFiles');
+  assert.equal(rev.id, 'r2');
+  assert.deepEqual(rev.results, [
+    { path: '/p/a.kt', ok: true, action: 'deleted' },
+    { path: '/p/b.kt', ok: true, action: 'deleted' },
+  ]);
+
+  d.handle({ id: 'r3', method: 'snapshotIndex', params: {} });
+  const idx = out.find((m) => m.type === 'snapshotIndex');
+  assert.deepEqual(idx, {
+    type: 'snapshotIndex', id: 'r3',
+    entries: [{ toolUseId: 't1', path: '/a', existed: false }],
+  });
+});
+
+test('没有会话时：missing / 逐条 no-snapshot —— 不静默', () => {
+  const out = [];
+  const d = createDispatcher({ sessionFactory: fakeSnapshotSession().factory, out: (m) => out.push(m) });
+  d.handle({ id: 'r1', method: 'fileSnapshot', params: { path: '/p/a.kt' } });
+  assert.equal(out.find((m) => m.type === 'fileSnapshot').kind, 'missing');
+
+  d.handle({ id: 'r2', method: 'revertFiles', params: { paths: ['/p/a.kt'] } });
+  const rev = out.find((m) => m.type === 'revertFiles');
+  assert.equal(rev.results[0].ok, false);
+  assert.equal(rev.results[0].error, 'no-snapshot');
+
+  d.handle({ id: 'r3', method: 'snapshotIndex', params: {} });
+  assert.deepEqual(out.find((m) => m.type === 'snapshotIndex').entries, []);
+});
+
+test('stop 之后旧的 store 不再应答（下一条 fileSnapshot 又是 missing）', () => {
+  const out = [];
+  const sf = fakeSnapshotSession();
+  const d = createDispatcher({
+    sessionFactory: sf.factory, out: (m) => out.push(m), snapshotsFactory: () => ({}),
+  });
+  d.handle({ id: '1', method: 'start', params: { cwd: '/tmp' } });
+  d.handle({ id: '2', method: 'stop', params: {} });
+  out.length = 0;
+  d.handle({ id: 'r1', method: 'fileSnapshot', params: { path: '/p/a.kt' } });
+  assert.equal(out[0].kind, 'missing');
+});

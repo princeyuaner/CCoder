@@ -17,5 +17,7 @@
   {"op":"append","item":{"kind":"toolUse","id":"m8","ts":1726050008000,"toolUseId":"toolu_task","name":"Task","input":"{}"}},
   {"op":"append","item":{"kind":"toolUse","id":"m9","ts":1726050008500,"toolUseId":"toolu_sub","name":"Grep","input":"{}","parent":"toolu_task"}},
   {"op":"append","item":{"kind":"assistant","id":"m10","ts":1726050009000,"text":"找到了三处","parent":"toolu_task"}},
-  {"op":"fresh"}
+  {"op":"fresh"},
+  {"op":"snapshots","entries":[{"toolUseId":"toolu_1","path":"/a.txt","existed":true},{"toolUseId":"toolu_new","path":"/new.txt","existed":false},{"toolUseId":"toolu_big","path":"/big.bin","existed":null}]},
+  {"op":"revertReport","results":[{"path":"/a.txt","ok":true,"action":"restored"},{"path":"/new.txt","ok":true,"action":"deleted","dirty":true},{"path":"/p/b.kt","ok":false,"action":"failed","error":"no-snapshot"}]}
 ]

@@ -163,7 +163,7 @@ internal fun openInEditor(project: Project, target: OpenFileTarget) {
  * 平台在 EDT 上会直接断言失败。latch 是超时兜底 —— 最坏的结果是这一次
  * 没刷新到（界面提示文件不存在，再点一下就成），而不是永久占住一个池化线程。
  */
-private fun findRefreshed(nio: Path): VirtualFile? {
+internal fun findRefreshed(nio: Path): VirtualFile? {
     val fs = LocalFileSystem.getInstance()
     val latch = CountDownLatch(1)
     fs.refreshNioFiles(listOf(nio), false, false) { latch.countDown() }

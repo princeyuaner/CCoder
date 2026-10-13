@@ -3,7 +3,9 @@ package com.ccoder.ui
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.google.gson.JsonArray
+import com.google.gson.JsonNull
 import com.google.gson.JsonObject
+import com.google.gson.JsonPrimitive
 
 /**
  * 把转写操作序列化为推送用的 JSON。
@@ -83,6 +85,9 @@ object TranscriptOpCodec {
         is TranscriptOp.AppendDelta -> op.text.length + 60
         is TranscriptOp.FinalizeDelta -> op.text.length + 70
         is TranscriptOp.ClearDelta -> 40
+        // 快照标记与回滚回执都是小报文（路径 + 几个短字段），固定估一档
+        is TranscriptOp.Snapshots -> op.entries.sumOf { (it.path.length) + 90 } + 20
+        is TranscriptOp.RevertReport -> op.results.sumOf { (it.path.length + (it.error?.length ?: 0)) + 90 } + 20
         is TranscriptOp.Append -> when (val it = op.item) {
             is TranscriptItem.User -> it.text.length + it.images.sumOf { s -> s.length } + 80
             is TranscriptItem.Assistant -> it.text.length + 80
@@ -161,6 +166,37 @@ object TranscriptOpCodec {
         }
 
         is TranscriptOp.Fresh -> JsonObject().apply { addProperty("op", "fresh") }
+
+        // 快照标记（2026-10-13）：toolUseId 可能为 null（老侧车没带）—— 那种标记
+        // 在网页侧没有落点，会被忽略；显式写 JSON null，收端不必分辨"键不在"
+        is TranscriptOp.Snapshots -> JsonObject().apply {
+            addProperty("op", "snapshots")
+            add("entries", JsonArray().apply {
+                op.entries.forEach { e ->
+                    add(JsonObject().apply {
+                        add("toolUseId", e.toolUseId?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+                        addProperty("path", e.path)
+                        add("existed", e.existed?.let { JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+                    })
+                }
+            })
+        }
+
+        is TranscriptOp.RevertReport -> JsonObject().apply {
+            addProperty("op", "revertReport")
+            add("results", JsonArray().apply {
+                op.results.forEach { r ->
+                    add(JsonObject().apply {
+                        addProperty("path", r.path)
+                        addProperty("ok", r.ok)
+                        addProperty("action", r.action)
+                        // error / dirty 为 null 时省略（React 侧少一层判空，同 Result 那几项）
+                        r.error?.let { addProperty("error", it) }
+                        r.dirty?.let { addProperty("dirty", it) }
+                    })
+                }
+            })
+        }
     }
 
     private fun encodeItem(item: TranscriptItem): JsonObject {

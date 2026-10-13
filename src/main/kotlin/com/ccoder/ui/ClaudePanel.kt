@@ -15,6 +15,7 @@ import com.ccoder.sidecar.SidecarLocator
 import com.ccoder.sidecar.ContextDetail
 import com.ccoder.sidecar.SidecarMessage
 import com.ccoder.sidecar.SidecarNotFoundException
+import com.ccoder.sidecar.SnapshotEntry
 import com.ccoder.sidecar.SubagentInfo
 import com.ccoder.sidecar.SidecarProcess
 import com.ccoder.sidecar.TranscriptItem
@@ -134,7 +135,16 @@ class ClaudePanel(
     private val restoreTargetId: String? =
         restoredTab?.sessionId?.trim()?.takeIf { it.isNotEmpty() }
 
-    private val transcriptView = ClaudeTranscriptView(project)
+    private val transcriptView = ClaudeTranscriptView(project).apply {
+        // 「本轮改动」卡的两条 op 转交给面板（视图不认识 SidecarClient）。
+        // 匿名实现而不是让面板实现那个接口：ClaudePanel 是 public 类，
+        // 而 TurnChangesHost 是 internal 的 —— 公开类继承 internal 超类型
+        // 在 Kotlin 里过不了编译（同 [changelogStore] 那条注释里的坑）
+        turnChangesHost = object : TurnChangesHost {
+            override fun openTurnDiff(req: TurnDiffRequest) = this@ClaudePanel.openTurnDiff(req)
+            override fun revertFiles(paths: List<String>) = this@ClaudePanel.revertFiles(paths)
+        }
+    }
 
     /**
      * "更新日志给这个用户看过哪个版本"存哪儿（见 `com.ccoder.update`）。
@@ -3350,6 +3360,98 @@ class ClaudePanel(
         )
     }
 
+    // ---- 「本轮改动」卡（2026-10-13，见 TurnChanges.kt）----
+
+    /**
+     * 网页点了文件行：问侧车要这个文件的「改动前」。
+     *
+     * 到手后按 kind 分流（file/absent 开对比、missing 提示 + 打开文件）——
+     * 分流在 [showTurnDiff] 里，这里只负责请求与降级。
+     */
+    private fun openTurnDiff(req: TurnDiffRequest) {
+        val c = client ?: return
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeFileSnapshot(reqId, req.path)) { outcome ->
+            val report = (outcome as? RequestOutcome.Answered)?.message
+                as? SidecarMessage.FileSnapshotReport
+            if (report == null) {
+                // 通道断了/超时：说一句（不静默）。卡片那边不动 —— 它没有可更新的东西
+                val reason = (outcome as? RequestOutcome.Failed)?.reason
+                LOG.warn("CCoder 读本轮快照失败：${reason ?: "意外应答"}")
+                notifyTurnChangeFailure(
+                    CcoderText.text("file.diff.failedTitle"),
+                    CcoderText.text("file.diff.failedBody", reason ?: req.path),
+                )
+                return@request
+            }
+            showTurnDiff(project, report)
+        }
+    }
+
+    /**
+     * 网页勾选后回滚：转发侧车；逐文件回执回推给卡片，外加一条系统提示。
+     *
+     * 三条回执路径都有交代：回答 → 回执 + 提示 + 刷新 VFS；失败/超时 → 一句提示
+     *（文件一个字都没动，别让界面看起来像"回滚了"）。
+     */
+    private fun revertFiles(paths: List<String>) {
+        val c = client ?: return
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeRevertFiles(reqId, paths)) { outcome ->
+            ApplicationManager.getApplication().invokeLater {
+                val report = (outcome as? RequestOutcome.Answered)?.message
+                    as? SidecarMessage.RevertReport
+                if (report == null) {
+                    val reason = (outcome as? RequestOutcome.Failed)?.reason
+                    LOG.warn("CCoder 回滚失败：${reason ?: "意外应答"}")
+                    pushItem(
+                        RenderItem.SystemNote(
+                            CcoderText.text("chat.note.revertNoAnswer", reason ?: "")
+                        )
+                    )
+                    return@invokeLater
+                }
+                // 卡片的行标记走 op；给人读的那句话走系统提示 —— 两个去处，一件事
+                pushOp(TranscriptOp.RevertReport(report.results))
+                val success = report.results.count { it.ok }
+                pushItem(RenderItem.SystemNote(revertNoteText(success, report.results.size - success)))
+                // 侧车是用 Node 直接写盘的，替用户把 IDE 里的视图拉回真身
+                refreshAfterRevert(project, report.results.filter { it.ok }.map { it.path })
+            }
+        }
+    }
+
+    /**
+     * 问一次**最新一轮**的快照标记（ready 那一刻）。
+     *
+     * 只对恢复进来的会话有意义：那一轮的快照是上一个进程抓的，没有实时事件可听；
+     * 新会话拿到空表，什么也不推。全量推一次（不是逐条）—— 拿到时网页可能还没
+     * 渲染完历史，一条 op 比 N 条干净。
+     */
+    private fun requestSnapshotIndex() {
+        val c = client ?: return
+        val reqId = nextId()
+        c.request(reqId, Protocol.encodeSnapshotIndex(reqId)) { outcome ->
+            val report = (outcome as? RequestOutcome.Answered)?.message
+                as? SidecarMessage.SnapshotIndexReport ?: return@request
+            if (report.entries.isEmpty()) return@request
+            ApplicationManager.getApplication().invokeLater {
+                pushOp(TranscriptOp.Snapshots(report.entries))
+            }
+        }
+    }
+
+    /** 桥/侧车那条路上的失败提示。与 TurnChanges 里那个 notify 同组，同"不静默"的规矩。 */
+    private fun notifyTurnChangeFailure(title: String, body: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("CCoder")
+                .createNotification(title, body, NotificationType.WARNING)
+                .notify(project)
+        }
+    }
+
     private fun fail(text: String) {
         // 起会话中途失败的每一条路都走这里（NodeCheck 不过、sidecar 找不到、
         // 建进程抛错），启动闸必须在这里归位，否则面板从此再也起不了会话
@@ -3534,6 +3636,10 @@ class ClaudePanel(
                     // 有一个前提：会话再起来时会有人把它挂回去 —— 而重启会话
                     // **不经过切标签**（addNotify 不会再响），所以这里必须挂一次
                     attachMcpControl()
+                    // 「本轮改动」的标记也问一次：恢复进来的会话，最新一轮的快照
+                    // 是上一个进程抓的（没有实时事件可听）—— 不补这一份，
+                    // 那轮的卡片标不出「新 / 无存档」
+                    requestSnapshotIndex()
 
                     val resuming = resumeTargetId
                     if (resuming != null) {
@@ -3568,6 +3674,16 @@ class ClaudePanel(
                         submitUsageStrip(UsageStripData(msg.todayTokens, msg.todayCost, msg.spark))
                         refreshUsageBill()
                     }
+                }
+
+                // 快照抓取（每抓一份一条）：转成网页侧的标记 op。**不进时间线**
+                // —— 它只进「本轮改动」卡那份标记表（见 TranscriptOp.Snapshots）
+                is SidecarMessage.TurnSnapshot -> {
+                    pushOp(
+                        TranscriptOp.Snapshots(
+                            listOf(SnapshotEntry(msg.toolUseId, msg.path, msg.existed))
+                        )
+                    )
                 }
 
                 is SidecarMessage.Event -> {
@@ -3814,6 +3930,9 @@ class ClaudePanel(
                 is SidecarMessage.SubagentMessages,
                 is SidecarMessage.McpServers,
                 is SidecarMessage.McpControlled,
+                is SidecarMessage.FileSnapshotReport,
+                is SidecarMessage.RevertReport,
+                is SidecarMessage.SnapshotIndexReport,
                 -> Unit
 
                 is SidecarMessage.Exit -> {

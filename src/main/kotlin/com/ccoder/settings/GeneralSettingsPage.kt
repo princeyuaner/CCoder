@@ -52,6 +52,15 @@ internal val COLLAPSE_THINKING_LABEL: String get() = CcoderText.text("settings.t
 internal val COLLAPSE_THINKING_HINT: String get() = CcoderText.text("settings.thinkingFold.hint")
 
 /**
+ * 「本轮改动的存档」那一行的标签与说明（2026-10-13）。
+ *
+ * 同 [COLLAPSE_THINKING_LABEL]：从词表取（它本身要被翻译）。说明里把代价写全 ——
+ * 开 = 每个被改的文件在改之前多一份磁盘副本。
+ */
+internal val TURN_SNAPSHOTS_LABEL: String get() = CcoderText.text("settings.general.turnSnapshots")
+internal val TURN_SNAPSHOTS_HINT: String get() = CcoderText.text("settings.general.turnSnapshotsHint")
+
+/**
  * 「字体」「字号」两行的标签与说明（2026-09-21）。
  *
  * 说明里都写清了**只影响转录区** —— 这一页的其余项改的是整个工具窗口，
@@ -97,6 +106,9 @@ internal class GeneralSettingsPage(
      * （先例：权限页那个"我明白风险"，见 `PermissionSettingsPage` 里同一条注释）。
      */
     private val collapseThinking = JBCheckBox(COLLAPSE_THINKING_LABEL)
+
+    /** 「本轮改动的存档」（2026-10-13）。形状同上：复选框自己就是那一行的字。 */
+    private val turnSnapshots = JBCheckBox(TURN_SNAPSHOTS_LABEL)
 
     /**
      * 「字体」。列表在**建页时**算一次：它要问本机装了哪些字族
@@ -153,6 +165,7 @@ internal class GeneralSettingsPage(
         effortBox.addActionListener { save() }
         languageBox.addActionListener { save() }
         collapseThinking.addActionListener { save() }
+        turnSnapshots.addActionListener { save() }
         fontBox.addActionListener { save() }
         scaleBox.addActionListener { save() }
 
@@ -207,7 +220,18 @@ internal class GeneralSettingsPage(
         alignLabelColumns(fallback, shortcut, effort)
         return settingsCard(
             CcoderText.text("settings.general.card.session"),
-            cardRows(fallback, shortcut, effort),
+            cardRows(
+                fallback,
+                shortcut,
+                effort,
+                cardBlock(
+                    // 复选框自己是一条（同「界面」卡里那颗，理由见类注释）
+                    turnSnapshots.apply { border = JBUI.Borders.empty(8, 0, 4, 0) },
+                    // 说明把代价写全：开 = 每个被改的文件多一份磁盘副本。
+                    // 这句不写清楚，用户关掉它只是因为"不知道那是什么"
+                    wrappedHint(TURN_SNAPSHOTS_HINT, CARD_CONTENT_WIDTH),
+                ),
+            ),
         )
     }
 
@@ -243,6 +267,7 @@ internal class GeneralSettingsPage(
             effortBox.selectedItem = settings.effort
             languageBox.selectedItem = language.language
             collapseThinking.isSelected = prefs.collapseThinking
+            turnSnapshots.isSelected = settings.turnSnapshots
             fontBox.selectedItem = prefs.fontChoice
             scaleBox.selectedItem = prefs.fontScale
         } finally {
@@ -271,6 +296,7 @@ internal class GeneralSettingsPage(
         // 三项界面偏好都只写到服务为止：往转写区推是关框之后 ClaudePanel 的事
         // （见 `openModelSettings` 里那两行）—— 与模型、权限那两项同一条"关框对账"的语义。
         // 设置页自己**不**去够转写区：那一页要能在纯 JVM 的探针里跑
+        settings.turnSnapshots = turnSnapshots.isSelected
         prefs.collapseThinking = collapseThinking.isSelected
         prefs.fontChoice = fontBox.selectedItem as FontChoice
         prefs.fontScale = scaleBox.selectedItem as FontScale

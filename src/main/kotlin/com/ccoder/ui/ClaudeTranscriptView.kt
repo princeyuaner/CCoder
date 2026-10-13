@@ -72,6 +72,14 @@ import javax.swing.SwingUtilities
  */
 class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
+    /**
+     * 「本轮改动」卡的两条 op（打开对比 / 回滚）的去处 —— 由面板注入。
+     *
+     * 缺省 null 时那两条 op 走 handleFromJs 的"认不出"那条路（记一行日志）：
+     * 早期构建里页面可能比面板新，静默吞掉不如留痕。
+     */
+    internal var turnChangesHost: TurnChangesHost? = null
+
     private var browser: JBCefBrowser? = null
     private var jsQuery: JBCefJSQuery? = null
     private var pump: TranscriptPump? = null
@@ -632,6 +640,25 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             // 卡片上点了文件名：在编辑器里打开并定位（见 OpenFileTarget）。
             // 这条链路自己会跳线程，CEF 回调线程上直接调没问题
             "openFile" -> parseOpenFileTarget(obj)?.let { openInEditor(project, it) }
+
+            // 「本轮改动」卡：点文件行 → 在 IDE 里开「改动前 ↔ 当前」对比；
+            // 勾选回滚 → 转发侧车（见 TurnChanges）。两条都要够侧车，所以
+            // 转交面板 —— 视图自己不认识 SidecarClient
+            "openTurnDiff" -> {
+                val req = parseTurnDiffRequest(obj)
+                val host = turnChangesHost
+                if (req != null && host != null) host.openTurnDiff(req) else LOG.info(
+                    "CCoder 转写视图：openTurnDiff 没有落点（${req == null}）"
+                )
+            }
+
+            "revertFiles" -> {
+                val paths = parseRevertPaths(obj)
+                val host = turnChangesHost
+                if (paths != null && host != null) host.revertFiles(paths) else LOG.info(
+                    "CCoder 转写视图：revertFiles 没有落点（paths=${paths?.size ?: -1}）"
+                )
+            }
 
             // 代码块的复制键（见 CopyText）：JCEF 里 navigator.clipboard 不可用
             // （不是安全上下文），复制这件事只能回平台来做

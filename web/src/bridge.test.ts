@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { openFile, openLink } from './bridge'
+import { openFile, openLink, openTurnDiff, revertFiles } from './bridge'
 
 /**
  * 桥发出的那串字节就是 Kotlin 侧 `handleFromJs` 要解析的东西 ——
@@ -46,5 +46,28 @@ describe('openLink', () => {
     const sent = captureSend()
     openLink('https://example.com')
     expect(JSON.parse(sent[0])).toEqual({ op: 'openLink', url: 'https://example.com' })
+  })
+})
+
+describe('openTurnDiff', () => {
+  // 「本轮改动」卡（2026-10-13）：点文件行发出的就是这一条
+  it('发 op 与**原样**路径（归一化只在侧车那一侧做）', () => {
+    const sent = captureSend()
+    openTurnDiff('.\web\..\web/src/A.tsx')
+    expect(JSON.parse(sent[0])).toEqual({ op: 'openTurnDiff', path: '.\web\..\web/src/A.tsx' })
+  })
+})
+
+describe('revertFiles', () => {
+  it('发 op 与路径数组，顺序原样', () => {
+    const sent = captureSend()
+    revertFiles(['/p/a.kt', '/p/b.kt'])
+    expect(JSON.parse(sent[0])).toEqual({ op: 'revertFiles', paths: ['/p/a.kt', '/p/b.kt'] })
+  })
+
+  it('空数组一个字节都不发 —— 一条都没有的"回滚"没有意义', () => {
+    const sent = captureSend()
+    revertFiles([])
+    expect(sent).toHaveLength(0)
   })
 })

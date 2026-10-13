@@ -74,19 +74,35 @@ body {
 }
 
 /* ---- 滚动跟随（设计文档 §4.5）----
-   包装层只为了让「回到底部」按钮相对视口定位：按钮若放进 .transcript，
-   它会成为滚动内容的一部分，跟着内容一起滚走。 */
+   包装层现在管两件事：
+   1. 给「回到底部」按钮当定位系（视口区里的 absolute 参照）；
+   2. 当**纵向 flex 容器** —— 转写区（flex: 1 1 auto）与「本轮改动」卡
+      （flex: none）分上下，卡片钉在视口底下、不随内容滚走。
+
+   第 2 条漏了就是 2026-10-13 的事故（用户："无法滚动输出区，看不到后面的
+   内容"）：两个孩子是按 flex 项写的，而这一层却是普通块 —— `flex` 属性在
+   非 flex 父级下**全部静默失效**，.transcript-viewport 退化成"内容高"，
+   于是 .transcript 的高度约束一并瓦解（见下），整个转写区不再滚动：
+   屏幕外的内容既滚不动、也看不见，卡片更被推到看不见的地方。
+   `npm run probe:layout` 的 blockOverflow 与「卡片在不在屏幕里」两条守着它。 */
 .transcript-wrap {
   position: relative;
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 刻意**不**设 scroll-behavior: smooth。
    它会让一切程序化滚动（含 scrollTop = 赋值）变成动画，而流式跟随必须瞬时 ——
    逐 token 更新下动画每次都被新内容重启，视口永远追不上。唯一值得动画的是
-   「回到底部」按钮，那里显式请求 behavior: 'smooth'。 */
+   「回到底部」按钮，那里显式请求 behavior: 'smooth'。
+
+   高度**不用** height: 100%：视口区的高度是 flex 分配出来的（不是显式的
+   百分比链），百分比高度在这里是条脆路。flex: 1 1 auto + min-height: 0 才把
+   它钉成一个真正的滚动容器 —— 高度受限、内容溢出、能滚。 */
 .transcript {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
@@ -1238,4 +1254,280 @@ body {
   color: var(--accent-text, #7fb0ff);
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* ============================================================
+   「本轮改动」卡（2026-10-13，设计稿 docs/design/turn-changes.html）
+   ============================================================
+   位置：钉在转写区底、输入框上方（不随内容滚走）—— 所以转写区收进
+   .transcript-viewport，卡片是它的兄弟节点。见 Transcript.tsx 的结构注释。
+
+   颜色只用主题注入的那几个变量（--diff-add-fg / --diff-del-fg 是转写区
+   本来就有的那对绿红，工具卡的 +N −N 用的也是它们）；一个字色都不写死
+   —— 明暗主题都要能读。 */
+
+.transcript-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  /* flex 子项的自动最小高度默认是"内容高"，不压 0 的话卡片会把滚动区顶破 */
+  min-height: 0;
+  /* 它也是 flex 列：.transcript 靠 flex: 1 1 auto 在这里被分配高度 ——
+     转写区的高度约束就止于这一层。少了它，.transcript 又退化成内容高。 */
+  display: flex;
+  flex-direction: column;
+}
+
+.turn-changes {
+  flex: none;
+  margin: 0 8px 8px;
+  border: 1px solid var(--border, #3c3f41);
+  border-radius: 8px;
+  /* 与工具卡同一个底色变量（--surface）。**别用 --panel**：ThemeInjector
+     不注入那个名字，它会静默落到深色兜底 —— 浅色主题下卡片就成了黑块
+     （2026-10-13 渲染探针抓到过这一手） */
+  background: var(--surface, #2b2d30);
+  overflow: hidden;
+  font-size: calc(12.5px * var(--fs-scale, 1));
+  color: var(--text, #dcdcdc);
+}
+
+.turn-changes__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+}
+
+.turn-changes__icon {
+  display: flex;
+  color: var(--accent-text, #7fb0ff);
+  flex: none;
+}
+
+.turn-changes__title {
+  flex: none;
+}
+
+.turn-changes__count {
+  color: var(--text-dim, #9aa0a6);
+  font-size: calc(12px * var(--fs-scale, 1));
+  flex: none;
+}
+
+.turn-changes__delta {
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: calc(11px * var(--fs-scale, 1));
+  flex: none;
+}
+
+.turn-add {
+  color: var(--diff-add-fg, #5fad65);
+}
+
+.turn-del {
+  color: var(--diff-del-fg, #db5c5c);
+}
+
+.turn-changes__spacer {
+  flex: 1 1 auto;
+}
+
+.turn-btn {
+  font: inherit;
+  font-size: calc(11.5px * var(--fs-scale, 1));
+  line-height: 1.2;
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--border, #3c3f41);
+  background: transparent;
+  color: var(--text, #dcdcdc);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+
+.turn-btn:hover:not(:disabled) {
+  border-color: var(--accent, #548af7);
+}
+
+.turn-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.turn-btn--ghost {
+  border-color: transparent;
+  color: var(--text-dim, #9aa0a6);
+}
+
+.turn-btn--danger {
+  color: var(--diff-del-fg, #db5c5c);
+  border-color: color-mix(in srgb, var(--diff-del-fg, #db5c5c) 55%, var(--border, #3c3f41));
+}
+
+.turn-btn--focus {
+  outline: 2px solid var(--accent, #548af7);
+  outline-offset: 1px;
+}
+
+.turn-changes__body {
+  border-top: 1px solid var(--border, #3c3f41);
+}
+
+.turn-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #3c3f41) 55%, transparent);
+}
+
+.turn-row:first-child {
+  border-top: 0;
+}
+
+.turn-row--done {
+  opacity: 0.6;
+}
+
+.turn-row__cb {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent, #548af7);
+}
+
+/* 目录暗、文件名亮；窄栏下省略号**只吃目录**（文件名永远看得见）——
+   这就是拆两段的原因。min-width: 0 才能让 flex 子项真的压缩。 */
+.turn-row__path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: calc(12px * var(--fs-scale, 1));
+  text-align: left;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.turn-row__path--link {
+  cursor: pointer;
+}
+
+.turn-row__path--link:hover .turn-row__name {
+  color: var(--accent-text, #7fb0ff);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.turn-row__dir {
+  color: var(--text-dim, #9aa0a6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  /* 省略号不要贴住文件名（截断时 dir 的尾巴是 …） */
+  padding-right: 2px;
+}
+
+.turn-row__name {
+  white-space: nowrap;
+  flex: none;
+}
+
+.turn-row__delta {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: calc(11px * var(--fs-scale, 1));
+}
+
+.turn-row__err {
+  flex: none;
+  font-size: calc(11px * var(--fs-scale, 1));
+  color: var(--diff-del-fg, #db5c5c);
+}
+
+.turn-row__open {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--text-dim, #9aa0a6);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 2px;
+  opacity: 0;
+}
+
+.turn-row:hover .turn-row__open,
+.turn-row__open:focus-visible {
+  opacity: 1;
+}
+
+.turn-row__open:hover {
+  color: var(--accent-text, #7fb0ff);
+}
+
+.turn-tag {
+  flex: none;
+  font-size: calc(10.5px * var(--fs-scale, 1));
+  padding: 0 5px;
+  border: 1px solid var(--border, #3c3f41);
+  border-radius: 4px;
+  color: var(--text-dim, #9aa0a6);
+}
+
+.turn-tag--new {
+  color: var(--diff-add-fg, #5fad65);
+  border-color: color-mix(in srgb, var(--diff-add-fg, #5fad65) 45%, var(--border, #3c3f41));
+}
+
+.turn-tag--ok {
+  color: var(--text-dim, #9aa0a6);
+}
+
+.turn-mark {
+  flex: none;
+  font-family: var(--font-mono, monospace);
+  font-size: calc(10.5px * var(--fs-scale, 1));
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #3c3f41);
+}
+
+.turn-mark--rec {
+  color: var(--accent-text, #7fb0ff);
+  border-color: color-mix(in srgb, var(--accent, #548af7) 45%, var(--border, #3c3f41));
+}
+
+.turn-mark--del {
+  color: var(--diff-del-fg, #db5c5c);
+  border-color: color-mix(in srgb, var(--diff-del-fg, #db5c5c) 45%, var(--border, #3c3f41));
+}
+
+.turn-row__why {
+  flex: none;
+  font-size: calc(11px * var(--fs-scale, 1));
+  color: var(--text-dim, #9aa0a6);
+}
+
+.turn-changes__note {
+  margin: 8px 10px 0;
+  font-size: calc(11.5px * var(--fs-scale, 1));
+  color: var(--text-dim, #9aa0a6);
+}
+
+.turn-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #3c3f41) 55%, transparent);
+  background: var(--surface, #2b2d30);
 }

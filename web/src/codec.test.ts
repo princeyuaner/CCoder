@@ -30,13 +30,17 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    // 19 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条
-    // （2026-09-22 补）+ 末尾的 fresh 标记（2026-10-10 补）
-    expect(ops).toHaveLength(19)
+    // 21 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条
+    // （2026-09-22 补）+ fresh 标记（2026-10-10 补）+ 末尾两条「本轮改动」
+    // （2026-10-13 补：snapshots / revertReport）
+    expect(ops).toHaveLength(21)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
-    // fresh 在**末尾**：前面全是按下标钉住的断言，插在中间会把它们全部挪位
+    // fresh 与后面那两条都在**末尾**：前面全是按下标钉住的断言，
+    // 插在中间会把它们全部挪位
     expect(ops[18].op).toBe('fresh')
+    expect(ops[19].op).toBe('snapshots')
+    expect(ops[20].op).toBe('revertReport')
   })
 
   it('fixture 能被完整应用到状态上而不丢内容', () => {
@@ -51,6 +55,18 @@ describe('契约 fixture', () => {
     expect(state.live.assistant).toBeUndefined()
     // 末尾那条 fresh 落成状态里的新会话标记（空态引导卡的开关）
     expect(state.fresh).toBe(true)
+    // 「本轮改动」那两张表（2026-10-13）：标记按 toolUseId、回执按路径。
+    // 三种 existed 都要活着走到状态里（true / false / null=无存档）
+    expect(state.snapshots).toEqual({
+      toolu_1: true,
+      toolu_new: false,
+      toolu_big: null,
+    })
+    expect(state.revert).toEqual({
+      '/a.txt': { path: '/a.txt', ok: true, action: 'restored' },
+      '/new.txt': { path: '/new.txt', ok: true, action: 'deleted', dirty: true },
+      '/p/b.kt': { path: '/p/b.kt', ok: false, action: 'failed', error: 'no-snapshot' },
+    })
   })
 
   it('工具调用带着配对的 toolUseId 过来', () => {
@@ -480,5 +496,65 @@ describe('parseItem 的可选字段', () => {
     expect(ops).toHaveLength(1)
     const item = ops[0] as { op: 'append'; item: { costUsd?: number } }
     expect(item.item.costUsd).toBeUndefined()
+  })
+})
+
+describe('本轮改动的两张表（2026-10-13）', () => {
+  it('快照标记按 toolUseId 合并；没有 toolUseId 的条目丢单条、不丢整批', () => {
+    // 走 parseOps 那条正路 —— 校验在它那道闸里（applyOps 只消费已校验的 op）
+    const ops = parseOps([
+      { op: 'snapshots', entries: [
+        { toolUseId: 't1', path: '/a.kt', existed: true },
+        { toolUseId: '', path: '/bad.kt', existed: false },   // 没有落点，丢
+        { toolUseId: 't2', path: '/b.kt', existed: null },
+      ] },
+      // 同一条 op 再来一次（实时逐条推的路子）：后到的覆盖先到的
+      { op: 'snapshots', entries: [{ toolUseId: 't1', path: '/a.kt', existed: false }] },
+    ] as unknown[])
+    const state = applyOps(emptyState(), ops)
+
+    expect(state.snapshots).toEqual({ t1: false, t2: null })
+  })
+
+  it('一条新的 user 项落地 = 新一轮开始：两张表清空', () => {
+    // 回执是按**路径**记的，不清的话"上一轮回滚过 /a.kt"会让这一轮
+    // 改到同一个文件时那张行凭空带上「已回滚」
+    const withMarks = applyOps(emptyState(), [
+      { op: 'snapshots', entries: [{ toolUseId: 't1', path: '/a.kt', existed: true }] },
+      { op: 'revertReport', results: [{ path: '/a.kt', ok: true, action: 'restored' }] },
+    ])
+    expect(withMarks.snapshots).toBeDefined()
+
+    const next = applyOps(withMarks, [
+      { op: 'append', item: { kind: 'user', id: 'u2', ts: 2, text: '再来' } },
+    ])
+    expect(next.snapshots).toBeUndefined()
+    expect(next.revert).toBeUndefined()
+  })
+
+  it('reset 也把两张表清掉（切会话/回放）', () => {
+    const withMarks = applyOps(emptyState(), [
+      { op: 'snapshots', entries: [{ toolUseId: 't1', path: '/a.kt', existed: true }] },
+    ])
+    const after = applyOps(withMarks, [{ op: 'reset' }])
+    expect(after.snapshots).toBeUndefined()
+    expect(after.revert).toBeUndefined()
+  })
+
+  it('revertReport 的 action 认不出当 failed —— 不把没成的说成成了', () => {
+    const ops = parseOps([
+      { op: 'revertReport', results: [
+        { path: '/a.kt', ok: false, action: 'weird', error: 'EACCES' },
+      ] },
+    ] as unknown[])
+    const state = applyOps(emptyState(), ops)
+    expect(state.revert?.['/a.kt']).toMatchObject({ ok: false, action: 'failed', error: 'EACCES' })
+  })
+
+  it('两张表都没内容时不写进状态 —— 老路径的状态对象一字不差', () => {
+    const state = applyOps(emptyState(), [
+      { op: 'append', item: { kind: 'user', id: 'u', ts: 1, text: '你好' } },
+    ])
+    expect(Object.keys(state).sort()).toEqual(['items', 'live'])
   })
 })

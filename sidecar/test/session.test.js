@@ -719,3 +719,153 @@ test('没有这两个方法时抛错，不静默成功', async () => {
   await assert.rejects(() => s.reconnectMcpServer('x'), /不支持重连 MCP 服务器/);
   await assert.rejects(() => s.toggleMcpServer('x', true), /不支持启停 MCP 服务器/);
 });
+
+// ---- 「本轮改动」快照挂钩（2026-10-13）----
+//
+// 这一组测的是**接线形状**：hook 注册了没有、抓取结果发没发、
+// 忙时拒没拒。store 本身的行为在 test/snapshots.test.js。
+
+/** 记录调用形状的假 store（真实现会碰磁盘，单测里不碰）。 */
+function fakeSnapshots({ captureResult = { existed: true } } = {}) {
+  const calls = [];
+  return {
+    calls,
+    beginTurn() { calls.push(['beginTurn']); return 1; },
+    capture({ path, toolUseId }) { calls.push(['capture', path, toolUseId]); return captureResult; },
+    setSid(sid) { calls.push(['setSid', sid]); },
+    markTurnEnd() { calls.push(['markTurnEnd']); },
+    snapshot({ path }) { calls.push(['snapshot', path]); return { kind: 'file', content: 'X' }; },
+    revert({ paths }) {
+      calls.push(['revert', paths]);
+      return paths.map((p) => ({ path: p, ok: true, action: 'restored' }));
+    },
+    entries() { calls.push(['entries']); return [{ toolUseId: 't', path: '/a', existed: true }]; },
+  };
+}
+
+/** 可以中途推事件的假 query（result/init 是"跑着跑着才来"的）。 */
+function pushableQuery() {
+  const calls = { options: null, prompts: [] };
+  const queue = [];
+  let notify = null;
+  async function* gen(prompt) {
+    calls.prompts.push(prompt);
+    for (;;) {
+      if (queue.length > 0) { yield queue.shift(); continue; }
+      const item = await new Promise((r) => { notify = r; });
+      notify = null;
+      if (item === null) return;
+      yield item;
+    }
+  }
+  return {
+    calls,
+    push(msg) { queue.push(msg); notify?.('go'); },
+    end() { notify?.(null); },
+    fn(params) {
+      calls.options = params.options;
+      return Object.assign(gen(params.prompt), { interrupt: async () => {} });
+    },
+  };
+}
+
+test('不给 snapshots 时不注册任何 hooks —— 老行为一字不差', () => {
+  const q = fakeQuery();
+  createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: q.fn });
+  assert.equal(q.calls.options.hooks, undefined);
+});
+
+test('snapshots 在：PreToolUse hook 抓编辑类工具，抓完发 onSnapshot', async () => {
+  const q = fakeQuery();
+  const store = fakeSnapshots();
+  const shots = [];
+  createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: q.fn,
+    snapshots: store, onSnapshot: (e) => shots.push(e),
+  });
+  const hook = q.calls.options.hooks.PreToolUse[0].hooks[0];
+
+  // 认得的编辑工具：抓，并发标记
+  const r = await hook({ tool_name: 'Edit', tool_input: { file_path: '/p/a.kt' }, tool_use_id: 't1' });
+  assert.deepEqual(r, {}, '必须回空对象 —— 不拦、不表态');
+  assert.deepEqual(store.calls.at(-1), ['capture', '/p/a.kt', 't1']);
+  assert.deepEqual(shots.at(-1), { toolUseId: 't1', path: '/p/a.kt', existed: true });
+
+  // NotebookEdit 走 notebook_path
+  await hook({ tool_name: 'NotebookEdit', tool_input: { notebook_path: '/p/n.ipynb' }, tool_use_id: 't2' });
+  assert.deepEqual(store.calls.at(-1), ['capture', '/p/n.ipynb', 't2']);
+
+  // 不写盘的工具：不抓
+  const before = store.calls.length;
+  await hook({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' }, tool_use_id: 't3' });
+  await hook({ tool_name: 'Read', tool_input: { file_path: '/p/a.kt' }, tool_use_id: 't4' });
+  assert.equal(store.calls.length, before);
+
+  // 抓取抛错也不能让工具失败
+  store.capture = () => { throw new Error('boom'); };
+  const r2 = await hook({ tool_name: 'Edit', tool_input: { file_path: '/p/b.kt' }, tool_use_id: 't5' });
+  assert.deepEqual(r2, {});
+});
+
+test('同轮同文件第二次编辑（deduped）不发标记', async () => {
+  const q = fakeQuery();
+  const store = fakeSnapshots({ captureResult: { existed: null, deduped: true } });
+  const shots = [];
+  createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: q.fn,
+    snapshots: store, onSnapshot: (e) => shots.push(e),
+  });
+  await q.calls.options.hooks.PreToolUse[0].hooks[0]({
+    tool_name: 'Edit', tool_input: { file_path: '/p/a.kt' }, tool_use_id: 't2',
+  });
+  assert.equal(shots.length, 0);
+});
+
+test('send 开新轮；忙时拒绝回滚；result 一到解除忙并轮末记账', async () => {
+  const q = pushableQuery();
+  const store = fakeSnapshots();
+  const s = createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: q.fn, snapshots: store,
+  });
+  await new Promise((r) => setImmediate(r));
+
+  // 忙：整批拒绝，逐条带 busy
+  s.send('改一下');
+  assert.deepEqual(store.calls[0], ['beginTurn']);
+  const busyResults = s.revertFiles(['/p/a.kt']);
+  assert.equal(busyResults[0].ok, false);
+  assert.equal(busyResults[0].error, 'busy');
+
+  // result 落地：忙解除、记账、回滚放行
+  q.push({ type: 'result', subtype: 'success' });
+  await new Promise((r) => setImmediate(r));
+  assert.ok(store.calls.some((c) => c[0] === 'markTurnEnd'));
+  const ok = s.revertFiles(['/p/a.kt']);
+  assert.equal(ok[0].ok, true);
+  q.end();
+});
+
+test('init 事件把会话 id 补进 store；snapshotOf / snapshotEntries 直通', async () => {
+  const q = pushableQuery();
+  const store = fakeSnapshots();
+  const s = createSession({
+    cwd: '/tmp', permissionMode: 'default', queryFn: q.fn, snapshots: store,
+  });
+  await new Promise((r) => setImmediate(r));
+  q.push({ type: 'system', subtype: 'init', session_id: 'sid-9' });
+  await new Promise((r) => setImmediate(r));
+  assert.ok(store.calls.some((c) => c[0] === 'setSid' && c[1] === 'sid-9'));
+
+  assert.deepEqual(s.snapshotOf('/p/a.kt'), { kind: 'file', content: 'X' });
+  assert.deepEqual(s.snapshotEntries(), [{ toolUseId: 't', path: '/a', existed: true }]);
+  q.end();
+});
+
+test('没开快照时三条路都不静默：missing / no-snapshot', () => {
+  const s = createSession({ cwd: '/tmp', permissionMode: 'default', queryFn: fakeQuery().fn });
+  assert.deepEqual(s.snapshotOf('/p/a.kt'), { kind: 'missing' });
+  const [r] = s.revertFiles(['/p/a.kt']);
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'no-snapshot');
+  assert.deepEqual(s.snapshotEntries(), []);
+});

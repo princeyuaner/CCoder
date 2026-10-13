@@ -2,6 +2,8 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type Rea
 import type { ToolResultItem, TranscriptItem, TranscriptState } from '../types'
 import { t, useLang } from '../i18n'
 import { nestByParent, type NestedItem } from '../nesting'
+import { turnSummary as computeTurnSummary } from '../turnChanges'
+import { TurnChangesCard } from './TurnChangesCard'
 import { AssistantBubble } from './AssistantBubble'
 import { EmptyState } from './EmptyState'
 import { ErrorBubble } from './ErrorBubble'
@@ -424,6 +426,11 @@ export function Transcript({ state }: { state: TranscriptState }) {
 
   // 子代理那一块：按 `parent` 把流水归位（A1）。两个 memo 都只依赖 items 与那两张表，
   // 所以**流式的每一帧都不重算** —— 与上面那条 memo 同一条账。
+  // 「本轮改动」卡（2026-10-13）：摘要从 items 聚合（纯函数，见 turnChanges.ts）；
+  // 标记与回执两张表由 Kotlin 的 ops 维护（state.snapshots / state.revert）。
+  // memo 只依赖 items —— 流式每一帧变的是 live，items 不变，这里不会白算。
+  const turn = useMemo(() => computeTurnSummary(state.items), [state.items])
+
   const nestedNodes = useMemo(() => nestByParent(state.items), [state.items])
   const nestedBlocks = useMemo(() => {
     const map = new Map<string, ReactNode>()
@@ -442,16 +449,20 @@ export function Transcript({ state }: { state: TranscriptState }) {
   }, [nestedNodes, resultsByToolUseId, endedToolUseIds])
 
   return (
-    // 包装层只为了让按钮相对**视口**定位：按钮若放进 .transcript 会成为滚动
-    // 内容的一部分，跟着内容一起滚走。
+    // 包装层往下分两层：
+    // - .transcript-viewport —— 滚动区（.transcript）+ 浮在它上面的「回到底部」按钮。
+    //   按钮相对**视口**定位：放进 .transcript 会成为滚动内容的一部分，跟着滚走。
+    // - 「本轮改动」卡 —— 钉在视口底下、输入框上方（2026-10-13），**不随内容滚走**：
+    //   它要一直看得见，用户翻着历史也能随手回滚。所以它不在滚动区里，而在视口外。
     <div className="transcript-wrap">
-      <div
-        className="transcript"
-        data-testid="transcript"
-        ref={scrollerRef}
-        onScroll={handleScroll}
-        onWheel={handleWheel}
-      >
+      <div className="transcript-viewport">
+        <div
+          className="transcript"
+          data-testid="transcript"
+          ref={scrollerRef}
+          onScroll={handleScroll}
+          onWheel={handleWheel}
+        >
         {/* 一次调用一张卡 —— 「归堆」已按用户要求撤销（2026-09-14）：
             并成一组之后，每次调用各自的描述与对应文件就看不见了 */}
         {nestedNodes.map((node) => (
@@ -484,30 +495,33 @@ export function Transcript({ state }: { state: TranscriptState }) {
             </AssistantBubble>
           </div>
         )}
+        </div>
+
+        {/* 只要离开底部就浮出来 —— 用户滚上去多半就是想回来，那时按钮必须点得到
+            （2026-09-15 用户报"回到底部的按钮现在怎么不显示了"：原来的条件是
+            `!stick && hasNewWhilePaused`，滚上去但没新内容时它按设计不出现）。
+
+            这期间**又来了新内容**的话多一个小圆点。它同时是"暂停已被登记"的精确
+            证据：`data-new` 只在那个 layout effect 的暂停分支里被置起，单测盯它
+            （见 Transcript.test.tsx）—— 否则"不移动视口"与"什么都没做"分不开。 */}
+        {!stick && (
+          <button
+            type="button"
+            className="jump-to-bottom"
+            data-testid="jump-to-bottom"
+            data-new={hasNewWhilePaused}
+            aria-label={
+              hasNewWhilePaused ? t('transcript.backToBottomNew') : t('transcript.backToBottom')
+            }
+            onClick={jumpToBottom}
+          >
+            {t('transcript.backToBottom')}
+            {hasNewWhilePaused && <span className="jump-to-bottom__dot" aria-hidden="true" />}
+          </button>
+        )}
       </div>
 
-      {/* 只要离开底部就浮出来 —— 用户滚上去多半就是想回来，那时按钮必须点得到
-          （2026-09-15 用户报"回到底部的按钮现在怎么不显示了"：原来的条件是
-          `!stick && hasNewWhilePaused`，滚上去但没新内容时它按设计不出现）。
-
-          这期间**又来了新内容**的话多一个小圆点。它同时是"暂停已被登记"的精确
-          证据：`data-new` 只在那个 layout effect 的暂停分支里被置起，单测盯它
-          （见 Transcript.test.tsx）—— 否则"不移动视口"与"什么都没做"分不开。 */}
-      {!stick && (
-        <button
-          type="button"
-          className="jump-to-bottom"
-          data-testid="jump-to-bottom"
-          data-new={hasNewWhilePaused}
-          aria-label={
-            hasNewWhilePaused ? t('transcript.backToBottomNew') : t('transcript.backToBottom')
-          }
-          onClick={jumpToBottom}
-        >
-          {t('transcript.backToBottom')}
-          {hasNewWhilePaused && <span className="jump-to-bottom__dot" aria-hidden="true" />}
-        </button>
-      )}
+      <TurnChangesCard summary={turn} marks={state.snapshots} revert={state.revert} />
     </div>
   )
 }

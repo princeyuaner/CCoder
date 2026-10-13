@@ -125,4 +125,25 @@ sealed interface TranscriptOp {
      * 绝不推它 —— 网页侧的空态判据靠这个区分"真新会话"与"回放真空期"。
      */
     data object Fresh : TranscriptOp
+
+    /**
+     * 文件快照的标记（2026-10-13，「本轮改动」卡）。
+     *
+     * 两条来源、同一个形状：**实时**每抓一份推一条（[SidecarMessage.TurnSnapshot]
+     * 转来）；**恢复会话**时 ready 那一刻把最新一轮的全量推一次
+     *（[SidecarMessage.SnapshotIndexReport]）。网页按 `toolUseId` 把标记贴到
+     * 工具卡行上 —— 「新」（existed=false）与「无存档」（existed=null）都由它来。
+     *
+     * 它**不进时间线**：只进网页侧那份"本轮的标记表"，新一轮开始（一条新 user 项
+     * 落地）时清空重记。
+     */
+    data class Snapshots(val entries: List<SnapshotEntry>) : TranscriptOp
+
+    /**
+     * 一次回滚的逐文件回执（同一件事的结果宣告）。
+     *
+     * 网页据此把行标成「已回滚」、把失败的行标上原因；旁边还会有一条
+     * **系统提示**（那是给人读的句子）—— 两者分工：提示进时间线，这条进卡片。
+     */
+    data class RevertReport(val results: List<RevertResult>) : TranscriptOp
 }

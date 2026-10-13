@@ -22,6 +22,28 @@ export function openFile(path: string, line?: number): void {
 }
 
 /**
+ * 打开「本轮改动前 ↔ 当前」的对比（2026-10-13，「本轮改动」卡）。
+ *
+ * `path` 是**工具卡上那个原样路径**：归一化在侧车做（`normalizeTurnPath`），
+ * 这里一个字节都不动（同 `tools.ts` 顶上那条"两处各归一化一次会有两份真相"）。
+ * 左侧内容由 Kotlin 找侧车要（快照），网页这边不碰文件内容。
+ */
+export function openTurnDiff(path: string): void {
+  window.ccoder?.send?.(JSON.stringify({ op: 'openTurnDiff', path }))
+}
+
+/**
+ * 回滚一批文件。
+ *
+ * **没有回调**：逐文件回执由 Kotlin 推回来（`revertReport` op → 那张卡的行标记），
+ * 失败也在那里逐条说原因 —— 桥这一层只负责把请求送出去。
+ */
+export function revertFiles(paths: string[]): void {
+  if (paths.length === 0) return
+  window.ccoder?.send?.(JSON.stringify({ op: 'revertFiles', paths }))
+}
+
+/**
  * 复制一段文本。
  *
  * **走桥，不走 `navigator.clipboard`**：JCEF 里页面是用 `loadHTML()` 塞进去的，

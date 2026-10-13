@@ -97,11 +97,53 @@ export type TranscriptOp =
   | { op: 'appendDelta'; target: string; text: string }
   | { op: 'finalizeDelta'; target: string; text: string }
   | { op: 'clearDelta'; target: string }
+  /**
+   * 文件快照的标记（2026-10-13，「本轮改动」卡）。见 [TranscriptState.snapshots]。
+   *
+   * 两条来源同一个形状：实时每抓一份一条；恢复会话时 ready 那一刻全量一条。
+   * `existed` 三值：true = 存下了原样、false = **当时不存在**（本轮新建）、
+   * null = 没存下（无存档）。
+   */
+  | { op: 'snapshots'; entries: SnapshotMark[] }
+  /** 一次回滚的逐文件回执。见 [TranscriptState.revert]。 */
+  | { op: 'revertReport'; results: RevertResultWire[] }
+
+/** [TranscriptOp] 里那两种消息的条目形状（与 Kotlin 的 SnapshotEntry / RevertResult 逐字对应）。 */
+export interface SnapshotMark {
+  toolUseId: string
+  path: string
+  existed: boolean | null
+}
+
+export interface RevertResultWire {
+  path: string
+  ok: boolean
+  action: 'restored' | 'deleted' | 'failed'
+  error?: string
+  dirty?: boolean
+}
 
 export interface TranscriptState {
   items: TranscriptItem[]
   /** 进行中的流式气泡，按 target 分。当前只有 'assistant'。 */
   live: Record<string, string>
+  /**
+   * 本轮的快照标记，**按 toolUseId**（2026-10-13）。值即 `existed` 三态，
+   * 缺省（键不在）= 还没有标记。
+   *
+   * 为什么按 toolUseId 而不是路径：hook 报的路径与工具卡里的路径**不保证
+   * 逐字节一致**（CLI 可能换了写法），拿字符串配会一边有一边没有；
+   * toolUseId 是同一次调用的身份证，两侧拿的是同一个。
+   *
+   * 清空时机：Reset，以及**一条新的 user 项落地**（= 新一轮开始）——
+   * 标记只对最新一轮有意义（卡片也只活最新一轮）。
+   */
+  snapshots?: Record<string, boolean | null>
+  /**
+   * 最近一次回滚的逐文件回执，按**路径**（同一个 toolUseId 表是另一回事：
+   * 回执来自侧车、打的是路径）。清空时机同 [snapshots]。
+   */
+  revert?: Record<string, RevertResultWire>
   /**
    * 「这是一条新会话，还没有任何内容」—— 由 Kotlin 在会话就绪时推来（`fresh` op），
    * 随 Reset 清掉。

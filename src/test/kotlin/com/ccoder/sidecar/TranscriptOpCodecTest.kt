@@ -63,11 +63,69 @@ class TranscriptOpCodecTest {
         val subText = itemAt(17)
         assertEquals("toolu_task", subText.get("parent").asString)
 
-        assertEquals(19, kinds.size)
+        assertEquals(21, kinds.size)
         // 末尾是 fresh 标记（2026-10-10 补）：新会话就绪，网页侧据此显示空态引导卡。
         // 它放在**最后一条**而不是 reset 后面：上面全是按下标钉住的断言，
         // 插在中间会把它们全部挪位，而挪位后的断言照样"绿"（只是钉错了东西）
         assertEquals("fresh", kinds[18])
+
+        // 再往后两条是「本轮改动」（2026-10-13 补）：快照标记与回滚回执。
+        // 同样挂在**末尾**（同 fresh 那条理由）。两种形状都要在夹具里 ——
+        // 网页侧的字段名一旦漂移，它那条"能解析 fixture"的用例当场变红
+        assertEquals("snapshots", kinds[19])
+        assertEquals("revertReport", kinds[20])
+        val snapEntry = array[19].asJsonObject.getAsJsonArray("entries")[0].asJsonObject
+        assertEquals("toolu_1", snapEntry.get("toolUseId").asString)
+        assertEquals(true, snapEntry.get("existed").asBoolean)
+        val revResult = array[20].asJsonObject.getAsJsonArray("results")[2].asJsonObject
+        assertEquals("no-snapshot", revResult.get("error").asString)
+        assertEquals("failed", revResult.get("action").asString)
+    }
+
+    @Test
+    fun `snapshots 编码 entries，三种 existed 都能出去`() {
+        val ops = listOf(
+            TranscriptOp.Snapshots(
+                listOf(
+                    SnapshotEntry("toolu_1", "/a.txt", true),
+                    SnapshotEntry("toolu_2", "/new.txt", false),
+                    SnapshotEntry("toolu_3", "/big.bin", null),
+                    SnapshotEntry(null, "/no-id.txt", true),
+                )
+            )
+        )
+        val obj = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops)).asJsonArray[0].asJsonObject
+        assertEquals("snapshots", obj.get("op").asString)
+        val entries = obj.getAsJsonArray("entries")
+        assertEquals(4, entries.size())
+        assertEquals(true, entries[0].asJsonObject.get("existed").asBoolean)
+        assertEquals(false, entries[1].asJsonObject.get("existed").asBoolean)
+        // null = 无存档：**显式写成 JSON null**（不是省掉键）—— 收端靠它区分
+        // "没存下"与"字段坏了"，两者的兜底不一样
+        assertTrue(entries[2].asJsonObject.get("existed").isJsonNull)
+        assertTrue(entries[3].asJsonObject.get("toolUseId").isJsonNull)
+    }
+
+    @Test
+    fun `revertReport 编码逐文件回执，可空字段省略`() {
+        val ops = listOf(
+            TranscriptOp.RevertReport(
+                listOf(
+                    RevertResult("/a.txt", ok = true, action = "restored"),
+                    RevertResult("/new.txt", ok = true, action = "deleted", dirty = true),
+                    RevertResult("/b.kt", ok = false, action = "failed", error = "no-snapshot"),
+                )
+            )
+        )
+        val obj = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops)).asJsonArray[0].asJsonObject
+        assertEquals("revertReport", obj.get("op").asString)
+        val results = obj.getAsJsonArray("results")
+        assertEquals(3, results.size())
+        assertEquals("restored", results[0].asJsonObject.get("action").asString)
+        assertTrue(!results[0].asJsonObject.has("error"), "null 的可选字段不写（同 result 那几项）")
+        assertTrue(!results[0].asJsonObject.has("dirty"))
+        assertEquals(true, results[1].asJsonObject.get("dirty").asBoolean)
+        assertEquals("no-snapshot", results[2].asJsonObject.get("error").asString)
     }
 
     @Test

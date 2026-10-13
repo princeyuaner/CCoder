@@ -1,4 +1,11 @@
-import type { TranscriptItem, TranscriptOp, TranscriptState, UserItem } from './types'
+import type {
+  RevertResultWire,
+  SnapshotMark,
+  TranscriptItem,
+  TranscriptOp,
+  TranscriptState,
+  UserItem,
+} from './types'
 
 const KNOWN_KINDS = new Set([
   'user', 'assistant', 'thinking', 'toolUse', 'toolResult',
@@ -45,9 +52,64 @@ export function parseOps(raw: unknown): TranscriptOp[] {
         if (typeof op.target === 'string') out.push({ op: 'clearDelta', target: op.target })
         break
 
+      // 「本轮改动」卡的两条（2026-10-13）。**空条目批次整条丢** ——
+      // 应用一条什么都不改变的操作只会白白造一次重渲染
+      case 'snapshots': {
+        const entries = parseSnapshotMarks(op.entries)
+        if (entries.length > 0) out.push({ op: 'snapshots', entries })
+        break
+      }
+
+      case 'revertReport': {
+        const results = parseRevertResults(op.results)
+        if (results.length > 0) out.push({ op: 'revertReport', results })
+        break
+      }
+
       default:
         break // 未知 op，丢弃
     }
+  }
+  return out
+}
+
+/**
+ * 快照标记的逐条解析。
+ *
+ * 没有 `toolUseId` 的标记**丢掉那一条**：它在网页侧没有落点（标记是按
+ * toolUseId 贴到工具卡行上的），留着只会在别处变成一次判空。
+ * `existed` 认不出当 `null`（= 无存档）—— 宁可少说一句，不把"不知道"说成"存下了"。
+ */
+function parseSnapshotMarks(raw: unknown): SnapshotMark[] {
+  if (!Array.isArray(raw)) return []
+  const out: SnapshotMark[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const e = entry as Record<string, unknown>
+    if (typeof e.toolUseId !== 'string' || e.toolUseId === '') continue
+    if (typeof e.path !== 'string' || e.path === '') continue
+    out.push({
+      toolUseId: e.toolUseId,
+      path: e.path,
+      existed: typeof e.existed === 'boolean' ? e.existed : null,
+    })
+  }
+  return out
+}
+
+/** 回滚回执的逐条解析。`action` 认不出当 `failed` —— 比把没成的说成成了安全。 */
+function parseRevertResults(raw: unknown): RevertResultWire[] {
+  if (!Array.isArray(raw)) return []
+  const out: RevertResultWire[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const e = entry as Record<string, unknown>
+    if (typeof e.path !== 'string' || e.path === '') continue
+    const action = e.action === 'restored' || e.action === 'deleted' ? e.action : 'failed'
+    const result: RevertResultWire = { path: e.path, ok: e.ok === true, action }
+    if (typeof e.error === 'string' && e.error !== '') result.error = e.error
+    if (typeof e.dirty === 'boolean') result.dirty = e.dirty
+    out.push(result)
   }
   return out
 }
@@ -161,6 +223,11 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
   let live = state.live
   let itemsCloned = false
   let liveCloned = false
+  // 「本轮改动」卡的两张表（2026-10-13）：快照标记（按 toolUseId）与回滚回执
+  //（按路径）。缺省 undefined = 这张表还不存在 —— 返回时也**不给空表**，
+  // 免得所有别处构造状态、逐字段比对的用例凭空多两个键（同 fresh 那条）
+  let snapshots = state.snapshots
+  let revert = state.revert
   // 「新会话」标记。读取口径与写入一致：只认 `true`（缺省/坏值 = 不是新会话）。
   // 它是**锁存**的：置起后一直留到下一次 Reset —— 内容一到，界面那一侧靠
   // "有没有内容项"把它盖住（见 Transcript.tsx 的空态判据），这里不逐条清。
@@ -230,6 +297,10 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
         live = {}
         itemsCloned = true
         liveCloned = true
+        // 切会话/回放：标记表与回执表也清掉 —— 它们是**这一轮**的东西，
+        // 跟着上一条会话留到新会话里就是张冠李戴
+        snapshots = undefined
+        revert = undefined
         // 下一次 `fresh` 到来之前都不是新会话。切换会话/回放走的就是这条 ——
         // 标记必须随 Reset 清掉，否则回放的真空期会把引导卡闪出来
         fresh = false
@@ -283,6 +354,14 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
         if (arrived.kind === 'thinking' && live['thinking'] !== undefined) {
           delete mutateLive()['thinking']
         }
+
+        // 一条新的 user 项落地 = **新一轮开始**：那两张表只对最新一轮有意义。
+        // 回滚回执是按**路径**记的，不清的话"上一轮回滚过 src/a.ts"会让这一轮
+        // 改到同一个文件时那张行凭空带上「已回滚」
+        if (arrived.kind === 'user') {
+          snapshots = undefined
+          revert = undefined
+        }
         break
       }
 
@@ -314,10 +393,29 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
       case 'clearDelta':
         delete mutateLive()[op.target]
         break
+
+      case 'snapshots': {
+        const next = snapshots ? { ...snapshots } : {}
+        for (const entry of op.entries) next[entry.toolUseId] = entry.existed
+        snapshots = next
+        break
+      }
+
+      case 'revertReport': {
+        const next = revert ? { ...revert } : {}
+        for (const result of op.results) next[result.path] = result
+        revert = next
+        break
+      }
     }
   }
 
   // `fresh` 只在置起时写进新对象：它缺省即"不是新会话"，而带上 `fresh: false`
-  // 会让所有别处构造状态、逐字段比对的用例凭空多出一个键。
-  return fresh ? { items, live, fresh } : { items, live }
+  // 会让所有别处构造状态、逐字段比对的用例凭空多出一个键。两张标记表同理 ——
+  // 有才带上，没有就不给空表。
+  const out: TranscriptState = { items, live }
+  if (fresh) out.fresh = true
+  if (snapshots !== undefined) out.snapshots = snapshots
+  if (revert !== undefined) out.revert = revert
+  return out
 }

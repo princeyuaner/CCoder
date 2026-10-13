@@ -212,6 +212,18 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
         var effort: String = EffortSetting.DEFAULT.name,
 
         /**
+         * 「本轮改动」的文件快照（2026-10-13）。
+         *
+         * 开 = 每次编辑落地前侧车把文件原样存一份（`~/.ccoder/turn-snapshots`），
+         * 卡片才能给出「改动前 ↔ 当前」的对比与逐文件回滚。关掉 = 侧车不注册
+         * 任何 hook，行为与从前一字不差（代价写在那条设置项的说明里）。
+         *
+         * **默认开**（用户已定）：不开的话卡片装上去就是残的 —— 能看清单、
+         * 点不动对比与回滚。
+         */
+        var turnSnapshots: Boolean = true,
+
+        /**
          * 这个**项目**最近用的模型：哪条配置（[lastProfileId]）+ 它里面的哪个模型
          * （[lastModelId]）。
          *
@@ -264,6 +276,10 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
     var sendShortcut: SendShortcut
         get() = SendShortcut.fromName(myState.sendShortcut)
         set(value) { myState.sendShortcut = value.name }
+
+    var turnSnapshots: Boolean
+        get() = myState.turnSnapshots
+        set(value) { myState.turnSnapshots = value }
 
     var effort: EffortSetting
         get() = EffortSetting.entries.firstOrNull { it.name == myState.effort }
@@ -410,6 +426,7 @@ class ClaudeSettings : PersistentStateComponent<ClaudeSettings.State> {
                 envOverrides.filterValues { it.isNotBlank() } + tools,
                 env,
             ),
+            snapshots = turnSnapshots,
         )
     }
 
