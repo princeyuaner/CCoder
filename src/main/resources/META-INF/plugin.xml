@@ -161,35 +161,38 @@
     ]]></description>
 
     <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-13 开版（0.2.40）：复核结果是 **0.2.36 仍是最近一个已上架版**
+         2026-10-13 开版（0.2.41）：复核结果是 **0.2.36 仍是最近一个已上架版**
          （`updates?version=0.2.36`：id 1192692，`approve`/`listed` 都是 true）——
-         基线就是它；**0.2.37 / 0.2.38 / 0.2.39 都没上传**（三者
+         基线就是它；**0.2.37 / 0.2.38 / 0.2.39 / 0.2.40 都没上传**（四者
          `updates?version=…` 均为空数组：0.2.37 只开版本、0.2.38 只发了 GitHub
-         release、0.2.39 打完包直接开的 0.2.40）。
-         写本版 change-notes 之前**先复核 0.2.39 传没传** —— 没传过的话，本版就把
+         release、0.2.39 打完包直接开的 0.2.40、0.2.40 按指示不推市场直接开的 0.2.41）。
+         写本版 change-notes 之前**先复核 0.2.40 传没传** —— 没传过的话，本版就把
          0.2.37 起的整批一起端出去，按相对 **0.2.36** 的增量写：上一份**合并**清单
          在 tag `v0.2.38` → f887c3a 的 plugin.xml 里（三条），0.2.39 那批（分隔条
-         握把，另见 3384fe4）与 0.2.40 之后的新条目**接着并**（合并写法见发布
+         握把，另见 3384fe4）、0.2.40 那批（模型弹层改两栏 f220dc9、「本轮改动」卡
+         展开限高 945db25）与 0.2.41 之后的新条目**接着并**（合并写法见发布
          设计稿 §八，0.2.26→0.2.27 用过）。复核法见发布设计稿 §五。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.40</h3>
+    <h3>0.2.41</h3>
     <ul>
       <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version. Check first whether 0.2.39 was ever uploaded (see the comment above;
-          as of 2026-10-13 it was packaged locally only) &mdash; if it was not, this note
-          must also cover everything 0.2.38 and 0.2.39 would have contained. The last
-          merged list lives in git (tag v0.2.38 &rarr; f887c3a, plus the 0.2.39 additions
-          in 3384fe4); do not copy it blindly.</li>
+          version. Check first whether 0.2.40 was ever uploaded (see the comment above;
+          as of 2026-10-13 it had not been pushed to the marketplace) &mdash; if it was
+          not, this note must also cover everything 0.2.38&ndash;0.2.40 would have
+          contained. The last merged list lives in git (tag v0.2.38 &rarr; f887c3a, plus
+          the 0.2.39 additions in 3384fe4 and the 0.2.40 additions in f220dc9 / 945db25);
+          do not copy it blindly.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.39
-          传没传（上面那条注释；2026-10-13 开版时只打了本地包）—— 没传过就得把 0.2.38 +
-          0.2.39 那批一起写上（按相对 0.2.36 的增量）。上一份合并清单在 git 里
-          （tag v0.2.38 &rarr; f887c3a，0.2.39 的增量见 3384fe4），别照抄。</li>
+      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.40
+          传没传（上面那条注释；2026-10-13 开版时未推市场）—— 没传过就得把 0.2.38 +
+          0.2.39 + 0.2.40 那批一起写上（按相对 0.2.36 的增量）。上一份合并清单在 git 里
+          （tag v0.2.38 &rarr; f887c3a，0.2.39 的增量见 3384fe4，0.2.40 的见 f220dc9 /
+          945db25），别照抄。</li>
     </ul>
     ]]></change-notes>
 
