@@ -2044,12 +2044,18 @@ class ClaudePanel(
         /**
          * 横向贴不贴锚点。
          *
-         * false（默认）= 贴面板左边缘，底部那排长列表用（会话标签是右对齐的，
-         * 跟着锚点会整块溢出）；true = 贴锚点，唯一用户是状态卡那三个详情浮层 ——
-         * 五张卡横排，浮层跑到面板最左就跟"这是哪张卡的"断了联系（见 [popupCardX]）。
+         * true = 贴锚点的左边缘，再钳进面板（见 [popupCardX]）。今天有两拨用户：
+         *   **状态卡那三个详情浮层** —— 五张卡横排，浮层跑到面板最左就跟"这是
+         *   哪张卡的"断了联系（2026-09-15 晚）；**底部那三个切换弹层**（模型 /
+         *   权限 / 思考）—— 三个标签从左往右排开，贴面板左边缘时点哪个都从最左
+         *   边弹，跟"我点的是哪个"对不上（2026-10-12，用户报"底下这几个弹框
+         *   怎么全部靠左了"）。
+         *
+         * false（默认）= 贴面板左边缘（[popupLeftX]）。今天只剩会话列表用它 ——
+         *   它的锚点（上排的会话胶囊）本来就贴着面板左沿。
          *
          * **必须排在 `onClosed` 前面**：尾随 lambda 会静默绑到最后一个参数上，
-         * 放在后面的话下面四个调用点的 `{ ... }` 会变成往 Boolean 上传函数 ——
+         * 放在后面的话下面那几个调用点的 `{ ... }` 会变成往 Boolean 上传函数 ——
          * 这个坑 StatusCardsRow 的注释里记过一次，这里不再踩。
          */
         underAnchor: Boolean = false,
@@ -2093,7 +2099,7 @@ class ClaudePanel(
         )
 
         // 横向两条路，见 showTogglePopup 的 underAnchor 与 [popupCardX] 里那段：
-        // 状态卡的详情跟自己的卡走，底部那排长列表贴面板左边缘
+        // 状态卡详情与底部那三个标签弹层跟自己的锚点走，只有会话列表贴面板左边缘
         val x = if (underAnchor) {
             popupCardX(
                 anchorLeft = at.x,
@@ -2126,6 +2132,7 @@ class ClaudePanel(
         modePopup = showTogglePopup(
             anchor = modeLabel,
             content = buildModeList(currentMode) { pickPermissionMode(it) },
+            underAnchor = true,
         ) {
             modePopup = null
         }
@@ -2216,7 +2223,7 @@ class ClaudePanel(
                 modelPopup = null
                 openModelSettings()
             },
-        )) { modelPopup = null }
+        ), underAnchor = true) { modelPopup = null }
     }
 
     /**
@@ -2248,6 +2255,7 @@ class ClaudePanel(
         effortPopup = showTogglePopup(
             anchor = effortLabel,
             content = buildEffortList(currentEffort) { pickEffort(it) },
+            underAnchor = true,
         ) {
             effortPopup = null
         }
