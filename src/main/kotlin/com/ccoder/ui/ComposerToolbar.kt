@@ -128,6 +128,10 @@ internal class RoundSendButton : JComponent() {
  * 控件工具栏：最左是附件按钮，接着是状态区（模型、权限模式、思考深度），右边发送键。
  *
  * 左侧刻意留宽 —— 以后要加的模型切换等控件都往这儿添，不必再动结构。
+ *
+ * [schedule]（2026-10-13，定时发送）是**唯一贴右加的**：它和发送键是一对
+ * "这条消息怎么办"的动作（现在发 / 晚点发），并在一起站；而模型那三个是
+ * 状态显示，加进去会把"状态"和"动作"两撮搅在一块。缺省 null = 老布局一字不动。
  */
 internal fun buildComposerToolbar(
     attach: JComponent,
@@ -135,13 +139,26 @@ internal fun buildComposerToolbar(
     mode: JComponent,
     effort: JComponent,
     send: JComponent,
+    schedule: JComponent? = null,
 ): JPanel =
     JPanel(BorderLayout()).apply {
         // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
         isOpaque = false
         border = JBUI.Borders.emptyTop(2)
         add(buildToolbarLeft(attach, model, mode, effort), BorderLayout.WEST)
-        add(send, BorderLayout.EAST)
+        add(buildToolbarRight(send, schedule), BorderLayout.EAST)
+    }
+
+/** 右侧那一撮：定时键在左、发送键在右，间距与左侧的按钮/标签同一档。 */
+private fun buildToolbarRight(send: JComponent, schedule: JComponent?): JPanel =
+    JPanel().apply {
+        layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
+        isOpaque = false
+        if (schedule != null) {
+            add(schedule)
+            add(javax.swing.Box.createHorizontalStrut(JBUI.scale(6)))
+        }
+        add(send)
     }
 
 /**

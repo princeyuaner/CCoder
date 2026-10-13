@@ -153,6 +153,61 @@ body {
   justify-content: flex-end;
 }
 
+/* ---- 定时待发（ScheduledBubble.tsx，2026-10-13）----
+ *
+ * 虚线 + 淡色 = 「还没发出去」；与用户气泡同一个站位（右对齐），
+ * 到点由 Kotlin 换成一条实心的 user 气泡 —— 看起来就是它自己落了地。
+ * 边框底色都从 --accent 调出来（与用户气泡同族），换主题跟着走。
+ */
+.row--scheduled {
+  justify-content: flex-end;
+}
+
+.bubble--scheduled {
+  background: color-mix(in srgb, var(--accent, #2f65ca) 7%, var(--bg, #1e1f22));
+  border: 1px dashed color-mix(in srgb, var(--accent, #2f65ca) 60%, var(--bg, #1e1f22));
+  color: var(--text, #dcdcdc);
+}
+
+.bubble__sched-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: calc(11px * var(--fs-scale, 1));
+  color: var(--text-dim, #9aa0a6);
+}
+
+.bubble__sched-clock {
+  flex: 0 0 auto;
+}
+
+/* ✕ 推到行尾：它是这条气泡的撤回键，位置与排队条上那颗一致（都靠右） */
+.bubble__sched-x {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  padding: 0 0 0 8px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.bubble__sched-x:hover {
+  color: var(--text, #dcdcdc);
+}
+
+/* 「图 N」：圆角小记号，比正文淡一档（同排队条 imageChip 的分量） */
+.bubble__sched-chip {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: calc(11px * var(--fs-scale, 1));
+  color: var(--text-dim, #9aa0a6);
+  border: 1px solid var(--border, #3c3f41);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 16px;
+}
+
 .row--assistant {
   justify-content: flex-start;
 }

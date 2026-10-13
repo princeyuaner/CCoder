@@ -139,6 +139,18 @@ const en = {
   'turn.errNoSnapshot': 'no snapshot',
   'turn.errBusy': 'session was busy',
   'turn.errOther': 'failed: {0}',
+
+  // ---- 定时待发气泡（ScheduledBubble.tsx，2026-10-13）----
+  /**
+   * 跟在那行时间后面读：「今天 18:00 待发」。时间那半句（label）是 Kotlin
+   * 拼好的成品、原样渲染 —— 这里只出"待发"这个词（同 systemNote 的口径）
+   */
+  'scheduled.pending': 'Pending',
+  /** ✕ 的无障碍名/悬停提示 */
+  'scheduled.cancel': 'Cancel this scheduled send',
+  /** 带图的那条跟一个"图 N"记号（同排队条：图跟着消息走了，屏幕上只留记号） */
+  'scheduled.imageOne': '1 image',
+  'scheduled.images': '{0} images',
 }
 
 /** 目录的键 —— 从基底目录长出来，别的目录缺一个键就编译不过。 */
@@ -219,6 +231,11 @@ const zh: Record<Key, string> = {
   'turn.errNoSnapshot': '没有存档',
   'turn.errBusy': '当时会话正忙',
   'turn.errOther': '失败：{0}',
+
+  'scheduled.pending': '待发',
+  'scheduled.cancel': '撤回这条定时发送',
+  'scheduled.imageOne': '图 1',
+  'scheduled.images': '图 {0}',
 }
 
 /**

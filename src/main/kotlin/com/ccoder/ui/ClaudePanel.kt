@@ -18,6 +18,7 @@ import com.ccoder.sidecar.SidecarNotFoundException
 import com.ccoder.sidecar.SnapshotEntry
 import com.ccoder.sidecar.SubagentInfo
 import com.ccoder.sidecar.SidecarProcess
+import com.ccoder.sidecar.ScheduledEntry
 import com.ccoder.sidecar.TranscriptItem
 import com.ccoder.sidecar.TranscriptOp
 import com.ccoder.sidecar.UsageDay
@@ -80,6 +81,7 @@ import java.awt.event.KeyEvent
 import java.io.File
 import java.nio.file.Path
 import java.time.LocalDate
+import java.time.ZonedDateTime
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -144,6 +146,9 @@ class ClaudePanel(
             override fun openTurnDiff(req: TurnDiffRequest) = this@ClaudePanel.openTurnDiff(req)
             override fun revertFiles(paths: List<String>) = this@ClaudePanel.revertFiles(paths)
         }
+        // 定时气泡那颗 ✕ 的去处（2026-10-13，定时发送）。同一个理由走匿名实现：
+        // ClaudePanel 是 public 类，ScheduleHost 是 internal 的
+        scheduleHost = ScheduleHost { id -> cancelScheduled(id) }
     }
 
     /**
@@ -333,6 +338,12 @@ class ClaudePanel(
 
     /** 发送与停止合一，显示什么由 [mainButtonState] 决定。 */
     private val sendButton = RoundSendButton().apply { onClick = { onMainButtonClick() } }
+
+    /**
+     * 定时键（2026-10-13，发送键左边那颗）。有没有东西可定时由
+     * [refreshScheduleButton] 判 —— 输入框空着（也没贴图）时它不可点。
+     */
+    private val scheduleButton = ScheduleButton { toggleSchedulePicker() }
 
     /**
      * 当前模型配置。可点，点开切换。
@@ -842,6 +853,18 @@ class ClaudePanel(
     /** 排队条本体。存成字段而不是现场 new —— 刷新时要直接够得着它。 */
     private val queueStrip = QueueStrip { removeQueued(it) }
 
+    /** 定时待发那张表（2026-10-13）。与排队条同寿命 —— 清空时机见 [clearScheduled]。 */
+    private val scheduled = ScheduledSends()
+
+    /** 选时弹层。存着引用是为了"再点一次收起来"与"选中即收"。 */
+    private var schedulePopup: JBPopup? = null
+
+    /** 到点触发器。**一次性**的：每一跳由 [refreshScheduleTimer] 照表里最早那条重排。 */
+    private var scheduleTimer: javax.swing.Timer? = null
+
+    /** 待发条目的编号（只求会话内唯一，不碰协议那个 [nextId]）。 */
+    private var schedSeq = 0
+
     init {
         // 标签数变化 → 「＋」的可用性重算（多标签之后它只在到上限时置灰）
         SessionTabs.getInstance(project).addTabsListener(tabsListener)
@@ -857,6 +880,8 @@ class ClaudePanel(
                 refreshCompletion()
                 // 记号（⟦…⟧）的底色跟着文本重刷 —— 它会被粘贴、被删、被拆开
                 applyRefHighlights(input)
+                // 定时键的亮/灰跟着"还有没有东西可定时"走（同上一个理由：粘、删、退格都要算）
+                refreshScheduleButton()
             }
         })
         // 光标挪走（点了一下别处）时弹层要跟着收，否则它会停在一个
@@ -982,8 +1007,9 @@ class ClaudePanel(
         refreshModeLabel()
         refreshModelLabel()
         refreshEffortLabel()
+        refreshScheduleButton()
         val composerToolbar =
-            buildComposerToolbar(attachButton, modelLabel, modeLabel, effortLabel, sendButton)
+            buildComposerToolbar(attachButton, modelLabel, modeLabel, effortLabel, sendButton, scheduleButton)
 
         // 五张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
@@ -991,7 +1017,11 @@ class ClaudePanel(
         val inputArea = buildComposerCard(inputScroll, composerToolbar, attachments)
         // 附件带展开/收起会改卡片高度 —— 得让布局重算，不然第一张图会压在
         // 输入框上画出来（附件带占的高度是凭空长出来的那一截）
-        attachments.onChanged = { inputArea.revalidate() }
+        attachments.onChanged = {
+            inputArea.revalidate()
+            // 纯图消息也能定时（同发送）—— 图进出的那一刻定时键的判词跟着变
+            refreshScheduleButton()
+        }
         // 点缩略图放大看（只在这个框里看，不落临时文件、也不在编辑器里开 ——
         // 见 ImagePreviewDialog 的说明）。框是模态的，开着的时候输入区冻着，
         // 所以不存在"看着看着图被发出去"
@@ -2200,12 +2230,20 @@ class ClaudePanel(
          * 这个坑 StatusCardsRow 的注释里记过一次，这里不再踩。
          */
         underAnchor: Boolean = false,
+        /**
+         * 收不收键盘焦点。缺省不收 —— 那三个切换弹层只是"看一眼再点一下"，
+         * 抢走输入框的焦点等于把用户正在敲的字打断。
+         *
+         * 唯一要收的是**选时弹层**（2026-10-13）：它下半张卡里有一个 `HH:MM`
+         * 输入框，得能打字、回车确认。收了焦点之后 Esc 由平台弹层自己处理（照收）。
+         */
+        focusable: Boolean = false,
         onClosed: () -> Unit,
     ): JBPopup {
         val popup = JBPopupFactory.getInstance()
             .createComponentPopupBuilder(content, null)
-            .setRequestFocus(false)
-            .setFocusable(false)
+            .setRequestFocus(focusable)
+            .setFocusable(focusable)
             .setResizable(false)
             .setMovable(false)
             .setCancelOnClickOutside(true)
@@ -3105,6 +3143,9 @@ class ClaudePanel(
         refreshChips()
         refreshSessionLabel()
         refreshQueueStrip()
+        // 待发气泡的标签（"今天 18:00"）是 Kotlin 拼的成品 —— 换语言要重推一遍，
+        // 不然转写区里那几枚气泡会静默留着旧语言（同"键记在控件上"那条规矩）
+        if (!scheduled.isEmpty) pushScheduledState()
         transcriptView.setLocale()
         client?.sendLine(Protocol.encodeSetUiLang(nextId(), CcoderText.tag()))
         // 英文比中文长：宽度都是在各自的首选尺寸里定下来的，不 revalidate 会留一帧
@@ -3676,6 +3717,8 @@ class ClaudePanel(
         // 这一次不走 stopSession（那边会碰 client / proc，而它们已经死了），
         // 所以在这里单独清一次
         clearQueue()
+        // 定时那批同理（2026-10-13）：会话死透了，留着它们到点也发不出去
+        clearScheduled()
 
         val detail = sidecarExitReport(exit)
 
@@ -3751,8 +3794,10 @@ class ClaudePanel(
         proc = null
         client = null
         // 排队的是**上一个会话**的指令。会话都没了，把它们发出去是灾难 ——
-        // 这条路径覆盖了重启 / 新建 / 切会话 / dispose 全部四个入口
+        // 这条路径覆盖了重启 / 新建 / 切会话 / dispose 全部四个入口。
+        // 定时的那批（2026-10-13）是同一条规矩：定给上一个会话的，不往新会话里灌
         clearQueue()
+        clearScheduled()
         ready = false
         // 占用的生命周期就是"本标签有一个活着的 sidecar 在跑这条会话" ——
         // 会话停了，登记也该放掉（它覆盖新建/重启/切会话/dispose 全部入口）
@@ -4793,8 +4838,7 @@ class ClaudePanel(
 
     private fun sendCurrentInput() {
         // 纯图消息也能发（截一张图直接甩过来是常见用法），两样都没有才是空
-        val images = attachments.images
-        if (input.text.isBlank() && images.isEmpty()) return
+        if (!hasComposerContent()) return
 
         // 「MCP 还没连完」那一发先问一句（2026-10-13，D）。**闸必须提在这里** ——
         // 下面几行一过，输入框与附件就都清空了，那时再拦就得反向还原。
@@ -4808,13 +4852,34 @@ class ClaudePanel(
             return
         }
 
+        val payload = takeComposerPayload() ?: return
+        submit(payload.text, payload.typed, payload.images)
+    }
+
+    /** 有没有东西可发/可定时：一句话，或者至少一张图（纯图消息两边都认）。 */
+    private fun hasComposerContent(): Boolean =
+        input.text.isNotBlank() || attachments.images.isNotEmpty()
+
+    /**
+     * 把输入框与附件带**取成一条载荷并清空**（2026-10-13）。两条去向共用：
+     * 立即发送（[sendCurrentInput]）与定时发送（[scheduleFromComposer]）。
+     *
+     * 取与清必须挨在一起：图是"跟着这条消息走"的（见 [QueuedInput.images]），
+     * 中间不许有第二条路把输入框读空。空输入给 null，**一个字段都不动**。
+     */
+    private fun takeComposerPayload(): QueuedInput? {
+        if (!hasComposerContent()) return null
+
         // 用户敲进去的原样。标题取的是**它**，不是下面展开后的文本 ——
         // 展开会把记号变成一大段代码，拿它当标题就成了「```kotlin …」
         val typed = input.text.trim()
 
         // ↑/↓ 的历史记的是**用户敲的那份**：展开后的全文（可能几百行代码）塞回
         // 输入框就没法用了。代价是带片段记号的那句再发一次时，记号只是一行字面
-        // 文本（见 InputHistory 顶上那条说明）
+        // 文本（见 InputHistory 顶上那条说明）。
+        //
+        // 定时那条也记：定下去之后输入框就空了，撤回也只管取消 ——
+        // ↑ 是撤错之后唯一的回头路
         inputHistory.remember(typed)
 
         // 记号在这一刻展开：输入框里只是「一行记号」，发出去的是路径 + 围栏 + 代码全文。
@@ -4825,9 +4890,12 @@ class ClaudePanel(
         input.text = ""
         snippetRefs.clear()
         // 图也是同一时刻搬走：取在上面、清在这里，中间不许有第二条路把输入框读空
+        val images = attachments.images
         attachments.clear()
+        // 输入框空了 → 定时键回灰（同步清一下；图的进出另有 attachments.onChanged 那条）
+        refreshScheduleButton()
 
-        submit(text, typed, images)
+        return QueuedInput(text, typed, images)
     }
 
     /**
@@ -4847,6 +4915,10 @@ class ClaudePanel(
      *
      * 抽出来只为一件事：让"按钮点的"和"手敲的"在**所有分岔上**行为一致 ——
      * 包括那些今天还没被走到、将来会被改的分岔。
+     *
+     * **不经过「MCP 还没连完」那道闸**：闸长在 [sendCurrentInput] 的头上（给人
+     * 当场确认用）。定时到点那条也走到这里（[fireOneScheduled]）—— 那时没人可问，
+     * 不拦正是对的。
      */
     private fun submit(text: String, typed: String, images: List<AttachedImage>) {
         // 忙时入队（spec §5.2）—— 不回退成"什么都不做"：用户敲的这句话本来就该
@@ -4989,6 +5061,139 @@ class ClaudePanel(
         // 可见性跟着模型走，由 QueueStrip 自己收边（见那里的说明）
         queueStrip.setModel(queueStripModel(queue))
         refreshMainButton()
+    }
+
+    // ---- 定时发送（2026-10-13，选型台丙案：消息进转写区当"待发"气泡）----
+    //
+    // 这里只做接线：时间的三条纯函数与弹层在 ComposerSchedule.kt，表在
+    // ScheduledSends.kt，气泡画在网页侧（`ScheduledBubble.tsx`，经 Scheduled op）。
+
+    /** 定时键的判词：有东西可定时才亮（纯图消息也算，同发送）。 */
+    private fun refreshScheduleButton() {
+        scheduleButton.isEnabled = hasComposerContent()
+    }
+
+    /** 点定时键：开着就收，收着就开。弹层锚在键上、**向上**弹（输入框在窗口底部）。 */
+    private fun toggleSchedulePicker() {
+        schedulePopup?.let { open ->
+            open.cancel()
+            return
+        }
+        if (!hasComposerContent()) return
+        val content = buildSchedulePicker(ZonedDateTime.now()) { fireAt -> onScheduleTimePicked(fireAt) }
+        schedulePopup = showTogglePopup(scheduleButton, content, underAnchor = true, focusable = true) {
+            schedulePopup = null
+        }
+    }
+
+    /** 弹层里选中一个时刻（点快捷行 / 指定时刻回车）—— 收弹层、定下去、焦点还给输入框。 */
+    private fun onScheduleTimePicked(fireAt: Long) {
+        schedulePopup?.cancel()
+        scheduleFromComposer(fireAt)
+        input.requestFocusInWindow()
+    }
+
+    /**
+     * 把输入框里的东西定到 [fireAt]（epoch millis）。
+     *
+     * 载荷在这一刻**取死**（同入队那条：snippet 记号现在展开，到点拿得到的
+     * 是展开后的正文）；取完输入框立刻清空 —— 消息交给"待发"那条道，
+     * 框空出来写下一件。
+     */
+    private fun scheduleFromComposer(fireAt: Long) {
+        val payload = takeComposerPayload() ?: return
+        scheduled.add(ScheduledSend(id = "sched-${schedSeq++}", fireAt = fireAt, payload = payload))
+        pushScheduledState()
+        refreshScheduleTimer()
+    }
+
+    /** 撤回一条（气泡上的 ✕，经 ClaudeTranscriptView.scheduleHost 转来）。 */
+    private fun cancelScheduled(id: String) {
+        if (!scheduled.removeById(id)) return
+        pushScheduledState()
+        refreshScheduleTimer()
+    }
+
+    /**
+     * 清空定时。挂在 [clearQueue] 那两个出口旁边（会话停止 / 断线）—— 与排队
+     * 同一条理由：那张表是**上一个会话**的指令，会话没了还把它灌进新会话是灾难。
+     *
+     * 清完把网页侧推空：幽灵气泡跟着收掉（这是用户能看到的唯一信号）。
+     */
+    private fun clearScheduled() {
+        if (scheduled.drain().isEmpty()) return
+        scheduleTimer?.stop()
+        scheduleTimer = null
+        pushScheduledState()
+    }
+
+    /** 把待发那张表推给网页（**全量**；空表 = 清空）。标签按当前语言现拼。 */
+    private fun pushScheduledState() {
+        val now = ZonedDateTime.now()
+        pushOp(
+            TranscriptOp.Scheduled(
+                scheduled.snapshot().map { item ->
+                    ScheduledEntry(
+                        id = item.id,
+                        label = scheduleTimeText(item.fireAt, now),
+                        text = item.payload.typed,
+                        imageCount = item.payload.images.size,
+                    )
+                }
+            )
+        )
+    }
+
+    /**
+     * 按表里最早的一条重排定时器。**一次性**的：到点自己再排下一跳
+     * （同 McpSettleWatch 那条"每一跳以上一份读数为准"）。
+     */
+    private fun refreshScheduleTimer() {
+        scheduleTimer?.stop()
+        scheduleTimer = null
+        val next = scheduled.nextFireAt() ?: return
+        // 0 = 立刻烧 —— 系统睡过头醒来时 fireAt 已是过去时，coerce 保证不为负
+        val delay = (next - System.currentTimeMillis()).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        scheduleTimer = javax.swing.Timer(delay) { fireScheduledDue() }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
+    /**
+     * 到点了：把到期那批**先整批摘下来**，再一条条送到 [fireOneScheduled]。
+     *
+     * 先整批摘而不是"发一条摘一条"：发送走 [submit]，它在"未就绪且有残留进程"
+     * 时会 stopSession —— 那条路会顺带 [clearScheduled]。到点的那批**一定要发**
+     * （那是用户定下的），会话的生老病死只该清"还没到点"的那些。
+     */
+    private fun fireScheduledDue() {
+        val due = scheduled.due(System.currentTimeMillis())
+        if (due.isEmpty()) {
+            refreshScheduleTimer()
+            return
+        }
+        due.forEach { scheduled.removeById(it.id) }
+        due.forEachIndexed { index, item ->
+            // 第二条起若会话还没就绪，排进队列而不是再走 submit：submit 的
+            // "未就绪"分岔会 stopSession（清掉上一条刚拉起来的 proc）并把
+            // pendingFirstMessage 覆盖掉 —— 第一条已经去拉会话了，后面的排着就行。
+            // 第一条遇到"用户刚暂存了首条消息"（pendingFirstMessage 非空）也一样：
+            // 覆盖它等于把用户敲的字吞了。
+            if (!ready && (index > 0 || pendingFirstMessage != null)) {
+                queue.enqueue(item.payload.text, item.payload.typed, item.payload.images)
+                refreshQueueStrip()
+            } else {
+                fireOneScheduled(item)
+            }
+        }
+        pushScheduledState()
+        refreshScheduleTimer()
+    }
+
+    /** 一条到点的消息的去处：**到点 = 替你按发送键**，走 [submit] 的全部三条分岔。 */
+    private fun fireOneScheduled(item: ScheduledSend) {
+        submit(item.payload.text, item.payload.typed, item.payload.images)
     }
 
     /**

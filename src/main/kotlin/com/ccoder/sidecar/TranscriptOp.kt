@@ -146,4 +146,21 @@ sealed interface TranscriptOp {
      * **系统提示**（那是给人读的句子）—— 两者分工：提示进时间线，这条进卡片。
      */
     data class RevertReport(val results: List<RevertResult>) : TranscriptOp
+
+    /**
+     * 定时待发的那张表（2026-10-13，定时发送 · 丙案）。**全量替换**：
+     * 加一条 / 撤一条 / 到点发走一条，Kotlin 都把整张表重推一遍。
+     *
+     * 为什么不走"加一条/删一条"的增量：这张表最多几条，全量的报文比
+     * "谁在哪一帧错过哪条增量"的重放逻辑便宜得多 —— 而且撤回来自网页、
+     * 发送来自定时器、清空来自会话生命周期，三个来源各推各的增量迟早对不上。
+     *
+     * **空列表是合法值**：它表示"清空"（撤完了 / 会话换了），网页侧据此把
+     * 幽灵气泡收掉 —— 所以它**不能**像 [Snapshots] 那样把空批整条丢掉
+     * （网页侧那条 `codec.ts` 里的空批规则为它开了口子）。
+     *
+     * 标签（"今天 18:00"）是 **Kotlin 拼好的成品**，同 [TranscriptItem.SystemNote]
+     * 的口径：网页原样渲染；换语言由 Kotlin 重推（ClaudePanel.retranslate）。
+     */
+    data class Scheduled(val entries: List<ScheduledEntry>) : TranscriptOp
 }

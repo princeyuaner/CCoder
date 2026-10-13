@@ -89,8 +89,39 @@ class ComposerToolbarTest {
         assertTrue(west.components.contains(model), "模型在左")
         assertTrue(west.components.contains(mode), "权限模式也在左")
         assertTrue(west.components.contains(effort), "思考深度也在左")
-        assertSame(send, layout.getLayoutComponent(java.awt.BorderLayout.EAST), "发送键在右")
+        // 右侧是"发送键那一组"。加了定时键（2026-10-13）之后右组里有壳，
+        // 但钉的规矩不变：**发送键仍在最右** —— "主操作永远是它"的结构表达
+        val east = layout.getLayoutComponent(java.awt.BorderLayout.EAST) as java.awt.Container
+        assertSame(send, east.components.last(), "发送键在最右")
+        // 不传定时键时右组只有它一个，与从前一字不差
+        assertEquals(1, east.componentCount, "缺省右组只有发送键")
         // 不透明会把卡片的底色盖住，工具栏就成了卡片里嵌的另一块
         assertFalse(bar.isOpaque, "工具栏不该自己填底")
+    }
+
+    @Test
+    fun `定时键在发送键左边 —— "现在发"与"晚点发"并排站`() {
+        val send = RoundSendButton()
+        val schedule = ScheduleButton {}
+
+        val east = (buildComposerToolbar(AttachButton(), javax.swing.JLabel(), ModeLabel {}, EffortLabel {}, send, schedule)
+            .layout as java.awt.BorderLayout).getLayoutComponent(java.awt.BorderLayout.EAST) as java.awt.Container
+
+        assertSame(schedule, east.components[0], "定时键是右组里的第一个")
+        assertSame(send, east.components.last(), "发送键仍在最右")
+    }
+
+    @Test
+    fun `定时键禁用时不报动作（同发送键那条）`() {
+        var opens = 0
+        val button = ScheduleButton { opens++ }
+
+        button.isEnabled = false
+        click(button)
+        assertEquals(0, opens, "灰着的定时键不该响应点击（面板靠这个表达「没东西可定时」）")
+
+        button.isEnabled = true
+        click(button)
+        assertEquals(1, opens)
     }
 }

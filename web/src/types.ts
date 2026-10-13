@@ -107,6 +107,14 @@ export type TranscriptOp =
   | { op: 'snapshots'; entries: SnapshotMark[] }
   /** 一次回滚的逐文件回执。见 [TranscriptState.revert]。 */
   | { op: 'revertReport'; results: RevertResultWire[] }
+  /**
+   * 定时待发的那张表（2026-10-13，定时发送 · 丙案）。见 [TranscriptState.scheduled]。
+   *
+   * **全量替换**：每加一条 / 撤一条 / 到点发走一条，Kotlin 都把整张表重推一遍。
+   * `entries` 为空 = 清空（撤完了 / 会话换了）—— 所以这条 op **空表也要应用**
+   * （与 snapshots 那条"空批丢掉"相反，见 codec.ts）。
+   */
+  | { op: 'scheduled'; entries: ScheduledEntryWire[] }
 
 /** [TranscriptOp] 里那两种消息的条目形状（与 Kotlin 的 SnapshotEntry / RevertResult 逐字对应）。 */
 export interface SnapshotMark {
@@ -121,6 +129,23 @@ export interface RevertResultWire {
   action: 'restored' | 'deleted' | 'failed'
   error?: string
   dirty?: boolean
+}
+
+/**
+ * 定时待发列表里的一条（`scheduled` op 的条目，与 Kotlin 的 `ScheduledEntry` 逐字对应）。
+ *
+ * `label` 是 **Kotlin 拼好的成品**（"今天 18:00"，词表翻好的）—— 网页不碰日期
+ * 逻辑，它连"现在几点"都不知道（经 scheduledTimeText 于推送那一刻现拼，
+ * 换语言由 Kotlin 重推；同 [SystemNoteItem] 那条"原样渲染、不再翻一遍"）。
+ *
+ * `imageCount` 是那条消息带的图数（0 = 没图，字段缺省）：图本体跟着消息留在
+ * Kotlin 侧，气泡上只留个"图 N"的记号（同排队条 queueChipText 的道理）。
+ */
+export interface ScheduledEntryWire {
+  id: string
+  label: string
+  text: string
+  imageCount?: number
 }
 
 export interface TranscriptState {
@@ -144,6 +169,17 @@ export interface TranscriptState {
    * 回执来自侧车、打的是路径）。清空时机同 [snapshots]。
    */
   revert?: Record<string, RevertResultWire>
+  /**
+   * 定时待发的那张表（2026-10-13，定时发送 · 丙案）。渲染成流水末尾的
+   * **幽灵气泡**（虚线，到点变成一条真 user 气泡）。
+   *
+   * 由 Kotlin 的 `scheduled` op **全量替换**；空表（op 收到 0 条）时这里是
+   * `undefined` —— 与 [snapshots]/[revert] 同一条"有才带上"的口径，
+   * 免得别处构造状态、逐字段比对的用例凭空多一个键。
+   *
+   * 清空时机：Reset（切会话），以及任何一条把整张表推空的 op。
+   */
+  scheduled?: ScheduledEntryWire[]
   /**
    * 「这是一条新会话，还没有任何内容」—— 由 Kotlin 在会话就绪时推来（`fresh` op），
    * 随 Reset 清掉。

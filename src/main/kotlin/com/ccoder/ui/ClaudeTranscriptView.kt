@@ -80,6 +80,12 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
      */
     internal var turnChangesHost: TurnChangesHost? = null
 
+    /**
+     * 定时气泡上那颗 ✕ 的去处（2026-10-13，定时发送）。与 [turnChangesHost]
+     * 同一个分工：视图只认 id，撤不撤得动归面板记的那张表。
+     */
+    internal var scheduleHost: ScheduleHost? = null
+
     private var browser: JBCefBrowser? = null
     private var jsQuery: JBCefJSQuery? = null
     private var pump: TranscriptPump? = null
@@ -657,6 +663,14 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                 val host = turnChangesHost
                 if (paths != null && host != null) host.revertFiles(paths) else LOG.info(
                     "CCoder 转写视图：revertFiles 没有落点（paths=${paths?.size ?: -1}）"
+                )
+            }
+
+            // 定时气泡的 ✕（2026-10-13）：撤掉一条还没到点的定时发送
+            "cancelScheduled" -> obj.str("id")?.let { id ->
+                val host = scheduleHost
+                if (host != null) host.cancelScheduled(id) else LOG.info(
+                    "CCoder 转写视图：cancelScheduled 没有落点（$id）"
                 )
             }
 

@@ -19,5 +19,6 @@
   {"op":"append","item":{"kind":"assistant","id":"m10","ts":1726050009000,"text":"找到了三处","parent":"toolu_task"}},
   {"op":"fresh"},
   {"op":"snapshots","entries":[{"toolUseId":"toolu_1","path":"/a.txt","existed":true},{"toolUseId":"toolu_new","path":"/new.txt","existed":false},{"toolUseId":"toolu_big","path":"/big.bin","existed":null}]},
-  {"op":"revertReport","results":[{"path":"/a.txt","ok":true,"action":"restored"},{"path":"/new.txt","ok":true,"action":"deleted","dirty":true},{"path":"/p/b.kt","ok":false,"action":"failed","error":"no-snapshot"}]}
+  {"op":"revertReport","results":[{"path":"/a.txt","ok":true,"action":"restored"},{"path":"/new.txt","ok":true,"action":"deleted","dirty":true},{"path":"/p/b.kt","ok":false,"action":"failed","error":"no-snapshot"}]},
+  {"op":"scheduled","entries":[{"id":"s1","label":"今天 18:00","text":"帮我整理今天的发布记录","imageCount":2},{"id":"s2","label":"明天 01:20","text":"纯文字那条"}]}
 ]

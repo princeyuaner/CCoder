@@ -44,6 +44,17 @@ export function revertFiles(paths: string[]): void {
 }
 
 /**
+ * 撤掉一条定时待发（2026-10-13，定时发送 · 丙案）。
+ *
+ * 点的是转写区里那枚"待发"气泡上的 ✕。**没有回调**：Kotlin 撤完会把整张
+ * 待发表重推一遍（`scheduled` op），气泡跟着消失 —— 与 [revertFiles] 同一分工。
+ */
+export function cancelScheduled(id: string): void {
+  if (id === '') return
+  window.ccoder?.send?.(JSON.stringify({ op: 'cancelScheduled', id }))
+}
+
+/**
  * 复制一段文本。
  *
  * **走桥，不走 `navigator.clipboard`**：JCEF 里页面是用 `loadHTML()` 塞进去的，

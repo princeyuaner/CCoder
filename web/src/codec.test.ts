@@ -30,17 +30,18 @@ describe('契约 fixture', () => {
 
   it('能解析 fixture 中的全部操作', () => {
     const ops = parseOps(JSON.parse(readFileSync(FIXTURE, 'utf8')))
-    // 21 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条
-    // （2026-09-22 补）+ fresh 标记（2026-10-10 补）+ 末尾两条「本轮改动」
-    // （2026-10-13 补：snapshots / revertReport）
-    expect(ops).toHaveLength(21)
+    // 22 = 15 + 末尾三条子代理那层（A1，2026-09-18 补）+ 工具起头帧那条
+    // （2026-09-22 补）+ fresh 标记（2026-10-10 补）+ 「本轮改动」两条
+    // （2026-10-13 补：snapshots / revertReport）+ 定时待发一条（同日补）
+    expect(ops).toHaveLength(22)
     expect(ops[0].op).toBe('reset')
     expect(ops[3].op).toBe('appendDelta')
-    // fresh 与后面那两条都在**末尾**：前面全是按下标钉住的断言，
+    // fresh 与后面那三条都在**末尾**：前面全是按下标钉住的断言，
     // 插在中间会把它们全部挪位
     expect(ops[18].op).toBe('fresh')
     expect(ops[19].op).toBe('snapshots')
     expect(ops[20].op).toBe('revertReport')
+    expect(ops[21].op).toBe('scheduled')
   })
 
   it('fixture 能被完整应用到状态上而不丢内容', () => {
@@ -67,6 +68,12 @@ describe('契约 fixture', () => {
       '/new.txt': { path: '/new.txt', ok: true, action: 'deleted', dirty: true },
       '/p/b.kt': { path: '/p/b.kt', ok: false, action: 'failed', error: 'no-snapshot' },
     })
+    // 定时待发表（2026-10-13）：两条形状原样活着走到状态里 ——
+    // 带图那条留 imageCount，没图那条不带（缺省即"没图"，不是 0）
+    expect(state.scheduled).toEqual([
+      { id: 's1', label: '今天 18:00', text: '帮我整理今天的发布记录', imageCount: 2 },
+      { id: 's2', label: '明天 01:20', text: '纯文字那条' },
+    ])
   })
 
   it('工具调用带着配对的 toolUseId 过来', () => {
@@ -556,5 +563,49 @@ describe('本轮改动的两张表（2026-10-13）', () => {
       { op: 'append', item: { kind: 'user', id: 'u', ts: 1, text: '你好' } },
     ])
     expect(Object.keys(state).sort()).toEqual(['items', 'live'])
+  })
+
+  it('scheduled 是全量替换：后一条批次说了算', () => {
+    const first = applyOps(emptyState(), [
+      { op: 'scheduled', entries: [{ id: 's1', label: '今天 18:00', text: 'A' }] },
+    ])
+    const second = applyOps(first, [
+      { op: 'scheduled', entries: [{ id: 's2', label: '明天 01:20', text: 'B' }] },
+    ])
+    expect(second.scheduled?.map((e) => e.id)).toEqual(['s2'])
+  })
+
+  it('scheduled 空表 = 清空 —— 这条 op 不许被当空批丢掉', () => {
+    // 与 snapshots/revertReport 的空批规则**相反**：那些丢了只是白算一次，
+    // 这条丢了撤掉最后一条定时之后，幽灵气泡会一直挂在屏幕上
+    const filled = applyOps(emptyState(), [
+      { op: 'scheduled', entries: [{ id: 's1', label: '今天 18:00', text: 'A' }] },
+    ])
+    expect(filled.scheduled).toHaveLength(1)
+    const cleared = applyOps(filled, parseOps([{ op: 'scheduled', entries: [] }] as unknown[]))
+    expect(cleared.scheduled).toBeUndefined()
+  })
+
+  it('scheduled 坏条目丢那一条、不丢整批', () => {
+    const ops = parseOps([
+      {
+        op: 'scheduled',
+        entries: [
+          { id: 's1', label: '今天 18:00', text: '好的一条' },
+          { id: '', label: '今天 19:00', text: '没有 id —— 撤不动，丢' },
+          { id: 's3', label: '今天 20:00' },
+          { id: 's4', label: '今天 21:00', text: 'imageCount 是坏值', imageCount: '两个' },
+        ],
+      },
+    ] as unknown[])
+    expect(ops).toEqual([
+      {
+        op: 'scheduled',
+        entries: [
+          { id: 's1', label: '今天 18:00', text: '好的一条' },
+          { id: 's4', label: '今天 21:00', text: 'imageCount 是坏值' },
+        ],
+      },
+    ])
   })
 })

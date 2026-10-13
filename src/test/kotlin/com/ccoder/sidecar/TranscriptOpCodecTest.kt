@@ -63,7 +63,7 @@ class TranscriptOpCodecTest {
         val subText = itemAt(17)
         assertEquals("toolu_task", subText.get("parent").asString)
 
-        assertEquals(21, kinds.size)
+        assertEquals(22, kinds.size)
         // 末尾是 fresh 标记（2026-10-10 补）：新会话就绪，网页侧据此显示空态引导卡。
         // 它放在**最后一条**而不是 reset 后面：上面全是按下标钉住的断言，
         // 插在中间会把它们全部挪位，而挪位后的断言照样"绿"（只是钉错了东西）
@@ -80,6 +80,18 @@ class TranscriptOpCodecTest {
         val revResult = array[20].asJsonObject.getAsJsonArray("results")[2].asJsonObject
         assertEquals("no-snapshot", revResult.get("error").asString)
         assertEquals("failed", revResult.get("action").asString)
+
+        // 末条是定时待发（2026-10-13 补）：**两条形状都要在** —— 一条带图
+        // （imageCount=2）、一条不带（缺省）。网页侧的"图 N"记号与"没图就不画"
+        // 全靠这两种形状，只留一种的话另一边漂了没人报
+        assertEquals("scheduled", kinds[21])
+        val sched = array[21].asJsonObject.getAsJsonArray("entries")
+        assertEquals(2, sched.size())
+        val schedPics = sched[0].asJsonObject
+        assertEquals("s1", schedPics.get("id").asString)
+        assertEquals(2, schedPics.get("imageCount").asInt)
+        assertTrue(schedPics.get("label").asString.isNotEmpty(), "时间标签是 Kotlin 拼好的成品")
+        assertTrue(!sched[1].asJsonObject.has("imageCount"), "没图那条不带 imageCount")
     }
 
     @Test
@@ -104,6 +116,30 @@ class TranscriptOpCodecTest {
         // "没存下"与"字段坏了"，两者的兜底不一样
         assertTrue(entries[2].asJsonObject.get("existed").isJsonNull)
         assertTrue(entries[3].asJsonObject.get("toolUseId").isJsonNull)
+    }
+
+    @Test
+    fun `scheduled 编码全量表，空表也出得来`() {
+        val ops = listOf(
+            TranscriptOp.Scheduled(
+                listOf(
+                    ScheduledEntry("s1", "今天 18:00", "帮我整理今天的发布记录", imageCount = 2),
+                    ScheduledEntry("s2", "明天 01:20", "纯文字那条"),
+                )
+            ),
+            // 空表 = 清空：**必须发得出去**（网页侧靠它收气泡）
+            TranscriptOp.Scheduled(emptyList()),
+        )
+        val arr = JsonParser.parseString(TranscriptOpCodec.encodeBatch(ops)).asJsonArray
+        val obj = arr[0].asJsonObject
+        assertEquals("scheduled", obj.get("op").asString)
+        val entries = obj.getAsJsonArray("entries")
+        assertEquals(2, entries.size())
+        assertEquals("s1", entries[0].asJsonObject.get("id").asString)
+        assertEquals(2, entries[0].asJsonObject.get("imageCount").asInt)
+        // 没图的条目**不写** imageCount（同 revertReport 的可选字段口径）
+        assertTrue(!entries[1].asJsonObject.has("imageCount"))
+        assertEquals(0, arr[1].asJsonObject.getAsJsonArray("entries").size())
     }
 
     @Test

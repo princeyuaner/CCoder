@@ -1,5 +1,6 @@
 import type {
   RevertResultWire,
+  ScheduledEntryWire,
   SnapshotMark,
   TranscriptItem,
   TranscriptOp,
@@ -66,6 +67,13 @@ export function parseOps(raw: unknown): TranscriptOp[] {
         break
       }
 
+      // 定时待发（2026-10-13）。与上面两类**相反：空条目也要放行** ——
+      // 空表是合法值，它表示"清空"（撤完了 / 会话换了），收端靠它收气泡。
+      // 丢掉空表的话，撤掉最后一条定时之后那枚幽灵气泡会一直挂在屏幕上。
+      case 'scheduled':
+        out.push({ op: 'scheduled', entries: parseScheduledEntries(op.entries) })
+        break
+
       default:
         break // 未知 op，丢弃
     }
@@ -117,6 +125,30 @@ function parseRevertResults(raw: unknown): RevertResultWire[] {
 /** 只留字符串项。坏数据丢的是**那个字段**，不是整条消息 —— 图坏了不该把文字也吃掉。 */
 function stringArray(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string') : []
+}
+
+/**
+ * 定时待发条目的逐条解析。
+ *
+ * `id` / `label` / `text` 任一缺失或不是字符串 → **丢掉那一条**：气泡没有 id
+ * 撤不动、没有 label 认不出时间；而整批不丢（其余条目照画）与 snapshots 同一条
+ * 容忍口径。`imageCount` 认不出就省略（"不知道有几张图"比"说有 0 张"诚实 ——
+ * 同 SystemNote 那条"原样"精神的近亲：宁少说一句）。
+ */
+function parseScheduledEntries(raw: unknown): ScheduledEntryWire[] {
+  if (!Array.isArray(raw)) return []
+  const out: ScheduledEntryWire[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const e = entry as Record<string, unknown>
+    if (typeof e.id !== 'string' || e.id === '') continue
+    if (typeof e.label !== 'string' || e.label === '') continue
+    if (typeof e.text !== 'string') continue
+    const item: ScheduledEntryWire = { id: e.id, label: e.label, text: e.text }
+    if (typeof e.imageCount === 'number' && e.imageCount > 0) item.imageCount = Math.floor(e.imageCount)
+    out.push(item)
+  }
+  return out
 }
 
 /**
@@ -228,6 +260,8 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
   // 免得所有别处构造状态、逐字段比对的用例凭空多两个键（同 fresh 那条）
   let snapshots = state.snapshots
   let revert = state.revert
+  // 定时待发那张表（2026-10-13）：全量替换，空表 = 收起（undefined）
+  let scheduled = state.scheduled
   // 「新会话」标记。读取口径与写入一致：只认 `true`（缺省/坏值 = 不是新会话）。
   // 它是**锁存**的：置起后一直留到下一次 Reset —— 内容一到，界面那一侧靠
   // "有没有内容项"把它盖住（见 Transcript.tsx 的空态判据），这里不逐条清。
@@ -301,6 +335,9 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
         // 跟着上一条会话留到新会话里就是张冠李戴
         snapshots = undefined
         revert = undefined
+        // 待发表同理（定时只活一条会话里；Kotlin 那边在同一个时机会 push 空表，
+        // 这里先清是兜底：Reset 与那条空表 op 谁先到都收得住）
+        scheduled = undefined
         // 下一次 `fresh` 到来之前都不是新会话。切换会话/回放走的就是这条 ——
         // 标记必须随 Reset 清掉，否则回放的真空期会把引导卡闪出来
         fresh = false
@@ -407,6 +444,12 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
         revert = next
         break
       }
+
+      case 'scheduled': {
+        // 全量替换；空表回到 undefined（见 TranscriptState.scheduled 与上面变量声明）
+        scheduled = op.entries.length > 0 ? op.entries : undefined
+        break
+      }
     }
   }
 
@@ -417,5 +460,6 @@ export function applyOps(state: TranscriptState, ops: TranscriptOp[]): Transcrip
   if (fresh) out.fresh = true
   if (snapshots !== undefined) out.snapshots = snapshots
   if (revert !== undefined) out.revert = revert
+  if (scheduled !== undefined) out.scheduled = scheduled
   return out
 }

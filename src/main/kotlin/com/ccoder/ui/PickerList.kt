@@ -119,7 +119,7 @@ internal fun cardTitle(text: String, warn: Boolean = false): JComponent {
  * 的最后一项，而不是一个按钮。
  */
 internal fun actionRow(text: String, onClick: () -> Unit): JComponent {
-    val row = RoundedRow(selected = false, fixedHeight = ROW_HEIGHT).apply {
+    val row = RoundedRow(selected = false, fixedHeight = PICKER_ROW_HEIGHT).apply {
         add(
             JLabel(text).apply {
                 foreground = UIUtil.getInactiveTextColor()
@@ -187,7 +187,7 @@ internal fun optionRow(
     // 两行的行靠内容撑高（说明长短不一），一行的行由调用方给固定高
     val row = RoundedRow(
         selected = selected,
-        fixedHeight = if (description == null) ROW_HEIGHT else null,
+        fixedHeight = if (description == null) PICKER_ROW_HEIGHT else null,
         padV = ROW_PAD_V,
     ).apply { add(body, BorderLayout.CENTER) }
 
@@ -421,8 +421,8 @@ private const val CARD_ARC = 12
 /** 行底色的圆角。 */
 private const val ROW_ARC = 8
 
-/** 一行的行高。卡头、模型行、管理行都用它，一列看着才齐。 */
-private const val ROW_HEIGHT = 30
+/** 一行的行高。卡头、模型行、管理行都用它，一列看着才齐。定时弹层也拿它当尺子。 */
+internal const val PICKER_ROW_HEIGHT = 30
 
 /** 带说明的行上下留的气。 */
 private const val ROW_PAD_V = 6

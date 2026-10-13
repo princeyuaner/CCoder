@@ -88,6 +88,7 @@ object TranscriptOpCodec {
         // 快照标记与回滚回执都是小报文（路径 + 几个短字段），固定估一档
         is TranscriptOp.Snapshots -> op.entries.sumOf { (it.path.length) + 90 } + 20
         is TranscriptOp.RevertReport -> op.results.sumOf { (it.path.length + (it.error?.length ?: 0)) + 90 } + 20
+        is TranscriptOp.Scheduled -> op.entries.sumOf { it.label.length + it.text.length + 80 } + 20
         is TranscriptOp.Append -> when (val it = op.item) {
             is TranscriptItem.User -> it.text.length + it.images.sumOf { s -> s.length } + 80
             is TranscriptItem.Assistant -> it.text.length + 80
@@ -193,6 +194,22 @@ object TranscriptOpCodec {
                         // error / dirty 为 null 时省略（React 侧少一层判空，同 Result 那几项）
                         r.error?.let { addProperty("error", it) }
                         r.dirty?.let { addProperty("dirty", it) }
+                    })
+                }
+            })
+        }
+
+        // 定时待发（2026-10-13）：**空表也要发** —— 它表示"清空"，收端靠它收气泡。
+        // imageCount=0 省略（同上面 error/dirty 那条）。
+        is TranscriptOp.Scheduled -> JsonObject().apply {
+            addProperty("op", "scheduled")
+            add("entries", JsonArray().apply {
+                op.entries.forEach { e ->
+                    add(JsonObject().apply {
+                        addProperty("id", e.id)
+                        addProperty("label", e.label)
+                        addProperty("text", e.text)
+                        if (e.imageCount > 0) addProperty("imageCount", e.imageCount)
                     })
                 }
             })

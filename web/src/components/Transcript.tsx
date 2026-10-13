@@ -9,6 +9,7 @@ import { EmptyState } from './EmptyState'
 import { ErrorBubble } from './ErrorBubble'
 import { Markdown } from './Markdown'
 import { ResultLine } from './ResultLine'
+import { ScheduledBubble } from './ScheduledBubble'
 import { StreamingCursor } from './StreamingCursor'
 import { SystemNote } from './SystemNote'
 import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
@@ -495,6 +496,14 @@ export function Transcript({ state }: { state: TranscriptState }) {
             </AssistantBubble>
           </div>
         )}
+        {/* 定时待发（2026-10-13，丙案）：挂在**流水末尾** —— 它是"还没发出去的
+            下一条"，排最后才合"接下来会发生什么"的读法。到点时 Kotlin 撤掉它、
+            换成一条真 user 气泡（虚线换实心，站位几乎不动）。
+            数量是个位数，map 出来的节点不包 memo —— 与那批历史 Item 不同，
+            流式期间重建它们的代价可以忽略（Item 的 memo 是给几十上百条用的） */}
+        {state.scheduled?.map((entry) => (
+          <ScheduledBubble key={entry.id} entry={entry} />
+        ))}
         </div>
 
         {/* 只要离开底部就浮出来 —— 用户滚上去多半就是想回来，那时按钮必须点得到

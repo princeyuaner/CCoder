@@ -464,6 +464,21 @@ data class SnapshotEntry(
 )
 
 /**
+ * 定时待发列表里的一条（[com.ccoder.sidecar.TranscriptOp.Scheduled] 的载荷）。
+ *
+ * [label] 是**Kotlin 拼好的成品**（"今天 18:00"，词表翻好的）—— 网页不碰
+ * 日期逻辑，它连"现在几点"都不知道（那边只画）。[imageCount] 是那条消息带的
+ * 图数：图本体跟着消息留在 Kotlin 侧（同排队条那条"图 N"的道理 —— 图在
+ * 入列那一刻就跟着消息走了，气泡上只留个记号）。
+ */
+data class ScheduledEntry(
+    val id: String,
+    val label: String,
+    val text: String,
+    val imageCount: Int = 0,
+)
+
+/**
  * 一条可补全的命令。
  *
  * 字段裁自 SDK 的 `SlashCommand`（sdk.d.ts:8843）。**`name` 是显示名，
