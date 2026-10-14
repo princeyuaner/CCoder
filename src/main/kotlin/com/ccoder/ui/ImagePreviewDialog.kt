@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.google.gson.JsonObject
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
@@ -25,7 +26,65 @@ import kotlin.math.roundToInt
 import com.ccoder.text.CcoderText
 
 /**
- * 「点开看大图」那个框（2026-09-17）。输入框附件带里点缩略图正文就走到这儿。
+ * 看图框里的一格：只要有**字节**与**名字**。
+ *
+ * 两种来源，字节是哪一份正是这条链路的要害：
+ *  - 输入框附件 —— [AttachedImage]，要**发给 Claude 的那份**字节（发送前的最后一眼）；
+ *  - 输出区里点开的图 —— [DataUrlPreview]，转写区那份 data URL（900px JPEG q85，
+ *    见 [transcriptDataUrl] 为什么不是原图）。
+ */
+internal interface PreviewSource {
+    val bytes: ByteArray
+    val name: String
+}
+
+/**
+ * 输出区里点开的那份（只有 data URL）。
+ *
+ * 解不回字节时是**空数组** —— 框里会画"打不开"那句（同 [previewImageOf] 的口径），
+ * 不静默。名字由调用方按序号给（贴图本来就没名字，同 [imageName]）。
+ */
+internal class DataUrlPreview(url: String, override val name: String) : PreviewSource {
+    override val bytes: ByteArray = bytesOfDataUrl(url) ?: ByteArray(0)
+}
+
+/**
+ * 输出区里点开图的去处（`ClaudeTranscriptView` → 面板）。与 `ScheduleHost` /
+ * `TurnChangesHost` 同一个分工：视图不认识对话框，只把桥消息解析好送出来。
+ */
+internal fun interface ImagePreviewHost {
+    fun preview(dataUrls: List<String>, index: Int)
+}
+
+/** 一次"点开看图"请求：这条气泡的全部图（能翻页）与点的那张。 */
+internal data class ImagePreviewRequest(val dataUrls: List<String>, val index: Int)
+
+/**
+ * 从桥消息里读出一次「打开输出区的图」。识别不出给 null，调用方不动作。
+ *
+ * 形状：`{"op":"previewImage","images":["data:…","data:…"],"index":1}`。
+ *
+ * 与 `parseRevertPaths` 有一处刻意不同：那里坏条目**跳过**，这里坏一条就
+ * **整条不收** —— 图是要按 `index` 翻页的，跳一条会让"第几张"当场错位
+ * （点的是第三张，框里翻出来是第二张那种）。空列表同样不收：一条都没有的
+ * "打开看图"没有意义。`index` 越界**夹回范围**而不是整条丢掉：图是好的，
+ * 点错一格不该连图都看不着。
+ */
+internal fun parseImagePreview(obj: JsonObject): ImagePreviewRequest? {
+    val raw = obj.get("images")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+    val urls = raw.mapNotNull { el ->
+        el.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+    }
+    if (urls.isEmpty() || urls.size != raw.size()) return null
+    val index = obj.get("index")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt ?: 0
+    return ImagePreviewRequest(urls, index.coerceIn(0, urls.size - 1))
+}
+
+/**
+ * 「点开看大图」那个框（2026-09-17）。两个入口共用它（2026-10-14 起）：
+ * 输入框附件带里点缩略图（[AttachedImage]，看**正要发给 Claude 的那份**），
+ * 与输出区气泡里点图（[DataUrlPreview]，看转写区那份 —— 桥 op `previewImage`
+ * 送进来；用户报"页内浮层最大就是输出区那么宽、看不清"，于是并进这只框）。
  *
  * ## 为什么值得有
  *
@@ -49,7 +108,7 @@ import com.ccoder.text.CcoderText
  */
 internal class ImagePreviewDialog(
     project: Project?,
-    private val images: List<AttachedImage>,
+    private val images: List<PreviewSource>,
     startIndex: Int,
 ) : DialogWrapper(project) {
 
@@ -200,7 +259,7 @@ internal class ImagePreviewDialog(
 }
 
 /** 打开放大查看。生产路径给 [ClaudePanel] 用；探针与用例能换掉（同 `showChangelogDialog`）。 */
-internal fun showImagePreview(project: Project?, images: List<AttachedImage>, index: Int) {
+internal fun showImagePreview(project: Project?, images: List<PreviewSource>, index: Int) {
     if (images.isEmpty()) return
     ImagePreviewDialog(project, images, index).show()
 }

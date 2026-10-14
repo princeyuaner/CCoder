@@ -55,6 +55,23 @@ export function cancelScheduled(id: string): void {
 }
 
 /**
+ * 打开输出区里的一张图 —— 交给平台那只看图框（2026-10-14）。
+ *
+ * 为什么不在页内放大：页内浮层是 `position: fixed` 的，最多盖住**转写区那一块
+ * JCEF 视口** —— 图最大就是输出区那么宽，长截图上的小字看不清（用户报）。
+ * 平台的框与输入框附件带点缩略图是**同一只**（按屏幕 80% 开、可拉伸、←/→
+ * 与数字键翻页）。
+ *
+ * `images` 是这条气泡的**全部**图（框里能翻页），`index` 是点的那张。
+ * 桥不在时（`npm run dev` 的浏览器、探针）调用方退回页内浮层 ——
+ * 与 [copyText] 的兜底口径一致。
+ */
+export function previewImage(images: string[], index: number): void {
+  if (images.length === 0) return
+  window.ccoder?.send?.(JSON.stringify({ op: 'previewImage', images, index }))
+}
+
+/**
  * 复制一段文本。
  *
  * **走桥，不走 `navigator.clipboard`**：JCEF 里页面是用 `loadHTML()` 塞进去的，

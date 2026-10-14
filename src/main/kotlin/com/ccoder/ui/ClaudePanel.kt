@@ -149,6 +149,8 @@ class ClaudePanel(
         // 定时气泡那颗 ✕ 的去处（2026-10-13，定时发送）。同一个理由走匿名实现：
         // ClaudePanel 是 public 类，ScheduleHost 是 internal 的
         scheduleHost = ScheduleHost { id -> cancelScheduled(id) }
+        // 输出区气泡里点开的图（2026-10-14）：走平台那只看图框
+        imagePreviewHost = ImagePreviewHost { urls, index -> showTranscriptImagePreview(urls, index) }
     }
 
     /**
@@ -5293,6 +5295,24 @@ class ClaudePanel(
         if (!scheduled.removeById(id)) return
         pushScheduledState()
         refreshScheduleTimer()
+    }
+
+    /**
+     * 输出区气泡里点开的一张图（经 ClaudeTranscriptView.imagePreviewHost 转来）：
+     * 走**平台那只看图框** —— 与输入框附件带点缩略图是同一个框（按屏幕 80% 开、
+     * 可拉伸、←/→ 与数字键翻页）。
+     *
+     * 2026-10-14 改的原因：原来是页内的浮层（`ImageLightbox`），`position: fixed`
+     * 只盖得住转写区那块 JCEF 视口 —— 图最多显示成输出区那么宽，长截图上的小字
+     * 看不清（用户报）。拿到的是 `transcriptDataUrl` 那份（转写区里有的就是它，
+     * 900px）；解不出来的置空字节，框里会画"打不开"那行字，不静默。
+     */
+    private fun showTranscriptImagePreview(dataUrls: List<String>, index: Int) {
+        val images = dataUrls.mapIndexed { i, url ->
+            DataUrlPreview(url, imageName(i, "image/jpeg"))
+        }
+        // 桥的消息跑在 CEF 回调线程上；开框（DialogWrapper）得回 EDT
+        ApplicationManager.getApplication().invokeLater { showImagePreview(project, images, index) }
     }
 
     /**

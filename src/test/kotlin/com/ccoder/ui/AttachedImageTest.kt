@@ -184,4 +184,25 @@ class AttachedImageTest {
 
         assertTrue(a.transcriptDataUrl.isNotEmpty(), "没做的话字段是空的，转写区就没图可画")
     }
+
+    @Test
+    fun `data URL 解回字节 —— 输出区点开看图那条路（往返）`() {
+        // 2026-10-14：点开从页内浮层改成平台看图框，图要从网页走桥回到这边，
+        // 所以 data URL 需要一条逆运算。编的是 JPEG q85，往返指的是"解回来还是
+        // 同一张图"，不是"字节一个不差"
+        val attachment = prepareAttachment(solid(300, 200), index = 0)!!
+
+        val back = bytesOfDataUrl(attachment.transcriptDataUrl)
+
+        assertNotNull(back)
+        val img = ImageIO.read(back!!.inputStream())
+        assertEquals(300, img.width)
+    }
+
+    @Test
+    fun `认不出的 data URL 给 null，不硬解`() {
+        assertNull(bytesOfDataUrl("https://example.com/a.png"), "不是 data URL")
+        assertNull(bytesOfDataUrl("data:image/png,plain-text"), "不是 base64 那种")
+        assertNull(bytesOfDataUrl("data:image/png;base64,???"), "base64 本身是坏的")
+    }
 }

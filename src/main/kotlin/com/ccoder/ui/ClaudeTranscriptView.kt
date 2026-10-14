@@ -86,6 +86,12 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
      */
     internal var scheduleHost: ScheduleHost? = null
 
+    /**
+     * 输出区气泡里点开的图的去处（2026-10-14）。与 [scheduleHost] 同一个分工：
+     * 视图只把 data URL 解析出来，开哪只框归面板（`ImagePreviewDialog`）。
+     */
+    internal var imagePreviewHost: ImagePreviewHost? = null
+
     private var browser: JBCefBrowser? = null
     private var jsQuery: JBCefJSQuery? = null
     private var pump: TranscriptPump? = null
@@ -672,6 +678,18 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                 if (host != null) host.cancelScheduled(id) else LOG.info(
                     "CCoder 转写视图：cancelScheduled 没有落点（$id）"
                 )
+            }
+
+            // 输出区气泡里点开的一张图（2026-10-14）：交给面板开平台那只看图框。
+            // 带的图是 data URL 那份（转写区里有的就是它）
+            "previewImage" -> {
+                val req = parseImagePreview(obj)
+                val host = imagePreviewHost
+                if (req != null && host != null) {
+                    host.preview(req.dataUrls, req.index)
+                } else {
+                    LOG.info("CCoder 转写视图：previewImage 没有落点（${req?.dataUrls?.size ?: -1} 张）")
+                }
             }
 
             // 代码块的复制键（见 CopyText）：JCEF 里 navigator.clipboard 不可用

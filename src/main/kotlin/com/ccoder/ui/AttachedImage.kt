@@ -49,8 +49,10 @@ private const val RAW_TARGET_BYTES = 3_936_216
 /**
  * 推给转写区那份图的长边（见 [transcriptDataUrl]）。
  *
- * 900 是"点开放大看得清"与"过 JCEF 桥别太沉"之间的折中：面板也就 420px 宽，
- * 900 在放大浮层里已经比屏幕还宽了。
+ * 900 是"点开放大看得清"与"过 JCEF 桥别太沉"之间的折中 —— 重量那头是硬约束：
+ * 一份**不许超过 400KB**（不可压的噪声图当最坏情况），`AttachedImageTest` 钉着。
+ * 2026-10-14 起点开走平台那只看图框（按屏幕 80% 开），900 可以 1:1 看；
+ * 再锐一档要动的是这条 400KB 的预算，先量再说。
  */
 internal const val TRANSCRIPT_EDGE = 900
 
@@ -77,12 +79,12 @@ internal const val BADGE_SIDE = 14
  */
 internal class AttachedImage(
     val mediaType: String,
-    val bytes: ByteArray,
+    override val bytes: ByteArray,
     val thumb: BufferedImage,
-    val name: String,
+    override val name: String,
     /** 给转写区看的那份（data URL）。发给 Claude 的不是它，见 [transcriptDataUrl]。 */
     val transcriptDataUrl: String = "",
-) {
+) : PreviewSource {
     val base64: String = Base64.getEncoder().encodeToString(bytes)
 
     /** 过桥时的实际体积（JSON 里放的就是这个字符串）。 */
@@ -105,6 +107,20 @@ internal fun transcriptDataUrl(bytes: ByteArray, maxEdge: Int = TRANSCRIPT_EDGE)
     val scaled = fitToLimit(decoded, maxEdge)
     val jpeg = encode(toRgb(scaled), "jpeg", JPEG_QUALITY)
     return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg)
+}
+
+/**
+ * [transcriptDataUrl] 的逆运算 —— 转写区点开看图那条路用它
+ * （2026-10-14：图从输出区走桥回到平台的开图框，见 `parseImagePreview`）。
+ *
+ * 只认 base64 那种（我们写出去的只有这一种）。前缀不对、base64 坏、缺逗号
+ * 一律 null —— 调用方别静默：置成空字节，让框里画那句"打不开"。
+ */
+internal fun bytesOfDataUrl(url: String): ByteArray? {
+    if (!url.startsWith("data:")) return null
+    val comma = url.indexOf(',')
+    if (comma < 0 || !url.substring(0, comma).contains(";base64")) return null
+    return runCatching { Base64.getDecoder().decode(url.substring(comma + 1)) }.getOrNull()
 }
 
 /**

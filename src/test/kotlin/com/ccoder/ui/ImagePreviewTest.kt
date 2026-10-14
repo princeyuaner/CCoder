@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.google.gson.JsonParser
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -143,5 +144,68 @@ class ImagePreviewTest {
 
         assertNotNull(a)
         assertTrue(a!!.width == b!!.width && a.height == b.height)
+    }
+
+    // ---- 桥消息 `previewImage` 的解（2026-10-14：输出区点图交给平台看图框）----
+
+    private fun bridgeMessage(json: String) = JsonParser.parseString(json).asJsonObject
+
+    @Test
+    fun `previewImage：正常的一条收下，index 越界夹回范围`() {
+        val req = parseImagePreview(
+            bridgeMessage(
+                """{"op":"previewImage","images":[
+                   "data:image/jpeg;base64,AA","data:image/jpeg;base64,BB"],"index":9}"""
+            )
+        ) ?: error("正常消息不该解不出来")
+
+        assertEquals(2, req.dataUrls.size)
+        assertEquals(1, req.index, "越界夹到最后一张 —— 图是好的，别把框开炸")
+    }
+
+    @Test
+    fun `previewImage：没有 index 就从头一张看起`() {
+        val req = parseImagePreview(
+            bridgeMessage("""{"op":"previewImage","images":["data:image/jpeg;base64,AA"]}""")
+        ) ?: error("正常消息不该解不出来")
+
+        assertEquals(0, req.index)
+    }
+
+    @Test
+    fun `previewImage：混进一条非字符串整条不收 —— 跳一条会让「第几张」错位`() {
+        // 与 parseRevertPaths 的"跳过坏条目"刻意不同：图按 index 翻页，错位了
+        // 用户点的是第三张、框里翻出来第二张，没有比这更难查的
+        assertNull(
+            parseImagePreview(
+                bridgeMessage("""{"op":"previewImage","images":["data:image/jpeg;base64,AA",3]}""")
+            )
+        )
+    }
+
+    @Test
+    fun `previewImage：没有图、形状不对都不收`() {
+        assertNull(parseImagePreview(bridgeMessage("""{"op":"previewImage","images":[]}""")))
+        assertNull(parseImagePreview(bridgeMessage("""{"op":"previewImage"}""")))
+        assertNull(parseImagePreview(bridgeMessage("""{"op":"previewImage","images":"nope"}""")))
+    }
+
+    // ---- 转写区那份（DataUrlPreview）----
+
+    @Test
+    fun `转写区那份解回来能读成图 —— 点开看的就是它`() {
+        val attachment = prepareAttachment(png(2000, 1000), 0) ?: error("夹具没做成")
+        val source = DataUrlPreview(attachment.transcriptDataUrl, name = "截图1.jpg")
+
+        val decoded = previewImageOf(source.bytes)
+
+        assertNotNull(decoded, "data URL 是我们自己编的，该解得开")
+        assertTrue(maxOf(decoded!!.width, decoded.height) <= TRANSCRIPT_EDGE)
+    }
+
+    @Test
+    fun `坏的 data URL 给空字节 —— 框里画「打不开」，不静默`() {
+        assertEquals(0, DataUrlPreview("https://x/y.png", name = "n").bytes.size)
+        assertEquals(0, DataUrlPreview("data:image/png,notbase64", name = "n").bytes.size)
     }
 }

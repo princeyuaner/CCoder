@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { UserBubble } from './UserBubble'
 
 /**
  * 用户气泡里的图（贴图）。设计稿 `docs/design/image-attach.html` 方案甲：
- * 图在文字**上方**、点开是放大浮层。
+ * 图在文字**上方**、点开看大图。
+ *
+ * 点开去哪分两条（2026-10-14）：真机（桥在）走平台的看图框（`previewImage` op）；
+ * 桥不在（`npm run dev` / 探针）退回页内浮层 —— 两条各有用例钉着。
  */
 const PNG = 'data:image/jpeg;base64,AAAA'
 const PNG2 = 'data:image/jpeg;base64,BBBB'
@@ -54,6 +57,25 @@ describe('用户气泡的图', () => {
 
     await userEvent.keyboard('{Enter}')
     expect(screen.getByTestId('lightbox')).toBeInTheDocument()
+  })
+
+  it('桥在时：点图交给平台的开图框，一个字节的图都从桥走，页内浮层不开', async () => {
+    const send = vi.fn()
+    window.ccoder = { ...(window.ccoder ?? {}), send }
+    try {
+      render(<UserBubble text="看这两张" images={[PNG, PNG2]} />)
+
+      await userEvent.click(screen.getByTestId('user-image-1'))
+
+      expect(screen.queryByTestId('lightbox')).not.toBeInTheDocument()
+      expect(JSON.parse(send.mock.calls[0][0] as string)).toEqual({
+        op: 'previewImage',
+        images: [PNG, PNG2],
+        index: 1,
+      })
+    } finally {
+      delete window.ccoder
+    }
   })
 })
 
