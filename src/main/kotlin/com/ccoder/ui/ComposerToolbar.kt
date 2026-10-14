@@ -129,9 +129,11 @@ internal class RoundSendButton : JComponent() {
  *
  * 左侧刻意留宽 —— 以后要加的模型切换等控件都往这儿添，不必再动结构。
  *
- * [schedule]（2026-10-13，定时发送）是**唯一贴右加的**：它和发送键是一对
- * "这条消息怎么办"的动作（现在发 / 晚点发），并在一起站；而模型那三个是
- * 状态显示，加进去会把"状态"和"动作"两撮搅在一块。缺省 null = 老布局一字不动。
+ * [schedule]（2026-10-13，定时发送）与 [badge]（2026-10-14，MCP 缓存记号）
+ * 是**仅有的两个贴右加的**：schedule 和发送键是一对"这条消息怎么办"的动作
+ * （现在发 / 晚点发），并在一起站；badge 是"此刻这一发值不值"的状态记号
+ * （`McpCacheBadge`），排在两颗动作键**左边** —— 状态与动作两撮不许搅在一块。
+ * 缺省 null = 老布局一字不动。
  */
 internal fun buildComposerToolbar(
     attach: JComponent,
@@ -140,20 +142,25 @@ internal fun buildComposerToolbar(
     effort: JComponent,
     send: JComponent,
     schedule: JComponent? = null,
+    badge: JComponent? = null,
 ): JPanel =
     JPanel(BorderLayout()).apply {
         // 不透明会把卡片底色盖住，工具栏就成了卡片里嵌的另一块
         isOpaque = false
         border = JBUI.Borders.emptyTop(2)
         add(buildToolbarLeft(attach, model, mode, effort), BorderLayout.WEST)
-        add(buildToolbarRight(send, schedule), BorderLayout.EAST)
+        add(buildToolbarRight(send, schedule, badge), BorderLayout.EAST)
     }
 
-/** 右侧那一撮：定时键在左、发送键在右，间距与左侧的按钮/标签同一档。 */
-private fun buildToolbarRight(send: JComponent, schedule: JComponent?): JPanel =
+/** 右侧那一撮：记号最左（藏起来时连它那格缝一起消失）、定时键居中、发送键最右。 */
+private fun buildToolbarRight(send: JComponent, schedule: JComponent?, badge: JComponent?): JPanel =
     JPanel().apply {
         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
         isOpaque = false
+        if (badge != null) {
+            add(badge)
+            add(javax.swing.Box.createHorizontalStrut(JBUI.scale(6)))
+        }
         if (schedule != null) {
             add(schedule)
             add(javax.swing.Box.createHorizontalStrut(JBUI.scale(6)))

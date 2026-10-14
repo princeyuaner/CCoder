@@ -80,6 +80,22 @@ class McpCacheWarnTest {
         assertFalse(shouldConfirmCacheWarn(pending, true, muted = false, bypass = true), "刚按过照发")
     }
 
+    @Test
+    fun `工具栏放不下带字的徽章时退成点（让位规则）`() {
+        // 560 一行：左排 320 + 右排 65 + 徽章完整宽 90 = 475 ≤ 560 —— 放得下
+        assertFalse(
+            cacheWarnNeedsCompact(rowWidth = 560, westWidth = 320, eastWidthWithoutBadge = 65, badgeFullWidth = 90),
+        )
+        // 420 一行：475 > 420 —— 挤了，字该退成点（2026-10-14 选型台那张窄窗体检图的处境）
+        assertTrue(
+            cacheWarnNeedsCompact(rowWidth = 420, westWidth = 320, eastWidthWithoutBadge = 65, badgeFullWidth = 90),
+        )
+        // 恰好占满不算挤（判据是"超过"才退）
+        assertFalse(
+            cacheWarnNeedsCompact(rowWidth = 475, westWidth = 320, eastWidthWithoutBadge = 65, badgeFullWidth = 90),
+        )
+    }
+
     private fun status(name: String, status: String) =
         McpServerStatus(name = name, status = status, scope = null, error = null, tools = emptyList())
 }

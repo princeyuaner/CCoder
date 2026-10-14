@@ -32,15 +32,15 @@ import com.ccoder.text.CcoderText
  * 模型看什么由 CLI 自己的 resume 决定，两者互不影响 —— 别把提示挂错地方。
  */
 
-/** 状态带此刻该画什么。[cacheWarnStateOf] 算，`McpCacheWarnBar` 画。 */
+/** 状态带此刻该画什么。[cacheWarnStateOf] 算，`McpCacheBadge` 画。 */
 internal sealed interface CacheWarnState {
 
     /**
      * 还有服务器在连。`names` 已按词表的分隔符连好（空名不进）。
      *
-     * `names` **目前不进正文**：420px 栏宽下带名字一定被切掉尾巴（渲染探针
-     * 2026-10-13 抓到过那一版）。名字留在状态里，是"连接中的是谁"本来就属于
-     * 状态本身 —— 将来做 tooltip / 详情卡时用它，不必再回头改判定。
+     * `names` **不进正文**（正文只有状态词）：工具栏那一行放不下 —— 旧带子那版
+     * 的名字被渲染探针 2026-10-13 抓到过尾巴被切。名字的去处是**悬停提示**
+     * （2026-10-14 起，见 `McpCacheBadge`）与设置页；这一层只管把它连好。
      */
     data class Pending(val names: String) : CacheWarnState
 
@@ -127,3 +127,28 @@ internal fun shouldConfirmCacheWarn(
     muted: Boolean,
     bypass: Boolean,
 ): Boolean = !bypass && !muted && worth && state is CacheWarnState.Pending
+
+/**
+ * 工具栏那一行放不下"带字的徽章"时，徽章要不要把字退成点。
+ *
+ * 2026-10-14 选型台里的「让位规则」（用户选定乙案时一并定下）：窄窗里字退成点，
+ * 全句留在悬停。判据**不是**"面板窄于某个数"那种拍脑袋门槛，而是真的量一遍：
+ * 左排（附件 + 三个标签）的首选宽 + 右排（时钟键 + 发送键 + 间隙）的首选宽，
+ * 再加上徽章**完整**（带字）时的宽，超过行宽就是要挤了 —— BorderLayout 是两边
+ * 各按首选宽摆，放不下就直接叠着画，这是唯一的信号。
+ *
+ * ## 为什么参数是"去掉徽章的右排"而不是"现在多大"
+ *
+ * 这样写，判据对**当前是哪种形态**不变：撑着字时 `eastNoBadge + full`，退成点时
+ * `eastNoBadge + (full − 点的宽) + 点的宽` —— 两项相等（见 `McpCacheBadge` 里
+ * 减掉自己那一笔的用法）。于是"该不该退"只取决于行的宽度，不取决于现在退没退，
+ * **不会来回抖**（退→量着够→撑开→量着又不够→再退，那种闪烁）。
+ *
+ * 参数全是从已布局的组件上量来的（见调用处），这条纯函数只做算术。
+ */
+internal fun cacheWarnNeedsCompact(
+    rowWidth: Int,
+    westWidth: Int,
+    eastWidthWithoutBadge: Int,
+    badgeFullWidth: Int,
+): Boolean = westWidth + eastWidthWithoutBadge + badgeFullWidth > rowWidth

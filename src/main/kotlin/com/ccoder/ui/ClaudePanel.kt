@@ -633,31 +633,24 @@ class ClaudePanel(
     private var mcpSettleTimer: javax.swing.Timer? = null
 
     /**
-     * 「MCP 还没连完 · 现在发送会亏缓存」那条带子（2026-10-13）。
+     * 「MCP 还没连完 · 现在发送会亏缓存」的工具栏徽章（2026-10-14 从输入卡上方
+     * 那条带子挪过来，选型台 `web/tools/mcp-corner-view.mjs` 乙案，用户选定）。
      *
-     * 判据在 `McpCacheWarn` 的两个纯函数里，这里只做三件事：把读数送进去、
-     * 复位的时机、以及发送前那一问（D）。原委见 `McpCacheWarn.kt` 头注的实测。
-     *
-     * 类型**必须显式写**：两个回调里都提到 `mcpCacheWarn` 自己（收回确认条），
-     * 不写的话类型推断会绕进自引用。
+     * 判据在 `McpCacheWarn` 的纯函数里，这里只做三件事：把读数送进去、复位的
+     * 时机、以及发送前那一问（弹框，见 [showCacheWarnConfirm]）。原委见
+     * `McpCacheWarn.kt` 头注的实测。
      */
-    private val mcpCacheWarn: McpCacheWarnBar = McpCacheWarnBar(
+    private val mcpCacheBadge: McpCacheBadge = McpCacheBadge(
         onOpenSettings = { openModelSettings() },
-        onSendAnyway = { mute ->
-            // 「照发」= 立刻按原样发出去。静音勾选在这里才生效（它说的是"以后别再问"，
-            // 不是"这一发别发"）；[cacheWarnBypass] 是给同一发的重入许可
-            if (mute) cacheWarnMuted = true
-            mcpCacheWarn.dismissConfirm()
-            cacheWarnBypass = true
-            sendCurrentInput()
-        },
-        // 「等它」什么都不做：输入框里的原文一个字都没动过（闸提在清空之前）。
-        // 焦点还回输入框 —— 用户是打字打一半按的回车，别让他再点一下才能接着写
-        onWait = {
-            mcpCacheWarn.dismissConfirm()
-            input.requestFocusInWindow()
-        },
     )
+
+    /**
+     * 挂着的「MCP 还没连完」确认框（2026-10-14 选型台 B 案：居中模态）。
+     *
+     * 非空 = 有一发正被拦着问。同一时刻只该有一个 —— 连按两下回车时，第二下
+     * 在 [showCacheWarnConfirm] 口上被它挡住。
+     */
+    private var cacheWarnConfirm: McpCacheConfirmDialog? = null
 
     /** 最近一份 MCP 读数算出的提示状态与"值不值当"（见 `McpCacheWarn` 的两个纯函数）。 */
     private var cacheWarnState: CacheWarnState? = null
@@ -673,7 +666,7 @@ class ClaudePanel(
     /** 「本会话不再问」按过。会话级：新会话起手还回来。 */
     private var cacheWarnMuted = false
 
-    /** 「照发」那一下的重入许可：确认条按过之后，同一发不再被自己拦住。 */
+    /** 「照发」那一下的重入许可：确认框按过之后，同一发不再被自己拦住。 */
     private var cacheWarnBypass = false
 
     /**
@@ -1033,7 +1026,9 @@ class ClaudePanel(
         refreshEffortLabel()
         refreshScheduleButton()
         val composerToolbar =
-            buildComposerToolbar(attachButton, modelLabel, modeLabel, effortLabel, sendButton, scheduleButton)
+            buildComposerToolbar(
+                attachButton, modelLabel, modeLabel, effortLabel, sendButton, scheduleButton, mcpCacheBadge,
+            )
 
         // 五张卡先灌一次初值，否则它们是一排没有内容的空框
         refreshStatusCards()
@@ -1095,12 +1090,6 @@ class ClaudePanel(
             // **直接挂成子项**，不包一层：实测 BoxLayout 会跳过不可见的子项
             // （空队列时这一行的高度一分不占）
             add(queueStrip)
-            // 「MCP 还没连完 · 现在发送会亏缓存」那条带子（2026-10-13）：排在
-            // 排队条之下 —— 它说的是"此刻这一发"的事，离输入卡越近越好。
-            // 同样直接挂子项：不显示时一分高度不占。
-            // 与输入卡之间的 5px 气口**长在带子自己身上**（2026-10-13 用户报
-            // "和输入框粘在一起"）—— 挂在这儿的话，带子藏起来时那 5px 还占着
-            add(mcpCacheWarn.apply { alignmentX = LEFT_ALIGNMENT })
         }
 
         // 不再单独画顶边线：输入区现在是一张圆角卡片，它自己的上沿
@@ -1592,9 +1581,9 @@ class ClaudePanel(
                             // 先记本地：切标签回来时要拿它重新发布（见 [publishMcpStatus]）
                             lastMcpServers = report.servers
                             publishMcpStatus()
-                            // 输入框上方那条「还没连完」的带子跟着这份读数走
-                            // （2026-10-13）：**由状态驱动、不是事件**，落定/失败
-                            // 都会经由同一次调用收敛，不必各喊一声
+                            // 工具栏那颗「还没连完」的徽章跟着这份读数走
+                            // （2026-10-13 起就是这条口径）：**由状态驱动、不是事件**，
+                            // 落定/失败都会经由同一次调用收敛，不必各喊一声
                             updateMcpCacheWarn()
                             // 还在连的就隔一会儿再问：SDK 后台连的 MCP，第一份读数
                             // 多半是 pending，落定晚一拍才到 —— 不续问，设置页那行字
@@ -1636,13 +1625,13 @@ class ClaudePanel(
     }
 
     /**
-     * 把最近一份读数送进输入框上方那条带子（2026-10-13）。
+     * 把最近一份读数送进工具栏那颗徽章（2026-10-14；前身是输入框上方那条带子）。
      *
      * 两件事分开：**是什么状态**由 `cacheWarnStateOf` 算，**值不值当开口**由
      * `cacheWarnWorthwhile` 判（恢复的会话，或上下文已经长过门槛 —— 用户选定
      * 「仅恢复/长会话」）。上下文取 [lastUsage] 那一份现成读数，不再单独问一次。
      *
-     * 没读数时不硬塞：带子自己会退回"没有状态"的隐藏态。
+     * 没读数时不硬塞：徽章自己会退回"没有状态"的隐藏态。
      */
     private fun updateMcpCacheWarn() {
         val servers = lastMcpServers
@@ -1655,7 +1644,18 @@ class ClaudePanel(
             cacheWarnWorth = cacheWarnWorthwhile(state, sessionWasResumed, lastUsage?.usedTokens)
         }
         logMcpSettledOnce(cacheWarnState)
-        mcpCacheWarn.setState(cacheWarnState, cacheWarnWorth)
+        mcpCacheBadge.setState(cacheWarnState, cacheWarnWorth)
+        // 弹框开着（或还排在 showModal 那一拍里）而 MCP 先落定了：「这一发会亏」
+        // 已经是一句不成立的话 —— 静默收回（同旧带子确认态的自动收回）。
+        // 用户的输入本来就没动过，只是问题没了；焦点还回输入框
+        if (cacheWarnState !is CacheWarnState.Pending) {
+            val open = cacheWarnConfirm
+            if (open != null) {
+                open.closeSilently()
+                cacheWarnConfirm = null
+                input.requestFocusInWindow()
+            }
+        }
     }
 
     /**
@@ -3494,7 +3494,10 @@ class ClaudePanel(
         cacheWarnBypass = false
         cacheWarnState = null
         cacheWarnWorth = false
-        mcpCacheWarn.dismiss()
+        mcpCacheBadge.dismiss()
+        // 挂着的确认框一并收掉（会话都换了，"这一发会亏"这话不作数了）
+        cacheWarnConfirm?.closeSilently()
+        cacheWarnConfirm = null
         // 对账日志的起手时刻（见 logMcpSettledOnce）：一场一次
         mcpSettleStartMs = System.currentTimeMillis()
         mcpSettleLogged = false
@@ -4305,11 +4308,13 @@ class ClaudePanel(
                     }
                     // 续问也停：会话没了，再问回去也只是失败；下个会话起手会重开表
                     resetMcpSettle()
-                    // 那条「还没连完」的带子同理：会话都没了，"现在发送会亏"这话
+                    // 那颗「还没连完」的徽章同理：会话都没了，"现在发送会亏"这话
                     // 就不成立了 —— 留着它比空着更糟（它看起来是"当前"的）
                     cacheWarnState = null
                     cacheWarnWorth = false
-                    mcpCacheWarn.dismiss()
+                    mcpCacheBadge.dismiss()
+                    cacheWarnConfirm?.closeSilently()
+                    cacheWarnConfirm = null
                     // 反向那条线一样（会话没了就没人接动作了），但**不套上面那个
                     // 选中判断**：detach 认主人，不是自己挂的它自己会跳过 ——
                     // 后台标签的 Exit 不该把前台刚挂上的那条线抹掉
@@ -4973,20 +4978,63 @@ class ClaudePanel(
         // 纯图消息也能发（截一张图直接甩过来是常见用法），两样都没有才是空
         if (!hasComposerContent()) return
 
-        // 「MCP 还没连完」那一发先问一句（2026-10-13，D）。**闸必须提在这里** ——
-        // 下面几行一过，输入框与附件就都清空了，那时再拦就得反向还原。
+        // 「MCP 还没连完」那一发先拦下来弹框问一句（2026-10-13 起就有这道闸，
+        // 2026-10-14 起确认改成居中模态）。**闸必须提在这里** —— 下面几行一过，
+        // 输入框与附件就都清空了，那时再拦就得反向还原。
         //
         // 「照发」的重入许可只对**这一发**有效：读过即作废，任何一条早退都不会
         // 把它留到下一发（用户下一次按发送，该问的还是要问）
         val bypass = cacheWarnBypass
         cacheWarnBypass = false
         if (shouldConfirmCacheWarn(cacheWarnState, cacheWarnWorth, cacheWarnMuted, bypass)) {
-            mcpCacheWarn.showConfirm()
+            showCacheWarnConfirm()
             return
         }
 
         val payload = takeComposerPayload() ?: return
         submit(payload.text, payload.typed, payload.images)
+    }
+
+    /**
+     * 把这一发拦下来，弹居中确认框（2026-10-14 选型台 B 案，用户选定）。
+     *
+     * 闸（什么时候该拦）在 [shouldConfirmCacheWarn] 里判好，这里只管弹：
+     *  - **同一时刻只弹一个**：`cacheWarnConfirm` 非空直接返回 —— 用户连按两下
+     *    回车时，第二下走到这儿正好被它兜住（第一下已经把对话框建出来了，
+     *    哪怕 show 还排在下一拍）；
+     *  - **让出一拍再 show**（[showModal]，同权限框那条理由）：这条路上刚关掉
+     *    别的模态时立刻 show 会叠出嵌套模态；而那一拍里 MCP 可能先落定
+     *    （[updateMcpCacheWarn] 会把它判死），所以 show 之前再核一次
+     *    [McpCacheConfirmDialog.isDecided]。
+     *
+     * 「照发」「等它」两条出口的语义与旧带子的就地确认一字不差，只是搬了个家：
+     * 静音勾选在照发那一路才生效；等它什么都不做（输入原文未动），焦点还回输入框。
+     */
+    private fun showCacheWarnConfirm() {
+        if (cacheWarnConfirm != null) return
+        val names = (cacheWarnState as? CacheWarnState.Pending)?.names.orEmpty()
+        val dialog = McpCacheConfirmDialog(project, names) { decision ->
+            // 走到这儿框已经关了（McpCacheConfirmDialog.decide 的顺序）——
+            // 先摘牌，再办决定的事：照发那条路会立刻重入 sendCurrentInput
+            cacheWarnConfirm = null
+            when (decision) {
+                is CacheWarnDecision.SendAnyway -> {
+                    // 「照发」= 立刻按原样发出去。静音勾选在这里才生效（它说的是
+                    // "以后别再问"，不是"这一发别发"）；bypass 是给同一发的重入许可
+                    if (decision.mute) cacheWarnMuted = true
+                    cacheWarnBypass = true
+                    sendCurrentInput()
+                }
+
+                // 「等它」什么都不做：输入框里的原文一个字都没动过（闸提在清空之前）。
+                // 焦点还回输入框 —— 用户是打字打一半按的回车，别让他再点一下才能接着写
+                CacheWarnDecision.Wait -> input.requestFocusInWindow()
+            }
+        }
+        cacheWarnConfirm = dialog
+        showModal {
+            if (cacheWarnConfirm === dialog && !dialog.isDecided()) dialog.show()
+        }
     }
 
     /** 有没有东西可发/可定时：一句话，或者至少一张图（纯图消息两边都认）。 */
