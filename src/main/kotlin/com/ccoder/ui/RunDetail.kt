@@ -23,6 +23,8 @@ import java.awt.RenderingHints
 import java.awt.BasicStroke
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.geom.Area
+import java.awt.geom.RoundRectangle2D
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
@@ -56,14 +58,43 @@ internal class RoundedLineBorder(
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = colorProvider()
-            g2.stroke = if (dashed) {
+            if (dashed) {
                 val dash = JBUI.scale(3).toFloat()
-                BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 0f, floatArrayOf(dash, dash), 0f)
-            } else {
-                BasicStroke(1f)
+                g2.stroke = BasicStroke(
+                    1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 0f,
+                    floatArrayOf(dash, dash), 0f,
+                )
+                // 减 1：线宽 1 时画到 w 会有一半落在组件外，被裁掉
+                g2.drawRoundRect(x, y, w - 1, h - 1, arc, arc)
+                return
             }
-            // 减 1：线宽 1 时画到 w 会有一半落在组件外，被裁掉
-            g2.drawRoundRect(x, y, w - 1, h - 1, arc, arc)
+            // 实线走**填环**（外圆角矩减内圆角矩），不走描边 ——
+            // 2026-10-13 用户报「这个卡片的四个角弧度不统一」。根子是 Java2D 的
+            // 抗锯齿**描边**有方向偏差：镜像的几何光栅化出的覆盖率不是镜像的。
+            // 实测 arc=7、1px 线宽下，四角沿边覆盖率依次 1/44/83/99、
+            // 0/13/57/87、0/24/79/99、0/0/35/76 —— 弧在 3~5px 间各不相同，
+            // 这个半径下肉眼就是"有的角方、有的角圆"。换填充（面积覆盖）后，
+            // 100% / 125% / 150% 三种缩放下四角逐格相同，墨量差 0.00。
+            //
+            // 内环的弧同缩 2 而不是照抄 arc：弧半径是 arc/2，缩 2 才是同心 ——
+            // 带子在直边和 45° 角上都是 1px 等宽。外缘与同 arc 的 `fillRoundRect`
+            // 完全重合（StatusCardView 那对"底 + 边"因此更齐：旧描边比底胖 0.5px，
+            // 是那圈"底比边圆"毛刺的来源之一）。
+            val outer = RoundRectangle2D.Float(
+                x.toFloat(), y.toFloat(), w.toFloat(), h.toFloat(), arc.toFloat(), arc.toFloat(),
+            )
+            val ring = Area(outer)
+            if (w > 2 && h > 2) {
+                val innerArc = (arc - 2).coerceAtLeast(0).toFloat()
+                ring.subtract(
+                    Area(
+                        RoundRectangle2D.Float(
+                            x + 1f, y + 1f, w - 2f, h - 2f, innerArc, innerArc,
+                        ),
+                    ),
+                )
+            }
+            g2.fill(ring)
         } finally {
             g2.dispose()
         }
