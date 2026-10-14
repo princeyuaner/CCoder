@@ -342,6 +342,28 @@ tag 照例打在含 change-notes 的那棵树（`v0.2.38` → f887c3a），relea
 当天审核中（approve/listed=false，属正常）；change-notes 三条照旧（0.2.36 已上架、不并条）。
 推完 `git checkout v0.2.41-dev` + `stash pop`，工作区 `git diff` 哈希与推前一致。
 
+0.2.41 这版的发布链与绿数（2026-10-14；**按用户指示只发 GitHub release，不推插件
+市场**）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin | **2199 条全绿**（`test --rerun` 强制真跑，3m01s） |
+| sidecar | **274 条全绿** |
+| web | **377 条全绿**（25 个文件；首跑 1 条时序哨兵抖动，重跑全绿） |
+| `buildPlugin` | zip 9,439,361 字节；打包校验 `[verify] OK: manifest 5008 entries`；jar 里 plugin.xml 已是 0.2.41 且**不含**占位字样（`grep -c TODO` = 0） |
+| `verifyPlugin` | **本轮未跑**（用户要求提速；0.2.38 那三份兼容核查刚全过、本批改动都是 UI 内部代码 —— 要补跑随时 `./gradlew verifyPlugin`） |
+| `publishPlugin` | **未跑**（用户指示不推市场） |
+| GitHub release | `gh release create v0.2.41 --verify-tag …`，一次成功、自动 Latest；附件 9,439,361 字节；正文与 `docs/releases/0.2.41.md` 复核一致（API 回读） |
+
+tag 照例打在含 change-notes 的那棵树（`v0.2.41` → b967f39），release 正文那笔
+（4cf8d82）在 tag 之外。zip 的 sha256：
+`ae88a8f134102fc461953884d0fc0e37a6093e1eb1167dea2d6fef5af6fda0e0`。
+增量口径**六条**、按相对 **0.2.38** 的增量写（0.2.38 于 10-14 补推市场、当天在审
+未上架，正替 0.2.37 起的批次走进市场；0.2.36 仍是最近已上架版）：分隔条握把、
+模型弹层两栏、「本轮改动」卡限高、定时发送、opencode 额度 + DeepSeek 余额、
+卡片描边四角。**挂账**：若 0.2.38 未过审，推 0.2.41 上市场前要把它那三条并回
+（plugin.xml 注释与 change-notes 提交里都记了）。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
