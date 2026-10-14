@@ -160,39 +160,65 @@
     </ul>
     ]]></description>
 
-    <!-- 口径：**只写相对上一个已上架版本的增量**，中英各一份（§八）。
-         2026-10-13 开版（0.2.41）：复核结果是 **0.2.36 仍是最近一个已上架版**
-         （`updates?version=0.2.36`：id 1192692，`approve`/`listed` 都是 true）——
-         基线就是它；**0.2.37 / 0.2.38 / 0.2.39 / 0.2.40 都没上传**（四者
-         `updates?version=…` 均为空数组：0.2.37 只开版本、0.2.38 只发了 GitHub
-         release、0.2.39 打完包直接开的 0.2.40、0.2.40 按指示不推市场直接开的 0.2.41）。
-         写本版 change-notes 之前**先复核 0.2.40 传没传** —— 没传过的话，本版就把
-         0.2.37 起的整批一起端出去，按相对 **0.2.36** 的增量写：上一份**合并**清单
-         在 tag `v0.2.38` → f887c3a 的 plugin.xml 里（三条），0.2.39 那批（分隔条
-         握把，另见 3384fe4）、0.2.40 那批（模型弹层改两栏 f220dc9、「本轮改动」卡
-         展开限高 945db25）与 0.2.41 之后的新条目**接着并**（合并写法见发布
-         设计稿 §八，0.2.26→0.2.27 用过）。复核法见发布设计稿 §五。
+    <!-- 口径：**只写相对上一个已上传版本的增量**（正常时它就是"上一个已上架版"；
+         在审未上架的按 §八 处理 —— 先按增量写、没过审再补回来），中英各一份。
+         2026-10-14 写 0.2.41 的清单时复核：**0.2.36 仍是最近一个已上架版**
+         （id 1192692）；**0.2.38 于 2026-10-14 补推了市场**（id 1193332，当天
+         审核中、未上架）；0.2.37 / 0.2.39 / 0.2.40 没上传过（0.2.37 只开版本、
+         0.2.39 / 0.2.40 打完包直接开下一版）。基线因此取 **0.2.38** —— 它正替
+         这一批走进市场，本清单再从 0.2.36 起算就会重演 0.2.16 那次"上一版内容
+         躺在自己清单里"的坑。
+         **挂账**：若 0.2.38 最终未过审（0.2.26 有先例），将来把 0.2.41 推市场前，
+         要把 0.2.38 那三条并回本清单（合并写法见 §八，0.2.26→0.2.27 用过）。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
     <h3>0.2.41</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version. Check first whether 0.2.40 was ever uploaded (see the comment above;
-          as of 2026-10-13 it had not been pushed to the marketplace) &mdash; if it was
-          not, this note must also cover everything 0.2.38&ndash;0.2.40 would have
-          contained. The last merged list lives in git (tag v0.2.38 &rarr; f887c3a, plus
-          the 0.2.39 additions in 3384fe4 and the 0.2.40 additions in f220dc9 / 945db25);
-          do not copy it blindly.</li>
+      <li><b>A grip on the divider above the input</b> &mdash; the drag strip between the
+          transcript and the input card now carries a small always-visible handle that
+          lights up on hover, so you can tell it resizes without hunting for the edge.</li>
+      <li><b>The model picker is two columns now</b> &mdash; profiles on the left, the models of
+          the one you are browsing on the right. It drops from ~518px tall to ~180px and
+          no longer grows with model count. Clicking the left column only changes what
+          the right side shows; the dot still marks the profile you are on.</li>
+      <li><b>The "this turn's changes" card scrolls after five rows</b> &mdash; expanding it no
+          longer stretches the card down the transcript; the file list scrolls and the
+          roll-back bar stays pinned.</li>
+      <li><b>Scheduled send</b> &mdash; a clock button in the input toolbar: +30 / 60 / 120
+          minutes, or a time today. The message leaves the box and waits in the
+          transcript as a dashed bubble; at that time it presses Send for you (queues if
+          Claude is busy, starts a session if none is running). The &times; cancels it.</li>
+      <li><b>Usage reads two more accounts</b> &mdash; with an opencode profile selected, the
+          strip and the stats dialog show its Go quota (used share per window: 5h / week /
+          month, one bar each, with the reset time); with DeepSeek, the account balance
+          (granted and topped up, or an amber "unavailable"). The dialog also stops
+          stretching to full-screen width when a long model legend used to push it out
+          &mdash; the legend wraps now.</li>
+      <li><b>Card outlines no longer have mismatched corners</b> &mdash; the 1px rounded borders
+          on cards (settings, ask cards, the composer) were drawn with a stroke whose
+          anti-aliasing differed per corner; they are filled rings now, and all four
+          corners match.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.40
-          传没传（上面那条注释；2026-10-13 开版时未推市场）—— 没传过就得把 0.2.38 +
-          0.2.39 + 0.2.40 那批一起写上（按相对 0.2.36 的增量）。上一份合并清单在 git 里
-          （tag v0.2.38 &rarr; f887c3a，0.2.39 的增量见 3384fe4，0.2.40 的见 f220dc9 /
-          945db25），别照抄。</li>
+      <li><b>输入卡上方那条分隔条多了颗常驻握把</b> &mdash; 转写区与输入卡之间能上下拖的那条，
+          现在常驻一颗小短棒（悬停会亮），不用碰到才知道这里能拖。</li>
+      <li><b>模型弹层改两栏</b> &mdash; 左边列配置、右边只画你正在浏览那条的模型；弹层从
+          518px 高掉到 ~180px，不再随模型条数长高。点左栏只是换右边看什么，行尾小圆点
+          才是在用的那条。</li>
+      <li><b>「本轮改动」卡展开后最多露 5 行</b> &mdash; 再多在清单里滚，卡不再一路长高；
+          回滚的动作条钉在卡底、不跟着滚。</li>
+      <li><b>定时发送</b> &mdash; 输入卡工具栏多了颗时钟键：快捷 +30 / 60 / 120 分钟，或指定
+          今天几点。定下去消息就离开输入框、在转写区当一枚虚着的「待发气泡」；到点替你
+          按发送键（Claude 忙就排队、没会话先起一个）。点 &times; 取消。</li>
+      <li><b>使用量再接两家账</b> &mdash; 选中 opencode 配置时，常驻条与统计框显示它 Go 订阅
+          的三档额度（5 小时 / 周 / 月，每档一根进度条，给**已用**百分比和重置钟点）；
+          选中 DeepSeek 时显示账户余额（余额 + 赠额/充值，查不到时是琥珀「已不可用」）。
+          统计框也不再被长图例撑到满屏宽 —— 图例改折行了。</li>
+      <li><b>卡片描边的四个角不再"有的方有的圆"</b> &mdash; 设置卡、问询卡、输入卡这些的
+          1px 圆角描边受描边抗锯齿的方向偏差影响，四角墨量不一致；改画填环后四角一致。</li>
     </ul>
     ]]></change-notes>
 
