@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 interface Props {
-  /** 标题可以是节点：进行中的思考要在标题里放转圈和秒数。 */
+  /** 标题可以是节点：进行中的思考要在标题里放转圈和那一行内容。 */
   title: ReactNode
   /**
    * 初始形态 —— 而且**偏好变了要跟着复位**（见下面那条 effect）。

@@ -25,8 +25,9 @@ export function formatElapsed(ms: number): string | null {
  * 两者是同一时刻；而回放路径上的组件不会是 active，用不到它。这样还避开一个坑 ——
  * 回放时那些 ts 是回放那一刻，拿来相减会得到一个只反映推送节流的假耗时。
  *
- * 工具卡片的"进行中"与思考块的"思考中"共用它：两处要的是同一个东西 ——
- * 一个一直在走的秒数，用来回答"它是真的在动，还是卡住了"。
+ * 工具卡片的"进行中"用它：一个一直在走的秒数，用来回答"它是真的在动，还是
+ * 卡住了"。（思考块 2026-10-14 起不再摆秒数 —— 标题里换成了一行思考内容，
+ * 见 ThinkingBlock.tsx。）
  */
 export function useElapsed(active: boolean): string | null {
   const [mountedAt] = useState(() => Date.now())

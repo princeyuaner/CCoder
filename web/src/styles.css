@@ -758,15 +758,17 @@ body {
 
 /* ---- 进行中的思考（见 ThinkingBlock.tsx）----
  *
- * 收着的「▸ ⟳ 思考中 12s」。默认不铺文字的理由和完成态一样：思考逐字刷屏，
- * 决策价值低于正文；但"它在动"这件事必须让人看见 —— 实测 29% 的思考块
- * 跑过 5 秒，而在这之前屏幕是静止的。
+ * 收着的「▸ ⟳ 思考中 · 最后一行内容」。默认不铺文字的理由和完成态一样：思考
+ * 逐字刷屏，决策价值低于正文；但"它在动"这件事必须让人看见 —— 实测 29% 的
+ * 思考块跑过 5 秒，而在这之前屏幕是静止的。
+ * 2026-10-14（用户要求）：标题里的秒表换成**一行思考内容**（取正文最后一行，
+ * 模型新起一行就翻面）——"在想什么"比"过了多久"有用。
  */
 /*
- * 等待时这两样要**一眼看得见**（2026-09-15 用户报"转圈和秒数显示不明显"）。
+ * 等待时这些要**一眼看得见**（2026-09-15 用户报"转圈和秒数显示不明显"）。
  *
  * 旧的圈是 12px、1.5px 边，轨道用 --border —— 那几乎和背景同色，于是屏幕上
- * 只剩一小段很淡的弧在动；秒数是 10px 的 --text-dim，跟标题一个灰。
+ * 只剩一小段很淡的弧在动；那一行内容同理：继承来的 --text-dim 太淡。
  *
  * 只改 `.live-think__*`，**不动通用的 .spin**：工具卡片的转圈是同一个类，
  * 那边的观感没被投诉过。
@@ -779,13 +781,45 @@ body {
   border-top-color: var(--thinking-fg, #cfc8b8);
 }
 
-.live-think__time {
+/*
+ * 标题那一行内容（替代原来的 .live-think__time，见 ThinkingBlock.tsx）。
+ *
+ * ellipsis 的三件套缺一不可：标题层要能收缩（min-width:0）、这一行自己
+ * min-width:0 + overflow:hidden —— 差一个，窄面板上就是整行把标题顶出去。
+ * 分隔点走 ::before：span 里仍是模型原文，用例 getByText 拿到的就是那一行本身。
+ */
+.live-think .collapsible__title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 固定件**不许被压** —— 只有那一行内容可以缩。少了这两条，窄面板上
+   「思考中」先被挤成一列一个字（2026-10-14 在 280px 上实测到）。 */
+.live-think .collapsible__chevron,
+.live-think__spin,
+.live-think__label {
+  flex: 0 0 auto;
+}
+
+.live-think__label {
+  white-space: nowrap;
+}
+
+.live-think__peek {
   margin-left: 6px;
-  font-family: var(--font-mono, monospace);
-  font-size: calc(11px * var(--fs-scale, 1));
-  font-variant-numeric: tabular-nums;
-  /* 从标题继承来的 --text-dim 太淡，秒数也要看得见 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 与转圈同一色：这一行也是思考内容本身 */
   color: var(--thinking-fg, #cfc8b8);
+}
+
+.live-think__peek::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--text-dim, #8c8c8c);
 }
 
 .tool__body {

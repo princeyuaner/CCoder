@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LiveThinkingBlock, ThinkingBlock } from './ThinkingBlock'
@@ -18,16 +18,21 @@ beforeEach(() => {
  * 用户的原话是"看起来感觉像卡死了"。
  *
  * 2026-09-14 改：两个阶段都**默认展开**（用户要"流式输出"看得见）。
- * 转圈与秒数留着 —— 收起之后它们是唯一还在动的信号。
  *
- * 2026-09-21 加了「思考折叠」那个开关：上面那两条是**默认档**（不勾）的样子，
+ * 2026-10-14 改（用户要求）：标题里的**秒表换成一行思考内容**（正文最后一行，
+ * 流式新起一行就翻面）—— 收起之后，转圈与那一行接着当"它在动 / 在想什么"的信号。
+ *
+ * 2026-09-21 加了「思考折叠」那个开关：上面那几条是**默认档**（不勾）的样子，
  * 勾上之后两种块都收起 —— 见文件末那一组。
+ *
+ * 正文断言一律带 `selector: 'div.thinking-text'`：单行文本时标题里那一行与正文
+ * 同字，不带选择器会撞上两个元素。
  */
 describe('LiveThinkingBlock（进行中）', () => {
   it('默认展开：标题是「思考中」，正文直接看得见', () => {
-    render(<LiveThinkingBlock text="在想" />)
+    render(<LiveThinkingBlock text={'在想\n再往下想'} />)
     expect(screen.getByText('思考中')).toBeInTheDocument()
-    expect(screen.getByText('在想')).toBeInTheDocument()
+    expect(screen.getByText('在想 再往下想', { selector: 'div.thinking-text' })).toBeInTheDocument()
   })
 
   it('带一个转圈 —— 这是"它在动"的信号本身', () => {
@@ -35,35 +40,34 @@ describe('LiveThinkingBlock（进行中）', () => {
     expect(screen.getByTestId('thinking-spin')).toBeInTheDocument()
   })
 
-  it('不到一秒不显示秒数', () => {
-    render(<LiveThinkingBlock text="在想" />)
+  it('标题里是**最后一行**思考内容；秒数没有了', () => {
+    render(<LiveThinkingBlock text={'第一行\n最后想到的一句'} />)
+    expect(screen.getByTestId('thinking-peek')).toHaveTextContent('最后想到的一句')
     expect(screen.queryByTestId('thinking-elapsed')).not.toBeInTheDocument()
   })
 
-  it('跑满一秒后标题带秒数', () => {
-    vi.useFakeTimers()
-    try {
-      render(<LiveThinkingBlock text="在想" />)
-      act(() => {
-        vi.advanceTimersByTime(1000)
-      })
-      expect(screen.getByTestId('thinking-elapsed')).toHaveTextContent('1s')
-      act(() => {
-        vi.advanceTimersByTime(4000)
-      })
-      expect(screen.getByTestId('thinking-elapsed')).toHaveTextContent('5s')
-    } finally {
-      vi.useRealTimers()
-    }
+  it('流式里新起一行，标题那一行跟着翻面', () => {
+    const { rerender } = render(<LiveThinkingBlock text="甲" />)
+    expect(screen.getByTestId('thinking-peek')).toHaveTextContent('甲')
+
+    rerender(<LiveThinkingBlock text={'甲\n乙'} />)
+    expect(screen.getByTestId('thinking-peek')).toHaveTextContent('乙')
   })
 
-  it('点一下收起 —— 收起来之后只剩标题里那个转圈在动', async () => {
+  it('刚起手（空文本 / 只有空白）不摆那一行', () => {
+    render(<LiveThinkingBlock text={'\n  \n'} />)
+    expect(screen.queryByTestId('thinking-peek')).not.toBeInTheDocument()
+    expect(screen.getByText('思考中')).toBeInTheDocument()
+  })
+
+  it('点一下收起 —— 收起来之后转圈和那一行还在（"它在动"与"在想什么"都留在标题里）', async () => {
     render(<LiveThinkingBlock text="正在推敲这个方案" />)
-    expect(screen.getByText('正在推敲这个方案')).toBeInTheDocument()
+    expect(screen.getByText('正在推敲这个方案', { selector: 'div.thinking-text' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button'))
-    expect(screen.queryByText('正在推敲这个方案')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在推敲这个方案', { selector: 'div.thinking-text' })).not.toBeInTheDocument()
     expect(screen.getByTestId('thinking-spin')).toBeInTheDocument()
+    expect(screen.getByTestId('thinking-peek')).toHaveTextContent('正在推敲这个方案')
   })
 })
 
@@ -80,7 +84,7 @@ describe('ThinkingBlock（完成态）', () => {
 /**
  * 界面偏好（设置里那个「思考折叠」开关）。
  *
- * 上面那两条是**默认档**（不勾）的样子；这里测勾上之后的两种块，以及
+ * 上面那几条是**默认档**（不勾）的样子；这里测勾上之后的两种块，以及
  * **开关一改当场生效** —— 后者是 `Collapsible` 里那条复位 effect 的唯一守门人。
  */
 describe('界面偏好：思考折叠', () => {
@@ -99,13 +103,14 @@ describe('界面偏好：思考折叠', () => {
     expect(screen.queryByText('想完了')).not.toBeInTheDocument()
   })
 
-  it('勾上之后：进行中那块也收起 —— 但转圈还在（"它在想"不能丢）', () => {
+  it('勾上之后：进行中那块也收起 —— 但转圈和那一行还在（"它在想"不能丢）', () => {
     act(() => applyPrefs({ collapseThinking: true }))
     render(<LiveThinkingBlock text="在想" />)
 
     expect(screen.getByText('思考中')).toBeInTheDocument()
-    expect(screen.queryByText('在想')).not.toBeInTheDocument()
+    expect(screen.queryByText('在想', { selector: 'div.thinking-text' })).not.toBeInTheDocument()
     expect(screen.getByTestId('thinking-spin')).toBeInTheDocument()
+    expect(screen.getByTestId('thinking-peek')).toHaveTextContent('在想')
   })
 
   it('渲染之后改偏好，当场跟着收/展 —— Collapsible 那条 effect 的守门人', () => {

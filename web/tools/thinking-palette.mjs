@@ -198,14 +198,14 @@ function sample() {
     head('思考过程', 'true') +
     '<div class="collapsible__body"><div class="thinking-text">' + THINK_TEXT + '</div></div>' +
     '</div>' +
-    '<div class="collapsible">' +
+    '<div class="live-think"><div class="collapsible">' +
     head(
       '<span class="spin live-think__spin"></span><span>思考中</span>' +
-        '<span class="live-think__time">12s</span>',
+        '<span class="live-think__peek">看一下 UsageStrip 的渲染逻辑，先把三档口径钉死再动手</span>',
       'true',
     ) +
     '<div class="collapsible__body"><div class="thinking-text">' + LIVE_TEXT + '</div></div>' +
-    '</div>' +
+    '</div></div>' +
     '<div class="entry"><div class="row row--assistant">' +
     '<div class="bubble bubble--assistant"><div class="bubble__text">' + BODY_TEXT + '</div></div>' +
     '</div></div>' +
