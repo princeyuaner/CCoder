@@ -215,6 +215,16 @@ declare global {
        * 那一步在 i18n.ts 里，那里看得见。
        */
       locale?: string
+      /**
+       * 页面数到的 **Reset 代数**（2026-10-14）：`pushBatch` 每收一批就把批里的
+       * reset 数加上去（见 App.tsx）。Kotlin 的心跳脚本把它捎回 pong，与自己的
+       * "已发代数"对账 —— `/clear` 的清空那发被 JCEF 通道静默丢掉时能自愈
+       * （见 Kotlin 的 ResetLedger）。
+       *
+       * 老页面没有这个字段：心跳脚本里它是 `undefined`，`JSON.stringify` 会把
+       * 这个键整个省掉，Kotlin 读到 null 就整段跳过对账 —— 新旧混搭不会误报。
+       */
+      resets?: number
     }
     /**
      * 换主题（Kotlin 注入，参数是一份 CSS 文本）。

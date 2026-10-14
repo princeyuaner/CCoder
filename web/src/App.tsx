@@ -19,9 +19,21 @@ export function App() {
 
   useEffect(() => {
     window.ccoder = window.ccoder || {}
+    // Reset 代数的起点（2026-10-14）：每加载一页从 0 起，Kotlin 那边的基线
+    // 也在 ready 握手里重新对表（见 types.ts 的 resets 说明）。
+    window.ccoder.resets = 0
     window.ccoder.pushBatch = (json: string) => {
       try {
         const ops = parseOps(JSON.parse(json))
+        // Reset 代数的记账（2026-10-14）：Kotlin 拿它和"已发代数"对账，
+        // 清空那发被桥静默丢掉时由它触发补发（见 types.ts 的 resets 说明）。
+        // 数在 setState **之前**：这一批按约定一定会被 applyOps 应用（没有过滤），
+        // 而 setState 的更新函数什么时候跑是 React 的事，记在那里会晚一拍。
+        // 引用现取不缓存：桥对象理论上可能被整体换掉（测试里就是这么干的），
+        // 缓存一份就会写到一个心跳脚本读不到的对象上。
+        const resets = ops.filter((o) => o.op === 'reset').length
+        const bridge = window.ccoder
+        if (resets > 0 && bridge) bridge.resets = (bridge.resets ?? 0) + resets
         // 用函数式更新：节流器可能在一帧内推多批，直接读 state 会丢更新
         setState((prev) => applyOps(prev, ops))
       } catch (e) {

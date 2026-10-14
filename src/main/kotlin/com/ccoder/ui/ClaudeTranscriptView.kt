@@ -111,6 +111,24 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
     /** 心跳记账。CEF 线程回 pong、EDT 发 ping，所以它自己要管好并发。 */
     private val heartbeat = BridgeHeartbeat()
 
+    /**
+     * Reset 对账台账（2026-10-14，见 [ResetLedger]）。
+     *
+     * 为什么要有它：`executeJavaScript` 在通道瞬态上会被 `RpcExecutor` **静默丢掉**
+     * （不抛错、不留日志 —— 心跳那段的注释记着这条）。周期性的流式增量丢一拍没人
+     * 看得出来，而 `Reset`（/clear 的清空）**一发定状态**：丢了就永久不对，
+     * 用户看到的是"clear 之后输出区还挂着旧内容"（2026-10-14 用户报，紧跟在
+     * 一场 371 条回放之后 —— 同分钟里另一个没有回放压着的面板清得好好的）。
+     */
+    private val ledger = ResetLedger()
+
+    /** 最近一次 pong 里页面自报的"已应用 Reset 数"。null = 还没收到（或页面是老的、没有这个字段）。 */
+    @Volatile
+    private var pageResets: Int? = null
+
+    /** 上一拍对账的差额。**连看两拍**都落后才补发（见 [resyncIfBehind]）。只在 EDT 上读写。 */
+    private var lastBehind = 0
+
     /** 心跳定时器：teardown 时停掉，wire 时（前端 ready 后）再开。 */
     private var heartbeatTimer: javax.swing.Timer? = null
 
@@ -289,7 +307,36 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             LOG.warn("CCoder 转写视图：连着 ${BridgeHeartbeat.MISS_LIMIT} 拍没收到 pong，判定 JCEF 通道已断，转写区降级")
             teardown()
             showFallback(TranscriptFallback.Reason.ChannelLost)
+            return
         }
+
+        // 心跳还活着 —— 顺带做一次 Reset 对账（2026-10-14）
+        resyncIfBehind()
+    }
+
+    /**
+     * Reset 对账（2026-10-14）：页面报的代数落在已发代数后面，就**幂等补发**清空那对 op。
+     *
+     * 为什么必须连看两拍（[lastBehind]）：单拍的落后可能只是"刚推、还没应用"的在途
+     * （pong 是上一拍 ping 时生成的，天然晚一拍）。误补发的代价不小 —— 补的是一发
+     * `Reset`，会把这两拍之间刚到的回复一起抹掉。真丢的会一直落后，下一拍照样报。
+     *
+     * 补发**不走 [enqueueToPump]**（不进台账）：台账记的是"该数到的代数"，补发是
+     * 去把页面的差额补平，`expected - page` 每补一发自然少一（补发丢了就再补）。
+     * 幂等：`Reset` 清两次与清一次同效；配着的 `Fresh` 只是把引导卡补上。
+     */
+    private fun resyncIfBehind() {
+        val page = pageResets ?: return
+        val behind = ledger.behindBy(page)
+        if (behind > 0 && lastBehind > 0) {
+            val ops = ledger.resendOps()
+            LOG.warn(
+                "CCoder 转写视图：页面 Reset 代数落后（页面报 $page、应为 ${ledger.expected}），" +
+                    "补发 ${ops.size} 条 —— 大概率是那一发被通道瞬态静默丢掉了"
+            )
+            ops.forEach { pump?.enqueue(it) }
+        }
+        lastBehind = behind
     }
 
     /**
@@ -479,6 +526,16 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             beforeReady.add(op)
             return
         }
+        enqueueToPump(op)
+    }
+
+    /**
+     * 进泵的唯一口（2026-10-14）：**对账台账在这里记账** —— 记的是"真发给页面
+     * 的代数"，所以 ready 前挡在 [beforeReady] 里、或随后被 Reset 冲掉的那些
+     * （页面永远不会数到它们）不进账，页面报的数才对得上（见 [ResetLedger.behindBy]）。
+     */
+    private fun enqueueToPump(op: TranscriptOp) {
+        ledger.onPush(op)
         pump?.enqueue(op)
     }
 
@@ -632,7 +689,12 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
                 // 语言不推会先按基础语言画一帧；偏好不推则第一个思考块先展开再收起。
                 // 三条合成一个入口，顺序就在它的注释里（pushUiState）
                 pushUiState()
-                beforeReady.forEach { pump?.enqueue(it) }
+                // 对账基线**排在补推之前**：从这一刻起进泵的（下面这批 + 之后的）
+                // 才是这一页会数到的代数（见 [ResetLedger.onPageReady]）
+                ledger.onPageReady()
+                pageResets = null
+                lastBehind = 0
+                beforeReady.forEach { enqueueToPump(it) }
                 beforeReady.clear()
                 pump?.flushNow()
                 // 心跳从"页面回话了"这一刻起查。Swing Timer 只能在 EDT 上建，
@@ -641,8 +703,13 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
             }
 
             // 心跳回信：通道还活着的唯一凭据（见 [onHeartbeatTick] / [BridgeHeartbeat]）。
-            // 什么都不用记日志 —— 记了就是每 5 秒一条噪音
-            "pong" -> heartbeat.onPong()
+            // 什么都不用记日志 —— 记了就是每 5 秒一条噪音。
+            // 顺带捎回页面数到的 Reset 代数（2026-10-14 起的对账，见 [resyncIfBehind]）；
+            // 老页面没有这个字段 —— [pongResetsOf] 给 null，对账整段跳过
+            "pong" -> {
+                heartbeat.onPong()
+                pongResetsOf(obj)?.let { pageResets = it }
+            }
 
             // 看门狗探针的回报：前端没就绪时，这是唯一能看到的页面内部状态
             "pageState" -> LOG.warn("CCoder 转写视图：页面状态 $message")
@@ -743,9 +810,14 @@ class ClaudeTranscriptView(private val project: Project) : JPanel(BorderLayout()
          * 所以前端**一个字都不用改** —— `window.ccoder.send` 本来就在。
          * `&&` 链是必须的：页面正在重载的那一瞬 `window.ccoder` 可能还没挂上，
          * 直接调会抛，而我们只要"没回信"这个结果，不要异常。
+         *
+         * `resets` 是页面数到的 Reset 代数（见 [resyncIfBehind]）。老页面没这个字段时
+         * 它是 `undefined` —— `JSON.stringify` 会**整个键都不写**，对面读出来是 null，
+         * 对账整段跳过。所以新旧混搭（`-PskipWeb` 那种）不会误报。
          */
         private val PING_SCRIPT =
-            "window.ccoder && window.ccoder.send && window.ccoder.send(JSON.stringify({op:'pong'}));"
+            "window.ccoder && window.ccoder.send && window.ccoder.send(" +
+                "JSON.stringify({op:'pong', resets: window.ccoder.resets}));"
     }
 }
 
@@ -805,6 +877,88 @@ internal class BridgeHeartbeat(private val missLimit: Int = MISS_LIMIT) {
          */
         const val MISS_LIMIT = 2
     }
+}
+
+/**
+ * 从 pong 里读页面自报的"已应用 Reset 数"（2026-10-14）。
+ *
+ * 老页面没有这个字段（`undefined` 在 `JSON.stringify` 里整个键都不写），给 null ——
+ * 调用方据此**整段跳过对账**，不会把"读不到"当成"落后了"。
+ */
+internal fun pongResetsOf(obj: JsonObject): Int? =
+    obj.get("resets")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
+
+/**
+ * `Reset`（/clear 的清空）的对账台账（2026-10-14）。
+ *
+ * 原委：`Reset` 是**一发定状态**的 op，而到页面的那条路（`executeJavaScript` →
+ * `RpcExecutor`）在通道瞬态上会**静默丢单**（不抛错、不留日志 —— 见
+ * `onHeartbeatTick` 那段注释）。周期性的流式增量丢一拍没人看得出来，清空丢了却
+ * 永久不对 —— 用户报的"clear 之后输出区还挂着旧内容"就是它（2026-10-14，那一发
+ * 紧跟在一场 371 条回放之后）。
+ *
+ * 两侧各记一个数：
+ *  - 这里记**该到页面的代数**（[onPush]，只在真进泵的口上叫，见 `enqueueToPump`；
+ *    挡在 beforeReady 里又被 Reset 冲掉的那些页面永远数不到，不该进账）；
+ *  - 页面记**已应用的代数**（`pushBatch` 里数，随 pong 捎回）。
+ * 页面落后就补发 [resendOps]（幂等；补发**不走 [onPush]** —— 它是去补差额，
+ * 不是新的代数，`expected - page` 每补一发自然少一）。
+ * [onPageReady] 是对表时刻：基线落在补推**之前**，于是换页/重载后两边的起点重新对齐。
+ *
+ * 纯状态、不碰 Swing / JCEF："什么时候算落后、补发什么"在纯 JVM 里钉住
+ * （`ResetLedgerTest`）—— 与 [BridgeHeartbeat] 同一条规矩。
+ */
+internal class ResetLedger {
+
+    /** 一共进过泵的 Reset 数（单调）。 */
+    private var sent = 0
+
+    /** 本页的起点：页面上线那一刻，已发代数里它见不到的那部分。 */
+    private var baseline = 0
+
+    /** 这一页该数到的代数。 */
+    val expected: Int get() = sent - baseline
+
+    /** 落后多少（页面报的数对照 [expected]；不落后给 ≤ 0）。 */
+    fun behindBy(pageCount: Int): Int = expected - pageCount
+
+    /**
+     * 补发清单：最近一发 Reset（+ **紧跟着**的那发 Fresh，把引导卡补回来）。
+     *
+     * 配对只认"紧挨着"：隔了别的 op 再来的 Fresh 是新会话的引导卡，不是清空的
+     * 尾巴，拉进来配对就错了。
+     */
+    private var resend: List<TranscriptOp> = listOf(TranscriptOp.Reset)
+
+    /** Fresh 是不是紧跟在上一发 Reset 后面。 */
+    private var freshFollowsReset = false
+
+    /** 每一次进泵都叫它（穿过 `ClaudeTranscriptView.enqueueToPump`）。 */
+    fun onPush(op: TranscriptOp) {
+        when {
+            op is TranscriptOp.Reset -> {
+                sent++
+                resend = listOf(op)
+                freshFollowsReset = true
+            }
+
+            op is TranscriptOp.Fresh && freshFollowsReset -> {
+                resend = listOf(TranscriptOp.Reset, op)
+                freshFollowsReset = false
+            }
+
+            // 任何别的 op 都打断配对
+            else -> freshFollowsReset = false
+        }
+    }
+
+    /** 页面上线（ready）：基线落在**补推之前**（原委见类注释）。 */
+    fun onPageReady() {
+        baseline = sent
+    }
+
+    /** 补发那几发（调用方直接进泵）。 */
+    fun resendOps(): List<TranscriptOp> = resend
 }
 
 /**

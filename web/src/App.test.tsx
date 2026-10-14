@@ -115,6 +115,59 @@ describe('App 与 Kotlin 的桥握手', () => {
     spy.mockRestore()
   })
 
+  // ---- Reset 代数（对账）的调用约定 ----
+  //
+  // 与上下两段同一个道理：这个数**跨进程**（页面数它、Kotlin 的心跳脚本把它
+  // 捎回 pong 对账）。2026-10-14 用户报的「/clear 之后输出区没清空」就是这条链
+  // 断了：清空那发 op 被 JCEF 通道静默丢掉，页面没得数、Kotlin 也无从发现。
+  // 这里把"从 0 起、按批累计、坏批不数"钉住。
+
+  it('reset 代数：从 0 起、按批累计，别的 op 与坏批都不搅进来', async () => {
+    window.ccoder = { locale: 'zh' }
+    render(<App />)
+
+    // 页面一挂上就有这个数 —— 缺了会被心跳脚本当成"老页面"、跳过对账
+    expect(window.ccoder?.resets).toBe(0)
+
+    await act(async () => {
+      window.ccoder?.pushBatch?.(
+        JSON.stringify([
+          { op: 'append', item: { id: 'a', ts: 1, kind: 'user', text: '前情' } },
+          { op: 'reset' },
+        ]),
+      )
+    })
+    expect(window.ccoder?.resets).toBe(1)
+
+    // 一批里两个 reset 算两代（回放/切换那条路会连发）
+    await act(async () => {
+      window.ccoder?.pushBatch?.(
+        JSON.stringify([{ op: 'reset' }, { op: 'fresh' }, { op: 'reset' }]),
+      )
+    })
+    expect(window.ccoder?.resets).toBe(3)
+
+    // 坏批什么都没应用，不该计数
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await act(async () => {
+      window.ccoder?.pushBatch?.('不是 JSON' as string)
+    })
+    expect(window.ccoder?.resets).toBe(3)
+    spy.mockRestore()
+  })
+
+  it('重挂载 = 新一页：代数从 0 起（Kotlin 的基线也在 ready 握手里重新对表）', async () => {
+    const first = render(<App />)
+    await act(async () => {
+      window.ccoder?.pushBatch?.(JSON.stringify([{ op: 'reset' }]))
+    })
+    expect(window.ccoder?.resets).toBe(1)
+
+    first.unmount()
+    render(<App />)
+    expect(window.ccoder?.resets).toBe(0)
+  })
+
   // ---- 语言的调用约定 ----
   //
   // 与上面 pushBatch 那一段同一个道理：语言是**跨进程的约定**，两侧各自的
