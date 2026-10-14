@@ -14,6 +14,7 @@ import javax.imageio.ImageIO
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JPanel
+import javax.swing.JTextField
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
@@ -111,9 +112,27 @@ class SchedulePickerRenderProbe {
                 val c = popup.components[i]
                 lines += "  popup[$i] ${c.javaClass.simpleName} bounds=${c.bounds}"
             }
+            // 输入框自己的几何：2026-10-13 用户报"输入框太小"（文字 14:52 被裁成 14:!）。
+            // 当时量到的账：首选 41px = 字宽 35 + 边框内衬 6，而 Darcula 的边框把线
+            // 画在内衬里、可视框就是那 35px —— 恰好等于字宽，一分余量没有。这一格
+            // 专门盯它，下次动字体/列数/内衬，先看这里的三项对得上不对得上
+            findField(popup)?.let { f ->
+                lines += "field bounds=${f.bounds} pref=${f.preferredSize} min=${f.minimumSize}" +
+                    " columns=${f.columns} font=${f.font?.name}/${f.font?.size}" +
+                    " border=${f.border?.javaClass?.simpleName} insets=${f.insets}" +
+                    " textW=${f.getFontMetrics(f.font).stringWidth(f.text)}"
+            }
             File(path.replace(".png", ".txt")).writeText(lines.joinToString("\n") + "\n")
             write(outer, w, h, path)
         }
+    }
+
+    private fun findField(c: Container): JTextField? {
+        for (child in c.components) {
+            if (child is JTextField) return child
+            if (child is Container) findField(child)?.let { return it }
+        }
+        return null
     }
 
     private fun layoutAll(c: Container) {

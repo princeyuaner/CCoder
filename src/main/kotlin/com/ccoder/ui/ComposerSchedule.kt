@@ -24,6 +24,7 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JTextField
+import javax.swing.SwingConstants
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
@@ -262,8 +263,15 @@ internal fun buildSchedulePicker(
 
     // —— 卡二：指定今天时刻 ——
     val field = JTextField(clockText(nowMs + 30 * 60_000, now.zone)).apply {
-        columns = 5
+        // 9 列 ≈ 63px 内容宽，对齐设计稿 .m-field 的 min-width: 64px。
+        // **别退回 5 列**：5 列的内容宽恰好等于 "HH:MM" 的字宽（41px 首选 − 6px
+        // 边框内衬 = 35px = 五个等宽字），一分余量没有 —— 撇开"看着挤"，焦点
+        // 落在末尾时视图还要为光标挪一下，把开头的数字裁掉（2026-10-13 用户报：
+        // 框里只剩 ":08"；探针在未聚焦态也把 "14:52" 画成 "14:!"）
+        columns = 9
         font = timeFont()
+        // 这一格是"槽位"，不是贴着左边写的一行字 —— 设计稿里钟点居中
+        horizontalAlignment = SwingConstants.CENTER
     }
     val hint = hintLabel("")
     fun applyHint() {

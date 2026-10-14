@@ -5,16 +5,23 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
+import java.awt.Container
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import javax.swing.JTextField
 
 /**
  * 选时的几条纯函数。钉的是两件事：**认不认**（写法）与**收不收**（只收今天未来的）。
  *
  * 时间一律钉死在固定时区上（上海，无夏令时）—— 用系统时区的话，换个时区的机器
  * 上"跨零点"那条会各自算各自的，红起来全是噪音。
+ *
+ * 末了一条不是纯函数：输入框那一格的几何。外观问题本该靠探针出图看（见
+ * [SchedulePickerRenderProbe]），但那张图 2026-10-13 就摆在眼前，"14:52" 被裁成
+ * "14:!" 也没人看见 —— 所以这里补一条数字的，把"框要装得下自己的字"钉住。
  */
 class ComposerScheduleTest {
 
@@ -106,5 +113,30 @@ class ComposerScheduleTest {
         // 同一天里的 00:00 永远不晚于现在（最早也就恰好等于）——两个边界都收不了
         assertNull(resolveTodayFireAt(LocalTime.of(0, 0), at(0, 0)), "恰好午夜不算未来")
         assertNull(resolveTodayFireAt(LocalTime.of(0, 0), at(0, 1)))
+    }
+
+    @Test
+    fun `指定时刻的输入框：装得下 HH-MM 还要留出余量`() {
+        // 5 列那次，首选宽 41px − 6px 边框内衬 = 35px 内容宽，恰好等于 "14:52"
+        // 五个等宽字的字宽 —— 零余量，聚焦后光标把首字顶出可视区（用户见到的 ":08"）
+        val now = at(14, 22)
+        val picker = buildSchedulePicker(now, clockNow = { now }) {}
+        val field = findTextField(picker) ?: fail("弹层里得有一个输入框")
+
+        val fm = field.getFontMetrics(field.font)
+        val textW = fm.stringWidth(field.text)
+        val contentW = field.preferredSize.width - field.insets.left - field.insets.right
+        assertTrue(
+            contentW >= textW + fm.charWidth('0'),
+            "内容宽 $contentW 至少要装下 \"${field.text}\"（${textW}px）再留一个字的余量",
+        )
+    }
+
+    private fun findTextField(c: Container): JTextField? {
+        for (child in c.components) {
+            if (child is JTextField) return child
+            if (child is Container) findTextField(child)?.let { return it }
+        }
+        return null
     }
 }
