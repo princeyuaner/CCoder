@@ -334,6 +334,14 @@ tag 照例打在含 change-notes 的那棵树（`v0.2.38` → f887c3a），relea
 使用量常驻条与状态卡样式统一 —— 发版前复核 0.2.36 已上架（id 1192692）、
 `updates?version=0.2.37` 仍为空数组。
 
+**2026-10-14 补推市场**（用户指示）：0.2.38 当时只发 GitHub、没推市场，今天补上 ——
+`git stash -u` 暂存 0.2.41 的未提交改动 → checkout `v0.2.38` 那棵树 → `./gradlew --stop`
+→ `buildPlugin`（1m03s，`[verify] OK: manifest 5008 entries`）→ `publishPlugin`（31s，
+`signPlugin SKIPPED`）。**重建的 zip 与 GitHub 附件字节一致**（sha256 仍是 `c1b849d6…`，
+构建可复现 —— 市场拿到的就是同一个包）。回读 `updates?version=0.2.38` → id **1193332**，
+当天审核中（approve/listed=false，属正常）；change-notes 三条照旧（0.2.36 已上架、不并条）。
+推完 `git checkout v0.2.41-dev` + `stash pop`，工作区 `git diff` 哈希与推前一致。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
