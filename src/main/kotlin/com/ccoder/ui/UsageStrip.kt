@@ -151,12 +151,25 @@ internal class UsageStrip(private val onOpen: () -> Unit) : JComponent() {
 }
 
 /**
- * 常驻条中间那串字："今日 123M · ≈$12.4 · 实扣¥8.30"。
- * 估算与实扣**各自缺席时省掉自己那截**（没成本数据 = 今天没会话；没账单 = 非 dmx / 没查到）。
+ * 常驻条中间那串字："今日 123M · ≈$12.4 · 实扣¥8.30 · 5h 12% · 周 4% · 月 2% · 余额 ¥110.00"。
+ * 估算、实扣、额度、余额**各自缺席时省掉自己那截**（没成本数据 = 今天没会话；
+ * 没账单 = 非 dmx / 没查到；没额度 = 非 opencode / 没查到；没余额 = 非 deepseek 官方 / 没查到）。
  */
 internal fun usageStripText(d: UsageStripData): String {
     val parts = mutableListOf(CcoderText.text("usage.strip.today", formatTokenCount(d.todayTokens)))
     d.todayCost?.let { parts += CcoderText.text("usage.strip.cost", "$" + formatUsageCost(it)) }
     d.todayBillYuan?.let { parts += CcoderText.text("usage.strip.bill", formatBillYuan(it)) }
+    d.opencodeQuota?.let { parts += quotaStripText(it) }
+    d.deepseekBalance?.let {
+        parts += CcoderText.text("usage.strip.balance", formatBalanceAmount(it.currency, it.total))
+    }
     return parts.joinToString(" · ")
 }
+
+/**
+ * 额度段："5h 12% · 周 4% · 月 2%"（2026-10-13 用户选的口径：三档全上、**已用**百分比）。
+ * 档名走词表短名、数字在代码里排；缺档跳过（接口没给的那档不编）。重置时间不上条
+ * —— 条上只要"离满多远"，钟点留给统计框。
+ */
+internal fun quotaStripText(q: OpencodeQuota): String =
+    q.windows.joinToString(" · ") { w -> quotaShortLabel(w.kind) + " " + formatQuotaPercent(w.percent) }

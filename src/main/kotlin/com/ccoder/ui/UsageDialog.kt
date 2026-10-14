@@ -56,6 +56,8 @@ internal class UsageDialog(
     initialScope: String,
     initialRows: List<UsageDay>,
     initialBill: UsageBill? = null,
+    initialQuota: OpencodeQuota? = null,
+    initialBalance: DeepseekBalance? = null,
     private val onScopeChange: (String) -> Unit,
     private val onRefreshBill: () -> Unit = {},
     private val onClosed: () -> Unit = {},
@@ -67,6 +69,12 @@ internal class UsageDialog(
 
     /** 最近一次账单（方案 A 的对账条）。null = 非 dmx / 还没查到 —— 那条整条不出现。 */
     private var bill: UsageBill? = initialBill
+
+    /** 最近一次 opencode 额度（三档窗口的进度条）。null = 非 opencode / 没查到 —— 同账单条。 */
+    private var quota: OpencodeQuota? = initialQuota
+
+    /** 最近一次 deepseek 余额（一行数字）。null = 非 deepseek 官方 / 没查到 —— 同账单条。 */
+    private var balance: DeepseekBalance? = initialBalance
     private var gran: UsageGran = UsageGran.Day
 
     private val holder = JPanel(BorderLayout()).apply {
@@ -113,6 +121,18 @@ internal class UsageDialog(
     /** 面板拿到新账单（成败都走）后送进来；null = 清掉（非 dmx / 换了配置）。 */
     fun updateBill(bill: UsageBill?) {
         this.bill = bill
+        rebuild()
+    }
+
+    /** 面板拿到新额度（成败都走）后送进来；null = 清掉（非 opencode / 换了配置）。 */
+    fun updateQuota(quota: OpencodeQuota?) {
+        this.quota = quota
+        rebuild()
+    }
+
+    /** 面板拿到新余额（成败都走）后送进来；null = 清掉（非 deepseek 官方 / 换了配置）。 */
+    fun updateBalance(balance: DeepseekBalance?) {
+        this.balance = balance
         rebuild()
     }
 
@@ -178,6 +198,8 @@ internal class UsageDialog(
                     onScopeChange(s)
                 },
                 bill = bill,
+                quota = quota,
+                balance = balance,
                 onRefreshBill = onRefreshBill,
             ),
             BorderLayout.CENTER,
@@ -196,8 +218,14 @@ internal class UsageDialog(
 // 拆成 top-level 纯摆放（单测直接调 buildUsagePanel —— 同 buildContextDetailPanel），
 // 顺带让渲染探针够得着。
 
-/** 正文宽度。比现有弹窗（CARD_WIDTH=420）宽一档 —— 图表要地方（选型台里定下的）。 */
-internal val USAGE_DIALOG_WIDTH = JBUI.scale(620)
+/**
+ * 正文宽度。比现有弹窗（CARD_WIDTH=420）宽一档 —— 图表要地方（选型台里定下的）。
+ *
+ * 2026-10-13 从 620 调到 780：用户实况十来个模型，620 里脚注/图例开始贴边；
+ * 780 也正好是**用户看到"顶到屏幕"那一版的一半**（内容被图例撑爆后自己的表现）。
+ * 图例折行的可用宽按它减左右内边距算（见 [legendRows]）。
+ */
+internal val USAGE_DIALOG_WIDTH = JBUI.scale(780)
 
 /**
  * 统计框的正文。[today] 可注入 —— 画的是"近 30 天"这种相对窗口，探针得钉死。
@@ -211,6 +239,10 @@ internal fun buildUsagePanel(
     onPickScope: (String) -> Unit,
     /** 方案 A 的账单；null = 非 dmx / 没查到 —— 对账条整条不出现（"退回今天的样子"）。 */
     bill: UsageBill? = null,
+    /** opencode 额度（2026-10-13）；null = 非 opencode / 没查到 —— 与账单条同一条路，整条不出现。 */
+    quota: OpencodeQuota? = null,
+    /** DeepSeek 余额（2026-10-13）；null = 非 deepseek 官方 / 没查到 —— 同一条路。 */
+    balance: DeepseekBalance? = null,
     onRefreshBill: () -> Unit = {},
 ): JComponent {
     val palette = usagePaletteFor(UIUtil.getPanelBackground())
@@ -295,6 +327,18 @@ internal fun buildUsagePanel(
         box.add(Box.createVerticalStrut(JBUI.scale(10)))
     }
 
+    // ---- opencode 额度条（2026-10-13）：三档窗口各一根进度条；与账单条互斥 ----
+    if (quota != null) {
+        box.add(quotaPanel(quota, onRefreshBill, palette, accentText).stretchWidth())
+        box.add(Box.createVerticalStrut(JBUI.scale(10)))
+    }
+
+    // ---- DeepSeek 余额条（2026-10-13）：一行数字；三家互斥 ----
+    if (balance != null) {
+        box.add(balancePanel(balance, onRefreshBill, palette).stretchWidth())
+        box.add(Box.createVerticalStrut(JBUI.scale(10)))
+    }
+
     // ---- 主序列（图 + 图例 + 表共用同一份顺序与配色）----
     val buckets = usageBuckets(rows, gran, today)
     val modelNames = usageModelsOrdered(rows)
@@ -334,13 +378,15 @@ internal fun buildUsagePanel(
 
     if (modelNames.isNotEmpty()) {
         val perModel = usageTotalsByModel(buckets)
-        box.add(legendRow(modelNames, colors, perModel).stretchWidth())
+        box.add(
+            legendRows(modelNames, colors, perModel, USAGE_DIALOG_WIDTH - JBUI.scale(28)).stretchWidth()
+        )
         box.add(Box.createVerticalStrut(JBUI.scale(8)))
         box.add(modelTable(modelNames, perModel, colors, palette).stretchWidth())
     }
 
     box.add(Box.createVerticalStrut(JBUI.scale(8)))
-    box.add(footNote(bill).stretchWidth())
+    box.add(footNote(bill, quota, balance).stretchWidth())
 
     box.preferredSize = Dimension(USAGE_DIALOG_WIDTH, box.preferredSize.height)
     return box
@@ -369,13 +415,21 @@ private fun dimText(text: String, font: Font = labelFont().deriveFont(labelFont(
     }
 
 /**
- * 口径脚注。有账单时换成「实扣为 X 令牌账」那版 —— 两个数并排出现的地方，
- * 口径就必须写在离数字最近的地方（不是只在选型台上写清）。
+ * 口径脚注。有账单 / 额度 / 余额条时换成对应那版 —— 两个数并排出现的地方，
+ * 口径就必须写在离数字最近的地方（不是只在选型台上写清）。三句互斥。
  */
-private fun footNote(bill: UsageBill?): JComponent =
+private fun footNote(
+    bill: UsageBill?,
+    quota: OpencodeQuota? = null,
+    balance: DeepseekBalance? = null,
+): JComponent =
     dimText(
-        if (bill == null) CcoderText.text("usage.foot")
-        else CcoderText.text("usage.foot.bill", bill.provider),
+        when {
+            bill != null -> CcoderText.text("usage.foot.bill", bill.provider)
+            quota != null -> CcoderText.text("usage.foot.quota", OPENCODE_PROVIDER_NAME)
+            balance != null -> CcoderText.text("usage.foot.balance", DEEPSEEK_PROVIDER_NAME)
+            else -> CcoderText.text("usage.foot")
+        },
         labelFont().deriveFont(labelFont().size2D - 2f),
     )
 
@@ -405,7 +459,7 @@ private fun billPanel(bill: UsageBill, onRefresh: () -> Unit, palette: UsagePale
     line1.add(Box.createHorizontalGlue())
     line1.add(dimText(CcoderText.text("usage.bill.updated", formatBillTime(bill.fetchedAt))))
     line1.add(Box.createHorizontalStrut(JBUI.scale(6)))
-    line1.add(refreshLabel(onRefresh))
+    line1.add(refreshLabel(onRefresh, CcoderText.text("usage.bill.refresh")))
     box.add(line1.stretchWidth())
 
     val tokens = CcoderText.text(
@@ -417,6 +471,152 @@ private fun billPanel(bill: UsageBill, onRefresh: () -> Unit, palette: UsagePale
     box.add(
         dimText(
             CcoderText.text("usage.bill.source", bill.provider) + " · " + tokens,
+            labelFont().deriveFont(labelFont().size2D - 2f),
+        ).stretchWidth()
+    )
+    return box
+}
+
+/**
+ * opencode 额度条（2026-10-13）：三档窗口各一根进度条，行尾「已用% · 20:46 重置」。
+ * 与账单条**同款虚线框**（都是「对账层」每回合重查的东西），互斥出现（一条配置只
+ * 命中一家）；↻ 与账单共用同一个强制重查回调 —— 对话框自己不碰网络。
+ */
+private fun quotaPanel(
+    quota: OpencodeQuota,
+    onRefresh: () -> Unit,
+    palette: UsagePalette,
+    /** 正常档的条色：与图里第一支模型色同一支（[accentTextFor]）—— 选中底色太淡，当条看不见。 */
+    barAccent: Color,
+): JComponent {
+    val accent = UIUtil.getTreeSelectionBackground(true)
+    val box = DashPanel(mix(palette.bg, accent, 0.09), accent).apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(5, 10, 6, 10)
+    }
+    val track = mix(palette.bg, palette.border, 0.45)
+    val smallFont = labelFont().deriveFont(labelFont().size2D - 2f)
+
+    // 行首、行尾都先各自量一遍：三行共用同一列宽，条才会起止对齐
+    val labels = quota.windows.map { JLabel(quotaWindowLabel(it.kind)).apply { font = labelFont() } }
+    val tails = quota.windows.map { w ->
+        JLabel(quotaTailText(w)).apply {
+            font = smallFont
+            foreground = UIUtil.getInactiveTextColor()
+            horizontalAlignment = SwingConstants.RIGHT
+        }
+    }
+    val labelW = labels.maxOf { it.preferredSize.width }
+    val tailW = tails.maxOf { it.preferredSize.width }
+
+    quota.windows.forEachIndexed { i, w ->
+        labels[i].preferredSize = Dimension(labelW, labels[i].preferredSize.height)
+        tails[i].preferredSize = Dimension(tailW, tails[i].preferredSize.height)
+        box.add(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(labels[i], BorderLayout.WEST)
+                // 细条自己垂直居中：给个带上下留白的外壳（5px 的条直接贴行边看不见）
+                add(
+                    JPanel(BorderLayout()).apply {
+                        isOpaque = false
+                        border = JBUI.Borders.empty(4, 8)
+                        add(
+                            UsageShareBar(
+                                quotaBarColor(w.percent, barAccent),
+                                (w.percent / 100.0).coerceIn(0.0, 1.0),
+                                track,
+                            ),
+                            BorderLayout.CENTER,
+                        )
+                    },
+                    BorderLayout.CENTER,
+                )
+                add(tails[i], BorderLayout.EAST)
+            }.stretchWidth()
+        )
+    }
+
+    val line = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
+        isOpaque = false
+    }
+    line.add(dimText(CcoderText.text("usage.quota.source", OPENCODE_PROVIDER_NAME), smallFont))
+    line.add(Box.createHorizontalGlue())
+    line.add(dimText(CcoderText.text("usage.quota.updated", formatBillTime(quota.fetchedAt)), smallFont))
+    line.add(Box.createHorizontalStrut(JBUI.scale(6)))
+    line.add(refreshLabel(onRefresh, CcoderText.text("usage.quota.refresh")))
+    box.add(Box.createVerticalStrut(JBUI.scale(4)))
+    box.add(line.stretchWidth())
+    return box
+}
+
+/** 一档的行尾读数："12% · 20:46 重置"；限流补「已限流」，没有重置时间就不写那截。 */
+private fun quotaTailText(w: QuotaWindow): String {
+    val sb = StringBuilder(formatQuotaPercent(w.percent))
+    if (w.rateLimited) sb.append(" · ").append(CcoderText.text("usage.quota.rateLimited"))
+    w.resetsAt?.let { sb.append(" · ").append(CcoderText.text("usage.quota.reset", formatQuotaReset(it))) }
+    return sb.toString()
+}
+
+/**
+ * 进度条的颜色：正常走强调**文字**色（选中底色那支当条太淡，浅色下与轨道糊成一片）；**70% 起琥珀、
+ * 90% 起红** —— 沿用状态卡水位那条比例条同一支颜色与同一套门槛
+ *（[warningColor] / [dangerColor]），不另立标准。
+ */
+private fun quotaBarColor(percent: Double, normal: Color): Color = when {
+    percent >= 90 -> dangerColor()
+    percent >= 70 -> warningColor()
+    else -> normal
+}
+
+/**
+ * DeepSeek 余额条（2026-10-13）：一行「余额 ¥110.00 · 赠额 ¥10.00 · 充值 ¥100.00」+
+ * 右上「更新 hh:mm ↻」；余额不够用时缀「已不可用」（琥珀 —— 是提醒不是报错）。
+ * 与前两家同款虚线框，三家互斥出现。
+ */
+private fun balancePanel(balance: DeepseekBalance, onRefresh: () -> Unit, palette: UsagePalette): JComponent {
+    val accent = UIUtil.getTreeSelectionBackground(true)
+    val box = DashPanel(mix(palette.bg, accent, 0.09), accent).apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(5, 10, 6, 10)
+    }
+    val line1 = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
+        isOpaque = false
+    }
+    line1.add(
+        JLabel(
+            CcoderText.text("usage.balance.total", formatBalanceAmount(balance.currency, balance.total))
+        ).apply { font = labelFont() }
+    )
+    line1.add(dimText(" · "))
+    line1.add(
+        dimText(
+            CcoderText.text(
+                "usage.balance.parts",
+                formatBalanceAmount(balance.currency, balance.granted),
+                formatBalanceAmount(balance.currency, balance.toppedUp),
+            )
+        )
+    )
+    if (!balance.available) {
+        line1.add(dimText(" · "))
+        line1.add(
+            JLabel(CcoderText.text("usage.balance.unavailable")).apply {
+                font = labelFont()
+                foreground = warningColor()
+            }
+        )
+    }
+    line1.add(Box.createHorizontalGlue())
+    line1.add(dimText(CcoderText.text("usage.balance.updated", formatBillTime(balance.fetchedAt))))
+    line1.add(Box.createHorizontalStrut(JBUI.scale(6)))
+    line1.add(refreshLabel(onRefresh, CcoderText.text("usage.balance.refresh")))
+    box.add(line1.stretchWidth())
+    box.add(
+        dimText(
+            CcoderText.text("usage.balance.source", DEEPSEEK_PROVIDER_NAME),
             labelFont().deriveFont(labelFont().size2D - 2f),
         ).stretchWidth()
     )
@@ -449,9 +649,12 @@ private class DashPanel(private val fill: Color, private val line: Color) : JPan
     }
 }
 
-/** 条上的 ↻：点一下强制重查。**对话框自己不碰网络**（同全框的取舍）—— 走面板的回调。 */
-private fun refreshLabel(onRefresh: () -> Unit): JComponent = JLabel("↻").apply {
-    toolTipText = CcoderText.text("usage.bill.refresh")
+/**
+ * 条上的 ↻：点一下强制重查。**对话框自己不碰网络**（同全框的取舍）—— 走面板的回调。
+ * [tooltip] 由调用方解好（账单条/额度条各说各的）—— 这里接的是解好的字，不是键。
+ */
+private fun refreshLabel(onRefresh: () -> Unit, tooltip: String): JComponent = JLabel("↻").apply {
+    toolTipText = tooltip
     foreground = UIUtil.getInactiveTextColor()
     font = labelFont()
     cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -543,20 +746,56 @@ private fun dot(c: Color): JComponent = object : JComponent() {
     }
 }
 
-private fun legendRow(
+/**
+ * 图例：每模型一条「● 名字 总量」。**多模型要折行**（2026-10-13 用户报「框太宽」）——
+ * 第一版是一条不换行的 X 排，13 个长名模型把内容**最小宽**撑到 2358px，弹窗在
+ * Windows 上被顶到近满屏（探针实测；表格是好的，名字列本来就钳死 170）。
+ *
+ * 按 [maxWidth] 贪婪折行：放不下就换行、**行内互不拆条**；单条比 [maxWidth] 还宽
+ * 的（超长名）自成一行的溢出留给窗口，不在这里做省略号 —— 名字要能读全。
+ * 折行按构建时的设计宽算；用户把窗口拖宽不会重排（下次 rebuild 会）。
+ */
+private fun legendRows(
     models: List<String>,
     colors: Map<String, Color>,
     totals: Map<String, UsageModelTokens>,
-): JComponent = JPanel().apply {
-    layout = BoxLayout(this, BoxLayout.X_AXIS)
-    isOpaque = false
-    models.forEachIndexed { i, m ->
-        if (i > 0) add(Box.createHorizontalStrut(JBUI.scale(14)))
-        add(dot(colors[m] ?: Color.GRAY))
-        add(Box.createHorizontalStrut(JBUI.scale(5)))
-        add(dimText("$m ${formatTokenCount(totals[m]?.total() ?: 0L)}"))
+    maxWidth: Int,
+): JComponent {
+    val entryFont = labelFont().deriveFont(labelFont().size2D - 1f) // dimText 的默认字号
+    val fm = JLabel().apply { font = entryFont }.getFontMetrics(entryFont)
+    val dotW = JBUI.scale(8)
+    val inner = JBUI.scale(5)
+    val gap = JBUI.scale(14)
+    val col = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
     }
-    add(Box.createHorizontalGlue())
+    var row: JPanel? = null
+    var used = 0
+    fun flush() {
+        row?.let { col.add(it.stretchWidth()) }
+    }
+    for (m in models) {
+        val text = "$m ${formatTokenCount(totals[m]?.total() ?: 0L)}"
+        val w = dotW + inner + fm.stringWidth(text)
+        if (row == null || used + gap + w > maxWidth) {
+            flush()
+            row = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                isOpaque = false
+            }
+            used = 0
+        } else {
+            row!!.add(Box.createHorizontalStrut(gap))
+            used += gap
+        }
+        row!!.add(dot(colors[m] ?: Color.GRAY))
+        row!!.add(Box.createHorizontalStrut(inner))
+        row!!.add(dimText(text))
+        used += w
+    }
+    flush()
+    return col
 }
 
 private fun modelTable(
@@ -593,6 +832,8 @@ private fun modelTable(
                 name = JLabel(m).apply {
                     font = labelFont()
                     alignmentX = Component.LEFT_ALIGNMENT
+                    // 比列宽还长的（极长的别名）：列里裁，悬停给全名
+                    toolTipText = m
                 },
                 share = (colors[m] ?: Color.GRAY) to (t.total().toDouble() / grand),
                 numbers = listOf(
@@ -609,7 +850,9 @@ private fun modelTable(
     return col
 }
 
-private const val NAME_W = 170
+// 170 → 200（2026-10-13）：用户那批名字最长到 "deepseek-v4-flash-vision-exp"，
+// 170 会被裁掉尾巴；极长的仍裁，全名挂 tooltip（见 modelTable 的行）。
+private const val NAME_W = 200
 private const val SHARE_W = 46
 private const val TOKENS_W = 80
 private const val CACHE_W = 80

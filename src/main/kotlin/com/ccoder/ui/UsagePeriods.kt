@@ -5,8 +5,11 @@ import com.ccoder.sidecar.UsageModelTokens
 import com.ccoder.text.CcoderText
 import java.awt.Color
 import java.time.DayOfWeek
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.util.Locale
 
 /**
@@ -53,6 +56,21 @@ internal data class UsageStripData(
      * 这个是"本令牌 · 全来源"的账 —— 界面上并排放是为了对账，别把两个数并成一个。
      */
     val todayBillYuan: Double? = null,
+    /**
+     * opencode Go 的三档额度（已用百分比，2026-10-13 加）。null = 没选 opencode 配置 /
+     * 没查到 —— 条上不出现那段。与 [todayBillYuan] **互斥**（一条配置只可能命中一家）。
+     *
+     * 口径与估算的 todayTokens 也不是一回事：那是"本项目"的量，这是**本账号**三档
+     * 窗口各自的已用比例 —— 并排是为了对账，别把两个数并成一个。
+     */
+    val opencodeQuota: OpencodeQuota? = null,
+    /**
+     * DeepSeek 官方账号余额（2026-10-13 加）。null = 非 deepseek 官方配置 / 没查到
+     * —— 条上不出现那段。与另外两家**互斥**（一条配置只命中一家）。
+     *
+     * 口径：账户里还剩多少钱（含赠金）—— 与"本项目估的量""本令牌的实扣"都不是一回事。
+     */
+    val deepseekBalance: DeepseekBalance? = null,
 )
 
 internal fun UsageModelTokens.total(): Long = inp + out + cacheRead + cacheWrite
@@ -225,9 +243,61 @@ internal fun formatUsageCost(v: Double): String =
 /** 真实金额（元）：两位小数、ROOT locale —— 站点自己也这么显（`toFixed(2)`）。 */
 internal fun formatBillYuan(v: Double): String = "¥" + String.format(Locale.ROOT, "%.2f", v)
 
+/** 余额金额：按币种给符号（CNY→¥、USD→$）；认不出的币种把代码缀在后面（不再猜符号）。 */
+internal fun formatBalanceAmount(currency: String, v: Double): String {
+    val amount = String.format(Locale.ROOT, "%.2f", v)
+    return when (currency.uppercase(Locale.ROOT)) {
+        "CNY" -> "¥$amount"
+        "USD" -> "\$$amount"
+        else -> "$amount $currency".trim()
+    }
+}
+
 /** 账单更新时间（HH:mm），对账条右上角那颗「更新 …」用。 */
 internal fun formatBillTime(t: LocalTime): String =
     String.format(Locale.ROOT, "%02d:%02d", t.hour, t.minute)
+
+/**
+ * 已用百分比（整数 + `%`）：12.4 → "12%"。**取整**——三档并排时小数点只是噪音，
+ * 真正看的是"离满还有多远"。
+ */
+internal fun formatQuotaPercent(p: Double): String = "${Math.round(p).toInt()}%"
+
+/**
+ * 额度重置时刻 → 本机时间串：**来得及就说钟点**（"20:46"），超过一天带上日子（"10/19 08:00"）。
+ *
+ * [now] / [zone] 可注入 —— 用例里的"现在"是钉死的。时刻已过（小时数为负）也走钟点形，
+ * 那是站点给了个过去的点，不值得为它多一行分支。
+ */
+internal fun formatQuotaReset(
+    at: Instant,
+    now: Instant = Instant.now(),
+    zone: ZoneId = ZoneId.systemDefault(),
+): String {
+    val t = at.atZone(zone)
+    return if (Duration.between(now, at).toHours() in 0..23) {
+        String.format(Locale.ROOT, "%02d:%02d", t.hour, t.minute)
+    } else {
+        String.format(Locale.ROOT, "%d/%d %02d:%02d", t.monthValue, t.dayOfMonth, t.hour, t.minute)
+    }
+}
+
+/**
+ * 额度档的长名（统计框那三行的行首）。三分支**直写 `CcoderText.text("…")` 字面调用**
+ * —— 词表扫描（TextKeysTest）只认这种，包一层变量它就看不见了。
+ */
+internal fun quotaWindowLabel(kind: QuotaWindowKind): String = when (kind) {
+    QuotaWindowKind.Rolling -> CcoderText.text("usage.quota.window.rolling")
+    QuotaWindowKind.Weekly -> CcoderText.text("usage.quota.window.weekly")
+    QuotaWindowKind.Monthly -> CcoderText.text("usage.quota.window.monthly")
+}
+
+/** 额度档的短名（常驻条那三段："5h 12% · 周 4% · 月 2%"）。同上，字面调用。 */
+internal fun quotaShortLabel(kind: QuotaWindowKind): String = when (kind) {
+    QuotaWindowKind.Rolling -> CcoderText.text("usage.quota.short.rolling")
+    QuotaWindowKind.Weekly -> CcoderText.text("usage.quota.short.weekly")
+    QuotaWindowKind.Monthly -> CcoderText.text("usage.quota.short.monthly")
+}
 
 /**
  * 项目键比对：`\` → `/`、去尾斜杠（与 sidecar 的 `normalizeProj` 同一条规矩）。

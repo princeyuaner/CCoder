@@ -9,8 +9,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.util.Locale
 
 /**
@@ -209,6 +211,72 @@ class UsagePeriodsTest {
         assertEquals("¥1234.57", formatBillYuan(1234.567))
         assertEquals("09:05", formatBillTime(LocalTime.of(9, 5)))
         assertEquals("14:32", formatBillTime(LocalTime.of(14, 32)))
+    }
+
+    @Test
+    fun `常驻条那串字：带额度时三档全上（已用百分比、缺档跳过）`() {
+        val prev = CcoderText.locale()
+        CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
+        try {
+            val q = OpencodeQuota(
+                windows = listOf(
+                    QuotaWindow(QuotaWindowKind.Rolling, 12.4, false, null),
+                    QuotaWindow(QuotaWindowKind.Weekly, 4.0, false, null),
+                    QuotaWindow(QuotaWindowKind.Monthly, 2.0, false, null),
+                ),
+                fetchedAt = LocalTime.of(20, 3),
+            )
+            assertEquals("5h 12% · 周 4% · 月 2%", quotaStripText(q))
+            assertEquals(
+                "今日 12.4M · ≈$1.2 · 5h 12% · 周 4% · 月 2%",
+                usageStripText(UsageStripData(12_400_000, 1.23, emptyList(), opencodeQuota = q)),
+            )
+            // 缺档：接口没给的那档不编 —— 只剩两档也照实排
+            val missing = q.copy(windows = q.windows.filterNot { it.kind == QuotaWindowKind.Monthly })
+            assertEquals(
+                "今日 12.4M · 5h 12% · 周 4%",
+                usageStripText(UsageStripData(12_400_000, null, emptyList(), opencodeQuota = missing)),
+            )
+        } finally {
+            CcoderText.setOverride(prev)
+        }
+    }
+
+    @Test
+    fun `额度百分比取整；重置时刻：24 小时内给钟点、之外带日子（本机时区）`() {
+        assertEquals("12%", formatQuotaPercent(12.4))
+        assertEquals("12%", formatQuotaPercent(11.6))
+        assertEquals("0%", formatQuotaPercent(0.0))
+        val zone = ZoneId.of("Asia/Shanghai")
+        val now = Instant.parse("2026-10-13T12:03:00Z") // 本地 20:03
+        assertEquals("20:46", formatQuotaReset(Instant.parse("2026-10-13T12:46:37Z"), now, zone))
+        assertEquals("10/19 08:00", formatQuotaReset(Instant.parse("2026-10-19T00:00:00Z"), now, zone))
+    }
+
+    @Test
+    fun `常驻条那串字：带余额时尾巴多一段`() {
+        val prev = CcoderText.locale()
+        CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
+        try {
+            val balance = DeepseekBalance("CNY", 110.0, 10.0, 100.0, true, LocalTime.of(20, 52))
+            assertEquals(
+                "今日 12.4M · ≈$1.2 · 余额 ¥110.00",
+                usageStripText(UsageStripData(12_400_000, 1.23, emptyList(), deepseekBalance = balance)),
+            )
+            assertEquals(
+                "今日 12.4M · 余额 ¥110.00",
+                usageStripText(UsageStripData(12_400_000, null, emptyList(), deepseekBalance = balance)),
+            )
+        } finally {
+            CcoderText.setOverride(prev)
+        }
+    }
+
+    @Test
+    fun `余额金额按币种给符号；认不出的缀币种代码`() {
+        assertEquals("¥110.00", formatBalanceAmount("CNY", 110.0))
+        assertEquals("\$20.50", formatBalanceAmount("USD", 20.5))
+        assertEquals("12.00 EUR", formatBalanceAmount("EUR", 12.0))
     }
 
     @Test

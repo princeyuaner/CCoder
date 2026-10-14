@@ -11,6 +11,7 @@ import java.awt.Color
 import java.awt.Container
 import java.awt.image.BufferedImage
 import java.io.File
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import javax.imageio.ImageIO
@@ -54,6 +55,35 @@ class UsageRenderProbe {
     fun `统计框（带账单·深色）画成图片`() =
         renderDialog("build/usage-dialog-probe-bill-dark.png", fixture(), dark = true, bill = billFixture())
 
+    /** 带额度那版（opencode 三档进度条）：深浅各一张 —— 三支颜色压在两张纸上都要看一眼。 */
+    @Test
+    fun `统计框（带额度）画成图片`() =
+        renderDialog("build/usage-dialog-probe-quota.png", fixture(), quota = quotaFixture())
+
+    @Test
+    fun `统计框（带额度·深色）画成图片`() =
+        renderDialog("build/usage-dialog-probe-quota-dark.png", fixture(), dark = true, quota = quotaFixture())
+
+    /** 13 个模型那版（2026-10-13 用户实况）：图例折行后，框宽回到设计值、条目都能读。 */
+    @Test
+    fun `统计框（13 个模型）画成图片`() = renderDialog("build/usage-dialog-probe-many.png", manyModelFixture())
+
+    /** 带余额那版（DeepSeek）：深浅各一张 —— 数字下划线与琥珀「已不可用」都要看一眼。 */
+    @Test
+    fun `统计框（带余额）画成图片`() =
+        renderDialog("build/usage-dialog-probe-balance.png", fixture(), balance = balanceFixture())
+
+    @Test
+    fun `统计框（带余额·深色）画成图片`() =
+        renderDialog("build/usage-dialog-probe-balance-dark.png", fixture(), dark = true, balance = balanceFixture())
+
+    /** 常驻条（带余额）：尾巴一段「余额 ¥110.00」。 */
+    @Test
+    fun `常驻条（带余额）画成图片`() = renderStrip(
+        "build/usage-strip-probe-balance.png",
+        UsageStripData(12_400_000, 14.9, spark(), deepseekBalance = balanceFixture()),
+    )
+
     @Test
     fun `常驻条画成图片`() = renderStrip("build/usage-strip-probe.png", UsageStripData(12_400_000, 14.9, spark()))
 
@@ -62,6 +92,13 @@ class UsageRenderProbe {
     fun `常驻条（带实扣）画成图片`() = renderStrip(
         "build/usage-strip-probe-bill.png",
         UsageStripData(12_400_000, 14.9, spark(), todayBillYuan = 8.3),
+    )
+
+    /** 带额度那版（2026-10-13）：三档全上 —— 条尾一段「5h 12% · 周 82% · 月 100%」。 */
+    @Test
+    fun `常驻条（带额度）画成图片`() = renderStrip(
+        "build/usage-strip-probe-quota.png",
+        UsageStripData(12_400_000, 14.9, spark(), opencodeQuota = quotaFixture()),
     )
 
     private fun renderStrip(path: String, data: UsageStripData) {
@@ -84,7 +121,14 @@ class UsageRenderProbe {
 
     // ------------------------------------------------------------------
 
-    private fun renderDialog(path: String, rows: List<UsageDay>, dark: Boolean = false, bill: UsageBill? = null) {
+    private fun renderDialog(
+        path: String,
+        rows: List<UsageDay>,
+        dark: Boolean = false,
+        bill: UsageBill? = null,
+        quota: OpencodeQuota? = null,
+        balance: DeepseekBalance? = null,
+    ) {
         SwingUtilities.invokeAndWait {
             val restore = pushDarkTheme(dark)
             try {
@@ -96,6 +140,8 @@ class UsageRenderProbe {
                     onPickGran = {},
                     onPickScope = {},
                     bill = bill,
+                    quota = quota,
+                    balance = balance,
                     onRefreshBill = {},
                 )
                 val outer = JPanel(BorderLayout()).apply {
@@ -195,4 +241,42 @@ class UsageRenderProbe {
         balanceYuan = 123.4,
         fetchedAt = LocalTime.of(14, 32),
     )
+
+    /**
+     * 额度示意（opencode 三档进度条）：**三支颜色都要看得见** —— 12%（强调）、
+     * 82%（琥珀）、100%（红 + 限流）。重置时间是固定 GMT 点，画出来的钟点跟着本机时区走。
+     */
+    private fun quotaFixture(): OpencodeQuota = OpencodeQuota(
+        windows = listOf(
+            QuotaWindow(QuotaWindowKind.Rolling, 12.0, false, Instant.parse("2026-10-13T12:46:37Z")),
+            QuotaWindow(QuotaWindowKind.Weekly, 82.0, false, Instant.parse("2026-10-19T00:00:00Z")),
+            QuotaWindow(QuotaWindowKind.Monthly, 100.0, true, Instant.parse("2026-11-13T06:58:17Z")),
+        ),
+        fetchedAt = LocalTime.of(20, 3),
+    )
+
+    /** 余额示意（DeepSeek）：金额形状照站点 —— 字符串两位小数、CNY。 */
+    private fun balanceFixture(): DeepseekBalance = DeepseekBalance(
+        currency = "CNY",
+        total = 110.0,
+        granted = 10.0,
+        toppedUp = 100.0,
+        available = true,
+        fetchedAt = LocalTime.of(20, 52),
+    )
+
+    /** 13 个模型（形状照用户实况：名字长、含 [1m] 与斜杠）—— 图例/表格宽度的压力测试。 */
+    private fun manyModelFixture(): List<UsageDay> {
+        val names = listOf(
+            "deepseek-v4-flash", "deepseek-flash", "deepseek-v4.1-flash[1m]", "deepseek-v4.1-flash",
+            "deepseek-flash-guan[1m]", "deepseek-flash[1m]", "deepseek-v4-flash[1m]",
+            "deepseek/deepseek-flash", "deepseek-v4-flash-vision-exp",
+            "mimo-v2.6-pro", "mimo-v2.6-flash", "claude-sonnet-5-5-cc[1m]", "claude-opus-5-5-cc[1m]",
+        )
+        return (29 downTo 0).map { back ->
+            val d = today.minusDays(back.toLong())
+            val grown = 4_000_000L + ((29 - back) * 297_000L) % 6_000_000L
+            UsageDay(d, names.mapIndexed { i, n -> n to modelShare(grown / (i + 2)) }.toMap())
+        }
+    }
 }

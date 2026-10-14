@@ -240,6 +240,30 @@ class ClaudePanel(
     /** 最近一次**发起**查询的配置（与"账属于谁"不同：失败的尝试也记，免得换配置后干等窗口过完）。 */
     private var billAttemptProfileId: String? = null
 
+    /**
+     * 最近一次成功的 opencode 额度（2026-10-13）。与账单同一条纪律：**账号级数据**、
+     * 不进 sidecar、不落盘，只在内存里躺着（重启重查）。
+     */
+    private var opencodeQuota: OpencodeQuota? = null
+
+    /** 这份额度是替哪条配置查的 —— 换配置先清旧值，不显示别条配置的额度。 */
+    private var opencodeQuotaProfileId: String? = null
+
+    /** 最近一次**发起**额度查询的配置（同 [billAttemptProfileId] 的道理）。 */
+    private var quotaAttemptProfileId: String? = null
+
+    /**
+     * 最近一次成功的 DeepSeek 余额（2026-10-13）。与账目槽同一条纪律：**账号级数据**、
+     * 不进 sidecar、不落盘，只在内存里躺着（重启重查）。
+     */
+    private var deepseekBalance: DeepseekBalance? = null
+
+    /** 这份余额是替哪条配置查的 —— 换配置先清旧值。 */
+    private var deepseekBalanceProfileId: String? = null
+
+    /** 最近一次**发起**余额查询的配置（同 [billAttemptProfileId] 的道理）。 */
+    private var balanceAttemptProfileId: String? = null
+
     /** 最近一次交给常驻条的数据 —— 账单晚到时在原样上重提一次（走势不会被重置）。 */
     private var lastStripData: UsageStripData? = null
 
@@ -1319,24 +1343,46 @@ class ClaudePanel(
     }
 
     /**
-     * 常驻条的**唯一入口**：把当前账单并进去。两条数据来源（报告 / tick）都走它 ——
-     * 各走各的早晚会把"合并逻辑"分成两份，改一处漏一处。
+     * 常驻条的**唯一入口**：把当前账目（账单 / 额度）并进去。两条数据来源
+     * （报告 / tick）都走它 —— 各走各的早晚会把"合并逻辑"分成两份，改一处漏一处。
      */
     private fun submitUsageStrip(d: UsageStripData) {
         lastStripData = d
-        usageStrip.submit(d.copy(todayBillYuan = usageBill?.yuanToday))
+        pushUsageStrip()
     }
 
     /**
-     * 查一次供应商账单（方案 A，2026-10-12 用户从选型台选的）。触发：账到了、
-     * 每回合 tick、打开统计框、换模型配置 —— 全部走 [UsageBillGate] 的闸
-     *（限速是 **per-IP** 的，所以闸是应用级、多标签共享）。
+     * 账目状态变了（账单 / 额度，成败都走）：在**原样的走势**上重提一次 ——
+     * 晚到的账不该顺手把 14 天走势换成别的东西（同 lastStripData 的注释）。
+     */
+    private fun pushUsageStrip() {
+        val d = lastStripData ?: return
+        usageStrip.submit(
+            d.copy(
+                todayBillYuan = usageBill?.yuanToday,
+                opencodeQuota = opencodeQuota,
+                deepseekBalance = deepseekBalance,
+            )
+        )
+    }
+
+    /**
+     * 查一次供应商账目（方案 A 对账层）：DMXAPI 账单 + opencode 额度，各自一条链。
+     * 触发：账到了、每回合 tick、打开统计框、换模型配置 —— 各走各家自己的闸
+     *（限速是供应商自己的，闸是应用级、多标签共享）。
      *
-     * 失败静默：日志一条（不带密钥、不带 URL），界面退回"没有实扣"。
-     * 非 dmx / 没选任何配置：把旧账清掉 —— 换了配置之后，另一枚令牌的账一个像素
+     * 失败静默：日志一条（不带密钥、不带 URL），界面退回"没有那一段"。
+     * 非对应供应商 / 没选任何配置：把旧账清掉 —— 换了配置之后，别家的账一个像素
      * 都不该显示。
      */
     private fun refreshUsageBill(force: Boolean = false) {
+        refreshDmxBill(force)
+        refreshOpencodeQuota(force)
+        refreshDeepseekBalance(force)
+    }
+
+    /** DMXAPI 那条链（2026-10-12 用户从选型台选的方案 A）。 */
+    private fun refreshDmxBill(force: Boolean) {
         val profile = currentModel
         val endpoint = profile?.let { dmxBillEndpoint(it.baseUrl) }
         if (profile == null || endpoint == null) {
@@ -1366,13 +1412,98 @@ class ClaudePanel(
         }
     }
 
+    /**
+     * opencode Go 额度（2026-10-13）：三档窗口的已用百分比。与 DMX 同节奏同纪律
+     * ——密码现取、池化线程、失败静默、换配置先清旧值；密钥走 **Bearer 头**
+     *（DMX 是 query 参数），主机名判据在 [opencodeQuotaEndpoint] 里。
+     */
+    private fun refreshOpencodeQuota(force: Boolean) {
+        val profile = currentModel
+        val url = profile?.let { opencodeQuotaEndpoint(it.baseUrl) }
+        if (profile == null || url == null) {
+            applyOpencodeQuota(null, null)
+            return
+        }
+        if (opencodeQuota != null && opencodeQuotaProfileId != profile.id) applyOpencodeQuota(null, null)
+        // 刚换过配置也当强制：新配置的额度值得立刻查一次（旧的 120 秒窗口是给同一条配置的）
+        val effectiveForce = force || quotaAttemptProfileId != profile.id
+        if (!OpencodeQuotaGate.tryStart(System.currentTimeMillis(), effectiveForce)) return
+        quotaAttemptProfileId = profile.id
+        ApplicationManager.getApplication().executeOnPooledThread {
+            // 密钥在池化线程上读：首次会碰一次 PasswordSafe，不堵 EDT
+            val secret = ModelProfiles.getInstance().secretOf(profile.id)
+            if (secret.isBlank()) {
+                ApplicationManager.getApplication().invokeLater { OpencodeQuotaGate.finish() }
+                return@executeOnPooledThread
+            }
+            val result = runCatching { parseOpencodeQuota(fetchOpencodeUsage(url, secret)) }
+            ApplicationManager.getApplication().invokeLater {
+                OpencodeQuotaGate.finish()
+                result
+                    .onSuccess { quota -> applyOpencodeQuota(profile.id, quota) }
+                    .onFailure { LOG.warn("额度查询失败：${it.message}") }
+            }
+        }
+    }
+
+    /**
+     * DeepSeek 官方余额（2026-10-13）：账户还剩多少钱。与前两家同节奏同纪律；
+     * 识别在 [deepseekBalanceEndpoint]（只认官方主机，转卖的没有这条账）。
+     */
+    private fun refreshDeepseekBalance(force: Boolean) {
+        val profile = currentModel
+        val url = profile?.let { deepseekBalanceEndpoint(it.baseUrl) }
+        if (profile == null || url == null) {
+            applyDeepseekBalance(null, null)
+            return
+        }
+        if (deepseekBalance != null && deepseekBalanceProfileId != profile.id) applyDeepseekBalance(null, null)
+        // 刚换过配置也当强制：新配置的余额值得立刻查一次（旧的 120 秒窗口是给同一条配置的）
+        val effectiveForce = force || balanceAttemptProfileId != profile.id
+        if (!DeepseekBalanceGate.tryStart(System.currentTimeMillis(), effectiveForce)) return
+        balanceAttemptProfileId = profile.id
+        ApplicationManager.getApplication().executeOnPooledThread {
+            // 密钥在池化线程上读：首次会碰一次 PasswordSafe，不堵 EDT
+            val secret = ModelProfiles.getInstance().secretOf(profile.id)
+            if (secret.isBlank()) {
+                ApplicationManager.getApplication().invokeLater { DeepseekBalanceGate.finish() }
+                return@executeOnPooledThread
+            }
+            val result = runCatching { parseDeepseekBalance(fetchDeepseekBalance(url, secret)) }
+            ApplicationManager.getApplication().invokeLater {
+                DeepseekBalanceGate.finish()
+                result
+                    .onSuccess { balance -> applyDeepseekBalance(profile.id, balance) }
+                    .onFailure { LOG.warn("余额查询失败：${it.message}") }
+            }
+        }
+    }
+
     /** 账单状态落定（有 / 无）：常驻条与开着的统计框都跟着走。状态没变就不重画。 */
     private fun applyUsageBill(profileId: String?, bill: UsageBill?) {
         if (usageBill == bill && usageBillProfileId == profileId) return
         usageBill = bill
         usageBillProfileId = profileId
-        lastStripData?.let { strip -> usageStrip.submit(strip.copy(todayBillYuan = bill?.yuanToday)) }
+        pushUsageStrip()
         usageDialog?.updateBill(bill)
+    }
+
+    /** 额度状态落定（有 / 无）：与 [applyUsageBill] 同一套 —— 三个账目槽各清各的。 */
+    private fun applyOpencodeQuota(profileId: String?, quota: OpencodeQuota?) {
+        if (opencodeQuota == quota && opencodeQuotaProfileId == profileId) return
+        opencodeQuota = quota
+        opencodeQuotaProfileId = profileId
+        pushUsageStrip()
+        usageDialog?.updateQuota(quota)
+    }
+
+    /** 余额状态落定（有 / 无）：与 [applyUsageBill] 同一套 —— 三个账目槽各清各的。 */
+    private fun applyDeepseekBalance(profileId: String?, balance: DeepseekBalance?) {
+        if (deepseekBalance == balance && deepseekBalanceProfileId == profileId) return
+        deepseekBalance = balance
+        deepseekBalanceProfileId = profileId
+        pushUsageStrip()
+        usageDialog?.updateBalance(balance)
     }
 
     /** 常驻条点开：先拿手里那份把框摆上（瞬间可见），再向 sidecar 要最新的一份。 */
@@ -1389,6 +1520,8 @@ class ClaudePanel(
             initialScope = "project",
             initialRows = lastUsageRows,
             initialBill = usageBill,
+            initialQuota = opencodeQuota,
+            initialBalance = deepseekBalance,
             onScopeChange = { scope ->
                 usageDialogScope = scope
                 requestUsageForDialog(scope)
