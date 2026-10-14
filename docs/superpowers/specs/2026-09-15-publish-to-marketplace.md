@@ -364,6 +364,29 @@ tag 照例打在含 change-notes 的那棵树（`v0.2.41` → b967f39），relea
 卡片描边四角。**挂账**：若 0.2.38 未过审，推 0.2.41 上市场前要把它那三条并回
 （plugin.xml 注释与 change-notes 提交里都记了）。
 
+0.2.42 这版的发布链与绿数（2026-10-14；**按用户指示只发 GitHub release，不推插件
+市场**）：
+
+| 闸 | 结果 |
+|---|---|
+| Kotlin | **2222 条全绿**（`test --rerun` 强制真跑，2m24s） |
+| sidecar | **274 条全绿** |
+| web | **379 条全绿**（25 个文件；长正文那条 jsdom 耗时哨兵在并发下贴阈值 —— Gradle 守护进程还在时整包跑到 13–15ms/帧（阈值 12）红了两轮，停掉守护进程后 11.87ms 过线；单文件跑 5.5ms，正文渲染路径本批未动） |
+| `buildPlugin` | zip 9,457,558 字节；打包校验 `[verify] OK: manifest 5008 entries`；jar 里 plugin.xml 已是 0.2.42 且**不含**占位字样（`grep -c TODO` = 0）；包内 webui 带新前端（`previewImage` 在） |
+| `verifyPlugin` | **三份全 Compatible**（2m37s）：PY-261 deprecated 17 + experimental 6；PY-262 / PY-263 另加 scheduled-for-removal 3（PY-263 deprecated 18）—— 全是旧族（StatusBarWidget / ToolWindowFactory 覆写、`JBUI.scale(float)` 等；比 0.2.38 多的那条是 0.2.41 定时键 `ScheduleButton` 的同族用法），internal API **0 条** |
+| `publishPlugin` | **未跑**（用户指示不推市场） |
+| GitHub release | `gh release create v0.2.42 --verify-tag …`，一次成功、自动 Latest；附件 9,457,558 字节（与本地 zip 同件）；正文与 `docs/releases/0.2.42.md` 复核一致（API 回读，尾空白归一） |
+
+tag 照例打在含 change-notes 的那棵树（`v0.2.42` → ab68c5b），release 正文那笔
+（1308002）在 tag 之外。zip 的 sha256：
+`737f7f646d804ec6ad354ec69c8f9dc16a4c731d5a9e649dee62fa1dd0de7823`。
+增量口径**九条**、按相对 **0.2.38** 的增量写（0.2.38 已于 10-14 过审上架（id
+1193332），是最近一个已上架版；0.2.39 / 0.2.40 / 0.2.41 从未上传）：0.2.41 那批
+六条（分隔条握把、模型弹层两栏、「本轮改动」卡限高、定时发送、opencode 额度 +
+DeepSeek 余额、卡片描边四角）整块接着并，末尾续写 0.2.42 的三条（思考中标题一行、
+「MCP 还没连完」改工具栏徽章 + 居中确认框、输出区点图改平台看图框）。**挂账结清**：
+0.2.41 记的"若 0.2.38 未过审、推市场前把它那三条并回"——已过审，不并。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
