@@ -162,30 +162,31 @@
 
     <!-- 口径：**只写相对上一个已上传版本的增量**（正常时它就是"上一个已上架版"；
          在审未上架的按 §八 处理 —— 先按增量写、没过审再补回来），中英各一份。
-         2026-10-14 开版（0.2.43）：**0.2.38 仍是最近一个已上架版**（id 1193332，
-         `approve`/`listed` 都真 —— 今天补推后过审的）；0.2.39 / 0.2.40 / 0.2.41 / 0.2.42
-         都没上传过（0.2.42 按指示不推市场，只发了 GitHub release）。写 0.2.43 的清单前
-         **先复核 0.2.42 传没传** —— 没传过就把本版清单整个接着并（0.2.42 那份九条
-         在 tag `v0.2.42` → ab68c5b 的 plugin.xml 里，接着续写）；0.2.38 已上架，
-         不用再并它那三条（0.2.41 挂的账已结）。
+         2026-10-14 开版（0.2.44）：**0.2.38 仍是最近一个已上架版**（id 1193332，
+         `approve`/`listed` 都真）；0.2.39 / 0.2.40 / 0.2.41 / 0.2.42 / 0.2.43
+         都没上传过（0.2.42 按指示不推市场、只发了 GitHub release；0.2.43 未发过
+         release）。**本版（0.2.44）同按指示不推市场、只发 GitHub release。**
+         写 0.2.44 的清单前**先复核 0.2.43 传没传** —— 没传过就把 0.2.42 那份九条
+         （tag `v0.2.42` → ab68c5b 的 plugin.xml 里）整块接着并、再续写 0.2.43 /
+         0.2.44 的增量；0.2.38 已上架，不用再并它那三条（0.2.41 挂的账已结）。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.43</h3>
+    <h3>0.2.44</h3>
     <ul>
       <li>TODO: this version's changes, written as the delta against the last <b>uploaded</b>
-          version. Check first whether 0.2.42 was ever uploaded (see the comment above;
-          as of 2026-10-14 it had not been pushed to the marketplace) &mdash; if it was
-          not, take the 0.2.42 list (tag v0.2.42 &rarr; ab68c5b) whole and write on from
-          there (0.2.38 is listed; its three items stay out).</li>
+          version. Check first whether 0.2.43 was ever uploaded (see the comment above;
+          as of 2026-10-14 it had not been) &mdash; if it was not, take the 0.2.42 list
+          (tag v0.2.42 &rarr; ab68c5b) whole and write on from there (0.2.38 is listed;
+          its three items stay out).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
       <li>待写：本版相对**上一个已上传版本**的增量（见发布设计稿 §八）。写之前先复核
-          0.2.42 传没传（上面那条注释；2026-10-14 发版时未推市场）—— 没传过就把 0.2.42
-          那份九条（tag v0.2.42 → ab68c5b）整块取来、末尾续写。0.2.38 已上架，
-          不用再并它那三条（0.2.41 挂的账已结）。</li>
+          0.2.43 传没传（上面那条注释；2026-10-14 开版时未传）—— 没传过就把 0.2.42
+          那份九条（tag v0.2.42 → ab68c5b）整块取来、接着补 0.2.43 的改动、末尾续写。
+          0.2.38 已上架，不用再并它那三条（0.2.41 挂的账已结）。</li>
     </ul>
     ]]></change-notes>
 
