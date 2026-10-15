@@ -174,20 +174,15 @@
     <change-notes><![CDATA[
     <h3>0.2.39</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against the last <b>listed</b>
-          version. Check first whether 0.2.38 was ever uploaded (see the comment above;
-          as of 2026-10-13 it had been released on GitHub only) &mdash; if it was not,
-          this note must also cover everything 0.2.37 and 0.2.38 would have contained.
-          The last merged list lives in git (tag v0.2.38 &rarr; f887c3a); do not copy
-          it blindly.</li>
+      <li><b>A grip on the divider above the input</b> &mdash; the drag strip between the
+          transcript and the input card now carries a small always-visible handle that
+          lights up on hover, so you can tell it resizes without hunting for the edge.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上架版本**的增量（见发布设计稿 §八）。写之前先复核 0.2.38
-          传没传（上面那条注释；2026-10-13 开版时只发了 GitHub）—— 没传过就得把 0.2.37 +
-          0.2.38 那批一起写上（按相对 0.2.36 的增量）。上一份合并清单在 git 里
-          （tag v0.2.38 &rarr; f887c3a），别照抄。</li>
+      <li><b>输入卡上方那条分隔条多了颗常驻握把</b> &mdash; 转写区与输入卡之间能上下拖的那条，
+          现在常驻一颗小短棒（悬停会亮），不用碰到才知道这里能拖。</li>
     </ul>
     ]]></change-notes>
 
