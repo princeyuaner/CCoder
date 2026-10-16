@@ -487,6 +487,28 @@ sidecar `npm ci` 升回 0.3.299；工作区 diff / status 哈希与推前一致�
 diff / status 哈希与推前一致（`db2350e1…` / `1066ba43…`）。**挂账**：0.2.41 / 0.2.42 /
 0.2.43 三个隐藏版待过审，到点依次点 Unhide version 开放（顺序由用户定）。
 
+**2026-10-16 提交并隐藏补推 0.2.44**（用户指示："提交 0.2.44，推送插件市场，保持隐藏
+状态" —— 前一轮曾按用户决定跳过它（"还在开发中"）；这一轮用户明确要提交）：工作区那批
+改动（2026-10-14~16 累积）先落三笔提交再走发布链 —— `cf37b28`（sidecar SDK 0.3.293 →
+**0.3.299**）、`93d4c4a`（三个选型台：模型标签 / 弹层浏览 / 使用量条，不参与构建）、
+`16b5a86`（主批：模型标签胶囊 + 弹层就地换栏/悬停、使用量条重排、MCP 认显式
+`"type": "stdio"` + 三处 EDT 补 `ModalityState.any()`、间隔修复；含
+McpEdtModalityScanTest）。`.mcp.json` 与 `permission-test.txt` 属本地文件、未提交
+（仍留工作区未跟踪）。清单补写为相对 0.2.43 的增量五条（原为 TODO 占位），
+`build.gradle.kts` 加 `hidden = true`，提交 `71102f9` 推 origin。提交前测试（工作区
+状态 = 提交后的树）：Kotlin **2248 条全绿**、web **381 条全绿**（单进程跑）、sidecar
+**274 条全绿**。发布链：`buildPlugin`（1m02s，`[verify] OK: manifest 5008 entries`；
+本版树 lock 已是 0.3.299，**无需 npm ci 归位** —— 与 0.2.39~0.2.43 那几笔补推不同）
+→ 包内抽查 plugin.xml=0.2.44、无 TODO、清单 5+5 条、SDK=0.3.299 → `verifyPlugin`
+PY-261 / 262 / 263 **三份全 Compatible**（2m20s；internal API 0 条，deprecated
+12/14/16 + experimental 4）→ `publishPlugin`（31s）→ 回读 `updates?version=0.2.44`
+→ id **1195374**、**`hidden: true`**、审核中。zip（9,374,759 字节）sha256：
+`cd851453e895aac5868ae9a99a1058092f675564b61eee9a64acb105cbf296f1`。市场 API 的
+`size`（9,380,867）比本地包大 **+6,108 字节**（0.2.41~0.2.43 那三笔都是 +6,172；
+口径同型，不是传错包）。本版没有 GitHub release（内容不随 tag 发布 —— 与 0.2.39
+同型）。**挂账**：0.2.41 / 0.2.42 / 0.2.43 / 0.2.44 四个隐藏版待过审，到点依次点
+Unhide version 开放（顺序由用户定）；开放后基线随之前移。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
