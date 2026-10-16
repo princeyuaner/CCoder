@@ -428,6 +428,30 @@ experimental 照旧，本次无 scheduled-for-removal 条目）→ `publishPlugi
 已上架版的增量（0.2.40 过审即接替 0.2.39 当基线：0.2.42 九条去掉前三条 —— 握把随
 0.2.39、弹层两栏 + 本轮改动卡随 0.2.40 —— 再续写 0.2.43 / 0.2.44 的增量）。
 
+**2026-10-16 隐藏补推 0.2.41**（用户指示："推送 0.2.41 到插件市场，让他先保持隐藏
+状态"）：先复核市场 —— **0.2.40 当天上传当天过审**（`updates?version=0.2.40`：id
+1195360，approve/listed 都真），最近的已上架版由此抬到 **0.2.40**。0.2.41 的清单
+原是六条（随 GitHub release `v0.2.41` 发布，基线取 0.2.38）—— 按新基线**删去前三条**
+（握把随 0.2.39、模型弹层两栏 + 「本轮改动」卡限高随 0.2.40），只留本版三条（定时
+发送、使用量两家账、卡片描边四角；措辞原样、只删不写），提交 `74559fb` 推 origin。
+**隐藏上传**：`build.gradle.kts` 的 `publishing` 加 `hidden.set(true)`（插件 2.18.0 的
+`Publishing.hidden`，默认 false）—— 过审后不会自动公开。打包前 sidecar `npm ci`
+归位到树的 lock（0.3.299 → 0.3.293）；`buildPlugin`（1m15s）→ 包内抽查 plugin.xml=
+0.2.41、无 TODO、清单 3+3 条、SDK=0.3.293 → Kotlin **2199 条全绿**（与 0.2.41 发
+GitHub release 那次同数）→ sidecar **274 条全绿**（web 本批未动、未跑）→
+`verifyPlugin` PY-261 / 262 / 263 **三份全 Compatible**（2m40s；internal API 0 条，
+deprecated 12/14/16 + experimental 4）→ `publishPlugin`（32s）→ 回读
+`updates?version=0.2.41` → id **1195364**，**`hidden: true`**、审核中。zip
+（9,438,770 字节）sha256：
+`8a4ea4fcb0336731cbd3171f0488c9bd0cfef7557c01052aeb3b96be6a684814`（与 GitHub
+release 附件**不同** —— 清单删了三条，包内容随之变；release 那份是六条清单）。市场
+API 的 `size`（9,444,942）比本地包大 **+6,172 字节**（0.2.38~0.2.40 都是 +6,108，
+本版多 64，口径同型，不是传错包）。推完 `git checkout v0.2.44-dev` + `stash pop` +
+sidecar `npm ci` 升回 0.3.299；工作区 diff / status 哈希与推前一致（`db2350e1…` /
+`1066ba43…`）。**挂账**：到点去市场后台 Versions 标签页点 **Unhide version** 开放
+（文档：可随时 hide/unhide）；0.2.41 过审并 listed 转真后，它成为下一个上传版本的
+清单基线（0.2.42 九条去掉前六条）。
+
 ## 八、What's New 写哪几版（2026-09-16 补）
 
 **规则：清单只写当前版本相对"上一个已上架版本"的增量。**
