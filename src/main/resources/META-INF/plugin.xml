@@ -162,67 +162,31 @@
 
     <!-- 口径：**只写相对上一个已上传版本的增量**（正常时它就是"上一个已上架版"；
          在审未上架的按 §八 处理 —— 先按增量写、没过审再补回来），中英各一份。
-         2026-10-14 开版（0.2.44）时：0.2.38 是最近已上架版，0.2.39~0.2.43 都没上传
-         （0.2.42 只发 GitHub release；0.2.43 只开版与一条 /clear 对账）。
-         **2026-10-16 推市场前复核：0.2.39 / 0.2.40 已上架；0.2.41（id 1195364）/
-         0.2.42（id 1195366）/ 0.2.43（id 1195369）都已按指示以"隐藏"状态补推、在审**
-         —— 上一个已上传版本 = 0.2.43，本清单就是相对它的增量（本版自己的一批，
-         五条：模型标签胶囊、弹层就地换栏/悬停、使用量条重排、MCP 两处修复、间隔
-         修复）。本版内容先落了三笔提交：`cf37b28`（SDK 0.3.299）+ `93d4c4a`
-         （三个选型台）+ `16b5a86`（主批）。**本版已于 2026-10-16 按用户指示以
-         "隐藏"状态上传**（id **1195374**，审核中、`hidden: true`；`build.gradle.kts`
-         的 `publishing.hidden = true`）—— 过审后不会自动公开，到点去 Versions
-         标签页点 Unhide version。**至此 0.2.41~0.2.44 四版都在市场排队（隐藏、在审），
-         最近的已上架版仍是 0.2.40。** **挂账**：若这批隐藏版有没过审的，把各自内容
-         按 §八 补回；下一个上传版本的清单 = 相对 0.2.44 的增量（先复核它的
-         `approve`/`listed`/`hidden` 三态）。
+         2026-10-16 开版（0.2.45）复核：0.2.39 / 0.2.40 已上架（最近**已上架**版 =
+         0.2.40）；**0.2.41 / 0.2.42 / 0.2.43 已过审**（`approve: true` —— 但都还
+         隐着、`listed: false`，等 Unhide 开放）；0.2.44（id 1195374）仍在审。
+         **上一个已上传版本 = 0.2.44**：写本版清单时按"相对上一个已上传版本"的增量
+         写（在审的按 §八 先按增量写、没过审再补回来）—— 0.2.41~0.2.43 已过审、
+         内容确定会随 Unhide 进市场，不用并；0.2.44 若没过审，把它那五条（模型标签
+         胶囊、弹层就地换栏/悬停、使用量条重排、MCP 两处修复、间隔修复）按 §八
+         补回。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
-    <h3>0.2.44</h3>
+    <h3>0.2.45</h3>
     <ul>
-      <li><b>The model label carries the profile name now</b> &mdash; the model ID in the
-          input toolbar gained a small pill with the profile's custom name, so two
-          profiles on the same model are no longer indistinguishable. A narrow window
-          shrinks the model part first to keep the name; long names truncate inside
-          the pill.</li>
-      <li><b>The model picker switches in place</b> &mdash; no more open-close-reopen: clicking
-          the left column swaps the right side on the spot, and hovering previews a
-          switch (leaving cancels, clicking commits, sweeping across several lands on
-          the last). The popup keeps one height while you browse, capped at the
-          tallest card.</li>
-      <li><b>The usage strip was re-laid out</b> &mdash; "Usage" turned into a dimmed road
-          sign with a hairline, numbers keep the contrast, the quota draws a track with
-          the used share, the trend bars appear only when there is no track, and
-          "&rsaquo;" moved into a small 16px circle. Font sizes and corner radii stay on
-          the same scale as the rest of the UI.</li>
-      <li><b>MCP servers written by the CLI show up now</b> &mdash; `claude mcp add` writes an
-          explicit `"type": "stdio"`, which the settings page used to not recognize
-          (the entry was kept-but-invisible); it is readable and editable now. And the
-          page no longer sits on "connecting" while the settings dialog is open.</li>
-      <li><b>The gap above the divider is back to normal</b> &mdash; a 5px spacer between the
-          transcript and the status card used to linger even when the restore bar was
-          hidden (a ghost gap); it now belongs to the bar itself. The transcript's
-          bottom padding sheds 2px in the same pass.</li>
+      <li>TODO: this version's changes, written as the delta against the last <b>uploaded</b>
+          version (0.2.44). Check the 0.2.41~0.2.44 batch's review state first (see the
+          comment above; as of 2026-10-16, 0.2.41~0.2.43 are approved-but-hidden and
+          0.2.44 is in review) &mdash; if 0.2.44 fails, fold its five items back in
+          (&sect;8).</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li><b>模型标签多了枚配置名胶囊</b> &mdash; 输入卡工具栏的型号旁边挂一枚装着配置
-          自定义名的小胶囊，两条用同一个模型的配置不再分不出来。窄窗先缩模型段保住
-          名字，超长的名字在胶囊里截断。</li>
-      <li><b>模型弹层换浏览不再重开</b> &mdash; 点左栏<b>就地</b>换右栏（"收起再重开"
-          没了）；悬停先挂起、点击立即换（连划只算最后、离开就取消）；换浏览期间
-          弹层高度不变（定高 = 最高那条卡）。</li>
-      <li><b>使用量常驻条重排</b> &mdash; 「使用量」退成暗路牌接一根发丝线，数字亮、
-          词退；额度画成轨道并标出已用比例；走势只在没有轨道时出现；› 收进一枚
-          16px 小圆。字号三档与四角弧度跟其它控件同一套。</li>
-      <li><b>CLI 写出来的 MCP 服务器看得见了</b> &mdash; `claude mcp add` 会显式写
-          `"type": "stdio"`，设置页原先认不得（整条"保留但不可见"）；现在能读能改。
-          另外设置对话框开着时不再一直停在「连接中」。</li>
-      <li><b>拖动条上方的缝回到正常</b> &mdash; 转写区与状态卡之间那 5px 原先挂在会隐身
-          的元素上，带子藏起来还占着高（一条幽灵缝）；现在缝长在带子自己身上，
-          转写区底距同一笔收了 2px。</li>
+      <li>待写：本版相对**上一个已上传版本**（0.2.44，2026-10-16 起隐藏、在审；
+          0.2.41~0.2.43 已过审、等 Unhide）的增量（见发布设计稿 §八）；0.2.44 没过审
+          就把它那五条补回。</li>
     </ul>
     ]]></change-notes>
 
