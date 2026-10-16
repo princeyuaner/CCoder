@@ -162,30 +162,34 @@
 
     <!-- 口径：**只写相对上一个已上传版本的增量**（正常时它就是"上一个已上架版"；
          在审未上架的按 §八 处理 —— 先按增量写、没过审再补回来），中英各一份。
-         2026-10-14 开版（0.2.43）：**0.2.38 仍是最近一个已上架版**（id 1193332，
-         `approve`/`listed` 都真 —— 今天补推后过审的）；0.2.39 / 0.2.40 / 0.2.41 / 0.2.42
-         都没上传过（0.2.42 按指示不推市场，只发了 GitHub release）。写 0.2.43 的清单前
-         **先复核 0.2.42 传没传** —— 没传过就把本版清单整个接着并（0.2.42 那份九条
-         在 tag `v0.2.42` → ab68c5b 的 plugin.xml 里，接着续写）；0.2.38 已上架，
-         不用再并它那三条（0.2.41 挂的账已结）。
+         2026-10-14 开版（0.2.43）时：0.2.38 是最近已上架版，0.2.39 / 0.2.40 /
+         0.2.41 / 0.2.42 都没上传（0.2.42 按指示只发了 GitHub release）。
+         **2026-10-16 推市场前复核：0.2.39 / 0.2.40 已上架；0.2.41（id 1195364）与
+         0.2.42（id 1195366）都已按指示以"隐藏"状态补推、在审** —— 上一个已上传
+         版本 = 0.2.42，本清单就是相对它的增量（本版自己的一条：/clear 的清空加
+         代数对账）。**本版同样按用户指示以"隐藏"状态上传**（`build.gradle.kts` 的
+         `publishing.hidden = true`）—— 过审后不自动公开，到点去 Versions 标签页点
+         Unhide version。**挂账**：若 0.2.41 / 0.2.42 最终没过审，把各自的内容按 §八
+         补回；下一个上传版本的清单 = 相对 0.2.43 的增量。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
     <h3>0.2.43</h3>
     <ul>
-      <li>TODO: this version's changes, written as the delta against the last <b>uploaded</b>
-          version. Check first whether 0.2.42 was ever uploaded (see the comment above;
-          as of 2026-10-14 it had not been pushed to the marketplace) &mdash; if it was
-          not, take the 0.2.42 list (tag v0.2.42 &rarr; ab68c5b) whole and write on from
-          there (0.2.38 is listed; its three items stay out).</li>
+      <li><b>Clearing the session is reliable now</b> &mdash; right after a long replay,
+          /clear occasionally left the transcript on screen: the reset sent to the page
+          was swallowed by a transient channel hiccup, silently. The page now counts the
+          resets it has applied and the plugin checks that count on every heartbeat; if
+          it falls behind for two beats, the reset is sent again, so it heals within
+          about ten seconds.</li>
     </ul>
 
     <h4>中文</h4>
     <ul>
-      <li>待写：本版相对**上一个已上传版本**的增量（见发布设计稿 §八）。写之前先复核
-          0.2.42 传没传（上面那条注释；2026-10-14 发版时未推市场）—— 没传过就把 0.2.42
-          那份九条（tag v0.2.42 → ab68c5b）整块取来、末尾续写。0.2.38 已上架，
-          不用再并它那三条（0.2.41 挂的账已结）。</li>
+      <li><b>/clear 的清空稳了</b> &mdash; 紧跟一场长回放之后，/clear 偶尔清不掉屏上的
+          转写区 —— 发给页面的那发 Reset 撞上通道瞬态、被静默吞掉。现在页面侧数「已
+          应用的 Reset 代数」，插件每拍心跳对一次表；连看两拍落后就补发一发，约十秒内
+          自愈。</li>
     </ul>
     ]]></change-notes>
 
