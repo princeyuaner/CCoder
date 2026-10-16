@@ -162,45 +162,22 @@
 
     <!-- 口径：**只写相对上一个已上传版本的增量**（正常时它就是"上一个已上架版"；
          在审未上架的按 §八 处理 —— 先按增量写、没过审再补回来），中英各一份。
-         2026-10-14 写 0.2.42 的清单时复核：**0.2.38 已过审上架**（id 1193332，
-         `approve`/`listed` 都真 —— 补推当天就过的）—— 它现在是最近一个已上架版；
-         0.2.39 / 0.2.40 / 0.2.41 从未上传（0.2.39 / 0.2.40 打完包直接开下一版；
-         0.2.41 按指示不推市场、只发 GitHub release）。基线因此就是 **0.2.38**，
-         而 0.2.41 那份六条正是相对它的增量 —— 0.2.41 从未上传、市场用户还没见过，
-         按 §八 整块接着并、末尾续写 0.2.42 的三条（共九条）。**0.2.38 过审把
-         0.2.41 挂的账结清了**：不必再把 0.2.38 那三条并回。
-         本版（0.2.42）同样按指示不推市场、只发 GitHub release；将来把某个版本
-         推上市场前，先复核它之前没上传过的版本、按 §八 接着并（0.2.42 这份九条
-         在 tag `v0.2.42` 的 plugin.xml 里）。
+         2026-10-14 写本版清单时：0.2.38 已上架、0.2.39 / 0.2.40 / 0.2.41 从未上传
+         —— 基线取 0.2.38，清单九条（0.2.41 那批六条整块并 + 本版三条），随
+         GitHub release `v0.2.42` 发布。
+         **2026-10-16 推市场前复核：0.2.39 / 0.2.40 都已上架；0.2.41 已按指示以
+         "隐藏"状态补推（id 1195364，在审）** —— 上一个已上传版本成了 **0.2.41**，
+         本清单**删去前六条**（握把随 0.2.39；弹层两栏 + 本轮改动卡随 0.2.40；
+         定时发送 + 使用量两家账 + 卡片描边四角随 0.2.41），只留本版三条（思考中
+         标题、MCP 徽章、看图框）。**本版同样按用户指示以"隐藏"状态上传**
+         （`build.gradle.kts` 的 `publishing.hidden = true`）—— 过审后不自动公开，
+         到点去 Versions 标签页点 Unhide version。**挂账**：若 0.2.41 最终没过审，
+         把它的三条补回本清单；下一个上传版本的清单 = 相对 0.2.42 的增量。
          另：0.2.26 那条上传记录仍是 approve=false/listed=false（internal API 被拦那次），
          同号不能重传，它会一直躺在库里 —— 要不要请 JetBrains 删掉，挂账里记着。 -->
     <change-notes><![CDATA[
     <h3>0.2.42</h3>
     <ul>
-      <li><b>A grip on the divider above the input</b> &mdash; the drag strip between the
-          transcript and the input card now carries a small always-visible handle that
-          lights up on hover, so you can tell it resizes without hunting for the edge.</li>
-      <li><b>The model picker is two columns now</b> &mdash; profiles on the left, the models of
-          the one you are browsing on the right. It drops from ~518px tall to ~180px and
-          no longer grows with model count. Clicking the left column only changes what
-          the right side shows; the dot still marks the profile you are on.</li>
-      <li><b>The "this turn's changes" card scrolls after five rows</b> &mdash; expanding it no
-          longer stretches the card down the transcript; the file list scrolls and the
-          roll-back bar stays pinned.</li>
-      <li><b>Scheduled send</b> &mdash; a clock button in the input toolbar: +30 / 60 / 120
-          minutes, or a time today. The message leaves the box and waits in the
-          transcript as a dashed bubble; at that time it presses Send for you (queues if
-          Claude is busy, starts a session if none is running). The &times; cancels it.</li>
-      <li><b>Usage reads two more accounts</b> &mdash; with an opencode profile selected, the
-          strip and the stats dialog show its Go quota (used share per window: 5h / week /
-          month, one bar each, with the reset time); with DeepSeek, the account balance
-          (granted and topped up, or an amber "unavailable"). The dialog also stops
-          stretching to full-screen width when a long model legend used to push it out
-          &mdash; the legend wraps now.</li>
-      <li><b>Card outlines no longer have mismatched corners</b> &mdash; the 1px rounded borders
-          on cards (settings, ask cards, the composer) were drawn with a stroke whose
-          anti-aliasing differed per corner; they are filled rings now, and all four
-          corners match.</li>
       <li><b>The "thinking" header now peeks at the line it is on</b> &mdash; while a reply
           streams, the title reads "Thinking&hellip;" plus the last non-empty line of the
           thinking text, and it flips as the model starts a new line; a collapsed thinking
@@ -221,22 +198,6 @@
 
     <h4>中文</h4>
     <ul>
-      <li><b>输入卡上方那条分隔条多了颗常驻握把</b> &mdash; 转写区与输入卡之间能上下拖的那条，
-          现在常驻一颗小短棒（悬停会亮），不用碰到才知道这里能拖。</li>
-      <li><b>模型弹层改两栏</b> &mdash; 左边列配置、右边只画你正在浏览那条的模型；弹层从
-          518px 高掉到 ~180px，不再随模型条数长高。点左栏只是换右边看什么，行尾小圆点
-          才是在用的那条。</li>
-      <li><b>「本轮改动」卡展开后最多露 5 行</b> &mdash; 再多在清单里滚，卡不再一路长高；
-          回滚的动作条钉在卡底、不跟着滚。</li>
-      <li><b>定时发送</b> &mdash; 输入卡工具栏多了颗时钟键：快捷 +30 / 60 / 120 分钟，或指定
-          今天几点。定下去消息就离开输入框、在转写区当一枚虚着的「待发气泡」；到点替你
-          按发送键（Claude 忙就排队、没会话先起一个）。点 &times; 取消。</li>
-      <li><b>使用量再接两家账</b> &mdash; 选中 opencode 配置时，常驻条与统计框显示它 Go 订阅
-          的三档额度（5 小时 / 周 / 月，每档一根进度条，给**已用**百分比和重置钟点）；
-          选中 DeepSeek 时显示账户余额（余额 + 赠额/充值，查不到时是琥珀「已不可用」）。
-          统计框也不再被长图例撑到满屏宽 —— 图例改折行了。</li>
-      <li><b>卡片描边的四个角不再"有的方有的圆"</b> &mdash; 设置卡、问询卡、输入卡这些的
-          1px 圆角描边受描边抗锯齿的方向偏差影响，四角墨量不一致；改画填环后四角一致。</li>
       <li><b>「思考中」标题改显一行思考内容</b> &mdash; 流式期间标题是「思考中 · &lt;最后一行&gt;」，
           新起一行就翻面；收起后的思考块也还看得见它在想什么。秒表退休 ——「它在动」
           这个信号改由转圈和那一行接着扛。</li>

@@ -75,6 +75,11 @@ intellijPlatform {
         token = providers.gradleProperty("intellijPlatformPublishingToken")
             .orElse(providers.environmentVariable("PUBLISH_TOKEN"))
             .orElse("")
+
+        // 2026-10-16 按用户指示：0.2.42 以**隐藏**状态上传市场 —— 过审后不会自动公开，
+        // 到点去市场后台的 Versions 标签页点 Unhide version 开放（见发布设计稿
+        // 2026-10-16 那条）。本分支的发布配置就此钉住；要恢复"上传即公开"就删掉这行。
+        hidden.set(true)
     }
 }
 
