@@ -125,8 +125,12 @@ internal class QueueStrip(private val onRemove: (QueuedInput) -> Unit) : JPanel(
             button.isContentAreaFilled = false
             button.isBorderPainted = false
             button.font = JBUI.Fonts.smallFont()
-            button.foreground = UIUtil.getInactiveTextColor()
         }
+        // 前景色各走各的：头行是"排队消息"，2026-10-16 按用户要求改绿（[okColor]，
+        // 与状态卡的 Ok 同一支）—— 它是"还没发出去、在等你"的活物，inactive 灰
+        // 看着像已归档的；✕ 保持灰（撤回键，不该比消息本身抢眼）。
+        head.foreground = okColor()
+        headRemove.foreground = UIUtil.getInactiveTextColor()
         head.horizontalAlignment = SwingConstants.LEFT
         head.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         head.addActionListener {
