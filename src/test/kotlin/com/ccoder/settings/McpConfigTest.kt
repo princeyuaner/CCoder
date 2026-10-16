@@ -43,6 +43,39 @@ class McpConfigTest {
     }
 
     @Test
+    fun `显式写了 type 的 stdio 也认 —— CLI 自己就会这么写`() {
+        // `claude mcp add` 生成的 `.mcp.json` 是**显式**带 type 的；不认的话
+        // CLI 自己产出的文件会被判成"认不得的"，面板里看不见也改不了（2026-10-15）
+        val config = mcpServersOf(
+            root("""{ "mcpServers": { "rea": { "type": "stdio", "command": "cmd.exe", "args": ["/d"] } } }"""),
+        )
+
+        val rea = config.servers.first { it.name == "rea" }
+        assertEquals(McpKind.STDIO, rea.mcpKind())
+        assertEquals("cmd.exe", rea.command)
+        assertEquals(listOf("/d"), rea.args)
+        assertFalse(config.preserved.has("rea"), "CLI 自己写的形状被当成认不得了")
+    }
+
+    @Test
+    fun `读进来的 stdio 写回时省掉那个 type —— 它是可省的`() {
+        // 认是认得了；写回仍按自己的规矩省掉 type（同「空的可选字段不写进文件」）。
+        // 语义没变：没有 type 就是 stdio
+        val original = root("""{ "mcpServers": { "rea": { "type": "stdio", "command": "cmd.exe" } } }""")
+        val config = mcpServersOf(original)
+
+        val next = withMcpServers(
+            original,
+            config.servers.map { it.copy(args = mutableListOf("mcp")) },
+            config.preserved,
+        )
+
+        val rea = next.getAsJsonObject("mcpServers").getAsJsonObject("rea")
+        assertFalse(rea.has("type"), "写回时还留着 type:stdio —— 与 stdio 的输出规矩不一致")
+        assertEquals(listOf("mcp"), rea.getAsJsonArray("args").map { it.asString })
+    }
+
+    @Test
     fun `认不得的形状进 preserved，不进可编辑列表`() {
         val config = mcpServersOf(foreignFile())
 

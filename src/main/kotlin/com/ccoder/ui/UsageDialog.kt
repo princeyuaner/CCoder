@@ -563,8 +563,10 @@ private fun quotaTailText(w: QuotaWindow): String {
  * 进度条的颜色：正常走强调**文字**色（选中底色那支当条太淡，浅色下与轨道糊成一片）；**70% 起琥珀、
  * 90% 起红** —— 沿用状态卡水位那条比例条同一支颜色与同一套门槛
  *（[warningColor] / [dangerColor]），不另立标准。
+ *
+ * 常驻条的三根轨道（2026-10-14 丙）也走这一支 —— 门槛只有一套。
  */
-private fun quotaBarColor(percent: Double, normal: Color): Color = when {
+internal fun quotaBarColor(percent: Double, normal: Color): Color = when {
     percent >= 90 -> dangerColor()
     percent >= 70 -> warningColor()
     else -> normal

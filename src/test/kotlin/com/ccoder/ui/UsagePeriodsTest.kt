@@ -31,6 +31,10 @@ class UsagePeriodsTest {
     private fun day(y: Int, m: Int, d: Int, vararg models: Pair<String, UsageModelTokens>) =
         UsageDay(LocalDate.of(y, m, d), models.toMap())
 
+    /** 常驻条内容折成便于断言的串：词/数（暗/亮）+ 文本 + 与前一截的间距。 */
+    private fun piecesText(pieces: List<StripPiece>): String =
+        pieces.joinToString(" ") { (if (it.dim) "词:" else "数:") + it.text + "@" + it.gapBefore }
+
     // ------------------------------------------------------------------ 分桶
 
     @Test
@@ -169,17 +173,18 @@ class UsagePeriodsTest {
     }
 
     @Test
-    fun `常驻条那串字：有成本带成本、没成本只给今日`() {
+    fun `常驻条：词暗数亮，词数之间的空格照词表格式（今日␣有、≈没有）`() {
         val prev = CcoderText.locale()
         CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
         try {
             assertEquals(
-                "今日 12.4M · ≈$1.2",
-                usageStripText(UsageStripData(12_400_000, 1.23, emptyList())),
+                "词:今日@0 数:12.4M@3 词:·@6 词:≈@6 数:$1.2@0",
+                piecesText(stripContent(UsageStripData(12_400_000, 1.23, emptyList())).before),
             )
+            // 没成本只剩今日那截；0 也照画（0 是实话，不是"没有"）
             assertEquals(
-                "今日 0",
-                usageStripText(UsageStripData(0, null, emptyList())),
+                "词:今日@0 数:0@3",
+                piecesText(stripContent(UsageStripData(0, null, emptyList())).before),
             )
         } finally {
             CcoderText.setOverride(prev)
@@ -187,17 +192,17 @@ class UsagePeriodsTest {
     }
 
     @Test
-    fun `常驻条那串字：带实扣时追加一段（估算缺席也画）`() {
+    fun `常驻条：实扣接在数据段尾（估算缺席也画）`() {
         val prev = CcoderText.locale()
         CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
         try {
             assertEquals(
-                "今日 12.4M · ≈$1.2 · 实扣¥8.30",
-                usageStripText(UsageStripData(12_400_000, 1.23, emptyList(), todayBillYuan = 8.3)),
+                "词:今日@0 数:12.4M@3 词:·@6 词:≈@6 数:$1.2@0 词:·@6 词:实扣@6 数:¥8.30@0",
+                piecesText(stripContent(UsageStripData(12_400_000, 1.23, emptyList(), todayBillYuan = 8.3)).before),
             )
             assertEquals(
-                "今日 12.4M · 实扣¥8.30",
-                usageStripText(UsageStripData(12_400_000, null, emptyList(), todayBillYuan = 8.3)),
+                "词:今日@0 数:12.4M@3 词:·@6 词:实扣@6 数:¥8.30@0",
+                piecesText(stripContent(UsageStripData(12_400_000, null, emptyList(), todayBillYuan = 8.3)).before),
             )
         } finally {
             CcoderText.setOverride(prev)
@@ -214,7 +219,7 @@ class UsagePeriodsTest {
     }
 
     @Test
-    fun `常驻条那串字：带额度时三档全上（已用百分比、缺档跳过）`() {
+    fun `常驻条：额度单独给（画轨道用）；退文字的排法三档全上、缺档跳过`() {
         val prev = CcoderText.locale()
         CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
         try {
@@ -226,16 +231,22 @@ class UsagePeriodsTest {
                 ),
                 fetchedAt = LocalTime.of(20, 3),
             )
-            assertEquals("5h 12% · 周 4% · 月 2%", quotaStripText(q))
+            val c = stripContent(UsageStripData(12_400_000, 1.23, emptyList(), opencodeQuota = q))
+            assertEquals(q, c.quota, "额度不进 before —— 它可能画成轨道")
             assertEquals(
-                "今日 12.4M · ≈$1.2 · 5h 12% · 周 4% · 月 2%",
-                usageStripText(UsageStripData(12_400_000, 1.23, emptyList(), opencodeQuota = q)),
+                "词:今日@0 数:12.4M@3 词:·@6 词:≈@6 数:$1.2@0",
+                piecesText(c.before),
+            )
+            // 轨道放不下时退的这三档文字：前导 12 = 组间、档间是点；词表短名 5h/周/月
+            assertEquals(
+                "词:5h@12 数:12%@3 词:·@6 词:周@6 数:4%@3 词:·@6 词:月@6 数:2%@3",
+                piecesText(quotaTextPieces(q)),
             )
             // 缺档：接口没给的那档不编 —— 只剩两档也照实排
             val missing = q.copy(windows = q.windows.filterNot { it.kind == QuotaWindowKind.Monthly })
             assertEquals(
-                "今日 12.4M · 5h 12% · 周 4%",
-                usageStripText(UsageStripData(12_400_000, null, emptyList(), opencodeQuota = missing)),
+                "词:5h@12 数:12%@3 词:·@6 词:周@6 数:4%@3",
+                piecesText(quotaTextPieces(missing)),
             )
         } finally {
             CcoderText.setOverride(prev)
@@ -254,18 +265,24 @@ class UsagePeriodsTest {
     }
 
     @Test
-    fun `常驻条那串字：带余额时尾巴多一段`() {
+    fun `常驻条：余额接在额度之后（余额␣格式里有空格 → 间距 3）`() {
         val prev = CcoderText.locale()
         CcoderText.setOverride(Locale.SIMPLIFIED_CHINESE)
         try {
             val balance = DeepseekBalance("CNY", 110.0, 10.0, 100.0, true, LocalTime.of(20, 52))
+            val c = stripContent(UsageStripData(12_400_000, 1.23, emptyList(), deepseekBalance = balance))
             assertEquals(
-                "今日 12.4M · ≈$1.2 · 余额 ¥110.00",
-                usageStripText(UsageStripData(12_400_000, 1.23, emptyList(), deepseekBalance = balance)),
+                "词:今日@0 数:12.4M@3 词:·@6 词:≈@6 数:$1.2@0",
+                piecesText(c.before),
             )
             assertEquals(
-                "今日 12.4M · 余额 ¥110.00",
-                usageStripText(UsageStripData(12_400_000, null, emptyList(), deepseekBalance = balance)),
+                "词:·@6 词:余额@6 数:¥110.00@3",
+                piecesText(c.after),
+            )
+            // 没成本时余额照画
+            assertEquals(
+                "词:今日@0 数:12.4M@3",
+                piecesText(stripContent(UsageStripData(12_400_000, null, emptyList(), deepseekBalance = balance)).before),
             )
         } finally {
             CcoderText.setOverride(prev)

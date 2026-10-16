@@ -376,8 +376,8 @@ class ClaudePanel(
      *
      * 写它只有 [refreshModelLabel] 一个出口 —— 显示的是**用户选中的那条配置**
      * （spec §8），来源是 [ModelProfiles]，不是 SDK 报上来的模型名。
-     * 标签的文字与那个 `▾` 是 [ModelLabel] 自己拼的，这里直接写 `.text`
-     * 会把箭头抹掉、与弹层里的勾对不上。
+     * 文字、那个 `▾` 与名字胶囊（2026-10-14 起）都由 [ModelLabel] 自己画 ——
+     * 这里只递 profile，别的写法都不要。
      */
     private val modelLabel = ModelLabel { toggleModelChooser() }
 
@@ -461,15 +461,6 @@ class ClaudePanel(
 
     /** 打开着的模型列表浮层。同上，也由它实现"再点一次收起"。 */
     private var modelPopup: JBPopup? = null
-
-    /**
-     * 模型弹层左栏此刻停在（浏览）哪条配置上。null = 还没定，跟当前那条走。
-     *
-     * 住在这里而不是弹层内容里：点左栏 = 收起再重开一次弹层（见
-     * [browseModelProfile]），那份内容会被重建，状态得有个活得更久的地方。
-     * 弹层一关就清 —— 下次打开从"当前那条"重新站起。
-     */
-    private var modelPopupBrowsedId: String? = null
 
     /**
      * 当前生效的思考深度。
@@ -1064,18 +1055,15 @@ class ClaudePanel(
             // 被最小化的提问那条带子**长在这里**（用户报"找不到从哪里重新打开"）。
             // 排在最上面：它说的是一件等他处理的事，比状态卡更急
             add(askRestoreBar.apply { alignmentX = LEFT_ALIGNMENT })
-            // 2026-09-15 用户要求"最小化后再往上挪 5px"：那条带子贴面板顶太近，
-            // 和它下面那排状态卡挤在一起。留 5px 的缝，其余间距一个字不动 ——
-            // 状态卡与输入框之间那 7px 是原有设计，不跟着一起松。
+            // 2026-09-15 用户要求"最小化后再往上挪 5px"，那条 5px 缝（2026-10-14 起）
+            // 长在带子**自己身上**（见 AskRestoreBar 的底边距）—— 原先在这里挂的
+            // strut 在带子藏起来时还占着 5px，成了转写区与状态卡之间一条常驻的
+            // 幽灵缝（用户报"拖动条上下间隔太宽"，量出来正是它）。
             //
-            // **struts 也要左对齐**：默认是居中，而它正是会把 BoxLayout 的公共
-            // 对齐基准推歪的那个（这个坑本项目踩过，见上面那段说明）。
+            // 使用量条前那处 strut 仍带 `alignmentX = LEFT_ALIGNMENT` —— 默认居中会
+            // 把 BoxLayout 的公共对齐基准推歪（这个坑本项目踩过，见上面那段说明）；
             // `as JComponent` 不是多余的：`createVerticalStrut` 声明返回
             // `java.awt.Component`，而 `alignmentX` 长在 JComponent 上
-            add(
-                (Box.createVerticalStrut(JBUI.scale(5)) as JComponent)
-                    .apply { alignmentX = LEFT_ALIGNMENT }
-            )
             add(statusCards)
             // 使用量常驻条（2026-10-10）：五张卡之下、输入卡之上。第一次收到
             // 数据之前它整条不可见 —— BoxLayout 会跳过不可见子项，不占高度
@@ -1162,7 +1150,10 @@ class ClaudePanel(
 
         // 兜住"装监听时它已经显示完了"这一种：那时 SHOWING_CHANGED 早就发生在
         // 装监听之前，不会有事件再来。延后一拍再判 isShowing，避开布局未完成的时刻。
-        ApplicationManager.getApplication().invokeLater {
+        // **`ModalityState.any()` 必须显式给**：设置对话框是模态的，而下面这一块
+        // 要发布 MCP 状态；不带它的话模态开着时它根本不执行（同 `SyncService` 那条，
+        // 2026-09-17 在 `RuntimeDepsService` 上量到过）。
+        ApplicationManager.getApplication().invokeLater({
             LOG.info("CCoder 面板上屏：isShowing=$isShowing，据此决定是否建会话")
             if (isShowing) {
                 startSession(consumeFirstShow())
@@ -1173,7 +1164,7 @@ class ClaudePanel(
             publishMcpStatus()
             // 反向那条线同理（设置页那两颗按钮发过来的动作，得有人接）
             attachMcpControl()
-        }
+        }, ModalityState.any())
     }
 
     /**
@@ -1573,7 +1564,12 @@ class ClaudePanel(
         val reqId = nextId()
         c.request(reqId, Protocol.encodeMcpServerStatus(reqId)) { outcome ->
             // 回调在读取线程上，碰服务虽不碰 Swing，但下面会触发监听器去改界面
-            ApplicationManager.getApplication().invokeLater {
+            //
+            // **`ModalityState.any()` 必须显式给**：设置对话框是模态的，而这里正是
+            // 把读数落进 `McpStatus`（进而通知设置页重画）的地方。不带它的话，模态
+            // 开着时这一整块不执行，连 `askAgainIfStillSettling` 的续问定时器都点不着
+            // —— 表现就是"MCP 页里一直显示连接中，一关对话框立刻变已连接"（2026-10-15）。
+            ApplicationManager.getApplication().invokeLater({
                 when (outcome) {
                     is RequestOutcome.Answered -> {
                         val report = outcome.message as? SidecarMessage.McpServers
@@ -1596,7 +1592,7 @@ class ClaudePanel(
 
                     is RequestOutcome.Failed -> LOG.warn("读取 MCP 状态失败：${outcome.reason}")
                 }
-            }
+            }, ModalityState.any())
         }
     }
 
@@ -1745,7 +1741,10 @@ class ClaudePanel(
         }
         c.request(reqId, line) { outcome ->
             // 回调在读取线程上，碰服务虽不碰 Swing，但下面会触发监听器去改界面
-            ApplicationManager.getApplication().invokeLater {
+            //
+            // **`ModalityState.any()` 必须显式给** —— 同上：设置对话框模态开着时
+            // 这一块不执行的话，重连/启停那颗按钮点下去就永远没有下文。
+            ApplicationManager.getApplication().invokeLater({
                 when (outcome) {
                     is RequestOutcome.Answered -> {
                         val ack = outcome.message as? SidecarMessage.McpControlled
@@ -1765,7 +1764,7 @@ class ClaudePanel(
                         McpControl.getInstance(project).report(action, outcome.reason)
                     }
                 }
-            }
+            }, ModalityState.any())
         }
         return true
     }
@@ -2524,22 +2523,26 @@ class ClaudePanel(
             open.cancel()
             return
         }
-        // 开的时候先站到"当前那条"上 —— 多数人来换的就是它
-        modelPopupBrowsedId = currentModel?.id
         openModelChooser()
     }
 
-    /** 弹层的公共出口：首次打开与"换浏览对象重开"都走这里。 */
+    /**
+     * 打开弹层。
+     *
+     * 初始浏览位 = **当前那条** —— 多数人来换的就是它。换浏览不再重开弹层：
+     * 内容自己就地换卡（悬停即览 + 定高，2026-10-14 A 案，见 [buildModelList]），
+     * 所以这里只在"首次打开"被调到 —— 原先那个"跨重建活着的浏览位"字段
+     * （`modelPopupBrowsedId`）与 `browseModelProfile` 那条重开路已删。
+     */
     private fun openModelChooser() {
         val profiles = ModelProfiles.getInstance()
         modelPopup = showTogglePopup(modelLabel, buildModelList(
             profiles = profiles.profiles(),
             current = currentModel?.let { ModelPick(it.id, it.modelId) },
-            browsedProfileId = modelPopupBrowsedId,
+            browsedProfileId = currentModel?.id,
             // 弹层上那句〔会重开会话〕与真正怎么切，走的是**同一个判定**
             effectOf = { p -> effectFor(p, profiles) },
             onPick = { pick -> switchModel(pick) },
-            onSelectProfile = { id -> browseModelProfile(id) },
             onManage = {
                 // 与 [switchModel] 同一条规矩：先收起浮层，别让它挂在模态对话框后面
                 modelPopup?.cancel()
@@ -2548,23 +2551,7 @@ class ClaudePanel(
             },
         ), underAnchor = true) {
             modelPopup = null
-            modelPopupBrowsedId = null
         }
-    }
-
-    /**
-     * 点弹层左栏换一条：只换"看哪条"，**不动**当前选择。
-     *
-     * 实现是"收起再原样重开"：弹层尺寸按内容撑，换一条高度就变一截，
-     * 平台弹层没有"改内容再改尺寸"的现成路数（同 [showDetailPopup] 换页即
-     * 重建的做法）。重开必须排在 `cancel()` **之后** —— onClosed 会把浏览位
-     * 清掉，顺序反了它就把刚立的新值又抹了。
-     */
-    private fun browseModelProfile(id: String) {
-        if (id == modelPopupBrowsedId) return
-        modelPopup?.cancel()
-        modelPopupBrowsedId = id
-        openModelChooser()
     }
 
     /**

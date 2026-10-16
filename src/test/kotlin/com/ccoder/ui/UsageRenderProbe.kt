@@ -94,28 +94,64 @@ class UsageRenderProbe {
         UsageStripData(12_400_000, 14.9, spark(), todayBillYuan = 8.3),
     )
 
-    /** 带额度那版（2026-10-13）：三档全上 —— 条尾一段「5h 12% · 周 82% · 月 100%」。 */
+    /**
+     * 带额度 · **窄窗**（420）：三根轨道放不下，退成「5h 12% · 周 82% · 月 100%」文字
+     * —— 降级阶梯的实景（2026-10-14 丙 版）。宽窗那版见下面那一对。
+     */
     @Test
     fun `常驻条（带额度）画成图片`() = renderStrip(
         "build/usage-strip-probe-quota.png",
         UsageStripData(12_400_000, 14.9, spark(), opencodeQuota = quotaFixture()),
     )
 
-    private fun renderStrip(path: String, data: UsageStripData) {
+    /**
+     * 带额度 · **宽窗**（窗 756 → 条 740，与用户实机量到的那条 739 同宽）：
+     * 丙 版的主场景 —— 三根可伸的轨道。周 82% 琥珀、月 100% 红，颜色门槛一并看。
+     */
+    @Test
+    fun `常驻条（带额度·宽窗）画成图片`() = renderStrip(
+        "build/usage-strip-probe-quota-wide.png",
+        UsageStripData(12_400_000, 14.9, spark(), opencodeQuota = quotaFixture()),
+        width = 756,
+    )
+
+    @Test
+    fun `常驻条（带额度·宽窗·深色）画成图片`() = renderStrip(
+        "build/usage-strip-probe-quota-wide-dark.png",
+        UsageStripData(12_400_000, 14.9, spark(), opencodeQuota = quotaFixture()),
+        width = 756,
+        dark = true,
+    )
+
+    /** 深色下那根基线（线色 65% 透明）在近黑底上还在不在 —— 浅色看得见不代表深色看得见。 */
+    @Test
+    fun `常驻条（带实扣·深色）画成图片`() = renderStrip(
+        "build/usage-strip-probe-bill-dark.png",
+        UsageStripData(12_400_000, 14.9, spark(), todayBillYuan = 8.3),
+        width = 756,
+        dark = true,
+    )
+
+    private fun renderStrip(path: String, data: UsageStripData, width: Int = 420, dark: Boolean = false) {
         SwingUtilities.invokeAndWait {
-            val strip = UsageStrip(onOpen = {})
-            strip.submit(data)
-            val outer = JPanel(BorderLayout()).apply {
-                isOpaque = true
-                background = UIUtil.getPanelBackground()
-                border = JBUI.Borders.empty(6, 8)
-                add(strip, BorderLayout.NORTH)
+            val restore = pushDarkTheme(dark)
+            try {
+                val strip = UsageStrip(onOpen = {})
+                strip.submit(data)
+                val outer = JPanel(BorderLayout()).apply {
+                    isOpaque = true
+                    background = UIUtil.getPanelBackground()
+                    border = JBUI.Borders.empty(6, 8)
+                    add(strip, BorderLayout.NORTH)
+                }
+                val w = JBUI.scale(width)
+                val h = strip.preferredSize.height + JBUI.scale(12)
+                outer.setSize(w, h)
+                layoutAll(outer)
+                paint(outer, w, h, path)
+            } finally {
+                restore()
             }
-            val w = JBUI.scale(420)
-            val h = strip.preferredSize.height + JBUI.scale(12)
-            outer.setSize(w, h)
-            layoutAll(outer)
-            paint(outer, w, h, path)
         }
     }
 

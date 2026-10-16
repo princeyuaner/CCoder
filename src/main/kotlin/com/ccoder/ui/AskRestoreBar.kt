@@ -50,8 +50,15 @@ internal class AskRestoreBar(private val onRestore: () -> Unit) : JPanel(FlowLay
     init {
         isOpaque = false
         border = BorderFactory.createCompoundBorder(
-            RoundedLineBorder({ ACCENT }, JBUI.scale(7)),
-            JBUI.Borders.empty(4, 8),
+            // 与状态卡之间的 5px 缝长在带子**自己身上**（2026-10-14）：原先挂在
+            // ClaudePanel 的 strut 上，带子藏起来时那条 strut 还在占高度 —— 一条
+            // 常驻的幽灵缝（用户报"拖动条上下间隔太宽"，量出来正是这 5px）。
+            // 挂在这里之后"显它才占"是自动的：BoxLayout 会跳过不可见的子项
+            JBUI.Borders.empty(0, 0, 5, 0),
+            BorderFactory.createCompoundBorder(
+                RoundedLineBorder({ ACCENT }, JBUI.scale(7)),
+                JBUI.Borders.empty(4, 8),
+            ),
         )
         add(restore)
         add(hint)

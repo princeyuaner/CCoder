@@ -1,5 +1,6 @@
 package com.ccoder.ui
 
+import com.intellij.util.ui.JBUI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -34,6 +35,25 @@ class AskRestoreBarTest {
             b.setSuspended(false)
             assertFalse(b.isVisible)
         }
+    }
+
+    /**
+     * 与状态卡之间的 5px 缝长在带子**自己身上**（2026-10-14）—— 原先挂在
+     * ClaudePanel 的 strut 上，带子藏着时那条 strut 还占着高度：转写区与状态卡
+     * 之间多出一条常驻的幽灵缝（用户报"拖动条上下间隔太宽"，量出来正是它）。
+     */
+    @Test
+    fun `底边距自带与状态卡之间那 5px 的缝`() {
+        val b = bar()
+
+        // 底边比上边多出的那截 = 缝（上边只有药丸自己的 4px 内边距）——
+        // 按差值钉，将来药丸内边距再调也不会误红
+        val insets = b.border.getBorderInsets(b)
+        assertEquals(
+            JBUI.scale(5),
+            insets.bottom - insets.top,
+            "5px 缝没了或挪去别处了 —— 带子显出来时会贴住状态卡",
+        )
     }
 
     @Test

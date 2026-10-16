@@ -100,6 +100,56 @@ class ComposerModelRenderProbe {
         ),
     )
 
+    /**
+     * 带自定义名称的模型位（2026-10-14「乙 + 让法②」，用户从选型台
+     * `web/tools/model-label-view.mjs` 挑的）：名字在胶囊里、模型跟在后面。
+     * 宽窗（756 → 卡 740，用户实机）两个都看全。
+     */
+    @Test
+    fun `把带自定义名称的模型位画成图片`() = renderLabel(
+        "build/probe/composer-model-label-named.png",
+        listOf(
+            Shot(opus, PermissionModeSetting.DEFAULT),
+            Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS),
+        ),
+        width = 756,
+    )
+
+    /**
+     * 窄窗那一版：缩模型保名字（让法②的实景）。第二行是最挤的一版 ——
+     * 最长的名字 + 最长的模型 + 最长的模式与档位。
+     */
+    @Test
+    fun `把窄窗的模型位画成图片`() = renderLabel(
+        "build/probe/composer-model-label-named-narrow.png",
+        listOf(
+            Shot(opus, PermissionModeSetting.DEFAULT),
+            Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS, effort = EffortSetting.XHIGH),
+        ),
+    )
+
+    /**
+     * 深色再来一遍：胶囊底是"8% 前景观感"，两个主题里差得远 —— 浅色看得好
+     * 不代表深色看得好。换不上 Darcula 就什么都不做（同弹层那两张的口径）。
+     */
+    @Test
+    fun `把带自定义名称的模型位画成图片（深色）`() {
+        val before = UIManager.getLookAndFeel()
+        if (runCatching { UIManager.setLookAndFeel(DarculaLaf()) }.isFailure) return
+        try {
+            renderLabel(
+                "build/probe/composer-model-label-named-dark.png",
+                listOf(
+                    Shot(opus, PermissionModeSetting.DEFAULT),
+                    Shot(longName, PermissionModeSetting.BYPASS_PERMISSIONS),
+                ),
+                width = 756,
+            )
+        } finally {
+            runCatching { UIManager.setLookAndFeel(before) }
+        }
+    }
+
     /** 一行的样子：选中的配置、模式、思考深度，以及哪个标签被鼠标压着。 */
     private data class Shot(
         val profile: ModelProfile?,
@@ -190,6 +240,20 @@ class ComposerModelRenderProbe {
         effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
     )
 
+    /**
+     * 定高（2026-10-14 A 案）：浏览到**矮卡**上 —— 右栏下方留出一块空，
+     * 高度纹丝不动（按最高那条卡定死，换浏览只换内容）。高度相等有单测钉，
+     * 这块"空"长什么样只能看。
+     */
+    @Test
+    fun `把定高的空区画成图片`() = renderPopup(
+        "build/probe/composer-model-popup-fixed-height.png",
+        profiles = listOf(opus, qwen),
+        current = ModelPick("p1", "claude-opus-4-6"),
+        browsedProfileId = "p2",
+        effectOf = { p -> if (p.id == "p1") PickEffect.Hot else PickEffect.Restart },
+    )
+
     /** 弹层最宽的那一版：模型名与主机名都很长。 */
     private val longDetail = ModelProfile(
         id = "p4",
@@ -199,7 +263,7 @@ class ComposerModelRenderProbe {
         baseUrl = "https://api.anthropic-relay.internal.corp.example.com",
     )
 
-    private fun renderLabel(path: String, shots: List<Shot>) {
+    private fun renderLabel(path: String, shots: List<Shot>, width: Int = 420) {
         SwingUtilities.invokeAndWait {
             val rows = shots.map { labelRow(it) }
 
@@ -210,10 +274,13 @@ class ComposerModelRenderProbe {
                 rows.forEach { add(it) }
             }
 
-            // 420px 是工具窗口的真实宽度
-            val w = 420
+            // 420px 是工具窗口的真实宽度；width=756 → 卡 740，是用户实机那条的宽度
+            val w = width
             val h = outer.preferredSize.height
             outer.setSize(w, h)
+            layoutAll(outer)
+            // 第二遍：模型标签的窄窗让位（让法②）在 doLayout 里量宽、revalidate 再来一轮 ——
+            // 离屏没有事件循环，手动补一轮，否则图里画的是没缩过的样子
             layoutAll(outer)
             write(outer, w, h, path)
         }
@@ -265,7 +332,7 @@ class ComposerModelRenderProbe {
         hoverModel: String? = null,
     ) {
         SwingUtilities.invokeAndWait {
-            val list = buildModelList(profiles, current, browsedProfileId, effectOf, {}, {}, {})
+            val list = buildModelList(profiles, current, browsedProfileId, effectOf, {}, {})
             hoverModel?.let { hoverRow(list, it) }
             val pad = JBUI.scale(10)
             val outer = JPanel(BorderLayout()).apply {

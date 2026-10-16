@@ -306,13 +306,27 @@ internal open class CardPanel(private val warn: Boolean) : JPanel() {
  * 从行移到它自己的标签上时会先 exit 再 enter，最终状态仍是"悬停中"。
  */
 internal class RoundedRow(
-    private val selected: Boolean,
+    selected: Boolean,
     /** 固定行高；null = 按内容撑（带说明的两行行就是这种）。 */
     private val fixedHeight: Int? = null,
     padV: Int = 0,
 ) : JPanel(BorderLayout()) {
 
     private var hover = false
+
+    /**
+     * 选中态。**可改**（[setSelected]）：模型弹层左栏的"浏览位"要从一行挪到
+     * 另一行（2026-10-14 悬停即览，见 `BrowseHoverController`），构造时定死
+     * 就只能整列重建，而重建会把悬停计时与高亮全掀掉。
+     */
+    private var selectedState: Boolean = selected
+
+    /** 换选中态。同一个值直接返回 —— 悬停扫过时别为此白刷一遍。 */
+    internal fun setSelected(value: Boolean) {
+        if (selectedState == value) return
+        selectedState = value
+        repaint()
+    }
 
     private val hoverListener = object : MouseAdapter() {
         override fun mouseEntered(e: MouseEvent) {
@@ -372,7 +386,7 @@ internal class RoundedRow(
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
         val fill = when {
-            selected -> UIUtil.getListSelectionBackground(true)
+            selectedState -> UIUtil.getListSelectionBackground(true)
             hover -> UIUtil.getListSelectionBackground(false)
             else -> null
         } ?: return
@@ -382,7 +396,7 @@ internal class RoundedRow(
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = fill
             g2.fill(roundRect(width.toFloat(), height.toFloat(), JBUI.scale(ROW_ARC)))
-            if (selected) {
+            if (selectedState) {
                 // 选中再压一道强调色的边：只靠底色的话，浅色主题里那一档
                 // 跟悬停很接近，光标划过时看不出哪个是"当前"
                 g2.color = blend(accentColor(), fill, 0.5)

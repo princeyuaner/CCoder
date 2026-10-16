@@ -6,12 +6,18 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BasicStroke
 import java.awt.BorderLayout
+import java.awt.CardLayout
+import java.awt.Color
+import java.awt.Container
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.LayoutManager2
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.awt.event.HierarchyBoundsAdapter
+import java.awt.event.HierarchyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
@@ -21,6 +27,7 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.Timer
 import com.ccoder.text.CcoderText
 
 /**
@@ -36,23 +43,31 @@ private val NO_PROFILE_LABEL: String get() = CcoderText.text("composer.model.noP
 /**
  * 模型标签。可点，点了弹列表切换。
  *
- * 照 [ModeLabel] 做 —— 同一行里两个标签，一个能点一个不能会很扎眼。
- * 它只负责**显示与转发点击**：弹层内容与切换之后什么时候改这个标签，
- * 都由 [ClaudePanel] 决定。
+ * 2026-10-14（用户从选型台 `web/tools/model-label-view.mjs` 挑的"乙 + 让法②"）：
+ * 除了模型 ID，**配置的自定义名字也显示出来**，装在一枚小胶囊里 —— 两条配置
+ * 完全可以同一个网关、同一族模型名（[ModelPick] 的注释原话），光看模型名认不出
+ * "现在用的是哪条"。
  *
- * 箭头用的是 [EXPAND_CARET]，与 [ModeLabel] 同一个常量而不是各写一份：
- * 两个字符一旦不同，这两行并排站着就会看得很清楚。
+ * 从 [JLabel] 换成自绘：JLabel 给不了两样东西 —— 一枚胶囊底、以及"名字/模型"
+ * 两段的排布。三档颜色、悬停亮起、可点这些**行为**照 [ModeLabel] 的一套
+ *（并排站着，手感得一样）。
+ *
+ * 「让法②：缩模型保配置」在 [refreshBudget]：量工具栏那一行让出来多少宽，
+ * 窄了先截模型、名字段保住（名字自己的上限见 [NAME_MAX_PX]）。量法与
+ * [McpCacheBadge.refreshCompact] 同一条 —— 自己那格从"左组首选宽"里减掉再算，
+ * 所以 [getPreferredSize] 用哪个预算都不影响量别人占了多少，不会抖。
  */
-internal class ModelLabel(private val onOpen: () -> Unit) : JLabel() {
+internal class ModelLabel(private val onOpen: () -> Unit) : JComponent() {
 
+    private var profile: ModelProfile? = null
     private var hovered = false
 
-    /** 当前是否真的有配置被选中。没配置时用更淡一档的色。 */
-    private var hasProfile = false
+    /** 量到的可用宽（-1 = 还没量到 —— 按不截断画）。 */
+    private var budget = -1
 
     init {
+        font = UIUtil.getLabelFont()
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        foreground = UIUtil.getLabelDisabledForeground()
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {
@@ -63,41 +78,122 @@ internal class ModelLabel(private val onOpen: () -> Unit) : JLabel() {
                 // [ModeLabel] 里是同一套写法 —— 两个标签并排站着，手感得一样
                 override fun mouseEntered(e: MouseEvent) {
                     hovered = true
-                    applyForeground()
+                    repaint()
                 }
 
                 override fun mouseExited(e: MouseEvent) {
                     hovered = false
-                    applyForeground()
+                    repaint()
                 }
+            }
+        )
+        // 窄窗让位：祖先尺寸一变就重新量（同 McpCacheBadge：光靠 doLayout 兜底
+        // 轮不到"加进来就已经是终态尺寸、之后没人动过祖先"那种情况）
+        addHierarchyBoundsListener(
+            object : HierarchyBoundsAdapter() {
+                override fun ancestorResized(e: HierarchyEvent) = refreshBudget()
             }
         )
     }
 
     fun setProfile(profile: ModelProfile?) {
-        text = modelLabelText(profile) + EXPAND_CARET
-        hasProfile = profile != null
-        applyForeground()
+        this.profile = profile
+        refreshBudget()
+        revalidate()
         repaint()
     }
 
+    /** 这一帧要画的（测试与探针读它）。 */
+    internal fun currentParts(): ModelLabelParts =
+        modelLabelParts(profile, if (budget < 0) Int.MAX_VALUE else budget, font)
+
+    /** 当前该用的文字色（测试读它；paint 也走这条）。 */
+    internal fun textColorNow(): Color = modelLabelTextColor(hovered, profile != null)
+
+    override fun getPreferredSize(): Dimension {
+        val fm = labelMetrics(font)
+        val parts = currentParts()
+        val capW = parts.capsule?.let { fm.stringWidth(it) + CAPSULE_PAD_X * 2 + CAPSULE_GAP } ?: 0
+        return Dimension(capW + fm.stringWidth(parts.text), fm.height)
+    }
+
+    /** 这一格定宽（像时钟键/发送键）：BoxLayout 不许拉伸它，间距才稳（同 McpCacheBadge）。 */
+    override fun getMaximumSize(): Dimension = preferredSize
+
+    override fun getMinimumSize(): Dimension = preferredSize
+
+    override fun doLayout() {
+        super.doLayout()
+        refreshBudget()
+    }
+
     /**
-     * 三档颜色，越往后越淡：
-     *
-     * - 悬停时亮成常规文字色 —— 这是"能点"的唯一提示。
-     * - 有配置时是安静的次要文字：它是状态，不该跟发送键抢注意力。
-     * - 没配置时再淡一档：点下去不是"切"，是去设置页。先用颜色说明这一点，
-     *   省得用户点开一个空弹层才发现。
-     *
-     * 后两档在浅色主题里**恰好是同一个灰**（`Label.disabledForeground` 与
-     * `Component.infoForeground` 都解到 #999999）—— 别看了觉得没生效就合并掉：
-     * 取的是各自语义上对的那一档，换主题就分得开（同 [SessionChips] 那颗状态点的做法）。
+     * 量这一行里自己能拿到的宽度。行 = 本标签所在左组的父级
+     *（`buildComposerToolbar` 装配的那只 BorderLayout）。
+     * 链子对不上（探针单画、还没装配）就什么都不做 —— 保持不截断。
      */
-    private fun applyForeground() {
-        foreground = when {
-            hovered -> UIUtil.getLabelForeground()
-            hasProfile -> UIUtil.getInactiveTextColor()
-            else -> UIUtil.getLabelDisabledForeground()
+    private fun refreshBudget() {
+        val group = parent as? JComponent ?: return
+        val row = group.parent as? JComponent ?: return
+        val layout = row.layout as? BorderLayout ?: return
+        val west = layout.getLayoutComponent(BorderLayout.WEST) as? JComponent ?: return
+        val east = layout.getLayoutComponent(BorderLayout.EAST) as? JComponent ?: return
+        // 还没布局过：量到的都是 0，等真尺寸落下来再说（doLayout / 祖先 resize 会再来）
+        if (row.width <= 0) return
+
+        // 自己那格从这里减掉再算 —— 用哪个预算，量出来的"别人占了多少"都一样
+        val others = (west.preferredSize.width - preferredSize.width) + east.preferredSize.width
+        val next = (row.width - others).coerceAtLeast(JBUI.scale(24))
+        if (next == budget) return
+        budget = next
+        // 父容器缓存着"含我旧宽"的首选尺寸（Container.prefSize 与 BoxLayout 的
+        // SizeRequirements）—— 显式作废整条链，不指望 validate 流程替我们清：
+        // 离屏探针里没有那条流程，症状是 west 永远卡在旧值、把自己一路缩没；
+        // 实机上清不清得了也不该赌
+        var c: Container? = this
+        while (c != null) {
+            (c.layout as? LayoutManager2)?.invalidateLayout(c)
+            c.invalidate()
+            c = c.parent
+        }
+        revalidate()
+        repaint()
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.font = font
+            val fm = g2.fontMetrics
+            val parts = currentParts()
+            val tone = textColorNow()
+            val baseline = (height + fm.ascent - fm.descent) / 2
+
+            var x = 0
+            parts.capsule?.let { name ->
+                val capW = fm.stringWidth(name) + CAPSULE_PAD_X * 2
+                // 胶囊抱着基线长：上缘离 ascent 1px、下缘离 descent 1px，与文字共一条基线
+                val padY = JBUI.scale(1)
+                val capY = baseline - fm.ascent - padY
+                val capH = fm.ascent + fm.descent + padY * 2
+                // 胶囊底 = 标签前景 8% 压在底带上（同选型台 .mtag）：深色下看得见、
+                // 浅色下不至于像一枚按钮
+                g2.color = mix(composerFooterFill(), UIUtil.getLabelForeground(), CAPSULE_FILL)
+                g2.fill(
+                    RoundRectangle2D.Float(
+                        x.toFloat(), capY.toFloat(), capW.toFloat(), capH.toFloat(),
+                        JBUI.scale(8).toFloat(), JBUI.scale(8).toFloat(),
+                    )
+                )
+                g2.color = tone
+                g2.drawString(name, x + CAPSULE_PAD_X, baseline)
+                x += capW + CAPSULE_GAP
+            }
+            g2.color = tone
+            g2.drawString(parts.text, x, baseline)
+        } finally {
+            g2.dispose()
         }
     }
 }
@@ -111,55 +207,157 @@ internal class ModelLabel(private val onOpen: () -> Unit) : JLabel() {
 internal data class ModelPick(val profileId: String, val modelId: String)
 
 /**
- * 标签上写什么。
- *
- * 显示的是**当前模型 ID** 而不是配置名：同一套 URL 下的两个模型正是靠它区分，
- * 而换模型之后还写着配置名的话，标签上看不出刚才切了没有。
- *
- * 三种回退：没有配置 → 「无模型」；这条配置没指定模型 → 配置名（那时它才是
- * 唯一能说明"现在用哪条"的东西，由 [ModelProfile.displayName] 给出）；
- * 其余 → 模型 ID。回退规则只有那一处，这里委托过去而不是再抄一遍。
- *
- * 模型 ID 是用户填的、没有上限，而这一行还并排站着权限与思考两个标签 ——
- * 不截断的话一个长名字会把那两个挤出工具窗口。
+ * 标签上排出来的两段：胶囊里放什么（null = 不画胶囊）+ 胶囊后那一行（含展开箭头）。
  */
-internal fun modelLabelText(profile: ModelProfile?): String {
-    if (profile == null) return CcoderText.text("composer.model.none")
+internal data class ModelLabelParts(val capsule: String?, val text: String)
+
+/** 胶囊左右内边距（1x）。同选型台 `.mtag` 的 6px。 */
+private val CAPSULE_PAD_X = JBUI.scale(6)
+
+/** 胶囊与正文之间的间隙（同选型台 `.mtag` 的 margin-right 6）。 */
+private val CAPSULE_GAP = JBUI.scale(6)
+
+/** 胶囊底 = 标签前景压 8%（同选型台；深浅两套都由它派生，不另造颜色）。 */
+private const val CAPSULE_FILL = 0.08
+
+/**
+ * 名字段自己的上限（像素）。超长的配置名也得截 —— 它不能把模型挤出窗口
+ *（选型台「特殊态④」）。数字由 `ComposerModelRenderProbe` 量着看。
+ */
+internal val NAME_MAX_PX = JBUI.scale(96)
+
+/**
+ * 模型段的上限（像素）—— 旧版 `MAX_LABEL_CHARS = 24` 的同一条规矩，按像素重写：
+ * 两段合排本来就要算像素，字数算术在中英混排下不准。数字同样由探针量着看。
+ */
+internal val MODEL_MAX_PX = JBUI.scale(150)
+
+/**
+ * 标签上排哪两段（2026-10-14「乙 + 让法②」）：
+ *
+ * - 没选中配置 → 只有「无模型」；
+ * - 配置没指定模型 → 裸写 [ModelProfile.displayName]（那时它才是唯一说明；
+ *   **不装胶囊** —— 后面没有模型跟着，独一枚胶囊看起来像按钮）；
+ * - 有自定义名字 → **名字进胶囊**、模型跟在后面；[maxWidth] 不够时**先截模型**
+ *   —— 名字保到 [NAME_MAX_PX] 为止（选型台的"让法②：缩模型保配置"）；
+ * - 没名字 → 与旧版一字不差：只写模型，上限 [MODEL_MAX_PX]。
+ *
+ * 正文仍是**模型 ID**（切完模型一眼看得出来）；箭头（[EXPAND_CARET]）拼在
+ * [ModelLabelParts.text] 的尾巴上 —— 它是文本的一部分，悬停时跟文本一起亮。
+ */
+internal fun modelLabelParts(profile: ModelProfile?, maxWidth: Int, font: Font): ModelLabelParts {
+    val fm = labelMetrics(font)
+    val caretW = fm.stringWidth(EXPAND_CARET)
+    if (profile == null) {
+        return ModelLabelParts(null, CcoderText.text("composer.model.none") + EXPAND_CARET)
+    }
     val model = profile.modelId.trim()
-    return when {
-        model.isEmpty() -> profile.displayName()
-        model.length <= MAX_LABEL_CHARS -> model
-        else -> model.take(MAX_LABEL_CHARS) + "…"
+    val name = profile.name.trim()
+    if (model.isEmpty()) {
+        // 没模型：显示名兜底（名字 → 未命名），与旧版一致
+        return ModelLabelParts(
+            null,
+            ellipsizeToWidth(profile.displayName(), maxWidth - caretW, font) + EXPAND_CARET,
+        )
+    }
+    if (name.isEmpty()) {
+        val cap = minOf(maxWidth - caretW, MODEL_MAX_PX)
+        return ModelLabelParts(null, ellipsizeToWidth(model, cap, font) + EXPAND_CARET)
+    }
+    val capsule = ellipsizeToWidth(name, NAME_MAX_PX, font)
+    val capsuleW = fm.stringWidth(capsule) + CAPSULE_PAD_X * 2 + CAPSULE_GAP
+    val cap = minOf(maxWidth - caretW - capsuleW, MODEL_MAX_PX)
+    return ModelLabelParts(capsule, ellipsizeToWidth(model, cap, font) + EXPAND_CARET)
+}
+
+/**
+ * 文字色三档（与 [ModeLabel] / [EffortLabel] 并排同一套）：悬停亮成常规文字色；
+ * 有配置时是安静的次要文字；没配置再淡一档（点下去不是"切"，是去设置页）。
+ *
+ * 后两档在浅色主题里**恰好是同一个灰**（`Label.disabledForeground` 与
+ * `Component.infoForeground` 都解到 #999999）—— 别看了觉得没生效就合并掉：
+ * 取的是各自语义上对的那一档，换主题就分得开（同 [SessionChips] 那颗状态点的做法）。
+ */
+internal fun modelLabelTextColor(hovered: Boolean, hasProfile: Boolean): Color = when {
+    hovered -> UIUtil.getLabelForeground()
+    hasProfile -> UIUtil.getInactiveTextColor()
+    else -> UIUtil.getLabelDisabledForeground()
+}
+
+/** FontMetrics 要组件出处，借一个标签（同 [ellipsizeToWidth] 的说法，headless 也能用）。 */
+private fun labelMetrics(font: Font) = JLabel().getFontMetrics(font)
+
+/** 悬停即览的等待（未缩放 ms）：防"指针路过左栏时右栏闪跳一串"。 */
+internal const val HOVER_BROWSE_DELAY_MS = 130
+
+/**
+ * 悬停即览（2026-10-14 选型台 A 案）：左栏行悬停一小会后切右栏，点击立即切。
+ *
+ * 计时用 `javax.swing.Timer`（回调在 EDT 上，Swing 的单线程规矩不破）。
+ * [fire] 是"计时到点该做的事"，**测试直接驱它** —— 真进程里由 Timer 到点调；
+ * 睡等计时器会把用例做成赌时间。
+ */
+internal class BrowseHoverController(
+    delayMs: Int = HOVER_BROWSE_DELAY_MS,
+    private val browse: (String) -> Unit,
+) {
+    private var pending: String? = null
+    private val timer = Timer(delayMs) { fire() }.apply { isRepeats = false }
+
+    /** 悬停到了某个 id：重新起表 —— 连续划过只算最后停下的那条。 */
+    fun hover(id: String) {
+        pending = id
+        timer.restart()
+    }
+
+    /** 指针离开左栏：挂起的那次不算。 */
+    fun leave() {
+        timer.stop()
+        pending = null
+    }
+
+    /** 点击：立刻切，不等表走完。 */
+    fun click(id: String) {
+        timer.stop()
+        pending = null
+        browse(id)
+    }
+
+    internal fun fire() {
+        val id = pending ?: return
+        pending = null
+        browse(id)
     }
 }
 
 /**
- * 标签上最多写到这个长度。
- *
- * 具体数字由 `ComposerModelRenderProbe` 在 420px 下量出来（观感的事看属性
- * 看不出来）—— 三个标签并排，模型名是最长的那一个。
- */
-private const val MAX_LABEL_CHARS = 24
-
-/**
  * 切换弹层的内容：**左栏配置、右栏模型**（2026-10-13 用户从选型台选的 C 案，
- * 选型台 `web/tools/model-popup-height-view.mjs`）。
+ * 选型台 `web/tools/model-popup-height-view.mjs`；2026-10-14 按 A 案改，
+ * `web/tools/model-popup-browse-view.mjs`）。
  *
  * 改版前是一条配置一张卡、全部平铺 —— 四条配置十个模型就要 518px 高，一直
  * 顶到屏幕上沿（弹层内容**没有上限也没有滚动**，见 `popupHeightOf`）。两栏
- * 把"看哪条"与"选哪个"分开：左栏一列配置名，右栏只有**浏览中那条**的模型；
- * 高度掉到约 170，而且不再随模型总数增长。
+ * 把"看哪条"与"选哪个"分开：左栏一列配置名，右栏只有**浏览中那条**的模型。
+ *
+ * ## 悬停即览 + 定高（2026-10-14 A 案）
+ *
+ * 两栏上岗后用户报了两个人机问题，这一案一起修：
+ *
+ * - **"要点击才会显示子列表"** → 左栏行**悬停**一小段（[HOVER_BROWSE_DELAY_MS]）
+ *   就换右栏（[BrowseHoverController]）；点击照旧立即切 —— 老手势不废，
+ *   "想看看别条有什么模型"从此不用动手。
+ * - **"换浏览时弹层高度跟着跳"**（浏览只有 1 个模型的那条 158px ↔ 有 4 个的
+ *   206px；根因是换浏览走 cancel + 重开，尺寸按内容撑）→ 右栏的四条卡
+ *   **打开时全部建好**，`CardLayout` 一次只显示一条；它的首选尺寸 =
+ *   **最大的那张卡**，于是弹层打开时定高一次，之后只换内容、不重建、不跳。
+ *   `ClaudePanel.browseModelProfile` 那条重开路已删。
  *
  * ## 浏览 ≠ 切换
  *
- * 点左栏只换右栏看什么（[onSelectProfile]），**不动**选中的模型；真正的切换
- * 还是点右栏的模型行（[onPick]）。所以开着弹层时有两件"当前"：左栏的**浏览位**
+ * 悬停/点左栏只换右栏看什么，**不动**选中的模型；真正的切换还是点右栏的
+ * 模型行（[onPick]）。所以开着弹层时有两件"当前"：左栏的**浏览位**
  * （底色那行）与真正在用的那条（行尾的小圆点）——分开是为了防误触：只想看看
  * 别条有什么模型，不该顺手把会话换了。
- *
- * 换浏览走的是"重开一次弹层"而不是就地换内容：弹层尺寸按内容撑，换一条高度
- * 就变一截，而平台弹层没有"改内容再改尺寸"的现成路数 —— 重建是这个代码库
- * 对动态弹层一贯的做法（同 [ClaudePanel.showDetailPopup]），状态由调用方持有。
  *
  * ## 其它
  *
@@ -181,16 +379,22 @@ internal fun buildModelList(
      */
     current: ModelPick?,
     /**
-     * 左栏此刻停在（浏览）哪条配置上。null = 跟 [current] 那条走，还没有就第一条。
+     * 左栏**初始**停在哪条配置上（浏览位）。null = 跟 [current] 那条走，
+     * 还没有就第一条。
      *
-     * 由调用方（[ClaudePanel]）持有：点左栏 = 重开一次弹层，状态不能只活在
-     * 这一份会被重建的内容里。
+     * 只是初值：之后换浏览是弹层内部的事（悬停/点击，就地换卡，A 案）。
+     * 调用方都从"当前那条"开局（[ClaudePanel.openModelChooser]）——
+     * 多数人来换的就是它。
      */
     browsedProfileId: String?,
     effectOf: (ModelProfile) -> PickEffect,
     onPick: (ModelPick) -> Unit,
-    onSelectProfile: (String) -> Unit,
     onManage: () -> Unit,
+    /**
+     * 悬停即览的等待。**测试注入一个大值把计时器钉在场外** —— "悬停不立即切"
+     * 这类断言就不必赌时间；生产一律走默认 [HOVER_BROWSE_DELAY_MS]。
+     */
+    hoverDelayMs: Int = HOVER_BROWSE_DELAY_MS,
 ): JComponent = cardColumn().apply {
     if (profiles.isEmpty()) {
         addLeftAligned(
@@ -211,7 +415,7 @@ internal fun buildModelList(
                 current = current,
                 effectOf = effectOf,
                 onPick = onPick,
-                onSelectProfile = onSelectProfile,
+                hoverDelayMs = hoverDelayMs,
             )
         )
         addLeftAligned(gap(ACTION_GAP))
@@ -260,6 +464,11 @@ private const val PROFILE_NAME_MAX_PX = 76
  *
  * 两个"对齐陷阱"在这里处理掉：左右两栏各按内容高站（`BorderLayout` 默认把
  * WEST/CENTER 拉到整行高），左栏宽度钉死在常量上（见 [ProfileColumn]）。
+ *
+ * 右栏是 [CardLayout]：**全部卡建好、只显示一条**。定高是它的白拿项 ——
+ * 首选尺寸取**所有子件里的最大者**，与此刻显示哪条无关（A 案：弹层用它定
+ * 一次尺寸，之后换内容只 `show()`，不重建）。换浏览是弹层内部的事
+ * （悬停 [BrowseHoverController] 或点击），不再出走给调用方。
  */
 private fun profileColumns(
     profiles: List<ModelProfile>,
@@ -267,27 +476,57 @@ private fun profileColumns(
     current: ModelPick?,
     effectOf: (ModelProfile) -> PickEffect,
     onPick: (ModelPick) -> Unit,
-    onSelectProfile: (String) -> Unit,
+    hoverDelayMs: Int,
 ): JComponent {
+    // 右栏：卡全部建好 —— 一个人几条配置，就是几张小卡，值。
+    // 每张套一层 [hugTop]：CardLayout 会把显示的卡拉满容器高，短卡不该被抻长
+    //（选型台里浏览 1 个模型的配置时，卡是自然高度、下方留空）。
+    val cards = CardLayout()
+    val cardsPanel = JPanel(cards).apply { isOpaque = false }
+    profiles.forEach { p -> cardsPanel.add(hugTop(profileCard(p, effectOf(p), current, onPick)), p.id) }
+    // CardLayout 默认露**第一个**加入的卡，不是浏览位那条 —— 先把初态摆正
+    cards.show(cardsPanel, browsed.id)
+
+    // 浏览位：底色那行跟着走。rows 在下面装配左栏时填满。
+    val rows = HashMap<String, RoundedRow>()
+    var shown = browsed.id
+    fun showBrowsed(id: String) {
+        if (id == shown) return
+        shown = id
+        cards.show(cardsPanel, id)
+        rows.forEach { (pid, row) -> row.setSelected(pid == id) }
+    }
+
+    val hover = BrowseHoverController(hoverDelayMs) { id -> showBrowsed(id) }
+
     val left = ProfileColumn().apply {
         profiles.forEach { p ->
-            addLeftAligned(
-                profileChoiceRow(
-                    profile = p,
-                    browsed = p.id == browsed.id,
-                    inUse = p.id == current?.profileId,
-                    onClick = { onSelectProfile(p.id) },
-                )
+            val row = profileChoiceRow(
+                profile = p,
+                browsed = p.id == browsed.id,
+                inUse = p.id == current?.profileId,
+                onClick = { hover.click(p.id) },
+                onHover = { hover.hover(p.id) },
             )
+            rows[p.id] = row
+            addLeftAligned(row)
         }
+        // 指针整个离开左栏才取消挂起的那次切换 —— 行与行之间移动不取消
+        // （enter 会重置计时：连续划过只算最后停下的那条）
+        addMouseListener(
+            object : MouseAdapter() {
+                override fun mouseExited(e: MouseEvent) {
+                    hover.leave()
+                }
+            }
+        )
     }
-    val right = profileCard(browsed, effectOf(browsed), current, onPick)
 
     return JPanel(BorderLayout()).apply {
         isOpaque = false
         add(hugTop(left), BorderLayout.WEST)
         add(
-            hugTop(right).apply { border = JBUI.Borders.emptyLeft(JBUI.scale(COLUMN_GAP)) },
+            hugTop(cardsPanel).apply { border = JBUI.Borders.emptyLeft(JBUI.scale(COLUMN_GAP)) },
             BorderLayout.CENTER,
         )
     }
@@ -322,16 +561,18 @@ private fun hugTop(c: JComponent): JComponent = JPanel(BorderLayout()).apply {
 /**
  * 左栏一行：配置名，行尾一颗「在用」的点。
  *
- * 点它只换右栏看什么（[onSelectProfile] 那条路），**不动**当前选择 —— 想看看
- * 别条有什么模型，不该顺手把会话换了。所以它跟模型行长得同族、但**不给勾位**：
- * 勾是"选了"的意思，这里没有那个动作。
+ * 悬停（[onHover]，等 [HOVER_BROWSE_DELAY_MS] 由控制器决定何时切）与点击
+ * （[onClick]，立即）都只换右栏看什么，**不动**当前选择 —— 想看看别条有什么
+ * 模型，不该顺手把会话换了。所以它跟模型行长得同族、但**不给勾位**：勾是
+ * "选了"的意思，这里没有那个动作。
  */
 private fun profileChoiceRow(
     profile: ModelProfile,
     browsed: Boolean,
     inUse: Boolean,
     onClick: () -> Unit,
-): JComponent {
+    onHover: () -> Unit,
+): RoundedRow {
     val base = UIUtil.getLabelFont()
     val row = RoundedRow(selected = browsed, fixedHeight = PROFILE_ROW_HEIGHT).apply {
         add(
@@ -353,6 +594,16 @@ private fun profileChoiceRow(
         object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 onClick()
+            }
+        },
+    )
+    // 悬停也要算数整棵子树：名字标签盖着行的绝大部分，只挂行自己会"压在字上不算数"
+    //（同 [handlerInto] 的道理，那条注释里踩过一次）
+    handlerInto(
+        row,
+        object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) {
+                onHover()
             }
         },
     )

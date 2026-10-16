@@ -14,9 +14,21 @@ internal fun mcpJsonPath(projectBase: Path): Path = projectBase.resolve(".mcp.js
  * `sdk`（带 `instance`，不可序列化）与 `claudeai-proxy`（云端专用）**明确不做**
  * —— 但它们在文件里出现时**必须原样留着**，见 [McpConfig.preserved]。
  */
-enum class McpKind(val wireType: String?, private val labelKey: String) {
+enum class McpKind(
+    val wireType: String?,
+    private val labelKey: String,
+    /**
+     * 读文件时**还认**的其它写法。只影响读 —— 写回去永远用 [wireType]。
+     *
+     * `stdio` 这一条是补的（2026-10-15）：注释里一直写着"CLI 自己不写 `type`"，
+     * 但 `claude mcp add` 生成的 `.mcp.json` 是**显式**写 `"type": "stdio"` 的
+     * —— 于是 CLI 自己产出的文件被这一层判成"认不得的"，整条落进
+     * [McpConfig.preserved]，面板里既看不见也改不了。
+     */
+    val readAliases: Set<String> = emptySet(),
+) {
     /** `type` 可省，省了文件更干净 —— 这也是 CLI 自己的写法。 */
-    STDIO(null, "settings.mcp.kind.stdio.label"),
+    STDIO(null, "settings.mcp.kind.stdio.label", setOf("stdio")),
     SSE("sse", "settings.mcp.kind.sse.label"),
     HTTP("http", "settings.mcp.kind.http.label"),
     ;
@@ -138,7 +150,10 @@ private fun parseMcpServer(name: String, obj: JsonObject): McpServer? {
     val type = obj.str("type")
     val kind = when (type) {
         null -> McpKind.STDIO            // 没有 type 就是 stdio，这是 CLI 的规矩
-        else -> McpKind.entries.firstOrNull { it.wireType == type } ?: return null
+        // 别名一起认：CLI 显式写出来的 `"type": "stdio"` 也是 stdio（见 readAliases）
+        else -> McpKind.entries
+            .firstOrNull { it.wireType == type || type in it.readAliases }
+            ?: return null
     }
     return McpServer(
         name = name,

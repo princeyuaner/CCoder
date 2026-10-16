@@ -105,7 +105,9 @@ body {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  /* 底距 6（其余三边 8）：底边这截与分隔条、底区上距连起来读 —— 8 + 6 + 6
+     之下，握把上下各空出一大段（2026-10-14 用户报"上下间隔太宽"） */
+  padding: 8px 8px 6px;
   display: flex;
   flex-direction: column;
   gap: 8px;
