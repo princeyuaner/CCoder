@@ -917,8 +917,37 @@ body {
   border-radius: 6px;
   font-family: var(--font-mono, monospace);
   font-size: calc(12px * var(--fs-scale, 1));
-  overflow-x: auto;
-  white-space: pre;
+  /* 2026-10-16 改：从前是 `overflow-x: auto` + `white-space: pre` —— 长行不折，
+   * 右边**切在半个词上**，只能横向拖着看。用户截的那张展开的 Task 卡就是这样：
+   * 整份子代理简报以 12px 等宽铺了一屏，每行尾巴都缺一截（`in an EMPTY d`）。
+   * 320px 那个上限同 `.tool__out` 与 Kotlin 侧 `LONG_MAX_HEIGHT`：整份 JSON 或
+   * 整段参数不该把上面几十条对话顶出屏幕。 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* 正文型参数（`plan` / `prompt`）—— 过 Markdown 之后就不是等宽那一挂了。
+ *
+ * 排版交给下面那组 Markdown 规则（**选择器里带着 `.tool__prose`**，
+ * 与 `.bubble__text` 共用一份：`##` 在一处是标题、在另一处是普通段落，
+ * 那才是真难看的）。这里只管这个盒子自己的事：底、内边距、高度。
+ *
+ * 盒子照 `.tool__params` 那一份给（同一个槽位、同一个底色）：它是替掉那段 `<pre>`
+ * 的东西，两档长得不一样才奇怪。 */
+.tool__prose {
+  margin: 0;
+  padding: 8px;
+  background: var(--code-bg, #191a1c);
+  border-radius: 6px;
+  color: var(--text, #dcdcdc);
+  /* 换行这两条与 `.bubble__text` / `.bubble` 上那两条同一个道理，
+   * 但这里是工具卡里，没有那两层替它继承，得自己写 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 /* ---- 子代理那一块（A1，2026-09-18）----
@@ -1151,13 +1180,21 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* ---- Markdown 排版 ---- */
+/* ---- Markdown 排版 ----
+ *
+ * 两个容器共用这一组：助手/错误气泡的正文（`.bubble__text`）与工具卡里的
+ * 正文型参数（`.tool__prose`，见上面那条——Task 的简报、ExitPlanMode 的计划）。
+ * 新加一条规则时**两个选择器都要带上**：只有一处生效的样子是"同一份 Markdown
+ * 在两处长得不一样"，那正是这一组要防的事（同 Kotlin 侧 planHtml 那条账：
+ * 同一个计划在审批框与转写区长得不一样，用户是当成 bug 报上来的）。 */
 
-.bubble__text p {
+.bubble__text p,
+.tool__prose p {
   margin: 0 0 8px;
 }
 
-.bubble__text p:last-child {
+.bubble__text p:last-child,
+.tool__prose p:last-child {
   margin-bottom: 0;
 }
 
@@ -1166,7 +1203,13 @@ body {
 .bubble__text h3,
 .bubble__text h4,
 .bubble__text h5,
-.bubble__text h6 {
+.bubble__text h6,
+.tool__prose h1,
+.tool__prose h2,
+.tool__prose h3,
+.tool__prose h4,
+.tool__prose h5,
+.tool__prose h6 {
   margin: 12px 0 6px;
   font-size: 1.15em;
   line-height: 1.35;
@@ -1174,24 +1217,32 @@ body {
 
 .bubble__text h1:first-child,
 .bubble__text h2:first-child,
-.bubble__text h3:first-child {
+.bubble__text h3:first-child,
+.tool__prose h1:first-child,
+.tool__prose h2:first-child,
+.tool__prose h3:first-child {
   margin-top: 0;
 }
 
 .bubble__text ul,
-.bubble__text ol {
+.bubble__text ol,
+.tool__prose ul,
+.tool__prose ol {
   margin: 6px 0;
   padding-left: 20px;
 }
 
-.bubble__text li {
+.bubble__text li,
+.tool__prose li {
   margin: 2px 0;
 }
 
 /* 嵌套列表：外层已经给了 6px 的上下边距，里层再要一份就成了 12px 的空洞 ——
    在 400px 的窄栏里，列表看着像断成了两截 */
 .bubble__text li > ul,
-.bubble__text li > ol {
+.bubble__text li > ol,
+.tool__prose li > ul,
+.tool__prose li > ol {
   margin: 2px 0 0;
 }
 
@@ -1210,7 +1261,8 @@ body {
   overflow-x: auto;
 }
 
-.bubble__text table {
+.bubble__text table,
+.tool__prose table {
   border-collapse: collapse;
   /* 字号得在**表格这层**拉回来：Chromium 的 UA 样式表给 `table` 钉了
    * `font-size: medium`（16px），单元格是从它继承的 —— 正文 13px 时表格里是 16px，
@@ -1268,7 +1320,9 @@ body {
  * 内边距 5px 10px 是给单行短表格准备的；这里一行要放整段中文散文，
  * 配合 line-height:1.5 才不糊成一坨。 */
 .bubble__text th,
-.bubble__text td {
+.bubble__text td,
+.tool__prose th,
+.tool__prose td {
   border: 1px solid var(--border, #393b40);
   border-color: color-mix(in srgb, var(--border, #393b40) 65%, var(--text, #dcdcdc) 35%);
   /* ---- 2026-09-29 晚：格线**看不见** ----
@@ -1298,19 +1352,22 @@ body {
   font-size: inherit;
 }
 
-.bubble__text th {
+.bubble__text th,
+.tool__prose th {
   background: var(--code-bg, #191a1c);
   font-weight: 600;
 }
 
-.bubble__text blockquote {
+.bubble__text blockquote,
+.tool__prose blockquote {
   margin: 6px 0;
   padding-left: 10px;
   border-left: 3px solid var(--border, #393b40);
   color: var(--text-dim, #8c8c8c);
 }
 
-.bubble__text hr {
+.bubble__text hr,
+.tool__prose hr {
   border: none;
   border-top: 1px solid var(--border, #393b40);
   margin: 12px 0;

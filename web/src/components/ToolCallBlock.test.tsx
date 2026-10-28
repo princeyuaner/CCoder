@@ -300,6 +300,49 @@ describe('ToolCallBlock', () => {
     expect(screen.getByTestId('tool-params')).toHaveTextContent('buildSessionList')
   })
 
+  // ---- 正文型参数（2026-10-16）----
+  //
+  // 用户截的是展开一张在跑的 Task 卡：整份子代理简报（三千多字）以 12px 等宽
+  // 铺了一屏，`##`、`**` 原样露着，右边还在半个词上被切掉。plan / prompt 那两档
+  // 是模型写的散文，该按正文渲染；其余长字段（代码、JSON）仍旧是等宽原文。
+
+  it('Task 的简报按正文渲染 —— 不是把 ## 铺在脸上', async () => {
+    const prompt = '## Product goal\n\n一个桌面应用，**托管多个 CLI**。'
+    render(<ToolCallBlock item={use('Task', { description: '设计骨架', prompt })} />)
+
+    await userEvent.click(header())
+    const prose = screen.getByTestId('tool-prose')
+    // `##` 成了真标题、`**` 成了真加粗 —— 字面上一个记号都不剩
+    expect(prose.querySelector('h2')).toHaveTextContent('Product goal')
+    expect(prose.querySelector('strong')).toHaveTextContent('托管多个 CLI')
+    expect(prose.textContent).not.toContain('##')
+    expect(prose.textContent).not.toContain('**')
+  })
+
+  it('「其余参数」仍留在等宽那段里，不与正文混在一起', async () => {
+    // 混进正文就是一段看着像散文的 JSON —— 那是比排版难看更糟的事
+    // （同 Kotlin 侧 PermissionBody 把 footer 单独拎出来那条账）
+    render(<ToolCallBlock item={use('Task', { description: '设计骨架', prompt: '## 目标\n\n正文' })} />)
+
+    await userEvent.click(header())
+    const rest = screen.getByTestId('tool-params')
+    expect(rest.tagName).toBe('PRE')
+    expect(rest).toHaveTextContent('其余参数：')
+    expect(rest).toHaveTextContent('"description": "设计骨架"')
+    expect(screen.getByTestId('tool-prose')).not.toHaveTextContent('其余参数')
+  })
+
+  it('代码那种长正文仍是等宽原文，不过 Markdown', async () => {
+    // 认不出的工具 + 多行脚本：`#` 在那儿是注释，渲染成标题就是吃掉字符
+    render(<ToolCallBlock item={use('mcp__x__y', { script: '#!/bin/sh\n# 起服务\nnode x' })} />)
+
+    await userEvent.click(header())
+    const body = screen.getByTestId('tool-params-body')
+    expect(body.tagName).toBe('PRE')
+    expect(body).toHaveTextContent('# 起服务')
+    expect(screen.queryByTestId('tool-prose')).not.toBeInTheDocument()
+  })
+
   it('参数不是 JSON 也不崩', () => {
     render(<ToolCallBlock item={{ ...use('Bash', {}), input: '{{{' }} />)
     expect(screen.getByText('Bash')).toBeInTheDocument()

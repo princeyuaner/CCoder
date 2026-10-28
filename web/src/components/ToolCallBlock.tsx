@@ -3,6 +3,7 @@ import type { ToolResultItem, ToolUseItem } from '../types'
 import { openFile } from '../bridge'
 import { useElapsed } from '../elapsed'
 import { t, useLang } from '../i18n'
+import { Markdown } from './Markdown'
 import { toolStateOf } from '../toolStatus'
 import {
   toolBadgeOf,
@@ -405,10 +406,31 @@ export const ToolCallBlock = memo(function ToolCallBlock({
             </button>
           )}
 
+          {/* 参数那一块。**正文型入参**（`plan` / `prompt`）按正文渲染 ——
+              它是模型写的散文，塞进 `<pre>` 就是把 `##`、`**` 原样铺在脸上；
+              其余（缩进 JSON）照旧留在 `<pre>` 里。
+
+              2026-10-16 改的。用户截的是展开一张在跑的 Task 卡：整份子代理简报
+              （三千多字）以 12px 等宽铺了一屏，右边还在半个词上被切掉
+              （`.tool__params` 当时是 `white-space: pre`，只能横向滚）。 */}
           {!command && !diff && !matched && params !== null && (
-            <pre className="tool__params" data-testid="tool-params">
-              {params}
-            </pre>
+            <>
+              {params.body !== null &&
+                (params.markdown ? (
+                  <div className="tool__prose" data-testid="tool-prose">
+                    <Markdown text={params.body} />
+                  </div>
+                ) : (
+                  <pre className="tool__params" data-testid="tool-params-body">
+                    {params.body}
+                  </pre>
+                ))}
+              {params.rest !== null && (
+                <pre className="tool__params" data-testid="tool-params">
+                  {params.rest}
+                </pre>
+              )}
+            </>
           )}
         </div>
       )}
