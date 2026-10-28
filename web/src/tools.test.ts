@@ -267,9 +267,11 @@ describe('契约 fixture', () => {
 
 describe('toolParams', () => {
   it('给缩进后的参数 JSON', () => {
-    expect(toolParams('{"query":"x","projectPath":"/a"}')).toBe(
-      '{\n  "query": "x",\n  "projectPath": "/a"\n}',
-    )
+    expect(toolParams('{"query":"x","projectPath":"/a"}')).toEqual({
+      body: null,
+      markdown: false,
+      rest: '{\n  "query": "x",\n  "projectPath": "/a"\n}',
+    })
   })
 
   it('不是 JSON 时给 null', () => {
@@ -286,25 +288,45 @@ describe('toolParams', () => {
     const plan = '# 计划\n\n第一段\n第二段'
     const out = toolParams(JSON.stringify({ plan, planFilePath: 'C:\\plans\\x.md' }))!
 
-    expect(out.startsWith('# 计划')).toBe(true)
-    expect(out).toContain('第一段\n第二段') // 真换行
-    expect(out).toContain('planFilePath') // 其余字段一个都不藏
+    expect(out.body).toBe(plan) // 一个字符都不动（真换行）
+    expect(out.markdown).toBe(true) // 计划是散文那一档
+    expect(out.rest).toContain('planFilePath') // 其余字段一个都不藏
   })
 
-  it('多行参数也算正文', () => {
+  it('Task 的 prompt 也是散文 —— 子代理简报本来就该按正文读', () => {
+    // 2026-10-16：用户截的正是这张卡 —— 整份简报以等宽铺了一屏，
+    // `##`、`**` 原样露着。plan 与 prompt 都是模型写给人读的段落。
+    const prompt = '## Product goal\n\nA desktop app that (a) hosts multiple CLIs.'
+    const out = toolParams(JSON.stringify({ description: '设计骨架', prompt }))!
+
+    expect(out.body).toBe(prompt)
+    expect(out.markdown).toBe(true)
+  })
+
+  it('多行参数也算正文，但**不过 Markdown**', () => {
+    // 命令是代码：`#` 在那儿是注释，按 Markdown 渲染会把它当标题吃掉 ——
+    // 同 Kotlin 侧 permissionBody 里"只有计划走这条"那条账
     const out = toolParams(JSON.stringify({ command: 'set -e\ncd /tmp', description: '跑一段' }))!
 
-    expect(out.startsWith('set -e\ncd /tmp')).toBe(true)
+    expect(out.body).toBe('set -e\ncd /tmp')
+    expect(out.markdown).toBe(false)
   })
 
   it('短参数照旧走缩进 JSON', () => {
-    expect(toolParams(JSON.stringify({ command: 'ls' }))).toBe('{\n  "command": "ls"\n}')
+    expect(toolParams(JSON.stringify({ command: 'ls' }))!.rest).toBe('{\n  "command": "ls"\n}')
+  })
+
+  it('没有别的字段时不给「其余参数」那一截 —— 不留一个空标题', () => {
+    const out = toolParams(JSON.stringify({ plan: '# 计划\n\n第一段' }))!
+
+    expect(out.body).toBe('# 计划\n\n第一段')
+    expect(out.rest).toBeNull()
   })
 
   it('正文与其余字段之间那句分隔头是文案（中文）', () => {
     const out = toolParams(JSON.stringify({ plan: '# 计划\n\n第一段', planFilePath: 'x.md' }))!
 
-    expect(out).toContain('其余参数：')
+    expect(out.rest).toContain('其余参数：')
   })
 
   it('英文界面下那句分隔头是英文 —— 紧随其后的 JSON 一个字都不动', () => {
@@ -312,11 +334,11 @@ describe('toolParams', () => {
 
     const out = toolParams(JSON.stringify({ plan: '# 计划\n\n第一段', planFilePath: 'x.md' }))!
 
-    expect(out).toContain('Other parameters:')
+    expect(out.rest).toContain('Other parameters:')
     // 分隔线是排版（12 个破折号），两边的形状要一致 —— 它不进目录
-    expect(out).toContain('————————————')
+    expect(out.rest).toContain('————————————')
     // 参数值原样透传：路径不会被"翻译"
-    expect(out).toContain('"planFilePath": "x.md"')
+    expect(out.rest).toContain('"planFilePath": "x.md"')
   })
 })
 

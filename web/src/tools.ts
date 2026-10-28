@@ -234,12 +234,36 @@ function pair(before: string, after: string): DiffLine[] {
 }
 
 /**
- * 展开后显示的参数原文（缩进过的 JSON）。不是 JSON 时给 null。
+ * 展开体里那段参数，分**三块**给。
+ *
+ * 从前这里返回一整段拼好的字符串，于是正文与「其余参数」那截缩进 JSON 只能
+ * 一起塞进 `<pre>`。2026-10-16 拆开是因为正文那一块**可能是 Markdown**
+ * （计划、子代理简报）—— 它得交给 [Markdown] 渲染，而 JSON 那截必须留在
+ * `<pre>` 里：混进正文就是一段看着像散文的 JSON，比排版难看严重。
+ *
+ * 形状与 Kotlin 侧 `PermissionBody`（caption / text / markdown / footer）对齐 ——
+ * 那一边的审批卡早就按"正文过 Markdown、footer 单独放"这么分了。
+ */
+export interface ToolParams {
+  /** 正文型入参（`plan` / `prompt` 那类）；没有这样的字段就是 null。 */
+  body: string | null
+  /** [body] 是散文，按 Markdown 渲染（见 [PROSE_FIELDS]）。 */
+  markdown: boolean
+  /**
+   * 「其余参数」那一截：分隔线 + 标题 + 缩进 JSON；别的字段一个都没有时是 null
+   * （那时不留一个空标题）。**没有 [body] 时它就是整份参数**，不带标题 ——
+   * 与从前那一份字符串逐字一致。
+   */
+  rest: string | null
+}
+
+/**
+ * 展开后显示的参数原文。不是 JSON 时给 null。
  *
  * 非 JSON 的那种，[toolTitle] 的兜底已经把它原样写在标题上了 ——
  * 这里再返一遍就是同一句话在同一张卡片上出现两次。
  */
-export function toolParams(input: string): string | null {
+export function toolParams(input: string): ToolParams | null {
   const args = parseArgs(input)
   if (!args) return null
 
@@ -248,16 +272,35 @@ export function toolParams(input: string): string | null {
   // 而这正是用户要审的东西（2026-09-15 用户报"里面的内容都看不到"）。
   // 与 Kotlin 侧 permissionBody 同一条规则、同一套阈值，两边显示的形状要一致。
   const field = longTextField(args)
-  if (field === null) return JSON.stringify(args, null, 2)
+  if (field === null) {
+    return { body: null, markdown: false, rest: JSON.stringify(args, null, 2) }
+  }
 
   const rest: Record<string, unknown> = { ...args }
   delete rest[field]
-  const body = String(args[field])
-  if (Object.keys(rest).length === 0) return body
-  // 分隔线本身是排版（12 个破折号），不进目录；「其余参数：」是文案，走目录。
-  // 调用方（ToolCallBlock）那份 memo 依赖当前语言，见那边的注释
-  return `${body}\n\n————————————\n${t('tool.paramsRest')}\n${JSON.stringify(rest, null, 2)}`
+  return {
+    body: String(args[field]),
+    markdown: PROSE_FIELDS.has(field),
+    // 分隔线本身是排版（12 个破折号），不进目录；「其余参数：」是文案，走目录。
+    // 调用方（ToolCallBlock）那份 memo 依赖当前语言，见那边的注释
+    rest:
+      Object.keys(rest).length === 0
+        ? null
+        : `————————————\n${t('tool.paramsRest')}\n${JSON.stringify(rest, null, 2)}`,
+  }
 }
+
+/**
+ * 哪些字段名算**散文**（长正文里唯一过 Markdown 的那一档）。
+ *
+ * 长正文一律按文本铺开（[longTextField]），但过不过 Markdown 是另一件事：
+ * `plan`（ExitPlanMode 的计划）与 `prompt`（Task 给子代理的简报）都是模型写给人
+ * 或代理读的段落，`#`、`**` 是它真写的记号；而别的长字段（MCP 工具那种一长串
+ * 代码或 JSON）按 Markdown 渲染只会平白把 `#`、`*` 当记号吃掉 ——
+ * 那比不渲染更糟。这条与 Kotlin 侧 `permissionBody` 里"只有计划走这条"同一个取舍，
+ * 只是那边还多一档专名（`PLAN_CAPTION`），这里没有标题要挑。
+ */
+const PROSE_FIELDS = new Set(['plan', 'prompt'])
 
 /** 超过这个长度就算"正文"（与 Kotlin 侧 LONG_FIELD_MIN_CHARS 同一个数）。 */
 const LONG_FIELD_MIN_CHARS = 200
